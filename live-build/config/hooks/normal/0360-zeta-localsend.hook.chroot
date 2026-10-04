@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — ZETA Share: LocalSend, pacchetto ufficiale (build.sh ne ha gia'
+# controllato l'impronta SHA-256). apt porta le dipendenze (ayatana, dai
+# repository Debian). Il .deb non resta nell'immagine.
+# Fatale: senza LocalSend la voce ZETA Share non funzionerebbe.
+set -e
+D=/usr/share/zeta/localsend
+DEB=$(ls "$D"/LocalSend-*.deb)
+echo "ZETA RAYS: installo $(basename "$DEB")"
+apt-get install -y --no-install-recommends "$DEB"
+rm -rf "$D"
+[ -x /opt/localsend_app/localsend_app ] || { echo "ZETA RAYS: ERRORE, LocalSend non installato" >&2; exit 1; }
+if ldd /opt/localsend_app/localsend_app | grep -q "not found"; then
+    ldd /opt/localsend_app/localsend_app | grep "not found" >&2
+    exit 1
+fi
+echo "ZETA RAYS: LocalSend $(dpkg-query -W -f='${Version}' localsend) installato"

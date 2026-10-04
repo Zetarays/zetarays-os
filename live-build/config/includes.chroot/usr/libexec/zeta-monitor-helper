@@ -1,0 +1,62 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS Monitor — aiutante con privilegi, solo operazioni fisse.
+
+Letture (consentite senza password agli amministratori, vedi
+/etc/sudoers.d/zeta-monitor):
+  firewall     regole nftables in JSON e stato del servizio
+  sockets      tutte le connessioni con il processo proprietario (ss)
+  auth         eventi di accesso delle ultime 24 ore (journal)
+Modifiche (solo tramite pkexec, con password):
+  firewall-on / firewall-off
+Nessun altro argomento è accettato.
+"""
+import json
+import subprocess
+import sys
+
+
+def out(cmd, timeout=10):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def firewall():
+    active = out(["systemctl", "is-active", "nftables"]).strip() == "active"
+    enabled = out(["systemctl", "is-enabled", "nftables"]).strip() == "enabled"
+    try:
+        rules = json.loads(out(["nft", "-j", "list", "ruleset"]) or "{}")
+    except ValueError:
+        rules = {}
+    print(json.dumps({"active": active, "enabled": enabled, "ruleset": rules,
+                      "text": out(["nft", "list", "ruleset"])[:20000]}))
+
+
+def sockets():
+    print(out(["ss", "-tunapH"]))
+
+
+def auth():
+    print(out(["journalctl", "--since", "-24h", "--no-pager", "-o", "json", "-n", "600",
+               "_COMM=sshd", "+", "_COMM=sudo", "+", "_COMM=sddm-helper", "+", "_COMM=login",
+               "+", "_COMM=su", "+", "_COMM=polkitd", "+", "_COMM=hyprlock", "+", "_COMM=pkexec"], 15))
+
+
+def firewall_set(on):
+    if on:
+        r = subprocess.run(["systemctl", "enable", "--now", "nftables"])
+    else:
+        r = subprocess.run(["systemctl", "disable", "--now", "nftables"])
+        subprocess.run(["nft", "flush", "ruleset"])
+    sys.exit(r.returncode)
+
+
+ACTIONS = {"firewall": firewall, "sockets": sockets, "auth": auth,
+           "firewall-on": lambda: firewall_set(True), "firewall-off": lambda: firewall_set(False)}
+
+if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
+    sys.stderr.write("uso: zeta-monitor-helper firewall|sockets|auth|firewall-on|firewall-off\n")
+    sys.exit(2)
+ACTIONS[sys.argv[1]]()

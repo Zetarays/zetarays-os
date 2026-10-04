@@ -1,0 +1,13 @@
+[Unit]
+Description=ZETA RAYS: controllo della salute del sistema
+Documentation=file:/usr/local/libexec/zeta-salute
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/zeta-salute
+# un controllo, non un lavoro: non deve mai pesare sul computer
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+TimeoutStartSec=60

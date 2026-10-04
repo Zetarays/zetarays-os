@@ -1,0 +1,231 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — Posta: l'icona del dock per Mozilla Thunderbird.
+
+  zeta-posta            apre la Posta; se e' gia' aperta la porta in primo
+                        piano (anche se ridotta a icona), senza una seconda copia
+  zeta-posta nuovo      scrivi un nuovo messaggio
+  zeta-posta esci       chiude Thunderbird normalmente (come dal suo menu)
+  zeta-posta menu       menu del tasto destro sull'icona
+  zeta-posta stato      per il dock: icona (con il puntino se e' aperta) e suggerimento
+
+La Posta E' Thunderbird: qui c'e' solo il modo di aprirlo come un'app di
+ZETA RAYS. Nessun processo resta in esecuzione: il dock chiede lo stato solo
+quando si apre o si chiude una finestra (segnale da zeta-spazi).
+"""
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+ICONE = "/usr/share/icons/zeta/scalable/apps"
+ICONA = os.path.join(ICONE, "zeta-posta.svg")
+ICONA_APERTA = os.path.join(ICONE, "zeta-posta-aperta.svg")
+PACCHETTI = ["thunderbird", "thunderbird-l10n-it"]
+
+
+def _exe():
+    return shutil.which("thunderbird")
+
+
+def _processi():
+    """PID dei processi principali di Thunderbird di questo utente."""
+    try:
+        r = subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "thunderbird"],
+                           capture_output=True, text=True, timeout=3)
+        return [int(p) for p in r.stdout.split()]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+
+def _finestre():
+    """Finestre di Thunderbird, dalla usata piu' di recente."""
+    sys.path.insert(0, "/usr/lib/zeta")
+    from system import windows
+    ff = [c for c in windows.clients()
+          if "thunderbird" in (c.get("class") or c.get("initialClass") or "").lower()]
+    ff.sort(key=lambda c: c.get("focusHistoryID", 1 << 30))
+    return ff
+
+
+def _notifica(titolo, testo, azione=None):
+    cmd = ["notify-send", "-a", "ZETA RAYS", "-i", "zeta-posta", titolo, testo]
+    if azione:
+        cmd[1:1] = ["-A", "installa=%s" % azione, "-w"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120 if azione else 5)
+        return r.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _installa():
+    """Thunderbird manca: si dice perche' e, se apt lo conosce, si offre di
+    installarlo (nel terminale, con la password chiesta da pkexec)."""
+    sys.path.insert(0, "/usr/lib/zeta")
+    from system import pacchetti
+    disp = pacchetti.disponibilita(PACCHETTI)
+    installabili = [p for p in PACCHETTI if disp[p]["candidato"]]
+    if "thunderbird" not in installabili:
+        _notifica("Posta: Thunderbird non è installato",
+                  pacchetti.perche_manca("thunderbird"))
+        return 1
+    if _notifica("Posta: Thunderbird non è installato",
+                 "La Posta di ZETA RAYS usa Mozilla Thunderbird. Vuoi installarlo adesso?",
+                 azione="Installa") != "installa":
+        return 1
+    script = ('printf "\\033[1;34mZETA RAYS — installazione della Posta (Thunderbird)\\033[0m\\n\\n"; '
+              'pkexec apt-get install -y %s && zeta-posta; '
+              'printf "\\n\\033[2mPremi Invio per chiudere.\\033[0m"; read _') % " ".join(installabili)
+    subprocess.Popen(["foot", "-e", "sh", "-c", script], start_new_session=True)
+    return 0
+
+
+def _avvia(*arg):
+    subprocess.Popen([_exe()] + list(arg), start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     stdin=subprocess.DEVNULL, cwd=os.path.expanduser("~"))
+
+
+def apri():
+    if not _exe():
+        return _installa()
+    ff = _finestre()
+    if ff:
+        sys.path.insert(0, "/usr/lib/zeta")
+        from system import windows
+        f = ff[0]
+        if str((f.get("workspace") or {}).get("name", "")).startswith("special:"):
+            windows.restore(f["address"])
+        else:
+            windows.focus(f["address"])
+        return 0
+    # Nessuna finestra: si avvia. Se Thunderbird sta ancora partendo, la
+    # seconda chiamata la riceve la copia gia' in esecuzione (Mozilla ne
+    # tiene una sola per profilo): nessun doppione.
+    _avvia()
+    return 0
+
+
+def nuovo():
+    if not _exe():
+        return _installa()
+    _avvia("-compose")
+    return 0
+
+
+def esci():
+    """Come «Esci» dal menu di Thunderbird: si chiudono le finestre (puo'
+    chiedere di salvare una bozza). Se dopo 10 secondi non e' uscito, SIGTERM:
+    per Thunderbird e' comunque una chiusura ordinata. Mai SIGKILL da qui."""
+    sys.path.insert(0, "/usr/lib/zeta")
+    from system import windows
+    for f in _finestre():
+        windows.close(f["address"])
+    for _ in range(40):
+        if not _processi():
+            return 0
+        time.sleep(0.25)
+    for pid in _processi():
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    return 0
+
+
+def stato():
+    aperta = bool(_processi())
+    print(ICONA_APERTA if aperta and os.path.exists(ICONA_APERTA) else ICONA)
+    print("Posta (aperta)" if aperta else "Posta")
+    return 0
+
+
+def menu():
+    sys.path.insert(0, "/usr/lib/zeta")
+    from ui import popup
+    popup.preload_layer_shell()
+    import json
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio, Gtk
+
+    try:
+        pos = subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
+                             text=True, timeout=2).stdout
+        x = int(json.loads(pos).get("x", 0))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        x = 0
+    in_alto = False
+    try:
+        in_alto = open(os.path.expanduser("~/.config/zeta/dock-posizione")).read().strip() == "top"
+    except OSError:
+        pass
+    aperta = bool(_processi())
+    voci = [("Apri Posta", apri), ("Nuovo messaggio", nuovo)]
+    if aperta:
+        voci.append(("Esci da Thunderbird", esci))
+
+    class Menu(Gtk.ApplicationWindow):
+        def __init__(self, app):
+            super().__init__(application=app, title="Posta", decorated=False)
+            popup.make_overlay(self, "zeta-menu-dock")
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                           css_classes=["zeta-card"], halign=Gtk.Align.START,
+                           valign=Gtk.Align.START if in_alto else Gtk.Align.END)
+            card.set_margin_start(max(8, x - 110))
+            if in_alto:
+                card.set_margin_top(84)
+            else:
+                card.set_margin_bottom(84)
+            for i, (testo, fn) in enumerate(voci):
+                b = Gtk.Button(css_classes=["zeta-row"])
+                b.set_child(Gtk.Label(label=testo, xalign=0))
+                b.connect("clicked", lambda _b, f=fn: self.fai(f))
+                card.append(b)
+            card.set_size_request(220, -1)
+            card.set_margin_end(8)
+            self.set_child(card)
+            popup.close_on_outside(self, card, self.chiudi)
+
+        def fai(self, fn):
+            self.set_visible(False)
+            fn()
+            self.chiudi()
+
+        def chiudi(self):
+            self.get_application().quit()
+            return False
+
+    class App(Gtk.Application):
+        def __init__(self):
+            super().__init__(application_id="org.zetarays.MenuPosta",
+                             flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+        def do_startup(self):
+            Gtk.Application.do_startup(self)
+            popup.clean_env()
+            popup.load_css(".zeta-card { padding: 6px; }")
+
+        def do_activate(self):
+            if self.props.active_window:
+                self.quit()
+                return
+            Menu(self).present()
+
+    return App().run([sys.argv[0]])
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "apri"
+    azioni = {"apri": apri, "nuovo": nuovo, "esci": esci, "stato": stato, "menu": menu}
+    if cmd not in azioni:
+        print(__doc__)
+        return 1
+    return azioni[cmd]() or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

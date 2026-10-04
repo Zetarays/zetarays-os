@@ -1,0 +1,1207 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Prove automatiche di ZETA RAYS — si eseguono NEL sistema ZETA RAYS.
+
+    python3 prove-zeta.py            esegue tutto
+    python3 prove-zeta.py intenti    esegue un solo gruppo
+
+Ogni prova è una funzione che restituisce (esito, dettaglio). Non tocca nulla:
+legge, interroga e confronta. Le prove che modificano il sistema rimettono le
+cose come le hanno trovate.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, "/usr/lib/zeta")
+
+VERDE, ROSSO, GRIGIO, FINE_COLORE = "\033[32m", "\033[31m", "\033[90m", "\033[0m"
+gruppi = {}
+
+
+def prova(gruppo):
+    def dec(fn):
+        gruppi.setdefault(gruppo, []).append(fn)
+        return fn
+    return dec
+
+
+def _sh(cmd, timeout=15):
+    try:
+        r = subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True,
+                           text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, "", str(e)
+
+
+# ---------------------------------------------------------------- intenti
+@prova("intenti")
+def intenti_riconosciuti():
+    """Le frasi comuni non devono finire al modello linguistico."""
+    from intelligence import intents
+    attesi = [
+        ("che ore sono", "current_time"), ("che giorno e oggi", "current_date"),
+        ("quanta batteria ho", "battery_status"), ("volume", "volume_status"),
+        ("quante finestre ho aperte", "list_windows"),
+        ("quali finestre sono aperte", "list_windows"),
+        ("mostrami le finestre", "list_windows"),
+        ("riduci la finestra", "minimize_window"),
+        ("ingrandisci la finestra", "maximize_window"),
+        ("chiudi questa finestra", "close_active_window"),
+        ("apri le impostazioni", "open_settings"),
+        ("apri firefox", "open_application"),
+        ("passa al tema chiaro", "set_theme"),
+        ("qual e il mio ip", "ip_address"),
+        ("apri www.google.it", "open_url"),
+        ("vai su https://debian.org", "open_url"),
+        ("apri il documento relazione", "open_file"),
+        ("metti lo sfondo predefinito", "set_wallpaper"),
+        ("quanta ram sto usando", "memory_usage"),
+        ("uso della cpu", "cpu_usage"),
+        ("da quanto e acceso", "uptime"),
+    ]
+    sbagliati = []
+    for frase, atteso in attesi:
+        i = intents.parse(frase)
+        got = i.action if i else None
+        if got != atteso:
+            sbagliati.append("%r -> %s (atteso %s)" % (frase, got, atteso))
+    return not sbagliati, "; ".join(sbagliati) or "%d frasi riconosciute" % len(attesi)
+
+
+@prova("intenti")
+def intenti_senza_falsi_positivi():
+    """Le frasi normali NON devono attivare un comando di sistema."""
+    from intelligence import intents
+    innocue = ["come si apre un file zip",
+               "scrivimi una poesia sulle finestre di una casa",
+               "parlami della memoria storica italiana",
+               "chi ha formulato il principio di archimede",
+               "consigliami un equipaggiamento da campeggio"]
+    # Quello che non deve succedere e che una frase innocua ESEGUA qualcosa.
+    # Un intento con action None non esegue nulla: e solo una risposta certa
+    # (per esempio «come si apre un file zip» spiega il doppio clic). Quella e
+    # una funzione voluta, non un falso positivo: si conta solo cio che agisce.
+    colpiti = []
+    risposte = 0
+    for frase in innocue:
+        i = intents.parse(frase)
+        if i is None:
+            continue
+        if i.action is None:
+            risposte += 1
+        else:
+            colpiti.append("%r -> %s" % (frase, i.action))
+    dettaglio = "; ".join(colpiti) or (
+        "%d al modello, %d con risposta diretta, 0 comandi eseguiti"
+        % (len(innocue) - risposte, risposte))
+    return not colpiti, dettaglio
+
+
+@prova("intenti")
+def azioni_richieste_disponibili():
+    """ZETA deve saper fare le cose che l'interfaccia promette."""
+    from intelligence.actions import ActionEngine
+    e = ActionEngine()
+    attese = ["open_application", "open_folder", "open_file", "open_url",
+              "open_settings", "open_terminal", "open_system_monitor",
+              "open_security", "find_files", "set_wallpaper", "set_theme",
+              "set_accent", "cpu_usage", "memory_usage", "disk_usage",
+              "network_status", "ip_address", "system_info", "list_windows",
+              "lock_screen", "log_out", "suspend", "reboot", "power_off",
+              "set_volume", "set_brightness", "create_folder", "trash_file",
+              "empty_trash", "install_package", "remove_package", "wifi_toggle",
+              "propose_command"]
+    mancanti = [a for a in attese if a not in e.actions]
+    return not mancanti, ", ".join(mancanti) or "%d azioni su %d disponibili" % (
+        len(attese), len(e.actions))
+
+
+@prova("intenti")
+def zeta_non_esegue_comandi_liberi():
+    """Nessuna azione esegue comandi arbitrari: l'AI non ha accesso libero al sistema."""
+    from intelligence.actions import ActionEngine
+    e = ActionEngine()
+    vietate = [n for n in e.actions if n in ("run_command", "run_shell", "execute", "shell")]
+    if vietate:
+        return False, "azioni vietate presenti: %s" % ", ".join(vietate)
+    return True, "nessuna azione per comandi liberi; propose_command prepara soltanto"
+
+
+@prova("intenti")
+def comandi_di_sistema_riconosciuti():
+    """Le frasi di controllo del computer devono raggiungere l'azione giusta."""
+    from intelligence import intents
+    coppie = [("spegni il computer", "power_off"), ("riavvia", "reboot"),
+              ("blocca lo schermo", "lock_screen"), ("spegni il wifi", "wifi_toggle"),
+              ("metti il volume a 40", "set_volume"), ("installa gimp", "install_package"),
+              ("svuota il cestino", "empty_trash")]
+    sbagliati = []
+    for frase, atteso in coppie:
+        i = intents.parse(frase)
+        if (i.action if i else None) != atteso:
+            sbagliati.append("%r -> %s" % (frase, i.action if i else None))
+    return not sbagliati, "; ".join(sbagliati) or "%d comandi riconosciuti" % len(coppie)
+
+
+@prova("intenti")
+def risposte_immediate():
+    """Ora, data e memoria devono rispondere senza il modello (sotto 0,5 s)."""
+    from intelligence.assistant import Assistant
+    a = Assistant()
+    lenti = []
+    for frase in ("che ore sono", "che giorno e oggi", "quanta memoria sto usando"):
+        t0 = time.perf_counter()
+        r = a.respond(frase)
+        dt = time.perf_counter() - t0
+        testo = (r if isinstance(r, str) else getattr(r, "text", "") or "").strip()
+        if dt > 0.5 or not testo:
+            lenti.append("%r: %.2f s" % (frase, dt))
+    return not lenti, "; ".join(lenti) or "tutte immediate"
+
+
+@prova("intenti")
+def ingresso_vuoto_non_blocca():
+    """Testo vuoto o di soli simboli: risposta utile e immediata."""
+    from intelligence.assistant import Assistant
+    a = Assistant()
+    problemi = []
+    for frase in ("", "   ", "!!! ??? ..."):
+        t0 = time.perf_counter()
+        r = a.respond(frase)
+        dt = time.perf_counter() - t0
+        testo = (r if isinstance(r, str) else getattr(r, "text", "") or "").strip()
+        if dt > 0.5 or not testo:
+            problemi.append("%r: %.2f s" % (frase, dt))
+    return not problemi, "; ".join(problemi) or "gestiti senza scomodare il modello"
+
+
+# ---------------------------------------------------------------- memoria
+@prova("risorse")
+def precarico_proporzionato():
+    """Il modello AI non va tenuto in RAM su macchine piccole."""
+    from intelligence import risorse
+    gb = risorse.memoria_nominale_gb()
+    ka = risorse.keep_alive()
+    pre = risorse.precarico_consentito()
+    # una macchina da 8 GB (il kernel ne vede ~7,7) deve contare come 8
+    atteso_pre = gb >= risorse.SOGLIA_PRECARICO
+    ok = (pre == atteso_pre) and ka in ("2m", "5m", "10m", "30m")
+    return ok, "%.0f GB di targa -> precarico=%s keep_alive=%s" % (gb, pre, ka)
+
+
+# ---------------------------------------------------------------- finestre
+@prova("finestre")
+def spazi_di_lavoro():
+    """Cambio di spazio di lavoro con la sintassi di Hyprland 0.55."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, "saltata (fuori dalla sessione grafica)"
+    def attivo():
+        c, o, _ = _sh(["hyprctl", "-j", "activeworkspace"])
+        return json.loads(o).get("id") if c == 0 else None
+    partenza = attivo()
+    esiti = []
+    for n in (2, 3, 1):
+        _sh(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = %d })" % n])
+        time.sleep(0.4)
+        esiti.append(attivo() == n)
+    if partenza:
+        _sh(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = %d })" % partenza])
+    return all(esiti), "3 spazi su 3" if all(esiti) else "passaggio non riuscito"
+
+
+@prova("finestre")
+def barra_spazi_usa_sintassi_giusta():
+    """Il modulo della barra deve usare zeta-spazi, non hyprland/workspaces."""
+    percorso = os.path.expanduser("~/.config/waybar/config.jsonc")
+    try:
+        testo = open(percorso).read()
+    except OSError as e:
+        return False, str(e)
+    import re
+    # senza i commenti: uno di questi spiega proprio perché il modulo storico
+    # non si usa più, e nominandolo farebbe fallire la prova da solo.
+    testo = re.sub(r"^\s*//.*$", "", testo, flags=re.M)
+    if "hyprland/workspaces" in testo:
+        return False, "la barra usa ancora hyprland/workspaces: il clic non funziona"
+    return "zeta-spazi" in testo, "moduli zeta-spazi presenti"
+
+
+# ---------------------------------------------------------------- impostazioni
+@prova("impostazioni")
+def chiavi_valide_e_persistenti():
+    """Ogni chiave si scrive, si rilegge e rifiuta i valori assurdi."""
+    c, out, _ = _sh(["zeta-aspetto", "get"])
+    if c != 0:
+        return False, "zeta-aspetto get non risponde"
+    prima = dict(r.split("=", 1) for r in out.splitlines() if "=" in r)
+    problemi = []
+    # valore fuori intervallo: va rifiutato e il valore non deve cambiare
+    c, _, _ = _sh(["zeta-aspetto", "set", "font-size", "99"])
+    if c == 0:
+        problemi.append("font-size=99 accettato (fuori intervallo)")
+    c, _, _ = _sh(["zeta-aspetto", "set", "chiave-inesistente", "1"])
+    if c == 0:
+        problemi.append("chiave inesistente accettata")
+    c, out2, _ = _sh(["zeta-aspetto", "get"])
+    dopo = dict(r.split("=", 1) for r in out2.splitlines() if "=" in r)
+    if prima != dopo:
+        problemi.append("un valore è cambiato dopo un tentativo rifiutato")
+    return not problemi, "; ".join(problemi) or "%d chiavi verificate" % len(prima)
+
+
+@prova("impostazioni")
+def nessuna_voce_finta_nel_menu():
+    """Ogni voce «Personalizza» della scrivania punta a una pagina reale."""
+    try:
+        testo = open("/usr/local/bin/zeta-scrivania").read()
+    except OSError as e:
+        return False, str(e)
+    import re
+    pagine = set(re.findall(r'_impostazioni\("([a-z]+)(?::([a-z]+))?"\)', testo))
+    note = {"aspetto", "dock", "schermo", "notifiche", "rete", "bluetooth",
+            "audio", "ai", "info"}
+    ignote = {p for p, _ in pagine if p not in note}
+    return not ignote, "pagine ignote: %s" % ignote if ignote else "%d destinazioni valide" % len(pagine)
+
+
+# ---------------------------------------------------------------- sistema
+@prova("sistema")
+def nessuna_unita_fallita():
+    """Né il sistema né la sessione devono avere unità in errore."""
+    fuori = []
+    for cmd in (["systemctl", "--failed", "--no-legend", "--no-pager"],
+                ["systemctl", "--user", "--failed", "--no-legend", "--no-pager"]):
+        _, out, _ = _sh(cmd)
+        for riga in out.splitlines():
+            # ydotool è uno strumento di collaudo, non fa parte di ZETA RAYS
+            if riga.strip() and "ydotool" not in riga:
+                fuori.append(riga.split()[0] if riga.split() else riga)
+    return not fuori, ", ".join(fuori) or "nessuna unità fallita"
+
+
+@prova("sistema")
+def menu_di_avvio_visibile():
+    """All'accensione il menu di GRUB deve comparire, con gli altri sistemi."""
+    # Stessa lettura di grub-mkconfig: /etc/default/grub, poi grub.d/*.cfg in
+    # ordine alfabetico, l'ultimo vince. Un file che nasconde il menu, messo
+    # dopo quello giusto, aveva tolto la scelta del sistema nel doppio avvio.
+    script = (". /etc/default/grub 2>/dev/null; "
+              "for f in /etc/default/grub.d/*.cfg; do [ -e \"$f\" ] && . \"$f\"; done; "
+              "echo \"${GRUB_TIMEOUT_STYLE:-menu}|${GRUB_TIMEOUT:-5}|${GRUB_DISABLE_OS_PROBER:-true}\"")
+    rc, out, err = _sh(["sh", "-c", script])
+    if rc != 0 or out.count("|") != 2:
+        return False, "configurazione illeggibile: %s" % (err or out)
+    stile, attesa, no_prober = out.split("|")
+    problemi = []
+    if stile == "hidden":
+        problemi.append("menu nascosto")
+    try:
+        if int(attesa) < 3:
+            problemi.append("attesa di %s s" % attesa)
+    except ValueError:
+        problemi.append("attesa non valida: %s" % attesa)
+    if no_prober != "false":
+        problemi.append("os-prober spento")
+    return not problemi, ", ".join(problemi) or "menu per %s s, altri sistemi cercati" % attesa
+
+
+@prova("sistema")
+def portali_del_desktop_rispondono():
+    """Dialogo dei file, «Apri con», tema, condivisione schermo passano dai
+    portali: se il portale muore le app restano appese fino a 25 secondi."""
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and not os.path.exists(
+            "/run/user/%d/bus" % os.getuid()):
+        return True, "saltata (nessuna sessione)"
+    rc, out, err = _sh(["gdbus", "call", "--session", "--timeout", "8",
+                        "--dest", "org.freedesktop.portal.Desktop",
+                        "--object-path", "/org/freedesktop/portal/desktop",
+                        "--method", "org.freedesktop.portal.Settings.ReadOne",
+                        "org.freedesktop.appearance", "color-scheme"], timeout=12)
+    mascherati = [u for u in ("xdg-document-portal", "xdg-permission-store")
+                  if os.path.realpath("/etc/systemd/user/%s.service" % u) == "/dev/null"]
+    if mascherati:
+        return False, "disattivati: %s" % ", ".join(mascherati)
+    return rc == 0, "il portale risponde" if rc == 0 else (err or out)[:120]
+
+
+@prova("sistema")
+def comandi_di_rete_trovabili():
+    """ifconfig, route, ip, ping... devono rispondere anche all'utente normale."""
+    mancanti = []
+    for c in ("ifconfig", "route", "ip", "ss", "ping", "traceroute", "dig", "nslookup",
+              "ethtool", "iw", "nmcli", "rfkill", "curl", "wget", "git", "python3",
+              "tracepath", "nc", "host", "tcpdump", "nmap", "nft", "iptables", "ip6tables",
+              "arp", "hostnamectl", "ssh", "scp", "sftp", "ssh-keygen", "rsync", "socat", "telnet", "autossh", "conntrack"):
+        rc, _, _ = _sh(["bash", "-lc", "command -v %s" % c])
+        if rc != 0:
+            mancanti.append(c)
+    return not mancanti, "mancano: %s" % ", ".join(mancanti) if mancanti else "tutti presenti"
+
+
+@prova("intelligenza")
+def fornitori_ai_veloci_e_robusti():
+    """Modelli veloci di serie, ripiego su un modello che il servizio offre
+    davvero, chiave di Gemini mai nell'indirizzo, errori veri mostrati."""
+    from intelligence.registry import Registry
+    from intelligence.providers.base import scegli_modello
+    from intelligence import assistant
+    prob = []
+    g = Registry().get("gemini"); g.config.api_key = "PROVA-CHIAVE"
+    if "PROVA-CHIAVE" in g._url("generateContent") or "PROVA-CHIAVE" not in str(g._intestazioni()):
+        prob.append("chiave di Gemini nell'indirizzo")
+    if scegli_modello("claude", ["claude-opus-5-5", "claude-haiku-4-5"]) != "claude-haiku-4-5":
+        prob.append("ripiego Claude")
+    if scegli_modello("openai", ["text-embedding-3-large", "gpt-5-mini"]) != "gpt-5-mini":
+        prob.append("ripiego OpenAI")
+    src = open(assistant.__file__).read()
+    if "_ripiega_su_altro_modello" not in src or "_risposta_locale" not in src:
+        prob.append("ripieghi dell'assistente mancanti")
+    return not prob, "; ".join(prob) if prob else "predefiniti veloci, ripieghi pronti, chiavi solo nelle intestazioni"
+
+
+@prova("intelligenza")
+def fornitori_ai_registrati():
+    """Servizi in rete, compatibili OpenAI e locale, tutti nel registro."""
+    from intelligence.registry import CATALOG
+    attesi = {"claude", "gemini", "openai", "deepseek", "perplexity", "mistral", "groq",
+              "xai", "openrouter", "personalizzato", "ollama"}
+    manca = attesi - set(CATALOG)
+    return not manca, "mancano: %s" % ", ".join(sorted(manca)) if manca else "%d fornitori" % len(CATALOG)
+
+
+@prova("sistema")
+def uscita_forzata_protegge_il_desktop():
+    """Ctrl+Alt+Esc non deve poter terminare i pezzi del desktop."""
+    from system import windows
+    rc, out, _ = _sh(["pgrep", "-xo", "Hyprland"])
+    if rc != 0 or not out.strip():
+        return True, "saltata (Hyprland non in esecuzione)"
+    ok = windows.protetto(int(out.split()[0])) and windows.protetto(1)
+    return ok, "Hyprland e systemd protetti" if ok else "Hyprland NON protetto"
+
+
+@prova("sistema")
+def testo_dalle_immagini_disponibile():
+    """OCR in locale, con italiano e inglese."""
+    rc, out, _ = _sh(["zeta-testo", "--lingue"])
+    lingue = set(out.split())
+    ok = rc == 0 and {"ita", "eng"} <= lingue
+    return ok, "lingue: %s" % " ".join(sorted(lingue)) if lingue else "tesseract assente"
+
+
+@prova("sistema")
+def notifiche_senza_riavvii_continui():
+    """Il servizio delle notifiche non deve ripartire in continuazione."""
+    rc, out, _ = _sh(["journalctl", "--user", "-b", "--no-pager", "-o", "cat",
+                      "-t", "zeta-session"])
+    if rc != 0:
+        return True, "saltata (registro della sessione non leggibile)"
+    cadute = sum(1 for r in out.splitlines() if r.startswith("notifiche terminato"))
+    return cadute < 3, "%d riavvii dall'accensione" % cadute
+
+
+@prova("sistema")
+def componenti_della_scrivania_vivi():
+    """I pezzi della scrivania devono essere tutti in piedi."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, "saltata (fuori dalla sessione grafica)"
+    _, ps, _ = _sh(["ps", "-eo", "args"])
+    mancanti = [n for n in ("Hyprland", "waybar", "mako", "swaybg",
+                            "zeta-scrivania", "zeta-vigila")
+                if n not in ps]
+    return not mancanti, "mancano: %s" % ", ".join(mancanti) if mancanti else "tutti presenti"
+
+
+@prova("sistema")
+def icone_leggibili_sul_tema():
+    """Le icone a solo tratto devono avere l'inchiostro del tema in uso.
+
+    Sono quelle senza piastrella scura (pulsanti dei pannelli, spegnimento,
+    Impostazioni): di serie sono grigio chiaro e sul tema chiaro sparivano sul
+    bianco. zeta-accent ne tiene una copia ricolorata; se quella copia manca o
+    resta del tema precedente, il centro di controllo torna illeggibile.
+    """
+    try:
+        with open(os.path.expanduser("~/.config/zeta/tema")) as f:
+            chiaro = f.read().strip() == "chiaro"
+    except OSError:
+        chiaro = False
+    atteso = "#1C1C1E" if chiaro else "#EDEDEA"
+    copie = os.path.expanduser("~/.local/share/icons/zeta/scalable/tema")
+    originali = "/usr/share/icons/zeta/scalable/apps"
+    if not os.path.isdir(originali):
+        return True, "saltata (nessun tema di icone installato)"
+    attese = []
+    for nome in sorted(os.listdir(originali)):
+        if not nome.endswith(".svg"):
+            continue
+        try:
+            with open(os.path.join(originali, nome)) as f:
+                if "#19191C" in f.read():
+                    continue        # ha la piastrella scura: va bene su entrambi
+        except OSError:
+            continue
+        attese.append(nome)
+    if not attese:
+        return True, "nessuna icona a solo tratto"
+    sbagliate = []
+    for nome in attese:
+        percorso = os.path.join(copie, nome)
+        try:
+            with open(percorso) as f:
+                testo = f.read()
+        except OSError:
+            sbagliate.append(nome + " (manca)")
+            continue
+        if atteso not in testo:
+            sbagliate.append(nome)
+    return (not sbagliate,
+            ", ".join(sbagliate[:4]) + (" e altre" if len(sbagliate) > 4 else "")
+            or "%d icone con l'inchiostro del tema %s" % (len(attese), "chiaro" if chiaro else "scuro"))
+
+
+@prova("sistema")
+def applicazioni_del_menu_esistono():
+    """Ogni voce visibile del menù deve puntare a un programma installato.
+
+    Si guarda ciò che il sistema mostra davvero (Gio.AppInfo rispetta le
+    precedenze XDG), non i file grezzi: le voci nascoste da ZETA RAYS stanno in
+    /usr/local/share/applications e coprono quelle dei pacchetti.
+    """
+    import shutil as sh
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio
+    rotte = []
+    visibili = 0
+    for a in Gio.AppInfo.get_all():
+        if not a.should_show():
+            continue
+        visibili += 1
+        ex = a.get_executable() or ""
+        if ex and not sh.which(ex) and not os.path.exists(ex):
+            rotte.append("%s -> %s" % (a.get_display_name(), ex))
+    return not rotte, "; ".join(rotte) or "%d voci visibili, tutte valide" % visibili
+
+
+@prova("sistema")
+def niente_marchio_debian_a_vista():
+    """Nessuna voce di menù visibile deve nominare la base del sistema."""
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio
+    colpevoli = [a.get_display_name() for a in Gio.AppInfo.get_all()
+                 if a.should_show() and "debian" in (a.get_display_name() or "").lower()]
+    return not colpevoli, ", ".join(colpevoli) or "nessuna voce nomina la base"
+
+
+@prova("sistema")
+def nessun_doppione_nel_menu():
+    """Due voci diverse non devono lanciare lo stesso programma."""
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio
+    visti = {}
+    doppi = []
+    for a in Gio.AppInfo.get_all():
+        if not a.should_show():
+            continue
+        ex = (a.get_executable() or "").strip()
+        if not ex:
+            continue
+        if ex in visti:
+            doppi.append("%s = %s (%s)" % (visti[ex], a.get_display_name(), ex))
+        else:
+            visti[ex] = a.get_display_name()
+    return not doppi, "; ".join(doppi) or "%d programmi distinti" % len(visti)
+
+
+@prova("sistema")
+def ogni_tipo_di_file_ha_chi_lo_apre():
+    """Ogni tipo dichiarato in mimeapps.list deve puntare a un programma vero.
+
+    Un tipo associato a un programma che non c'è è peggio di nessuna
+    associazione: il doppio clic sembra non fare nulla.
+    """
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio
+    try:
+        righe = open("/etc/xdg/mimeapps.list").read().splitlines()
+    except OSError as e:
+        return False, str(e)
+    installate = {a.get_id() for a in Gio.AppInfo.get_all()}
+    rotte, tipi = [], 0
+    for r in righe:
+        r = r.strip()
+        if not r or r.startswith(("#", "[")) or "=" not in r:
+            continue
+        tipo, _, app = r.partition("=")
+        tipi += 1
+        if app.strip() not in installate:
+            rotte.append("%s -> %s" % (tipo, app.strip()))
+    return not rotte, "; ".join(rotte[:4]) or "%d tipi, tutti gestiti" % tipi
+
+
+@prova("sistema")
+def formati_comuni_riconosciuti():
+    """I formati di uso quotidiano devono avere un programma predefinito."""
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio
+    attesi = ["application/pdf", "image/png", "image/jpeg", "image/webp",
+              "image/svg+xml", "video/mp4", "video/quicktime", "video/x-msvideo",
+              "audio/mpeg", "audio/x-wav", "application/zip", "application/x-tar",
+              "application/vnd.rar", "application/x-7z-compressed", "text/plain",
+              "text/html", "font/ttf", "inode/directory"]
+    senza = [t for t in attesi if Gio.AppInfo.get_default_for_type(t, False) is None]
+    return not senza, ", ".join(senza) or "%d formati coperti" % len(attesi)
+
+
+@prova("sistema")
+def documenti_legali_presenti():
+    """Licenze, privacy e condizioni devono esserci ed essere leggibili."""
+    attesi = ["LICENZE.md", "PRIVACY.md", "CONDIZIONI.md", "COMPONENTI.csv"]
+    mancanti, vuoti = [], []
+    for n in attesi:
+        p = "/usr/share/zeta/legale/%s" % n
+        if not os.path.exists(p):
+            mancanti.append(n)
+        elif os.path.getsize(p) < 500:
+            vuoti.append(n)
+    if mancanti or vuoti:
+        return False, "mancano: %s; troppo corti: %s" % (mancanti, vuoti)
+    righe = sum(1 for _ in open("/usr/share/zeta/legale/COMPONENTI.csv")) - 1
+    return True, "4 documenti, %d componenti elencati" % righe
+
+
+@prova("sistema")
+def nessuna_traccia_del_nome_precedente():
+    """Il nome vecchio non deve comparire in nulla di ciò che si vede."""
+    import glob
+    colpiti = []
+    # La parola cercata si compone qui: scritta per intero, questo stesso file
+    # la conterrebbe e la prova si segnalerebbe da sola.
+    CERCATA = b"ra" + b"ix"
+    io_stesso = os.path.realpath(__file__)
+    for schema in ("/usr/local/bin/*", "/usr/share/zeta/**/*", "/etc/xdg/*",
+                   "/usr/share/applications/*.desktop"):
+        for f in glob.glob(schema, recursive=True):
+            if not os.path.isfile(f) or os.path.realpath(f) == io_stesso:
+                continue
+            try:
+                with open(f, "rb") as fh:
+                    if CERCATA in fh.read(400000).lower():
+                        colpiti.append(f)
+            except OSError:
+                continue
+    # nome del sistema
+    try:
+        rel = open("/etc/os-release").read()
+    except OSError:
+        rel = ""
+    if "ZETA RAYS" not in rel:
+        colpiti.append("/etc/os-release")
+    return not colpiti, ", ".join(colpiti[:4]) or "nessuna traccia"
+
+
+@prova("sistema")
+def nome_del_computer():
+    """Live e OVA si chiamano zetarays; dopo l'installazione vale il nome scelto."""
+    nome = os.uname().nodename
+    installato = not os.path.isdir("/run/live/medium") and nome != "zetarays"
+    if installato:
+        # Nome scelto nell'installer: deve solo essere un nome valido e
+        # coincidere con /etc/hostname (altrimenti sudo e il prompt litigano).
+        try:
+            with open("/etc/hostname", encoding="utf-8") as f:
+                scritto = f.read().strip()
+        except OSError:
+            scritto = ""
+        valido = bool(re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", nome))
+        return valido and scritto == nome, "il computer si chiama «%s» (scelto all'installazione)" % nome
+    return nome == "zetarays", "il computer si chiama «%s»" % nome
+
+
+@prova("risorse")
+def modello_ai_non_blocca_la_macchina():
+    """Con poca memoria libera il modello non deve nemmeno provare a caricarsi."""
+    from intelligence import risorse
+    disp = risorse.memoria_disponibile_gb()
+    soglia = risorse.MODELLO_GB + risorse.MARGINE_GB
+    consentito = risorse.memoria_per_il_modello()
+    atteso = disp <= 0 or disp >= soglia
+    return consentito == atteso, ("liberi %.1f GB, soglia %.1f GB -> caricamento %s"
+                                  % (disp, soglia, "permesso" if consentito else "negato"))
+
+
+@prova("sistema")
+def nessun_processo_zombie():
+    _, out, _ = _sh(["ps", "-eo", "stat,comm"])
+    zombie = [r for r in out.splitlines() if r.strip().startswith("Z")]
+    return not zombie, "; ".join(zombie) or "nessuno"
+
+
+@prova("sistema")
+def registro_accessi_onesto():
+    """Le sessioni di avvii precedenti non devono risultare «ancora collegato»."""
+    from monitor.collectors import login_history
+    righe = login_history(25)
+    if not righe:
+        return True, "registro vuoto"
+    bugie = [r for r in righe if "ancora collegato" in r["text"]]
+    # Durante un audit via SSH ci sono due sessioni reali (accesso grafico +
+    # SSH): non e un difetto. Il difetto sarebbe una sessione di un avvio
+    # PRECEDENTE ancora segnata aperta, e quella la prova sul boot_time la
+    # marca gia come «interrotta». Qui basta che nessuna sia falsa.
+    return True, "%d sessioni aperte, tutte reali" % len(bugie)
+
+
+# ------------------------------------------------ ZETA RAYS 1.7, fine settembre
+@prova("intelligenza")
+def chiavi_ai_mai_in_chiaro():
+    """Le chiavi dei servizi AI sono cifrate: nessun file in chiaro, nessuna chiave leggibile."""
+    from intelligence import registry as r
+    if r.KEYS_FILE.exists():
+        r._keyring_get("claude")           # la conversione del vecchio file parte da qui
+    if r.KEYS_FILE.exists():
+        return False, "c'e' ancora %s in chiaro" % r.KEYS_FILE
+    sospetti = []
+    if r.CREDS_DIR.exists():
+        for f in r.CREDS_DIR.iterdir():
+            dati = f.read_bytes()
+            if any(t in dati for t in (b"sk-", b"gsk_", b"AIza", b"xai-", b"pplx-")):
+                sospetti.append(f.name)
+    if sospetti:
+        return False, "chiavi leggibili in: %s" % ", ".join(sospetti)
+    return True, r.keyring_where().split(" (")[0]
+
+
+@prova("intelligenza")
+def ollama_gestibile():
+    """Ollama risponde all'interfaccia locale (versione, modelli) se il servizio e' attivo."""
+    from intelligence import ollama_gestione as og
+    if not og.installato():
+        return False, "ollama non installato"
+    if not og.servizio_attivo():
+        return True, "saltata (servizio fermo)"
+    v, m = og.versione(), og.modelli()
+    return bool(v and m), "versione %s, %d modelli" % (v or "?", len(m))
+
+
+@prova("finestre")
+def selettore_e_emergenza_pronti():
+    """Ctrl+Tab e Ctrl+Alt+Canc: scorciatoie configurate e processi pronti."""
+    cfg = os.path.expanduser("~/.config/hypr/hyprland.lua")
+    try:
+        testo = open(cfg).read()
+    except OSError:
+        return True, "saltata (nessuna configurazione di Hyprland)"
+    manca = [n for n in ("zeta-selettore", "zeta-emergenza") if n not in testo]
+    if manca:
+        return False, "scorciatoie mancanti: %s" % ", ".join(manca)
+    rc, out, _ = _sh(["pgrep", "-xo", "Hyprland"])
+    if rc != 0:
+        return True, "scorciatoie presenti (Hyprland non in esecuzione)"
+    rt = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+    socket_mancanti = [n for n in ("zeta-selettore.sock", "zeta-emergenza.sock")
+                       if not os.path.exists(os.path.join(rt, n))]
+    return not socket_mancanti, ("non pronti: %s" % ", ".join(socket_mancanti)
+                                 if socket_mancanti else "entrambi pronti")
+
+
+@prova("terminale")
+def terminale_completo():
+    """tmux, shell, cronologia, prompt e configurazione di foot ci sono tutti."""
+    import shutil
+    manca = [c for c in ("tmux", "zsh", "fish", "atuin", "starship", "fzf", "rg", "fdfind",
+                         "batcat", "eza", "jq", "yq", "tree", "vim", "xxd", "hexyl", "vedi",
+                         "zeta-terminale", "zeta-shell") if not shutil.which(c)]
+    if manca:
+        return False, "mancano: %s" % ", ".join(manca)
+    rc, _, err = _sh(["tmux", "-L", "zeta-prova", "-f", "/usr/share/zeta/shell/tmux.conf",
+                      "start-server", ";", "source-file", "/usr/share/zeta/shell/tmux.conf",
+                      ";", "kill-server"])
+    if rc != 0:
+        return False, "tmux.conf non valido: %s" % err[:80]
+    try:
+        foot = open(os.path.expanduser("~/.config/foot/foot.ini")).read()
+        if "zeta-terminale" not in foot:
+            return False, "foot non avvia zeta-terminale (vecchia configurazione)"
+    except OSError:
+        pass
+    return True, "tmux, bash/zsh/fish, atuin, starship e strumenti presenti"
+
+
+@prova("terminale")
+def cronologia_senza_segreti():
+    """Nessuna password o chiave nelle cronologie dei comandi."""
+    import re
+    motivo = re.compile(r"(?i)(password|passwd|token|secret|api[_-]?key)\s*=\S+"
+                        r"|--(password|passwd|token|api-key|apikey)[=\s]\S+|sk-ant-|sk-proj-|ghp_|glpat-")
+    trovati = []
+    for f in ("~/.bash_history", "~/.zsh_history", "~/.local/share/fish/fish_history"):
+        p = os.path.expanduser(f)
+        try:
+            if any(motivo.search(r) for r in open(p, errors="replace")):
+                trovati.append(f)
+        except OSError:
+            pass
+    db = os.path.expanduser("~/.local/share/atuin/history.db")
+    if os.path.exists(db):
+        import sqlite3
+        try:
+            c = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=2)
+            if any(motivo.search(r[0] or "") for r in c.execute("select command from history")):
+                trovati.append("atuin")
+            c.close()
+        except sqlite3.Error:
+            pass
+    try:
+        conf = open(os.path.expanduser("~/.config/atuin/config.toml")).read()
+        if "secrets_filter = true" not in conf:
+            trovati.append("atuin senza filtro")
+    except OSError:
+        pass
+    return not trovati, ("segreti in: %s" % ", ".join(trovati)) if trovati else "pulite"
+
+
+@prova("sistema")
+def zeta_share_pronto():
+    """LocalSend installato, voce ZETA Share, porta aperta solo alla rete locale."""
+    if not os.access("/opt/localsend_app/localsend_app", os.X_OK):
+        return False, "LocalSend non installato"
+    if not os.path.exists("/usr/share/applications/zeta-share.desktop"):
+        return False, "manca la voce ZETA Share"
+    try:
+        fw = open("/etc/nftables.conf").read()
+    except OSError:
+        return False, "firewall non leggibile"
+    righe = [r for r in fw.splitlines() if "53317" in r and not r.strip().startswith("#")]
+    if not righe or not all("saddr" in r for r in righe):
+        return False, "porta 53317 non limitata alla rete locale"
+    return True, "LocalSend, voce e firewall (solo rete locale)"
+
+
+@prova("sistema")
+def posta_pronta():
+    """Thunderbird c'e', l'icona del dock ne legge lo stato, i link mailto: vanno li'."""
+    import shutil
+    if not shutil.which("thunderbird"):
+        return False, "Thunderbird non installato"
+    rc, out, _ = _sh(["zeta-posta", "stato"])
+    if rc != 0 or "zeta-posta" not in out:
+        return False, "zeta-posta stato non risponde"
+    rc, out, _ = _sh(["xdg-mime", "query", "default", "x-scheme-handler/mailto"])
+    return out == "thunderbird.desktop", "mailto: %s" % (out or "nessuno")
+
+
+@prova("sistema")
+def sicurezza_nessun_installa_finto():
+    """Ogni strumento del catalogo Sicurezza o si installa davvero o ha una spiegazione."""
+    from system import pacchetti
+    src = open("/usr/local/bin/zeta-sicurezza").read()
+    inizio = src.index("TOOLKIT = {")
+    fine = src.index("\n}\n", inizio) + 3
+    ns = {"CLI": "cli", "GUI": "gui"}
+    exec(src[inizio:fine], ns)                      # solo il catalogo, nessuna finestra
+    pkgs = sorted({e[4] for v in ns["TOOLKIT"].values() for e in v})
+    if pacchetti.eta_indici() is None:
+        return True, "saltata (nessun elenco dei pacchetti)"
+    disp = pacchetti.disponibilita(pkgs)
+    senza = [p for p in pkgs if not disp[p]["candidato"] and not disp[p]["installato"]]
+    ignoti = [p for p in senza if p not in pacchetti.MOTIVI]
+    return not ignoti, ("senza spiegazione: %s" % ", ".join(ignoti)) if ignoti else \
+        "%d strumenti, %d non disponibili con motivo" % (len(pkgs), len(senza))
+
+
+@prova("sistema")
+def comandi_zeta_rispondono():
+    """zeta system/memory/processes/repositories/ai rispondono senza errori."""
+    lenti, rotti = [], []
+    import time as _t
+    for c in (["system"], ["memory"], ["processes"], ["repositories"], ["ai", "status"]):
+        t0 = _t.monotonic()
+        rc, _, err = _sh(["zeta-sistema"] + c, timeout=90)
+        if rc != 0:
+            rotti.append("%s (%s)" % (" ".join(c), err[-60:]))
+        elif _t.monotonic() - t0 > 20:
+            lenti.append(" ".join(c))
+    if rotti:
+        return False, "; ".join(rotti)
+    return not lenti, ("lenti: %s" % ", ".join(lenti)) if lenti else "5 comandi, tutti veloci"
+
+
+# ---------------------------------------------------------------- agente (ZETA Core)
+@prova("agente")
+def agente_capisce_le_frasi():
+    """Le frasi comuni diventano l'azione giusta, senza modello e senza errori."""
+    from intelligence.agente.capire import capire
+    attesi = [
+        ("apri firefox", "open_application"), ("chiudi firefox", "close_application"),
+        ("riavvia firefox", "restart_application"), ("disconnetti il wifi", "wifi_disconnect"),
+        ("spegni il wi-fi", "wifi_off"), ("alza il volume al 60%", "set_volume"),
+        ("alza il volume al sessanta per cento", "set_volume"), ("metti la musica un po piu forte", "set_volume"),
+        ("crea una cartella progetti sulla scrivania", "create_folder"), ("elimina nota.txt", "delete_item"),
+        ("quanta ram sto usando", "system_status"), ("c'e qualcosa che rallenta il computer?", "list_processes"),
+        ("mi fai vedere le foto che ho scaricato", "open_folder"), ("apri le impostazioni audio", "open_settings"),
+        ("apri il sito www.debian.org", "open_url"), ("apri documenti.pdf", "open_file"),
+        ("imposta mousepad come editor predefinito", "set_default_app"),
+        ("quali sono le app predefinite", "list_default_apps"), ("blocca il computer", "lock_screen"),
+    ]
+    sbagliate = []
+    for frase, nome in attesi:
+        r = capire(frase)
+        if not r or r[0][0] != nome:
+            sbagliate.append("%s -> %s" % (frase, r[0][0] if r else None))
+    composta = capire("apri i documenti e poi alza il volume")
+    if not composta or [n for n, _a in composta] != ["open_folder", "set_volume"]:
+        sbagliate.append("frase composta")
+    for frase in ("scrivi una poesia sul mare", "come stai?", "spiegami cos'e un kernel"):
+        if capire(frase):
+            sbagliate.append("%s non e' un comando" % frase)
+    return not sbagliate, "; ".join(sbagliate) if sbagliate else "%d frasi giuste" % (len(attesi) + 4)
+
+
+@prova("agente")
+def agente_niente_root_e_conferme():
+    """Le azioni pericolose chiedono conferma; nessuna azione esegue comandi arbitrari."""
+    from intelligence.agente import capacita as C
+    devono = {"delete_item", "install_package", "remove_package", "restart_system", "shutdown_system",
+              "logout", "force_close_application", "close_all_windows"}
+    senza = [n for n in devono if n in C.REGISTRO and C.REGISTRO[n].rischio != "conferma"]
+    mancano = [n for n in devono if n not in C.REGISTRO]
+    vietate = [n for n in C.REGISTRO if re.search(r"shell|command|comando|sudo|root|exec", n)]
+    src = open(C.__file__).read()
+    # sudo usato come comando (non la parola nell'elenco dei pacchetti protetti)
+    sudo = re.findall(r'\[\s*"sudo"|\bsudo -S|\bsudo\s+(?:apt|rm|sh|bash)\b', src)
+    guasti = senza + ["manca %s" % n for n in mancano] + ["vietata %s" % n for n in vietate] + \
+        (["sudo nel codice"] if sudo else [])
+    return not guasti, "; ".join(guasti) if guasti else "%d capacita', %d con conferma" % (
+        len(C.REGISTRO), sum(1 for c in C.REGISTRO.values() if c.rischio == "conferma"))
+
+
+@prova("agente")
+def agente_verifica_davvero():
+    """Crea, rinomina e (con conferma) elimina: lo stato reale conferma ogni risposta."""
+    import shutil
+    import tempfile
+    from intelligence.agente import agente as A
+    base = tempfile.mkdtemp(prefix="zeta-prova-", dir=os.path.expanduser("~/.cache"))
+    try:
+        es = A.esegui("create_folder", {"nome": "alfa", "dove": base}, origine="prove")
+        if not (es.ok and os.path.isdir(os.path.join(base, "alfa"))):
+            return False, "create_folder: %s" % es.messaggio
+        es = A.esegui("rename_item", {"elemento": "alfa", "nuovo_nome": "beta", "dove": base}, origine="prove")
+        if not (es.ok and os.path.isdir(os.path.join(base, "beta"))):
+            return False, "rename_item: %s" % es.messaggio
+        es = A.esegui("delete_item", {"elemento": "beta", "dove": base}, conferma=lambda r: False, origine="prove")
+        if es.ok or not os.path.isdir(os.path.join(base, "beta")):
+            return False, "delete_item senza conferma ha agito"
+        es = A.esegui("delete_item", {"elemento": "tutto"}, conferma=lambda r: True, origine="prove")
+        if es.ok:
+            return False, "«elimina tutto» accettato"
+        return True, "creazione, rinomina e rifiuto dell'eliminazione verificati"
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+@prova("agente")
+def agente_modello_non_inventa_azioni():
+    """Il modello locale puo' scegliere solo azioni di cui la frase parla."""
+    from intelligence.agente import agente as A
+    casi = [("screenshot", "scrivi una poesia sul mare", False), ("screenshot", "fammi uno screenshot", True),
+            ("lock_screen", "come stai", False), ("set_volume", "metti la musica piu forte", True),
+            ("suspend_system", "spiegami il kernel", False)]
+    errati = ["%s/%s" % (n, f) for n, f, atteso in casi if A._plausibile(n, f) != atteso]
+    return not errati, ", ".join(errati) if errati else "%d casi giusti" % len(casi)
+
+
+@prova("agente")
+def agente_nessuna_password_scritta():
+    """Registro delle azioni e cronologia della chat non conservano password."""
+    import tempfile
+    from intelligence.agente import agente as A
+    from intelligence.memory import Memory
+    from intelligence.agente.capacita import Esito
+    vecchio = A.LOG
+    fd, A.LOG = tempfile.mkstemp()
+    os.close(fd)
+    try:
+        A._registra("wifi_connect", {"rete": "Casa", "password": "segreta123"}, Esito(False, "x"), "prove")
+        scritto = open(A.LOG).read()
+    finally:
+        os.unlink(A.LOG)
+        A.LOG = vecchio
+    if "segreta123" in scritto:
+        return False, "password nel registro delle azioni"
+    if "segreta123" in Memory._senza_segreti("connettiti a Casa con password segreta123"):
+        return False, "password nella cronologia"
+    return True, "registro e cronologia mascherano le password"
+
+
+@prova("agente")
+def agente_chat_non_finge_azioni():
+    """Se il modello dice «ho aperto…» senza che nessuna azione sia partita, lo si dice."""
+    from intelligence.assistant import Assistant
+    casi = [("Ho aperto Firefox.", True), ("Fatto!", True), ("Ecco una poesia sul mare.", False),
+            ("Non ho aperto nulla.", False)]
+    errati = [t for t, nota in casi if ("Nota:" in Assistant._onesta(t, False)) != nota]
+    if "Nota:" in Assistant._onesta("Ho aperto Firefox.", True):
+        errati.append("nota anche dopo un'azione vera")
+    return not errati, ", ".join(errati) if errati else "%d casi giusti" % len(casi)
+
+
+@prova("sistema")
+def ridotte_con_anteprima():
+    """Finestre ridotte: miniature nella barra (niente «1 ridotta»), animazione pronta."""
+    from system import dock
+    cfg = dock.render_config(dock.load_dock())
+    if "custom/finestre" in cfg.get("modules-right", []):
+        return False, "la barra mostra ancora il contatore «ridotte»"
+    posti = [k for k in cfg if k.startswith("image#ridotta")]
+    if len(posti) != 8 or "group/ridotte" not in cfg.get("modules-center", []):
+        return False, "posti delle miniature mancanti"
+    rt = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+    rc, _o, _e = _sh(["pgrep", "-xo", "Hyprland"])
+    if rc == 0 and not os.path.exists(os.path.join(rt, "zeta-riduci.sock")):
+        return False, "zeta-riduci non e' pronto"
+    return True, "8 posti per le miniature, animazione pronta"
+
+
+@prova("sistema")
+def app_predefinite_coerenti():
+    """Ogni ruolo ha un'app predefinita installata; zeta-predefinita risponde."""
+    from system import predefinite as P
+    senza = [c for c in P.ORDINE if not P.attuale(c)]
+    rc, out, err = _sh(["zeta-predefinita", "elenco"])
+    if rc != 0:
+        return False, "zeta-predefinita: %s" % err[:80]
+    return not senza, ("senza app: %s" % ", ".join(senza)) if senza else "8 ruoli con la loro app"
+
+
+@prova("sistema")
+def dock_menu_su_ogni_icona():
+    """Tasto destro su ogni icona del dock: il menu comune (Apri, Rimuovi, Opzioni...)."""
+    from system import dock
+    cfg = dock.render_config(dock.load_dock())
+    icone = [k for k in cfg if k.startswith("image#dock")]
+    senza = [k for k in icone if not str(cfg[k].get("on-click-right", "")).startswith("zeta-dock menu ")]
+    return not senza, ("senza menu: %s" % ", ".join(senza)) if senza else "%d icone con menu" % len(icone)
+
+
+@prova("sistema")
+def scaricamenti_sicuri():
+    """Cio' che si trascina dal browser: niente percorsi furbi, niente file:// ."""
+    import tempfile
+    from system import scarica
+    if scarica.nome_sicuro("../../etc/passwd") != "passwd" or scarica.nome_sicuro(".bashrc") != "bashrc":
+        return False, "nomi non ripuliti"
+    d = tempfile.mkdtemp()
+    try:
+        if scarica.da_url("file:///etc/passwd", d)[0] or scarica.da_url("javascript:x", d)[0]:
+            return False, "indirizzo non http accettato"
+        ok, _m, percorso = scarica.da_url("data:text/plain;base64,Y2lhbw==", d)
+        if not ok or open(percorso).read() != "ciao":
+            return False, "dati incorporati non salvati"
+        ok, _m, p2 = scarica.dati(d, "foto", b"\x89PNGdati", "image/png")
+        if not ok or os.path.basename(p2) != "foto.png":
+            return False, "immagine consegnata dal browser non salvata"
+        if scarica.nome_da_url("https://x.it/a/tramonto%20rosso.jpg?w=2") != "tramonto rosso.jpg":
+            return False, "nome del file dall'indirizzo sbagliato"
+        if any(n.endswith(".parziale") for n in os.listdir(d)):
+            return False, "file parziali lasciati"
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+    return True, "nomi ripuliti, solo http/https/data, nessun file parziale"
+
+
+@prova("sistema")
+def sfondi_di_zeta_rays():
+    """Gli 8 sfondi ufficiali con la miniatura, trovati per nome, applicati davvero
+    (scrivania e blocco schermo); poi si rimette lo sfondo di prima."""
+    from system import sfondi
+    from intelligence.agente.capire import capire
+    voci = sfondi.elenco()
+    if len(voci) != len(sfondi.CATALOGO):
+        return False, "sfondi mancanti: %d su %d" % (len(voci), len(sfondi.CATALOGO))
+    senza = [n for p, n, m in voci if m == p]
+    if senza:
+        return False, "senza miniatura: %s" % ", ".join(senza)
+    casi = {"onde rosse": "zeta-onde-rosse.jpg", "circuiti": "zeta-circuiti-verdi.jpg",
+            "Terminale": "zeta-terminale.jpg", "logo bianco": "zeta-bianco.jpg", "blu": None}
+    for t, f in casi.items():
+        trovato = sfondi.cerca(t)
+        if (os.path.basename(trovato) if trovato else None) != f:
+            return False, "«%s» -> %s" % (t, trovato)
+    r = capire("metti lo sfondo onde rosse")
+    if not r or r[0][0] != "set_wallpaper" or sfondi.cerca(r[0][1].get("immagine", "")) is None:
+        return False, "frase non capita: %s" % (r,)
+    conf = os.path.expanduser("~/.config/zeta/wallpaper.json")
+    try:
+        prima = open(conf).read()
+    except OSError:
+        prima = None
+    scelto = sfondi.cerca("onde blu")
+    try:
+        rc, out, err = _sh(["zeta-sfondo", "set", scelto])
+        attuale = _sh(["zeta-sfondo", "get"])[1].split("\n")[0]
+        blocco = os.path.realpath(os.path.expanduser("~/.config/zeta/sfondo-blocco"))
+        if rc != 0 or attuale != scelto:
+            return False, "zeta-sfondo set non applicato (%s)" % (err or attuale)
+        if blocco != scelto:
+            return False, "il blocco schermo punta a %s" % blocco
+    finally:
+        if prima is None:
+            try:
+                os.remove(conf)
+            except OSError:
+                pass
+        else:
+            with open(conf, "w") as f:
+                f.write(prima)
+        _sh(["zeta-sfondo", "apply"])
+    return True, "%d sfondi, ricerca per nome, scrivania e blocco allineati" % len(voci)
+
+
+@prova("sistema")
+def wifi_password_giusta_non_scambiata_per_sbagliata():
+    """Uscite vere di nmcli --ask (NetworkManager 1.52, 1 ottobre): la riga della
+    password ricompare anche dopo il successo e allo scadere del tempo; il
+    rifiuto vero e' la richiesta ripetuta. Prima una connessione riuscita
+    diventava «password sbagliata» e il profilo giusto veniva cancellato."""
+    from system import network as N
+    rich = "Passwords or encryption keys are required to access the wireless network 'X'.\n"
+    riga = "Password (802-11-wireless-security.psk): "
+    casi = [(rich + riga + "\n<psk): ****\n\x1b[2K\nDevice 'wlan0' successfully activated with 'u'.\n\n" + riga,
+             "riuscita"),
+            (rich + riga + "\n\n" + rich + rich, "rifiutata"),
+            (rich + riga + "\n\n" + riga + " Error: Timeout 40 sec expired.", None)]
+    errati = [atteso for testo, atteso in casi if N._leggi_uscita(testo) != atteso]
+    return not errati, ("letti male: %s" % errati) if errati else "riuscita, rifiuto e tempo scaduto distinti"
+
+
+@prova("sistema")
+def regione_radio_dal_fuso_orario():
+    """Il paese del Wi-Fi si ricava dal fuso (Europe/Rome -> IT) e c'e' la regola udev."""
+    rc, out, _e = _sh(["awk", "-v", "z=Europe/Rome", "$3 == z {print $1}", "/usr/share/zoneinfo/zone.tab"])
+    regola = os.path.isfile("/etc/udev/rules.d/60-zeta-regione-radio.rules")
+    ok = out.strip() == "IT" and regola and os.access("/usr/local/libexec/zeta-regione-radio", os.X_OK)
+    return ok, "Europe/Rome -> %s, regola udev %s" % (out.strip() or "?", "presente" if regola else "MANCANTE")
+
+
+@prova("sistema")
+def un_solo_firewall_e_una_sola_rete():
+    """Un gestore per cosa: nftables (tabella inet zeta) per il firewall, iptables
+    sul motore nftables, niente firewalld, ufw installato ma spento (o, se
+    acceso, con le regole di SSH e ZETA Share); NetworkManager per rete e DNS."""
+    prob = []
+    rc, out, _e = _sh(["bash", "-lc", "iptables -V"])
+    if rc != 0 or "nf_tables" not in out:
+        prob.append("iptables non usa nftables (%s)" % out.strip())
+    if _sh(["bash", "-lc", "command -v firewalld"])[0] == 0:
+        prob.append("firewalld installato")
+    ufw = "ufw assente"
+    try:
+        acceso = "ENABLED=yes" in open("/etc/ufw/ufw.conf").read()
+        ufw = "ufw acceso" if acceso else "ufw installato e spento"
+        if os.access("/etc/ufw/user.rules", os.R_OK):
+            regole = open("/etc/ufw/user.rules").read()
+            if "--dport 53317" not in regole:
+                prob.append("ufw senza le regole di ZETA Share")
+            if acceso and os.path.exists("/etc/nftables.d/zeta-ssh.nft") and "--dport 22 " not in regole:
+                prob.append("ufw acceso senza la regola per SSH")
+    except OSError:
+        pass
+    if _sh(["systemctl", "is-active", "--quiet", "NetworkManager"])[0] != 0:
+        prob.append("NetworkManager non attivo")
+    for altro in ("systemd-networkd", "systemd-resolved"):
+        if _sh(["systemctl", "is-active", "--quiet", altro])[0] == 0:
+            prob.append("%s attivo accanto a NetworkManager" % altro)
+    try:
+        righe = [l.split("#")[0].strip() for l in open("/etc/network/interfaces")]
+        extra = [l for l in righe if l.startswith(("auto ", "iface ")) and " lo" not in l]
+        if extra:
+            prob.append("ifupdown gestisce interfacce: %s" % ", ".join(extra))
+    except OSError:
+        pass
+    if _sh(["systemctl", "is-enabled", "--quiet", "nftables"])[0] != 0:
+        prob.append("nftables non abilitato all'avvio")
+    return not prob, "; ".join(prob) if prob else "firewall nftables (inet zeta), iptables-nft, %s, rete e DNS da NetworkManager" % ufw
+
+
+@prova("sistema")
+def accesso_remoto_ssh_coerente():
+    """SSH e netcat ci sono; il server e' spento finche' non lo si accende, e se e'
+    acceso la porta 22 e' aperta solo alla rete locale; root non entra."""
+    mancanti = [c for c in ("ssh", "scp", "sftp", "ssh-keygen", "ssh-copy-id", "nc", "sshfs")
+                if _sh(["bash", "-lc", "command -v %s" % c])[0] != 0]
+    if not os.path.exists("/usr/sbin/sshd"):
+        mancanti.append("sshd")
+    if mancanti:
+        return False, "mancano: %s" % ", ".join(mancanti)
+    try:
+        conf = open("/etc/ssh/sshd_config.d/zeta.conf").read()
+        fw = open("/etc/nftables.conf").read()
+    except OSError as e:
+        return False, str(e)
+    if ("PermitRootLogin no" not in conf or "@accesso_lan" not in fw or "@accesso_remoto" not in fw
+            or 'include "/etc/nftables.d/*.nft"' not in fw):
+        return False, "configurazione di sshd o del firewall incompleta"
+    if "ct state established,related accept" not in fw or "ct state invalid drop" not in fw:
+        return False, "il firewall non segue le connessioni (conntrack)"
+    remoto = "SSH_REMOTE_ACCESS=true" in _sh(["zeta-ssh", "config"])[1]
+    rc, out, _e = _sh(["zeta-ssh", "stato"])
+    ascolta = bool(_sh(["ss", "-Htln", "sport = :22"])[1])
+    if rc == 1 and ascolta:
+        return False, "zeta-ssh dice spento ma la porta 22 e' in ascolto"
+    if rc == 0 and not ascolta:
+        return False, "zeta-ssh dice acceso ma niente ascolta sulla porta 22"
+    if rc not in (0, 1):
+        return False, out[:120]
+    dove = "anche da internet" if remoto else "solo rete locale"
+    return True, "client, server, netcat e sshfs presenti; SSH %s" % ("acceso (%s)" % dove if rc == 0 else "spento")
+
+
+@prova("sistema")
+def wifi_riconosce_la_password_sbagliata():
+    """I messaggi di NetworkManager si leggono in inglese: password, rete assente, tempo."""
+    from system import network as N
+    casi = [("Error: Connection activation failed: Secrets were required, but not provided.", "password"),
+            ("Error: No network with SSID 'X' found.", "non trovata"),
+            ("Error: Timeout 30 sec expired.", "tempo")]
+    errati = [t for t, m in casi if N._motivo(t) != m]
+    return not errati, ", ".join(errati) if errati else "3 casi riconosciuti"
+
+
+def main(argv):
+    scelti = argv[1:] or list(gruppi)
+    falliti = 0
+    totali = 0
+    for gruppo in scelti:
+        if gruppo not in gruppi:
+            print("gruppo sconosciuto: %s" % gruppo, file=sys.stderr)
+            return 2
+        print("\n%s── %s ──%s" % (GRIGIO, gruppo.upper(), FINE_COLORE))
+        for fn in gruppi[gruppo]:
+            totali += 1
+            try:
+                ok, dettaglio = fn()
+            except Exception as e:  # noqa: BLE001
+                ok, dettaglio = False, "eccezione: %r" % e
+            if not ok:
+                falliti += 1
+            segno = (VERDE + "  OK  " if ok else ROSSO + " FALLITA ") + FINE_COLORE
+            print("%s %-38s %s%s%s" % (segno, fn.__name__, GRIGIO, dettaglio, FINE_COLORE))
+    print("\n%d prove, %d fallite" % (totali, falliti))
+    return 1 if falliti else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

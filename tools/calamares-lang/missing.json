@@ -1,0 +1,625 @@
+[
+{
+"ctx": "AboutData",
+"src": "Copyright %1-%2 %3 &lt;%4&gt;<br/>",
+"num": false,
+"comment": null,
+"kind": "same"
+},
+{
+"ctx": "Calamares::DebugWindow",
+"src": "GlobalStorage",
+"num": false,
+"comment": null,
+"kind": "same"
+},
+{
+"ctx": "Calamares::DebugWindow",
+"src": "Crashes Calamares, so that Dr. Konqi can look at it.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "Calamares::Python::Job",
+"src": "Main script file %1 for python job %2 raised an exception.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "Calamares::Python::Job",
+"src": "Main script file %1 for python job %2 returned invalid results.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "Calamares::Python::Job",
+"src": "Main script file %1 for python job %2 does not contain a run() function.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "Calamares::PythonJob",
+"src": "Running %1 operation…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "Calamares::PythonJob",
+"src": "Boost.Python error in job \"%1\"",
+"num": false,
+"comment": "@error",
+"kind": "empty"
+},
+{
+"ctx": "Calamares::QmlViewStep",
+"src": "QML step <i>%1</i>.",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "Calamares::RequirementsChecker",
+"src": "Waiting for %n module(s)…",
+"num": true,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "CalamaresPython::Helper",
+"src": "Unparseable Python error",
+"num": false,
+"comment": "@error",
+"kind": "empty"
+},
+{
+"ctx": "CalamaresPython::Helper",
+"src": "Unparseable Python traceback",
+"num": false,
+"comment": "@error",
+"kind": "empty"
+},
+{
+"ctx": "CalamaresPython::Helper",
+"src": "Unfetchable Python error",
+"num": false,
+"comment": "@error",
+"kind": "empty"
+},
+{
+"ctx": "ChangeFilesystemLabelJob",
+"src": "Set filesystem label <strong>%1</strong> to partition <strong>%2</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "ChangeFilesystemLabelJob",
+"src": "Setting filesystem label <strong>%1</strong> to partition <strong>%2</strong>…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "Config",
+"src": "Keyboard model has been set to %1.",
+"num": false,
+"comment": "@label, %1 is keyboard model, as in Apple Magic Keyboard",
+"kind": "empty"
+},
+{
+"ctx": "Config",
+"src": "Set timezone to %1.",
+"num": false,
+"comment": "@action",
+"kind": "empty"
+},
+{
+"ctx": "CreatePartitionDialog",
+"src": "Fi&le System:",
+"num": false,
+"comment": null,
+"kind": "same"
+},
+{
+"ctx": "CreatePartitionJob",
+"src": "Create new <strong>%1MiB</strong> partition on <strong>%3</strong> (%2)",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "CreatePartitionJob",
+"src": "Create new <strong>%2MiB</strong> partition on <strong>%4</strong> (%3) with file system <strong>%1</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "CreatePartitionTableDialog",
+"src": "Master Boot Record (MBR)",
+"num": false,
+"comment": null,
+"kind": "same"
+},
+{
+"ctx": "CreatePartitionTableJob",
+"src": "Creating new <strong>%1</strong> partition table on <strong>%2</strong> (%3)…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "CreateVolumeGroupJob",
+"src": "Creating new volume group named %1…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "CreateVolumeGroupJob",
+"src": "Creating new volume group named <strong>%1</strong>…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "DeactivateVolumeGroupJob",
+"src": "Deactivating volume group named %1…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "DeactivateVolumeGroupJob",
+"src": "Deactivating volume group named <strong>%1</strong>…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "DummyCppJob",
+"src": "Performing dummy C++ job…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "EditExistingPartitionDialog",
+"src": "Fi&le System:",
+"num": false,
+"comment": null,
+"kind": "same"
+},
+{
+"ctx": "FSArchiverRunner",
+"src": "Missing tools",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "FSArchiverRunner",
+"src": "The <i>%1</i> tool is not installed on the system.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "FSArchiverRunner",
+"src": "Invalid fsarchiver configuration",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "FSArchiverRunner",
+"src": "The source archive <i>%1</i> does not exist.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "FSArchiverRunner",
+"src": "No destination could be found for <i>%1</i>.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Install %1 on <strong>new</strong> %2 system partition",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Set up <strong>new</strong> %2 partition with mount point <strong>%1</strong> and features <em>%3</em>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Set up <strong>new</strong> %2 partition with mount point <strong>%1</strong>%3",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Install %2 on %3 system partition <strong>%1</strong> with features <em>%4</em>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Install %2 on %3 system partition <strong>%1</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Set up %3 partition <strong>%1</strong> with mount point <strong>%2</strong> and features <em>%4</em>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FillGlobalStorageJob",
+"src": "Set up %3 partition <strong>%1</strong> with mount point <strong>%2</strong>%4…",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "FormatPartitionJob",
+"src": "Format partition %1 (file system: %2, size: %3 MiB) on %4",
+"num": false,
+"comment": "@title",
+"kind": "empty"
+},
+{
+"ctx": "FormatPartitionJob",
+"src": "Format <strong>%3MiB</strong> partition <strong>%1</strong> with file system <strong>%2</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "Offline",
+"src": "Select your preferred region, or use the default settings",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "Offline",
+"src": "Select your preferred zone within your region",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "Offline",
+"src": "You can fine-tune language and locale settings below",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "Offline-qt6",
+"src": "Select your preferred region, or use the default settings",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "Offline-qt6",
+"src": "Select your preferred zone within your region",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "Offline-qt6",
+"src": "You can fine-tune language and locale settings below",
+"num": false,
+"comment": "@label",
+"kind": "empty"
+},
+{
+"ctx": "PartitionViewStep",
+"src": "<strong>Erase</strong> disk <strong>%2</strong> (%3) and install %1",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "PartitionViewStep",
+"src": "<strong>Replace</strong> a partition on disk <strong>%2</strong> (%3) with %1",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "PartitionViewStep",
+"src": "<strong>Manual</strong> partitioning on disk <strong>%1</strong> (%2)",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "PartitionViewStep",
+"src": "Create a swap file.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "PlasmaLnfJob",
+"src": "Applying Plasma Look-and-Feel…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "PlasmaLnfViewStep",
+"src": "Look-and-Feel",
+"num": false,
+"comment": "@label",
+"kind": "same"
+},
+{
+"ctx": "RemoveVolumeGroupJob",
+"src": "Removing Volume Group named %1…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "RemoveVolumeGroupJob",
+"src": "Removing Volume Group named <strong>%1</strong>…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "ResizePartitionJob",
+"src": "Resize <strong>%2MiB</strong> partition <strong>%1</strong> to <strong>%3MiB</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "ResizeVolumeGroupJob",
+"src": "Resize volume group named <strong>%1</strong> from <strong>%2</strong> to <strong>%3</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "ResizeVolumeGroupJob",
+"src": "Resizing volume group named %1 from %2 to %3…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Set flags on partition %1",
+"num": false,
+"comment": "@title",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Set flags on %1MiB %2 partition",
+"num": false,
+"comment": "@title",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Set flags on new partition",
+"num": false,
+"comment": "@title",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Clear flags on partition <strong>%1</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Clear flags on %1MiB <strong>%2</strong> partition",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Clear flags on new partition",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Set flags on partition <strong>%1</strong> to <strong>%2</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Set flags on %1MiB <strong>%2</strong> partition to <strong>%3</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Set flags on new partition to <strong>%1</strong>",
+"num": false,
+"comment": "@info",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Clearing flags on partition <strong>%1</strong>…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Clearing flags on %1MiB <strong>%2</strong> partition…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Clearing flags on new partition…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Setting flags <strong>%2</strong> on partition <strong>%1</strong>…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Setting flags <strong>%3</strong> on %1MiB <strong>%2</strong> partition…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetPartFlagsJob",
+"src": "Setting flags <strong>%1</strong> on new partition…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "SetupSudoJob",
+"src": "Configuring <pre>sudo</pre> users…",
+"num": false,
+"comment": "@status",
+"kind": "empty"
+},
+{
+"ctx": "TarballRunner",
+"src": "Invalid tarball configuration",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "TarballRunner",
+"src": "The source archive <i>%1</i> does not exist.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "TarballRunner",
+"src": "Missing tools",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "TarballRunner",
+"src": "The <i>%1</i> tool is not installed on the system.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "TarballRunner",
+"src": "No destination could be found for <i>%1</i>.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "TarballRunner",
+"src": "Tarball extract file %1",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnpackFSCJob",
+"src": "Unpack filesystems",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnsquashRunner",
+"src": "Invalid unsquash configuration",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnsquashRunner",
+"src": "The source archive <i>%1</i> does not exist.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnsquashRunner",
+"src": "Missing tools",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnsquashRunner",
+"src": "The <i>%1</i> tool is not installed on the system.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnsquashRunner",
+"src": "No destination could be found for <i>%1</i>.",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "UnsquashRunner",
+"src": "Unsquash file %1",
+"num": false,
+"comment": null,
+"kind": "empty"
+},
+{
+"ctx": "release_notes",
+"src": "### %1\nThis an example QML file, showing options in Markdown with Flickable content.\n\nQML with RichText can use HTML tags, with Markdown it uses the simple Markdown syntax, Flickable content is useful for touchscreens.\n\n**This is bold text**\n\n*This is italic text*\n\n_This is underlined text_\n\n> blockquote\n\n~~This is strikethrough~~\n\nCode example:\n```\nls -l /home\n```\n\n**Lists:**\n * Intel CPU systems\n * AMD CPU systems\n\nThe vertical scrollbar is adjustable, current width set to 10.",
+"num": false,
+"comment": null,
+"kind": "empty"
+}
+]

@@ -1,0 +1,38 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — ultimo passo: apt update + apt upgrade dentro l'immagine.
+# live-build installa gia' le versioni piu' recenti di Debian 13 (con gli
+# aggiornamenti di sicurezza), ma qui ci si assicura che non resti nulla da
+# aggiornare al momento della costruzione, e lo si scrive nel registro.
+set -e
+export DEBIAN_FRONTEND=noninteractive
+for tentativo in 1 2 3; do
+  if apt-get update -q && apt-get -y -q -o Dpkg::Options::=--force-confold upgrade \
+     && apt-get -y -q -o Dpkg::Options::=--force-confold dist-upgrade; then
+    break
+  fi
+  # nella costruzione amd64 emulata Python a volte cade: si riprova
+  dpkg --configure -a || true
+  [ "$tentativo" = 3 ] && { echo "ZETA RAYS: aggiornamento dei pacchetti non riuscito" >&2; exit 1; }
+done
+# Hyprland: deve restare quello corretto (+zeta1) oppure uno ufficiale gia'
+# con la correzione (0.56 e oltre, vedi 0350-zeta-hyprland-corretto)
+V=$(dpkg-query -W -f='${Version}' hyprland)
+case "$V" in
+  *+zeta1) ;;
+  *) dpkg --compare-versions "$V" ge 0.56 \
+       || { echo "ZETA RAYS: ERRORE, l'aggiornamento ha messo Hyprland $V senza la correzione" >&2; exit 1; } ;;
+esac
+echo "ZETA RAYS: Hyprland dopo l'aggiornamento: $V"
+n=$(apt list --upgradable 2>/dev/null | grep -c / || true)
+echo "ZETA RAYS: pacchetti aggiornati, ne restano da aggiornare: $n"
+[ "$n" = 0 ] || { apt list --upgradable 2>/dev/null; exit 1; }
+apt-get clean
+# initramfs snello (hook zeta-snello): con 768 MB di RAM uno da 115 MB non si
+# scompattava e il kernel andava in panic. Si rigenera e si controlla.
+update-initramfs -u -k all
+for i in /boot/initrd.img-*; do
+  m=$(( $(stat -c %s "$i") / 1048576 ))
+  echo "ZETA RAYS: initramfs $(basename "$i"): $m MB"
+  [ "$m" -le 80 ] || { echo "ZETA RAYS: ERRORE, initramfs troppo grande ($m MB)" >&2; exit 1; }
+done

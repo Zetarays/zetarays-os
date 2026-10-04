@@ -1,0 +1,95 @@
+# ZETA RAYS OS — shell interattiva: prompt, titolo del terminale e benvenuto
+case $- in *i*) ;; *) return ;; esac
+
+__zeta_accent() {
+  local hex
+  # «accent-reso» è il colore d accento già adattato al tema in uso: il bianco
+  # scelto su tema chiaro diventa un grigio leggibile, altrimenti il prompt
+  # sarebbe bianco su fondo chiaro, cioè invisibile.
+  # il tema del terminale (zeta shell tema) ha la precedenza sull'accento di sistema
+  hex=$(cat "$HOME/.cache/zeta/accento-terminale" 2>/dev/null \
+        || cat "$HOME/.config/zeta/accent-reso" 2>/dev/null \
+        || cat "$HOME/.config/zeta/accent" 2>/dev/null || echo "#3A8DFF")
+  hex=${hex#\#}
+  printf '%d;%d;%d' "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}" 2>/dev/null || printf '58;141;255'
+}
+__ZETA_RGB=$(__zeta_accent)
+
+# Testo secondario leggibile su entrambi i temi (chiaro e scuro)
+if [ "$(cat "$HOME/.config/zeta/tema" 2>/dev/null)" = "chiaro" ]; then
+  __ZETA_DIM='90;90;95'; __ZETA_FG='28;28;30'
+else
+  __ZETA_DIM='138;138;142'; __ZETA_FG='237;237;234'
+fi
+
+# Prompt: utente@zeta:cartella$  (utente e macchina nel colore d'accento)
+PS1='\[\e]0;ZETA RAYS Terminal — \w\a\]\[\e[38;2;'"$__ZETA_RGB"'m\]\u@\h\[\e[0m\]:\[\e[38;2;'"$__ZETA_DIM"'m\]\w\[\e[0m\]\$ '
+
+# Benvenuto, una volta per finestra del terminale
+# (dentro tmux solo nel primo riquadro di una finestra nuova, non in ogni scheda)
+__zeta_benvenuto=1
+if [ -n "$TMUX" ] && [ "$(tmux display -p '#{session_windows}#{window_panes}' 2>/dev/null)" != "11" ]; then
+  __zeta_benvenuto=
+fi
+if [ -n "$__zeta_benvenuto" ] && [ -z "$ZETA_HELLO_SHOWN" ] && [ -t 1 ]; then
+  export ZETA_HELLO_SHOWN=1
+  __zeta_kernel=$(uname -r | sed -E 's/[+~-].*$//')
+  printf '\n  \e[1;38;2;%smZETA RAYS\e[0m \e[38;2;%smOS 1.7\e[0m\n' "$__ZETA_RGB" "$__ZETA_FG"
+  printf '  \e[38;2;%smKernel Linux %s · %s · digita \e[0mzeta\e[38;2;%sm per l\x27assistente\e[0m\n\n' "$__ZETA_DIM" "$__zeta_kernel" "$(uname -m)" "$__ZETA_DIM"
+  unset __zeta_kernel
+fi
+unset -f __zeta_accent
+unset __ZETA_DIM __ZETA_FG __zeta_benvenuto
+
+# --- Cronologia -----------------------------------------------------------
+# bash conserva la sua (con data e ora); quella completa, con cartella, esito
+# e durata di ogni comando e condivisa fra le shell, e di atuin (Ctrl+R).
+# Un comando che comincia con uno spazio non viene mai salvato; quelli che
+# contengono password, chiavi o token li scarta il filtro (zeta-segreti).
+HISTSIZE=20000
+HISTFILESIZE=50000
+HISTCONTROL=ignoreboth:erasedups
+HISTTIMEFORMAT='%F %T  '
+shopt -s histappend cmdhist checkwinsize globstar 2>/dev/null
+# Comandi con password, chiavi o token: si tolgono dalla cronologia di bash
+# subito dopo averli eseguiti. Non con HISTIGNORE: atuin legge il comando dalla
+# cronologia di bash, e con HISTIGNORE avrebbe registrato al suo posto il
+# comando precedente (provato). atuin li scarta da se' (history_filter).
+__zeta_segreti='(password|passwd|token|secret|api[_-]?key)[[:space:]]*=|--(password|passwd|token|api-key|apikey)([=[:space:]]|$)|(^|[[:space:]])(export[[:space:]]+)?[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD)=|sk-ant-|sk-proj-|ghp_|gho_|glpat-|xox[baprs]-|sshpass'
+__zeta_cronologia() {
+  local riga
+  riga=$(HISTTIMEFORMAT= builtin history 1)
+  riga=${riga#*[0-9]  }
+  if shopt -q nocasematch; then
+    [[ $riga =~ $__zeta_segreti ]] && builtin history -d -1 2>/dev/null
+  else
+    shopt -s nocasematch
+    [[ $riga =~ $__zeta_segreti ]] && builtin history -d -1 2>/dev/null
+    shopt -u nocasematch
+  fi
+  # la cronologia si scrive a ogni comando: un crash non la perde
+  builtin history -a
+}
+PROMPT_COMMAND="__zeta_cronologia${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+
+# completamento dei comandi (anche delle opzioni dei programmi)
+if ! shopt -oq posix && [ -f /usr/share/bash-completion/bash_completion ]; then
+  . /usr/share/bash-completion/bash_completion
+fi
+
+. /usr/share/zeta/shell/comune.sh
+
+# prompt (starship) e cronologia completa (atuin): se mancano, resta il
+# prompt qui sopra e la cronologia di bash
+if [ -z "$ZETA_SHELL_SEMPLICE" ]; then
+  if command -v atuin >/dev/null && [ -r /usr/share/zeta/shell/bash-preexec.sh ]; then
+    . /usr/share/zeta/shell/bash-preexec.sh
+    eval "$(atuin init bash --disable-up-arrow)"
+  fi
+  if command -v starship >/dev/null; then
+    eval "$(starship init bash)"
+  fi
+  [ -r /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
+  # Ctrl+R lo tiene atuin (piu completo): fzf resta per Ctrl+T (file) e Alt+C (cartelle)
+  command -v atuin >/dev/null && bind -x '"\C-r": __atuin_history' 2>/dev/null
+fi

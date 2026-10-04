@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sito e download
+    url: https://zetarays.org
+    about: Immagini ISO e OVA, istruzioni complete.
+  - name: Segnalare una falla di sicurezza
+    url: https://github.com/zetarays/zetarays-os/security/advisories/new
+    about: In privato, non con una issue pubblica.

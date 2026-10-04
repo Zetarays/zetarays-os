@@ -1,0 +1,31 @@
+# ZETA RAYS — cronologia dei comandi (atuin). Tutto resta su questo computer:
+# nessuna sincronizzazione, nessun controllo degli aggiornamenti in rete.
+# Database: ~/.local/share/atuin/history.db (SQLite, non si perde in un crash).
+auto_sync = false
+update_check = false
+sync_frequency = "0"
+
+# Ctrl+R: ricerca per parola (anche lettere sparse); nella ricerca Ctrl+R
+# ancora cambia l'ambito: tutto, questa sessione, questa cartella, questo computer
+search_mode = "fuzzy"
+filter_mode = "global"
+style = "compact"
+inline_height = 22
+show_preview = true
+show_help = true
+# Invio mette il comando nella riga, da correggere prima di eseguirlo;
+# Tab lo stesso. Per eseguirlo subito: Invio due volte.
+enter_accept = false
+keymap_mode = "emacs"
+store_failed = true
+
+# Mai nella cronologia: password, token e chiavi (anche in variabili)
+secrets_filter = true
+history_filter = [
+  "(?i)(password|passwd|pwd|token|secret|api[_-]?key)\\s*=\\s*\\S+",
+  "(?i)^\\s*(export\\s+)?[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD)=",
+  "sk-ant-", "sk-proj-", "ghp_", "gho_", "glpat-", "xox[baprs]-",
+  "(?i)--(password|passwd|token|api-key|apikey)(=|\\s|$)",
+  "(?i)mysql .*-p\\S+",
+  "(?i)sshpass ",
+]

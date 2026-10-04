@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-ai-precarica — porta il modello AI locale in memoria, in silenzio.
+
+A freddo il modello impiega decine di secondi a salire: chi apre ZETA e
+fa la prima domanda aspetterebbe tutto quel tempo. Qui lo si carica poco dopo
+l'accesso, con priorità bassa, così la prima risposta è immediata.
+
+Non fa nulla se:
+  • il computer non ha memoria in abbondanza (il modello ne occupa ~1,8 GB);
+  • Ollama non è in esecuzione;
+  • l'utente ha disattivato il precaricamento (~/.config/zeta/ai-precarica = 0).
+
+Su una macchina piccola il modello viene caricato solo quando serve davvero e
+scaricato poco dopo: 1,8 GB trattenuti a vuoto rallentano tutto il resto.
+Chi vuole comunque il precaricamento può forzarlo da Impostazioni.
+"""
+import os
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+
+from intelligence import risorse
+
+
+def scelta_utente():
+    """'1' forza il precarico, '0' lo vieta, assente = decide ZETA RAYS."""
+    try:
+        with open(os.path.expanduser("~/.config/zeta/ai-precarica")) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def main():
+    scelta = scelta_utente()
+    if scelta == "0":
+        return 0
+    if scelta != "1" and not risorse.precarico_consentito():
+        # Memoria non abbondante: il modello si caricherà alla prima domanda
+        # e si scaricherà poco dopo (vedi intelligence/risorse.py).
+        return 0
+    try:
+        from intelligence.registry import Registry
+        reg = Registry()
+        prov = reg.get("ollama")
+    except Exception:  # noqa: BLE001
+        return 0
+    if prov is None or not hasattr(prov, "preload"):
+        return 0
+    try:
+        if not prov.available():
+            return 0
+        prov.preload()
+    except Exception:  # noqa: BLE001
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

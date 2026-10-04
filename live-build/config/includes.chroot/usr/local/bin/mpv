@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# mpv per ZETA RAYS. Nelle macchine virtuali Hyprland non accetta i buffer GPU
+# (dmabuf) dei client: lì mpv usa l'uscita video in memoria condivisa (wlshm).
+# Su hardware reale si comporta esattamente come /usr/bin/mpv.
+if [ "${ZETA_VM:-0}" = 1 ]; then
+    exec /usr/bin/mpv --vo=wlshm --hwdec=no "$@"
+fi
+exec /usr/bin/mpv "$@"

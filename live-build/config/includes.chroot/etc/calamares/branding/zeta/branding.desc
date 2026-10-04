@@ -1,0 +1,35 @@
+---
+componentName: zeta
+welcomeStyleCalamares: false
+welcomeExpandingLogo: false
+# noexpand: la finestra resta 1100x600 e il contenuto scorre. Con «normal»
+# il riepilogo con due dischi la faceva crescere oltre lo schermo e i
+# pulsanti Install/Back finivano sotto la barra in basso.
+windowExpanding: noexpand
+windowSize: 1100px,600px
+windowPlacement: center
+strings:
+    productName:         ZETA RAYS OS
+    shortProductName:    ZETA RAYS
+    version:             1.7
+    shortVersion:        1.7
+    versionedName:       ZETA RAYS OS
+    shortVersionedName:  ZETA RAYS 1.7
+    bootloaderEntryName: ZETA RAYS
+    productUrl:          ""
+    supportUrl:          ""
+    knownIssuesUrl:      ""
+    releaseNotesUrl:     ""
+sidebar: qml
+navigation: widget
+images:
+    productLogo:         "logo.png"
+    productIcon:         "logo.png"
+    productWelcome:      ""
+slideshow:               "show.qml"
+style:
+   sidebarBackground:    "#000000"
+   sidebarText:          "#A1A1A6"
+   sidebarTextSelect:    "#EDEDEA"
+   sidebarTextHighlight: "#3A8DFF"
+slideshowAPI: 2

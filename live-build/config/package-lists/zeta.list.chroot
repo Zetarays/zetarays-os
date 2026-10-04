@@ -1,0 +1,353 @@
+# ZETA RAYS 1.6 — pacchetti (solo repository Debian 13 "trixie")
+
+# --- Sistema di base ---
+live-boot
+live-config
+live-config-systemd
+user-setup
+systemd-sysv
+sudo
+locales
+console-setup
+keyboard-configuration
+dbus-user-session
+polkitd
+pkexec
+network-manager
+wpasupplicant
+bluez
+pipewire
+pipewire-pulse
+pipewire-alsa
+# Priorita in tempo reale per l'audio: senza, PipeWire ripiega su una priorita
+# normale e sotto carico (compilazioni, il modello AI al lavoro) l'audio puo
+# scattare. PipeWire lo raccomanda, ma la costruzione non installa le
+# raccomandazioni: va chiesto esplicitamente.
+rtkit
+wireplumber
+plymouth
+librsvg2-bin
+ca-certificates
+curl
+nano
+htop
+
+# --- Firmware ---
+firmware-linux-free
+firmware-misc-nonfree
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+#if ARCHITECTURES amd64
+firmware-amd-graphics
+intel-microcode
+amd64-microcode
+#endif
+
+# --- Interfaccia ---
+# Hyprland 0.55 dai backports ufficiali di Debian 13 (config/archives)
+hyprland
+# dialoghi di sistema di Hyprland (evita l'avviso all'avvio)
+hyprland-guiutils
+xwayland
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+# Xorg: usato SOLO dall'installer (Calamares/Qt) quando manca l'accelerazione
+# 3D, dove il desktop Wayland non può partire. Qt disegna in raster e funziona
+# ovunque via software (llvmpipe).
+xinit
+matchbox-window-manager
+xserver-xorg-video-fbdev
+# driver software Mesa (llvmpipe) per il rendering senza GPU
+libgl1-mesa-dri
+mesa-utils-bin
+waybar
+gir1.2-gtk4layershell-1.0
+libgtk4-layer-shell0
+mako-notifier
+libnotify-bin
+swaybg
+wl-clipboard
+grim
+slurp
+brightnessctl
+hyprlock
+hypridle
+# registro degli accessi (Monitor → Utenti)
+wtmpdb
+libpam-wtmpdb
+network-manager-openvpn
+# agente di autenticazione (dialogo password) con traduzione italiana
+mate-polkit
+sddm
+qml6-module-qtquick
+qt6-svg-plugins
+xserver-xorg-core
+xserver-xorg-input-libinput
+
+# --- App essenziali ---
+foot
+# --- Terminale di ZETA RAYS -------------------------------------------------
+# tmux: le sessioni sopravvivono alla chiusura (o al crash) della finestra;
+# schede e divisioni. Altre shell accanto a bash.
+tmux
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+fish
+bash-completion
+# cronologia con data, cartella, esito e durata, cercabile (Ctrl+R); prompt
+atuin
+starship
+fzf
+# leggere e cercare qualunque file dal terminale
+ripgrep
+fd-find
+bat
+eza
+jq
+yq
+tree
+vim
+xxd
+hexyl
+thunar
+gvfs
+firefox-esr
+firefox-esr-l10n-it
+# Posta: Mozilla Thunderbird, il programma di posta di ZETA RAYS (icona
+# «Posta» nel dock, zeta-posta)
+thunderbird
+thunderbird-l10n-it
+gnome-text-editor
+synaptic
+gnome-system-monitor
+eog
+mpv
+gnome-calculator
+evince
+file-roller
+network-manager-gnome
+blueman
+pavucontrol
+
+# --- Impostazioni ZETA RAYS (GTK4 + libadwaita) ---
+python3
+python3-gi
+gir1.2-gtk-4.0
+gir1.2-adw-1
+
+# --- Caratteri e temi ---
+fonts-roboto-unhinted
+fonts-jetbrains-mono
+adwaita-icon-theme
+
+# --- ZETA RAYS Intelligence (assistente AI) ---
+python3-gi-cairo
+libsecret-tools
+gir1.2-secret-1
+python3-psutil
+
+# --- ZETA RAYS Security: strumenti di sicurezza (repository Debian) ---
+# Ricognizione
+nmap
+whois
+bind9-dnsutils
+masscan
+# Rete
+tcpdump
+tshark
+# Web
+sqlmap
+ffuf
+gobuster
+# Forense
+sleuthkit
+foremost
+binwalk
+libimage-exiftool-perl
+# Crittografia
+openssl
+gnupg
+john
+hashcat
+# Difesa del sistema
+nftables
+lynis
+aide
+rkhunter
+chkrootkit
+auditd
+clamav
+firejail
+# Sviluppo
+git
+build-essential
+python3-dev
+rustc
+cargo
+golang-go
+gdb
+# ZETA RAYS Monitor
+iproute2
+iputils-ping
+# comandi di rete tradizionali e moderni: ifconfig/route/arp/netstat,
+# stato delle schede di rete e del Wi-Fi, percorso dei pacchetti
+net-tools
+ethtool
+iw
+# rfkill: dice se il Wi-Fi e' spento da un tasto o da un interruttore (diagnosi)
+rfkill
+# tracepath (percorso e MTU senza root)
+iputils-tracepath
+# iptables/ip6tables: in Debian usano il motore nftables (iptables-nft), quindi
+# non creano un secondo firewall; il firewall vero resta la tabella inet zeta.
+# ufw c'e' (richiesto), ma SPENTO di serie: il firewall attivo resta nftables
+# (inet zeta). Le sue regole per SSH e ZETA Share sono gia' pronte, cosi' chi
+# lo accende con «ufw enable» non si chiude fuori (vedi zeta-ssh e hook 0100).
+iptables
+ufw
+# conntrack: per vedere le connessioni seguite dal firewall (zeta-ssh diagnosi)
+conntrack
+# accesso remoto: client e server SSH (server spento di serie, zeta-ssh attiva),
+# trasferimenti e cartelle remote, netcat/socat/telnet per le prove di rete,
+# autossh per i tunnel che si rialzano da soli, ssh-import-id per le chiavi
+openssh-client
+openssh-server
+openssh-sftp-server
+sshfs
+netcat-openbsd
+socat
+telnet
+autossh
+ssh-import-id
+traceroute
+mtr-tiny
+
+# --- Installer ZETA RAYS (Calamares) ---
+calamares
+calamares-settings-debian
+qt6-wayland
+qml6-module-qtquick
+qml6-module-qtquick-controls
+qml6-module-qtquick-layouts
+qml6-module-qtquick-templates
+qml6-module-qtquick-window
+qml6-module-qtqml-workerscript
+rsync
+x11-xserver-utils
+# servono all'installer: estrarre il sistema, registrare l'avvio UEFI
+squashfs-tools
+efibootmgr
+os-prober
+# hwclock: il passo «hwclock» dell'installer lo cerca per allineare l'orologio
+# del computer (conta con il doppio avvio: gli altri sistemi lo leggono)
+util-linux-extra
+# dosfstools: mkfs.fat. Senza, l'installer non puo' creare la partizione EFI
+# (fat32 non compare tra i file system). Su arm64 arrivava come dipendenza,
+# su amd64 no: va scritto qui.
+dosfstools
+grub-common
+#if ARCHITECTURES amd64
+grub-efi-amd64
+# PC senza UEFI (BIOS): moduli GRUB i386-pc
+grub-pc-bin
+# Avvio sicuro DOPO l'installazione. Senza questi due, la ISO parte con Secure
+# Boot attivo ma il sistema installato no: l'installer scrive un GRUB non
+# firmato, che il firmware rifiuta. Chi ha Secure Boot attivo (quasi tutti i
+# computer recenti) si ritrova un computer che non parte piu'.
+shim-signed
+grub-efi-amd64-signed
+#endif
+#if ARCHITECTURES arm64
+grub-efi-arm64
+shim-signed
+grub-efi-arm64-signed
+#endif
+
+# --- ZETA RAYS 1.7: ricerca universale, OCR, indicizzazione, fastfetch ---
+fastfetch
+plocate
+poppler-utils
+tesseract-ocr
+tesseract-ocr-ita
+tesseract-ocr-eng
+imagemagick
+# vosk (voce) e ollama (AI locale) sono installati dagli hook 0200/0300
+python3-pip
+python3-venv
+curl
+unzip
+zstd
+
+# --- Voce di ZETA: sintesi vocale offline (italiano) ---
+espeak-ng
+espeak-ng-data
+
+# --- Scrivania: cartelle personali in italiano, apertura dei file ---
+xdg-user-dirs
+xdg-utils
+shared-mime-info
+desktop-file-utils
+libglib2.0-bin
+
+# --- Stabilità: niente blocchi quando la memoria finisce ---
+# earlyoom ferma il programma più affamato prima che il sistema si impianti;
+# zram aggiunge swap compressa in RAM (utile nelle macchine virtuali piccole).
+earlyoom
+zram-tools
+
+# --- Gestore file completo e accessibilità -------------------------------
+# tumbler genera le anteprime di immagini, PDF e video nel gestore file:
+# senza, si vedono solo icone generiche.
+tumbler
+tumbler-plugins-extra
+ffmpegthumbnailer
+# at-spi2-core fornisce il bus di accessibilità che le applicazioni GTK
+# cercano all'avvio: senza di esso ogni app stampa un avviso e gli strumenti
+# di accessibilità non possono funzionare.
+at-spi2-core
+
+# --- Aprire qualunque file: formati che un computer deve saper leggere -----
+# Archivi. Senza questi, Gestione archivi mostra l'archivio ma non riesce ad
+# aprirlo: RAR e 7z erano dichiarati fra i tipi gestiti senza che ci fosse chi
+# li sa leggere davvero.
+p7zip-full
+unar
+zip
+xz-utils
+bzip2
+lzip
+cpio
+# Immagini moderne: senza questi moduli eog e le anteprime del gestore file
+# non aprono WEBP, HEIC (le foto degli iPhone) e AVIF.
+webp-pixbuf-loader
+heif-gdk-pixbuf
+libheif1
+# Caratteri: doppio clic su un .ttf o .otf mostra l'anteprima del carattere
+gnome-font-viewer
+# Codec video e audio completi per il riproduttore (AVI, WMV, MPEG, AAC...)
+libavcodec-extra
+gstreamer1.0-libav
+gstreamer1.0-plugins-good
+gstreamer1.0-plugins-bad
+
+# --- Supporti rimovibili e risorse di rete ---
+# Senza questi una chiavetta USB inserita non compariva nel gestore file e le
+# cartelle condivise in rete o i telefoni collegati non si potevano aprire.
+thunar-volman
+gvfs-backends
+gvfs-fuse
+
+# --- Stampa ---
+# Senza questi il sistema non poteva stampare in nessun modo. Il servizio resta
+# a riposo finche non si stampa (si attiva sul socket), quindi non pesa
+# sull'avvio. cups-browsed + avahi trovano da soli le stampanti di rete.
+cups
+cups-client
+cups-filters
+cups-browsed
+printer-driver-gutenprint
+system-config-printer
+avahi-daemon
+

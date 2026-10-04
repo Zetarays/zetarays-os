@@ -1,0 +1,363 @@
+#!/usr/bin/python3 -S
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — riduzione a icona con anteprima e animazione, come su macOS.
+
+  zeta-riduci riduci [INDIRIZZO]    riduce la finestra attiva (o quella indicata)
+  zeta-riduci ripristina INDIRIZZO  la riporta al suo posto
+  zeta-riduci menu N                menu della miniatura N della barra
+  zeta-riduci --demone              processo residente (lo avvia la sessione)
+
+Come funziona:
+  - un attimo prima di nasconderla si fotografa la finestra (e' ancora sullo
+    schermo; dopo non viene piu' disegnata) e se ne fa una miniatura con
+    l'icona dell'app: la barra la mostra al posto della scritta «1 ridotta»;
+  - la foto viene messa esattamente sopra la finestra vera, la finestra si
+    nasconde sotto, e la foto si rimpicciolisce verso il suo posto nella
+    barra (0,3 s): nessun salto, nessun vuoto;
+  - il processo resta pronto, nascosto, e aspetta i comandi su un socket:
+    l'animazione parte subito e da fermo non consuma CPU. Se non c'e', la
+    finestra si riduce lo stesso, senza animazione.
+"""
+import os
+import socket
+import sys
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+SOCK = os.path.join(RUNTIME, "zeta-riduci.sock")
+
+
+def _invia(msg):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.sendto(msg.encode(), SOCK)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _senza_demone(cmd, arg):
+    """Il processo residente non risponde: si fa lo stesso, senza animazione."""
+    import site
+    site.main()
+    sys.path.insert(0, "/usr/lib/zeta")
+    from system import windows
+    if cmd == "riduci":
+        win = windows.active() if not arg else next(
+            (c for c in windows.clients() if c.get("address") == arg), None)
+        if not win:
+            return 1
+        addr = win["address"]
+        grande = windows._nome_file(addr, "grande")
+        if windows.cattura(win, grande):
+            try:
+                windows.componi_anteprima(grande, windows._nome_file(addr, "mini"), win.get("class", ""))
+            except Exception:  # noqa: BLE001 - la finestra si riduce comunque
+                pass
+        return 0 if windows.minimize(addr) else 1
+    if cmd == "ripristina" and arg:
+        return 0 if windows.restore(arg) else 1
+    if cmd == "ripristina-n" and arg.isdigit():
+        ridotte = windows.ridotte_in_ordine()
+        return 0 if int(arg) < len(ridotte) and windows.restore(ridotte[int(arg)][0]) else 1
+    return 1
+
+
+# ---------------------------------------------------------------- client
+if len(sys.argv) > 1 and sys.argv[1] in ("riduci", "ripristina", "ripristina-n", "menu"):
+    arg = sys.argv[2] if len(sys.argv) > 2 else ""
+    if _invia(("%s %s" % (sys.argv[1], arg)).strip()):
+        sys.exit(0)
+    sys.exit(_senza_demone(sys.argv[1], arg) if sys.argv[1] != "menu" else 1)
+
+if len(sys.argv) < 2 or sys.argv[1] != "--demone":
+    print(__doc__)
+    sys.exit(0 if len(sys.argv) < 2 else 1)
+
+# ---------------------------------------------------------------- demone
+import site  # noqa: E402
+site.main()
+import json  # noqa: E402
+import subprocess  # noqa: E402
+import threading  # noqa: E402
+
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import popup  # noqa: E402
+popup.preload_layer_shell()
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from system import dock, windows  # noqa: E402
+
+DURATA = 0.30          # secondi dell'animazione
+
+
+def _monitor():
+    """(x, y, larghezza, altezza) logici del monitor attivo."""
+    try:
+        out = subprocess.run(["hyprctl", "-j", "monitors"], capture_output=True, text=True, timeout=3).stdout
+        for m in json.loads(out):
+            if m.get("focused"):
+                sc = float(m.get("scale") or 1) or 1
+                return (m.get("x", 0), m.get("y", 0), m["width"] / sc, m["height"] / sc)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        pass
+    return (0, 0, 1280, 800)
+
+
+def _posto(indice, totale, mon):
+    """Dove compare la miniatura numero «indice» nella barra (stima dalla
+    disposizione del dock: gruppo centrato, dock e poi le miniature)."""
+    _mx, _my, lw, lh = mon
+    lato = dock.icon_size()
+    alta = max(60, lato + 18)
+    n = len(dock.load_dock())
+    dock_l = n * (lato + 8)
+    tw, th, spazio = lato * windows.RAPPORTO, lato, 8
+    tot = dock_l + 14 + totale * (tw + spazio)
+    x = lw / 2 - tot / 2 + dock_l + 14 + indice * (tw + spazio) + spazio / 2
+    if dock.posizione() == "top":
+        y = 12 + alta / 2 - th / 2
+    else:
+        y = lh - 12 - alta / 2 - th / 2
+    return (x, y, tw, th)
+
+
+def _ease(t):
+    return 4 * t * t * t if t < 0.5 else 1 - pow(-2 * t + 2, 3) / 2
+
+
+class Animazione(Gtk.ApplicationWindow):
+    """Livello sovrapposto trasparente, che non prende clic ne' tastiera."""
+
+    def __init__(self, app):
+        super().__init__(application=app, title="zeta-riduci", decorated=False)
+        popup.make_overlay(self, "zeta-riduci", keyboard=False)
+        self.fixed = Gtk.Fixed()
+        self.foto = Gtk.Picture(can_shrink=True, content_fit=Gtk.ContentFit.FILL)
+        self.foto.add_css_class("zeta-riduci-foto")
+        self.fixed.put(self.foto, 0, 0)
+        self.set_child(self.fixed)
+        self.connect("realize", self._trasparente_ai_clic)
+        self._tick = 0
+        self._fine = None
+
+    def _trasparente_ai_clic(self, *_a):
+        try:
+            import cairo
+            self.get_surface().set_input_region(cairo.Region())
+        except Exception:  # noqa: BLE001
+            pass
+
+    def anima(self, png, da, a, alla_fine, opacita=(1.0, 0.35)):
+        self.foto.set_filename(png)
+        self._muovi(da, opacita[0])
+        self.present()
+        self._da, self._a, self._op = da, a, opacita
+        self._fine = alla_fine
+        self._inizio = None
+        if self._tick:
+            self.remove_tick_callback(self._tick)
+        self._tick = self.add_tick_callback(self._passo)
+
+    def _muovi(self, r, op):
+        x, y, w, h = r
+        self.foto.set_size_request(max(1, int(w)), max(1, int(h)))
+        self.fixed.move(self.foto, x, y)
+        self.foto.set_opacity(op)
+
+    def _passo(self, _w, clock):
+        adesso = clock.get_frame_time() / 1e6
+        if self._inizio is None:
+            # primo fotogramma: la foto viene disegnata; al secondo e' sullo
+            # schermo, e solo allora si nasconde la finestra vera sotto di lei
+            self._fotogrammi = getattr(self, "_fotogrammi", 0) + 1
+            if self._fotogrammi < 2:
+                return True
+            self._fotogrammi = 0
+            self._inizio = adesso
+            if getattr(self, "prima", None):
+                prima, self.prima = self.prima, None
+                prima()
+            return True
+        t = min(1.0, (adesso - self._inizio) / DURATA)
+        e = _ease(t)
+        r = tuple(a + (b - a) * e for a, b in zip(self._da, self._a))
+        self._muovi(r, self._op[0] + (self._op[1] - self._op[0]) * e)
+        if t >= 1.0:
+            self._tick = 0
+            fine, self._fine = self._fine, None
+            if fine:
+                fine()
+            return False
+        return True
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Riduci", flags=Gio.ApplicationFlags.NON_UNIQUE)
+        self.anim = None
+        self.menu = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.clean_env()
+        popup.load_css(".zeta-riduci-foto { border-radius: 10px; } "
+                       ".zeta-card { padding: 6px; }")
+        self.hold()
+        self._ascolta()
+
+    def do_activate(self):
+        if self.anim is None:
+            self.anim = Animazione(self)
+
+    def _ascolta(self):
+        try:
+            os.unlink(SOCK)
+        except FileNotFoundError:
+            pass
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.sock.bind(SOCK)
+        os.chmod(SOCK, 0o600)
+        self.sock.setblocking(False)
+        GLib.io_add_watch(self.sock.fileno(), GLib.PRIORITY_HIGH, GLib.IO_IN, self._ricevi)
+
+    def _ricevi(self, *_a):
+        try:
+            while True:
+                parti = self.sock.recv(256).decode(errors="replace").split()
+                if not parti:
+                    continue
+                try:
+                    getattr(self, "c_" + parti[0].replace("-", "_"))(parti[1] if len(parti) > 1 else "")
+                except AttributeError:
+                    pass
+                except Exception as e:  # noqa: BLE001 - il demone non deve cadere
+                    print("zeta-riduci: %s: %s" % (parti[0], e), file=sys.stderr)
+        except (BlockingIOError, OSError):
+            pass
+        return True
+
+    # --- riduci
+    def c_riduci(self, addr):
+        win = windows.active() if not addr else next(
+            (c for c in windows.clients() if c.get("address") == addr), None)
+        if not win or str((win.get("workspace") or {}).get("name", "")).startswith("special:"):
+            return
+        addr = win["address"]
+        grande = windows._nome_file(addr, "grande")
+        rett = windows.cattura(win, grande)
+        if not rett:
+            windows.minimize(addr)          # senza foto: si riduce e basta
+            return
+        mon = _monitor()
+        x, y, w, h = rett
+        da = (x - mon[0], y - mon[1], w, h)
+        totale = len(windows.ridotte_in_ordine()) + 1
+        a = _posto(totale - 1, totale, mon)
+
+        def nascondi():
+            windows.minimize(addr)
+            threading.Thread(target=self._miniatura, args=(addr, grande, win.get("class", "")),
+                             daemon=True).start()
+        self.anim.prima = nascondi
+        self.anim.anima(grande, da, a, lambda: GLib.timeout_add(30, self._spegni))
+
+    def _miniatura(self, addr, grande, classe):
+        try:
+            windows.componi_anteprima(grande, windows._nome_file(addr, "mini"), classe)
+        except Exception as e:  # noqa: BLE001
+            print("zeta-riduci: miniatura: %s" % e, file=sys.stderr)
+        GLib.idle_add(windows._notify_bar)
+
+    def _spegni(self):
+        self.anim.set_visible(False)
+        return False
+
+    # --- ripristina (dal clic sulla miniatura N della barra: arriva diretto
+    # qui, senza passare da un altro programma, cosi' parte subito)
+    def c_ripristina_n(self, n):
+        try:
+            self.c_ripristina(windows.ridotte_in_ordine()[int(n)][0])
+        except (ValueError, IndexError):
+            pass
+
+    def c_ripristina(self, addr):
+        ordine = [k for k, _v in windows.ridotte_in_ordine()]
+        info = dict(windows.ridotte_in_ordine()).get(addr)
+        grande = windows._nome_file(addr, "grande")
+        if not info or not os.path.exists(grande) or not info.get("rect"):
+            windows.restore(addr)
+            return
+        mon = _monitor()
+        da = _posto(ordine.index(addr), len(ordine), mon)
+        x, y, w, h = info["rect"]
+        a = (x - mon[0], y - mon[1], w, h)
+
+        def arrivata():
+            windows.restore(addr)
+            # la finestra vera compare sotto la foto: poi la foto sparisce
+            GLib.timeout_add(90, self._spegni)
+        self.anim.prima = None
+        self.anim.anima(grande, da, a, arrivata, opacita=(0.35, 1.0))
+
+    # --- menu della miniatura
+    def c_menu(self, n):
+        try:
+            addr, info = windows.ridotte_in_ordine()[int(n)]
+        except (ValueError, IndexError):
+            return
+        if self.menu is not None:
+            self.menu.destroy()
+        self.menu = Gtk.ApplicationWindow(application=self, title="Finestra ridotta", decorated=False)
+        popup.make_overlay(self.menu, "zeta-menu-dock")
+        in_alto = dock.posizione() == "top"
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, css_classes=["zeta-card"],
+                       halign=Gtk.Align.START, valign=Gtk.Align.START if in_alto else Gtk.Align.END)
+        try:
+            out = subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True, text=True, timeout=2).stdout
+            cx = int(json.loads(out).get("x", 0)) - _monitor()[0]
+        except (OSError, subprocess.SubprocessError, ValueError):
+            cx = 0
+        card.set_margin_start(max(8, cx - 110))
+        card.set_margin_end(8)
+        if in_alto:
+            card.set_margin_top(84)
+        else:
+            card.set_margin_bottom(84)
+        titolo = info.get("title") or info.get("class") or "Finestra"
+        et = Gtk.Label(label=titolo[:40], xalign=0, css_classes=["zeta-caption"], margin_start=10, margin_top=4)
+        card.append(et)
+        for testo, fn in (("Ripristina", lambda: self.c_ripristina(addr)),
+                          ("Chiudi", lambda: self._chiudi(addr))):
+            b = Gtk.Button(css_classes=["zeta-row"])
+            b.set_child(Gtk.Label(label=testo, xalign=0))
+            b.connect("clicked", lambda _b, f=fn: (self._menu_via(), f()))
+            card.append(b)
+        card.set_size_request(220, -1)
+        self.menu.set_child(card)
+        popup.close_on_outside(self.menu, card, self._menu_via)
+        self.menu.present()
+
+    def _menu_via(self):
+        if self.menu is not None:
+            self.menu.destroy()
+            self.menu = None
+        return False
+
+    def _chiudi(self, addr):
+        # chiusura normale (l'app puo' chiedere di salvare): prima la si riporta
+        # sullo schermo, altrimenti un'eventuale domanda resterebbe invisibile
+        windows.restore(addr)
+        windows.close(addr)
+
+
+def main():
+    app = App()
+    return app.run([sys.argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

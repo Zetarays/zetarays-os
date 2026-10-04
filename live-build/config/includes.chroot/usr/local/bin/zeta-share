@@ -1,0 +1,75 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA Share — invia file all'istante ai dispositivi vicini.
+#
+#   zeta-share                  apre ZETA Share
+#   zeta-share FILE|CARTELLA…   apre ZETA Share con questi file gia' pronti da inviare
+#
+# Sotto c'e' LocalSend (localsend.org), lo standard aperto per scambiarsi file
+# in rete locale fra Linux, Windows, macOS, Android e iPhone/iPad. I file vanno
+# direttamente da un dispositivo all'altro (HTTPS, cifrato), senza passare da
+# internet o da un servizio esterno. LocalSend non e' modificato: qui si sceglie
+# solo cosa passargli. Se e' gia' aperto, riceve i file nella finestra esistente.
+APP=/opt/localsend_app/localsend_app
+[ -x "$APP" ] || APP=$(command -v localsend_app || command -v localsend || true)
+if [ -z "$APP" ]; then
+    notify-send -a "ZETA RAYS" -i zeta-share "ZETA Share non è installato" \
+        "Manca LocalSend, il programma che invia i file. Si reinstalla dal pacchetto ufficiale di localsend.org (localsend_*.deb)." \
+        2>/dev/null
+    exit 1
+fi
+
+file=()
+for a in "$@"; do
+    case "$a" in
+        file://*)                              # da gestori file che passano URI
+            a=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(urllib.parse.urlparse(sys.argv[1]).path))' "$a") ;;
+    esac
+    # solo file e cartelle che esistono, con il percorso completo: un nome che
+    # comincia con «-» non puo' essere scambiato per un'opzione
+    if [ -e "$a" ]; then
+        file+=("$(realpath -- "$a")")
+    fi
+done
+
+# Nelle macchine virtuali Hyprland rifiuta i buffer GPU (dmabuf) dei client:
+# LocalSend (Flutter, disegna con GL) su Wayland si chiude con «Error 22». La
+# si fa girare su Xwayland, come mpv usa wlshm (vedi zeta-desktop-session).
+# Su un computer vero resta su Wayland.
+if [ "${ZETA_VM:-0}" = 1 ]; then
+    export GDK_BACKEND=x11
+fi
+
+# Scelte iniziali, scritte solo se l'utente non ne ha gia' fatte (se le cambia
+# dalle impostazioni di ZETA Share, restano le sue):
+#  - animazioni spente: con l'animazione della ricerca dei dispositivi
+#    LocalSend aperto e fermo usava il 16% della CPU, senza lo 0,5% (misurato);
+#  - tema scuro con colore «OLED»: sfondo nero, pannelli grigio scuro, testo
+#    bianco, e come unico accento il colore di sistema di ZETA RAYS (blu, o
+#    quello scelto; con l'accento bianco e' tutto grigio). Di serie LocalSend
+#    e' verde acqua. I valori sono quelli che LocalSend stesso scrive: un
+#    valore sbagliato lo fa chiudere all'avvio (provato).
+PREF="${XDG_DATA_HOME:-$HOME/.local/share}/org.localsend.localsend_app/shared_preferences.json"
+python3 - "$PREF" <<'PREFERENZE' 2>/dev/null
+import json, os, sys
+p = sys.argv[1]
+try:
+    d = json.load(open(p))
+except (OSError, ValueError):
+    d = None if os.path.exists(p) else {}
+PREDEFINITI = {"flutter.ls_enable_animations": False,
+               "flutter.ls_theme": "dark",
+               "flutter.ls_color": "oled"}
+mancanti = {k: v for k, v in PREDEFINITI.items() if isinstance(d, dict) and k not in d}
+if mancanti:
+    d.update(mancanti)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".zeta"
+    with open(tmp, "w") as f:
+        json.dump(d, f)
+    os.replace(tmp, p)
+PREFERENZE
+
+cd "$HOME" || exit 1
+setsid "$APP" "${file[@]}" >/dev/null 2>&1 < /dev/null &
+exit 0

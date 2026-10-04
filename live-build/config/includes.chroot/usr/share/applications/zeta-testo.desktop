@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Testo da immagine
+GenericName=Riconoscimento del testo (OCR)
+Comment=Legge il testo dentro immagini, PDF o una zona dello schermo e lo copia
+Exec=zeta-testo %f
+Icon=zeta-testo
+Terminal=false
+Categories=Utility;Graphics;OCR;
+Keywords=ocr;testo;copia;immagine;pdf;scansione;screenshot;
+MimeType=image/png;image/jpeg;image/webp;image/tiff;image/bmp;image/gif;application/pdf;
+StartupNotify=false

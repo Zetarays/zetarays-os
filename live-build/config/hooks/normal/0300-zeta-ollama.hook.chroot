@@ -1,0 +1,142 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — Ollama (modello AI locale) per ZETA, offline.
+# Installa il runtime Ollama e mette a posto il modello llama3.2:1b.
+# FATALE di proposito: l'AI e una funzione centrale di ZETA RAYS, e un'immagine
+# senza motore o senza modello e un prodotto rotto. Se qualcosa qui non riesce,
+# la costruzione si ferma invece di consegnare un sistema in cui ZETA tace.
+set +e
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+    aarch64|arm64) OARCH=arm64 ;;
+    x86_64|amd64)  OARCH=amd64 ;;
+    *) echo "ZETA RAYS: ERRORE - architettura $ARCH non supportata da Ollama." >&2; exit 1 ;;
+esac
+
+echo "ZETA RAYS: installazione runtime Ollama ($OARCH)…"
+# Il runtime arriva con l'immagine (build.sh lo prende dalla cache locale):
+# cosi la costruzione non dipende dalla rete. Il download resta solo come
+# ultima risorsa, se per qualche motivo il file non ci fosse.
+INCLUSO=/usr/share/zeta/ollama-runtime.tar.zst
+if [ -s "$INCLUSO" ]; then
+    echo "ZETA RAYS: uso il runtime Ollama incluso nell'immagine"
+    mv "$INCLUSO" /tmp/ollama.tar.zst
+else
+    URL="https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${OARCH}.tar.zst"
+    echo "ZETA RAYS: runtime non incluso, provo a scaricarlo…"
+    if ! curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --max-time 1800 \
+              -o /tmp/ollama.tar.zst "$URL"; then
+        # Un tempo qui si proseguiva in silenzio: l'immagine usciva con il
+        # modello ma senza motore, ZETA non rispondeva e la costruzione
+        # dichiarava comunque successo. Meglio fermarsi.
+        echo "ZETA RAYS: ERRORE - impossibile procurarsi il runtime Ollama." >&2
+        echo "ZETA RAYS: senza motore l'AI non funziona: costruzione interrotta." >&2
+        exit 1
+    fi
+fi
+# archivio .tar.zst (zstd)
+if command -v zstd >/dev/null 2>&1; then
+    zstd -d -c /tmp/ollama.tar.zst | tar -C /usr -xf -
+else
+    tar --zstd -C /usr -xf /tmp/ollama.tar.zst
+fi
+rm -f /tmp/ollama.tar.zst
+# le librerie GPU (CUDA/ROCm) sono inutili nelle VM/CPU: liberano ~1,4 GB
+rm -rf /usr/lib/ollama/cuda_* /usr/lib/ollama/rocm* /usr/lib/ollama/*jetpack* 2>/dev/null
+
+if [ ! -x /usr/bin/ollama ]; then
+    echo "ZETA RAYS: ERRORE - binario ollama assente dopo l'estrazione." >&2
+    exit 1
+fi
+# Riga che build.sh cerca per confermare che l'AI e davvero nell'immagine.
+echo "ZETA RAYS: runtime Ollama installato ($(/usr/bin/ollama --version 2>/dev/null | head -1))"
+
+# utente di servizio e cartella dei modelli (condivisa)
+getent group ollama >/dev/null || groupadd -r ollama
+getent passwd ollama >/dev/null || useradd -r -g ollama -d /usr/share/ollama -s /usr/sbin/nologin ollama
+mkdir -p /usr/share/ollama/.ollama/models
+chown -R ollama:ollama /usr/share/ollama
+
+# servizio di sistema
+cat > /etc/systemd/system/ollama.service <<'UNIT'
+[Unit]
+Description=Ollama — modello AI locale di ZETA RAYS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ollama
+Group=ollama
+Environment="HOME=/usr/share/ollama"
+Environment="OLLAMA_MODELS=/usr/share/ollama/.ollama/models"
+# La cartella del modello, inclusa nell'immagine, puo risultare di root a
+# causa dell'ordine con cui live-build applica i file. Ollama gira come utente
+# «ollama» e senza accesso non riesce nemmeno a scrivere la propria chiave:
+# muore in loop e l'AI non parte mai. Questo passo, eseguito come root (+) solo
+# quando serve, garantisce i permessi giusti a ogni avvio senza dipendere dal
+# momento della costruzione. Tocca solo cio che non e gia di ollama.
+ExecStartPre=+/bin/sh -c 'find /usr/share/ollama ! -user ollama -exec chown ollama:ollama {} + 2>/dev/null || true'
+ExecStart=/usr/bin/ollama serve
+Restart=on-failure
+RestartSec=3
+# leggero quando inattivo
+Nice=5
+# Il modello locale non deve poter bloccare tutto il computer: su macchine con
+# poca RAM, senza questi limiti il sistema andrebbe in swap e sembrerebbe
+# congelato. Qui il modello viene fermato invece di trascinare giù il desktop.
+CPUWeight=30
+MemoryHigh=45%
+MemoryMax=60%
+OOMPolicy=stop
+# scarica il modello dalla RAM dopo 5 minuti di inattività
+Environment="OLLAMA_KEEP_ALIVE=5m"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+# Questi due non fanno andare piu veloce: misurati, non cambiano i tempi.
+# Servono a mettere un tetto al caso peggiore. Senza, una raffica di domande
+# puo far aprire a Ollama piu contesti insieme (ognuno con la sua memoria) e
+# accodare centinaia di richieste: sulla carta e capacita, su un Mini PC e il
+# momento in cui la memoria finisce e il computer si pianta. Uno alla volta,
+# e una coda corta, e cio che serve a un computer con un utente solo.
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_MAX_QUEUE=64"
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl enable ollama.service >/dev/null 2>&1
+
+# Il modello (llama3.2:1b, ~1.3 GB) e gia nell'immagine: sta in
+# includes.chroot/usr/share/ollama/.ollama/models, ed e identico per tutte le
+# architetture (sono solo pesi). Scaricarlo qui con «ollama pull» dipendeva
+# dalla rete e dal server Ollama emulato: sotto emulazione x86 andava in
+# timeout e l'immagine amd64 usciva senza il modello. Ora si scarica solo se,
+# per qualche motivo, non fosse presente.
+export HOME=/usr/share/ollama
+export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
+MANIFEST=/usr/share/ollama/.ollama/models/manifests/registry.ollama.ai/library/llama3.2/1b
+if [ -f "$MANIFEST" ]; then
+    echo "ZETA RAYS: modello llama3.2:1b gia presente nell'immagine"
+else
+    echo "ZETA RAYS: modello assente, provo a scaricarlo…"
+    /usr/bin/ollama serve >/tmp/ollama-serve.log 2>&1 &
+    OPID=$!
+    i=0
+    while [ $i -lt 40 ]; do
+        curl -fsS http://127.0.0.1:11434/ >/dev/null 2>&1 && break
+        i=$((i + 1)); sleep 2
+    done
+    if timeout 1500 /usr/bin/ollama pull llama3.2:1b >/tmp/ollama-pull.log 2>&1; then
+        echo "ZETA RAYS: modello llama3.2:1b scaricato"
+    else
+        echo "ZETA RAYS: ERRORE - nessun modello per l'AI." >&2
+        kill "$OPID" 2>/dev/null
+        exit 1
+    fi
+    kill "$OPID" 2>/dev/null
+    wait "$OPID" 2>/dev/null
+fi
+chown -R ollama:ollama /usr/share/ollama
+
+exit 0

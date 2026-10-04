@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-index — aggiorna l'indice dei contenuti per la ricerca di ZETA RAYS.
+
+  zeta-index            aggiornamento incrementale (solo i file cambiati)
+  zeta-index --full     ricostruisce l'indice da zero
+  zeta-index --search Q cerca nell'indice (uso diagnostico)
+
+Pensato per girare a bassa priorità (nice/ionice) da un timer utente.
+"""
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from search import indexer  # noqa: E402
+
+
+def main(argv):
+    if len(argv) > 1 and argv[1] in ("--search", "-s"):
+        for r in indexer.search(" ".join(argv[2:])):
+            print("%-9s %s\n          %s" % (r["kind"], r["path"], r["snippet"]))
+        return 0
+    full = "--full" in argv[1:]
+    stats = indexer.reindex(full=full)
+    print("Indice aggiornato: %d nuovi, %d aggiornati, %d rimossi."
+          % (stats["added"], stats["updated"], stats["removed"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

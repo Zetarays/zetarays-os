@@ -1,0 +1,2 @@
+# ZETA RAYS — quando compare una scheda Wi-Fi, regione radio dal fuso orario
+ACTION=="add", SUBSYSTEM=="ieee80211", RUN+="/usr/local/libexec/zeta-regione-radio"

@@ -1,0 +1,91 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — benvenuto del sistema live: provare o installare.
+
+Compare all'avvio del live. Serve anche quando il menu di avvio non si può
+usare (in alcune macchine virtuali GRUB non riceve la tastiera USB): da qui
+l'installazione è sempre raggiungibile con un clic.
+"""
+import subprocess
+import sys
+
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
+
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import tema  # noqa: E402
+
+LOGO = "/usr/share/zeta/brand/zeta-logo-bianco.svg"
+
+CSS = """
+.bv-title { font-size: 22px; font-weight: 500; }
+.bv-text { font-size: 13px; color: @ink_2; }
+.bv-hint { font-size: 12px; color: @ink_dim; }
+button.bv { min-height: 38px; padding: 0 22px; border-radius: 10px; font-size: 13px; }
+"""
+
+
+class Benvenuto(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Welcome to ZETA RAYS OS", default_width=560,
+                         default_height=380, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER,
+                      margin_top=36, margin_bottom=32, margin_start=40, margin_end=40)
+        logo = Gtk.Image.new_from_file(LOGO)
+        logo.set_pixel_size(72)
+        box.append(logo)
+        box.append(Gtk.Label(label="Welcome to ZETA RAYS OS", css_classes=["bv-title"], margin_top=10))
+        # in inglese, come il menu di avvio della chiavetta: la lingua del
+        # sistema si sceglie nella prima schermata dell'installer
+        box.append(Gtk.Label(label="You can try ZETA RAYS as it is, without changing anything on "
+                                   "this computer, or install it on the disk.",
+                             wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=48,
+                             css_classes=["bv-text"]))
+        row = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, margin_top=18)
+        prova = Gtk.Button(label="Keep trying", css_classes=["bv"])
+        prova.connect("clicked", lambda *_: self.close())
+        inst = Gtk.Button(label="Install ZETA RAYS OS", css_classes=["bv", "suggested-action"])
+        inst.connect("clicked", lambda *_: self.install())
+        row.append(prova)
+        row.append(inst)
+        box.append(row)
+        box.append(Gtk.Label(label="You can install it later at any time from the app menu: «Installa ZETA RAYS». "
+                                   "The installer lets you choose your language.",
+                             wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=52,
+                             css_classes=["bv-hint"], margin_top=10))
+        # barra del titolo (trascinabile, con la X per chiudere)
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar(show_title=False)
+        header.add_css_class("flat")
+        view.add_top_bar(header)
+        view.set_content(box)
+        self.set_content(view)
+        self.set_default_widget(inst)
+        inst.grab_focus()
+
+        # Esc chiude: è la scorciatoia che tutti si aspettano da una finestra
+        # di benvenuto, e non si resta a cercare il pulsante giusto.
+        tasti = Gtk.EventControllerKey()
+        tasti.connect("key-pressed",
+                      lambda _c, kv, _k, _m: (self.close(), True)[1]
+                      if kv == Gdk.KEY_Escape else False)
+        self.add_controller(tasti)
+
+    def install(self):
+        subprocess.Popen(["zeta-installa"], start_new_session=True)
+        self.close()
+
+
+class App(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Benvenuto", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        tema.apply(CSS)
+        (self.props.active_window or Benvenuto(self)).present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run([sys.argv[0]]))

@@ -1,0 +1,4 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Apre la cartella Scrivania nel gestore file.
+exec thunar "$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Scrivania")"

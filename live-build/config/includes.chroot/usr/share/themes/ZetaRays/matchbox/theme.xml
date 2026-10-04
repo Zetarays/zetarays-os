@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!-- ZETA RAYS — cornici scure per le finestre di dialogo dell'installer (matchbox) -->
+<theme name="ZETA RAYS" author="ZETA RAYS" desc="" version="1.0" engine_version="1" >
+
+<color id="bg"      def="#19191C" />
+<color id="border"  def="#2E2E33" />
+<color id="text"    def="#EDEDEA" />
+<color id="menubg"  def="#19191C" />
+<color id="menuhl"  def="#3A8DFF" />
+<color id="trans"   def="#ffffff00" />
+<color id="shadowcol" def="#00000088" />
+
+<font id="titlefont" def="Roboto medium 13px" />
+<font id="menufont"  def="Roboto 13px" />
+
+<frame id="main" height="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+<frame id="main-east" width="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+<frame id="main-west" width="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+<frame id="main-south" height="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+
+<frame id="dialog" height="30">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+  <layer x="1" y="1" w="100%-2" h="100%-1" type="plain" color="bg" />
+  <layer x="14" y="8" w="100%-28" h="20" type="label" color="text" justify="left" font="titlefont" />
+</frame>
+<frame id="dialog-north" height="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+<frame id="dialog-east" width="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+<frame id="dialog-west" width="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+<frame id="dialog-south" height="1">
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+</frame>
+
+<frame id="menu" border_north="1" border_south="1" border_west="1" border_east="1"
+       font="menufont" highlight="menuhl" color="text" options="shaped" >
+  <layer x="0" y="0" w="100%" h="100%" type="plain" color="border" />
+  <layer x="1" y="1" w="100%-2" h="100%-2" type="plain" color="menubg" />
+</frame>
+
+<shadow style="simple" dx="0" dy="6" color="shadowcol"/>
+
+</theme>

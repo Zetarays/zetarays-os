@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Sicurezza
+GenericName=Centro di sicurezza
+Comment=Stato di sicurezza, strumenti e raccomandazioni di ZETA RAYS
+Exec=zeta-sicurezza
+Icon=zeta-sicurezza
+Terminal=false
+Type=Application
+Categories=System;Security;

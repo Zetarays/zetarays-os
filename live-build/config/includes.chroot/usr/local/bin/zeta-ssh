@@ -1,0 +1,314 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — accesso remoto (SSH).
+#
+#   zeta-ssh stato              acceso o spento, da dove, indirizzi
+#   zeta-ssh attiva             accende il server, porta 22 aperta alla SOLA rete locale
+#   zeta-ssh remoto attiva      porta 22 aperta anche da internet (serve il router)
+#   zeta-ssh remoto disattiva   torna alla sola rete locale
+#   zeta-ssh disattiva          spegne il server e chiude la porta
+#   zeta-ssh config             SSH_ENABLED / SSH_PORT / SSH_REMOTE_ACCESS
+#   zeta-ssh diagnosi           controlla tutto il percorso, scheda di rete → sshd
+#
+# Unica fonte di verita': nftables (/etc/nftables.conf + /etc/nftables.d/zeta-ssh.nft)
+# e il servizio ssh. Il file zeta-ssh.nft si riscrive intero a ogni scelta, e le
+# porte stanno in insiemi (accesso_lan, accesso_remoto): ripetere un comando non
+# crea mai regole doppie. ufw e' installato ma spento: qui si tengono pronte
+# anche le sue regole, cosi' chi lo accende non resta chiuso fuori.
+# Si dice «fatto» solo dopo aver controllato servizio, porta in ascolto e firewall.
+set -u
+PORTA=22
+REGOLA=/etc/nftables.d/zeta-ssh.nft
+RETI_LOCALI="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fc00::/7 fe80::/10"
+
+servizio_attivo()  { systemctl is-active --quiet ssh.service; }
+in_ascolto()       { ss -Htln "sport = :$PORTA" 2>/dev/null | grep -q .; }
+nel_set() {   # nel_set accesso_lan|accesso_remoto
+    if [ "$(id -u)" = 0 ]; then
+        nft list set inet zeta "$1" 2>/dev/null | grep -qE "elements = \{[^}]*\b$PORTA\b"
+    else   # il firewall lo legge solo root: da utente vale la scelta salvata
+        [ -f "$REGOLA" ] && grep -q "add element inet zeta $1 " "$REGOLA"
+    fi
+}
+porta_aperta()  { nel_set accesso_lan; }
+remoto_aperto() { nel_set accesso_remoto; }
+dal_vivo()      { [ -e /run/live/medium ]; }
+
+# --- ufw (spento di serie): regole tenute pronte -----------------------------
+ufw_presente() { command -v ufw >/dev/null 2>&1; }
+ufw_acceso()   { ufw_presente && [ "$(id -u)" = 0 ] && ufw status 2>/dev/null | grep -q '^Status: active'; }
+ufw_lan() {    # ufw_lan allow|delete
+    ufw_presente || return 0
+    for rete in $RETI_LOCALI; do
+        if [ "$1" = allow ]; then
+            ufw allow from "$rete" to any port "$PORTA" proto tcp comment 'ZETA RAYS SSH (LAN)' >/dev/null 2>&1
+        else
+            ufw delete allow from "$rete" to any port "$PORTA" proto tcp >/dev/null 2>&1
+        fi
+    done
+}
+ufw_remoto() { # ufw_remoto allow|delete
+    ufw_presente || return 0
+    if [ "$1" = allow ]; then
+        ufw limit "$PORTA/tcp" comment 'ZETA RAYS SSH (internet)' >/dev/null 2>&1
+    else
+        ufw delete limit "$PORTA/tcp" >/dev/null 2>&1
+    fi
+}
+ufw_lascia_passare() {   # vero se ufw e' spento, o acceso con la regola per la 22
+    ufw_acceso || return 0
+    ufw status 2>/dev/null | grep -qE "^$PORTA/tcp +(ALLOW|LIMIT)"
+}
+
+utente_reale() {
+    if [ -n "${SUDO_USER:-}" ]; then echo "$SUDO_USER"
+    elif [ -n "${PKEXEC_UID:-}" ]; then id -nu "$PKEXEC_UID" 2>/dev/null
+    else id -nu; fi
+}
+
+indirizzi() {
+    ip -o -4 addr show scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]}'
+}
+
+# --- scelta salvata: un solo file, riscritto intero --------------------------
+scrivi_regola() {   # scrivi_regola lan|remoto
+    mkdir -p /etc/nftables.d
+    {
+        echo "# ZETA RAYS — scritto da zeta-ssh, non modificare a mano."
+        if [ "$1" = remoto ]; then
+            echo "# SSH acceso: porta $PORTA REMOTE ENABLED (rete locale e internet)"
+            echo "add element inet zeta accesso_lan { $PORTA }"
+            echo "add element inet zeta accesso_remoto { $PORTA }"
+        else
+            echo "# SSH acceso: porta $PORTA LAN ONLY (solo rete locale)"
+            echo "add element inet zeta accesso_lan { $PORTA }"
+        fi
+    } > "$REGOLA.nuovo"
+    chmod 0644 "$REGOLA.nuovo"
+    mv -f "$REGOLA.nuovo" "$REGOLA"
+}
+
+# Ricarica atomica del firewall dalla configurazione: prima il controllo, poi
+# l'applicazione. Se il controllo fallisce non si tocca il firewall in uso.
+ricarica_firewall() {
+    if ! nft -c -f /etc/nftables.conf; then
+        echo "La configurazione del firewall non passa il controllo: non applico nulla." >&2
+        return 1
+    fi
+    nft -f /etc/nftables.conf
+}
+
+stato() {
+    if servizio_attivo && in_ascolto && porta_aperta; then
+        if ! ufw_lascia_passare; then
+            echo "Accesso remoto (SSH): acceso, ma ufw e' acceso e blocca la porta $PORTA. Rimedia: sudo zeta-ssh attiva"
+            return 2
+        fi
+        if remoto_aperto; then
+            echo "Accesso remoto (SSH): ACCESO, porta $PORTA aperta alla rete locale E DA INTERNET."
+        else
+            echo "Accesso remoto (SSH): ACCESO, porta $PORTA aperta alla rete locale."
+        fi
+        for ip in $(indirizzi); do echo "  dalla rete locale:  ssh $(utente_reale)@$ip"; done
+        remoto_aperto && echo "  da internet: ssh $(utente_reale)@<indirizzo pubblico del router> (il router deve inoltrare la porta $PORTA a questo computer)"
+        return 0
+    fi
+    if servizio_attivo || porta_aperta; then
+        echo "Accesso remoto (SSH): a meta' (servizio $(servizio_attivo && echo acceso || echo spento), porta $(porta_aperta && echo aperta || echo chiusa)). Riprova: sudo zeta-ssh attiva"
+        return 2
+    fi
+    echo "Accesso remoto (SSH): spento. Per accenderlo: sudo zeta-ssh attiva (o Impostazioni › Wi-Fi e rete › Accesso remoto)."
+    return 1
+}
+
+config() {
+    local acceso=false remoto=false
+    servizio_attivo && porta_aperta && acceso=true
+    $acceso && remoto_aperto && remoto=true
+    echo "SSH_ENABLED=$acceso"
+    echo "SSH_PORT=$PORTA"
+    echo "SSH_REMOTE_ACCESS=$remoto"
+}
+
+serve_root() {
+    if [ "$(id -u)" != 0 ]; then
+        exec pkexec "$0" "$@"
+    fi
+}
+
+accendi_server() {
+    command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ] || {
+        echo "Il server SSH non e' installato (pacchetto openssh-server)." >&2; return 1; }
+    ssh-keygen -A >/dev/null 2>&1
+    /usr/sbin/sshd -t || { echo "La configurazione di sshd ha un errore: non accendo." >&2; return 1; }
+    # un solo modo di avviare sshd: il servizio (non l'attivazione a socket)
+    systemctl disable --now ssh.socket >/dev/null 2>&1
+    systemctl enable --now ssh.service >/dev/null 2>&1
+    for _ in 1 2 3 4 5 6 7 8 9 10; do in_ascolto && break; sleep 0.5; done
+}
+
+# insiemi in memoria uguali alla scelta salvata (senza ricaricare tutto, che
+# azzererebbe i contatori; se la tabella manca o e' vecchia, ricarica intera)
+allinea_firewall() {   # allinea_firewall lan|remoto|spento
+    if ! nft list set inet zeta accesso_remoto >/dev/null 2>&1; then
+        ricarica_firewall || return 1
+        return 0
+    fi
+    case "$1" in
+        lan)    nft add element inet zeta accesso_lan "{ $PORTA }"
+                remoto_aperto && nft delete element inet zeta accesso_remoto "{ $PORTA }" ;;
+        remoto) nft add element inet zeta accesso_lan "{ $PORTA }"
+                nft add element inet zeta accesso_remoto "{ $PORTA }" ;;
+        spento) porta_aperta && nft delete element inet zeta accesso_lan "{ $PORTA }"
+                remoto_aperto && nft delete element inet zeta accesso_remoto "{ $PORTA }" ;;
+    esac
+    return 0
+}
+
+attiva() {
+    serve_root attiva
+    accendi_server || return 1
+    scrivi_regola lan
+    allinea_firewall lan
+    ufw_remoto delete; ufw_lan allow
+    if servizio_attivo && in_ascolto && porta_aperta && ! remoto_aperto && ufw_lascia_passare; then
+        stato
+        ufw_acceso && echo "  (anche ufw e' acceso: la regola per la porta $PORTA c'e' anche li')"
+        if dal_vivo; then
+            echo "Attenzione: sei nella sessione dal vivo, la password di «zeta» e' «zeta»:"
+            echo "chiunque nella tua rete puo' entrare. Cambiala con: passwd"
+        fi
+        return 0
+    fi
+    echo "Non sono riuscito ad accendere l'accesso remoto:" >&2
+    systemctl --no-pager -l status ssh.service 2>&1 | tail -5 >&2
+    return 1
+}
+
+remoto_attiva() {
+    serve_root remoto attiva
+    if dal_vivo; then
+        echo "Nella sessione dal vivo la password e' «zeta», nota a tutti: da internet" >&2
+        echo "SSH non si apre. Installa ZETA RAYS (o usa la sola rete locale: zeta-ssh attiva)." >&2
+        return 1
+    fi
+    accendi_server || return 1
+    scrivi_regola remoto
+    allinea_firewall remoto
+    ufw_lan allow; ufw_remoto allow
+    if servizio_attivo && in_ascolto && porta_aperta && remoto_aperto && ufw_lascia_passare; then
+        stato
+        echo
+        echo "Protezioni: root non entra; 4 tentativi per connessione; piu' di 10"
+        echo "connessioni nuove al minuto dallo stesso indirizzo vengono scartate."
+        local utente
+        utente=$(utente_reale)
+        local casa
+        casa=$(getent passwd "${utente:-root}" | cut -d: -f6)
+        if [ -z "$casa" ] || [ ! -s "$casa/.ssh/authorized_keys" ]; then
+            echo "Consiglio: da internet e' piu' sicuro entrare con una chiave invece della"
+            echo "password. Dal computer da cui ti colleghi:  ssh-copy-id ${utente:-utente}@<indirizzo>"
+            echo "Le password restano accettate: non le disattivo finche' non c'e' una chiave."
+        fi
+        return 0
+    fi
+    echo "Non sono riuscito ad aprire SSH da internet." >&2
+    return 1
+}
+
+remoto_disattiva() {
+    serve_root remoto disattiva
+    if servizio_attivo; then
+        scrivi_regola lan
+        allinea_firewall lan
+        ufw_remoto delete; ufw_lan allow
+    else
+        rm -f "$REGOLA"
+        allinea_firewall spento
+        ufw_remoto delete
+    fi
+    if ! remoto_aperto; then
+        echo "Accesso da internet chiuso."
+        servizio_attivo && stato
+        return 0
+    fi
+    echo "Non sono riuscito a chiudere l'accesso da internet." >&2
+    return 1
+}
+
+disattiva() {
+    serve_root disattiva
+    systemctl disable --now ssh.service ssh.socket >/dev/null 2>&1
+    rm -f "$REGOLA"
+    allinea_firewall spento
+    ufw_remoto delete; ufw_lan delete
+    if ! servizio_attivo && ! porta_aperta && ! remoto_aperto; then
+        echo "Accesso remoto (SSH): spento, porta $PORTA chiusa."
+        return 0
+    fi
+    echo "Non sono riuscito a spegnere del tutto l'accesso remoto." >&2
+    return 1
+}
+
+# --- diagnosi: tutto il percorso, dalla scheda di rete all'autenticazione ----
+diagnosi() {
+    serve_root diagnosi
+    t() { printf '\n== %s\n' "$1"; }
+    t "Schede di rete"
+    ip -br link; ip -br addr
+    t "Instradamento"
+    ip route; ip -6 route 2>/dev/null | grep -v '^fe80\|^multicast' | head -5
+    t "Vicini (router)"
+    ip neigh 2>/dev/null | head -8
+    t "Filtro dell'indirizzo di ritorno (rp_filter: 0 spento, 1 rigido, 2 largo)"
+    for f in all default $(ls /sys/class/net | grep -v '^lo$'); do
+        printf '  %-10s %s\n' "$f" "$(sysctl -n net.ipv4.conf."$f".rp_filter 2>/dev/null)"
+    done
+    printf '  ip_forward %s\n' "$(sysctl -n net.ipv4.ip_forward)"
+    t "Altri firewall"
+    printf '  nftables.service: %s (%s)\n' "$(systemctl is-active nftables)" "$(systemctl is-enabled nftables 2>/dev/null)"
+    if ufw_presente; then printf '  ufw: %s\n' "$(ufw status 2>/dev/null | head -1)"; else echo "  ufw: non installato"; fi
+    printf '  firewalld: %s\n' "$(command -v firewalld >/dev/null && echo installato || echo assente)"
+    printf '  tabelle nftables: %s\n' "$(nft list tables | tr '\n' ' ')"
+    printf '  iptables: %s\n' "$(iptables -V 2>/dev/null)"
+    t "Scelta SSH (zeta-ssh config)"
+    config
+    t "Firewall: insiemi e contatori"
+    nft list set inet zeta accesso_lan 2>/dev/null | grep -E 'elements' || echo "  accesso_lan: vuoto"
+    nft list set inet zeta accesso_remoto 2>/dev/null | grep -E 'elements' || echo "  accesso_remoto: vuoto"
+    nft -a list chain inet zeta input 2>/dev/null | grep -E 'accesso|policy|zeta-fw'
+    t "sshd"
+    printf '  servizio: %s, all avvio: %s\n' "$(systemctl is-active ssh)" "$(systemctl is-enabled ssh 2>/dev/null)"
+    ss -Htlnp "sport = :$PORTA" 2>/dev/null || true
+    /usr/sbin/sshd -T 2>/dev/null | grep -E '^(port|listenaddress|addressfamily|permitrootlogin|passwordauthentication|pubkeyauthentication|maxauthtries|logingracetime) '
+    t "Connessioni SSH in corso (conntrack)"
+    if command -v conntrack >/dev/null; then conntrack -L -p tcp --dport "$PORTA" 2>/dev/null | head -10; else echo "  conntrack non installato"; fi
+    t "Ultimi tentativi rifiutati dal firewall"
+    journalctl -k -g 'zeta-fw ssh' -n 5 --no-pager 2>/dev/null | tail -5
+    t "Ultimi accessi a sshd"
+    journalctl -u ssh -n 8 --no-pager 2>/dev/null | tail -8
+    cat <<'EOF'
+
+== Per una prova da fuori
+  Su questo computer:   sudo tcpdump -ni any 'tcp port 22'
+  Da una rete esterna:  ssh utente@<indirizzo pubblico del router>
+  Se si vede solo [S] in arrivo e nessun [S.] in uscita: firewall (vedi sopra
+  «accesso_remoto», deve contenere 22) o instradamento. Se non arriva nulla:
+  il router non inoltra la porta 22 a questo computer.
+EOF
+}
+
+case "${1:-stato}" in
+    stato) stato ;;
+    config) config ;;
+    attiva|accendi|on) attiva ;;
+    disattiva|spegni|off) disattiva ;;
+    remoto)
+        case "${2:-}" in
+            attiva|accendi|on) remoto_attiva ;;
+            disattiva|spegni|off) remoto_disattiva ;;
+            *) echo "uso: zeta-ssh remoto attiva|disattiva" >&2; exit 2 ;;
+        esac ;;
+    diagnosi) diagnosi ;;
+    *) sed -n '4,11p' "$0"; exit 2 ;;
+esac

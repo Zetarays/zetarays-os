@@ -1,0 +1,249 @@
+#!/usr/bin/python3 -S
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — Ctrl+Alt+Canc: il pannello di emergenza.
+
+  zeta-emergenza            mostra il pannello (lo chiama Ctrl+Alt+Canc)
+  zeta-emergenza --demone   il processo che lo tiene pronto (lo avvia la sessione)
+
+Gestione attivita', chiusura di un programma bloccato, terminale, monitor,
+ripristino del desktop, blocco, uscita, riavvio, spegnimento.
+
+Perche' e' fatto cosi':
+  - lo gestisce Hyprland, non le app: un programma bloccato non lo ferma;
+  - il pannello resta pronto in memoria (nascosto, senza consumare CPU): compare
+    subito anche quando il computer arranca e avviare un programma nuovo
+    richiederebbe secondi. earlyoom non lo chiude mai (--avoid);
+  - se neanche il desktop risponde piu', ci sono due vie che non dipendono da
+    esso, scritte anche nel pannello: Ctrl+Alt+F3 (console di testo, gestita
+    dal kernel) e Ctrl+Alt+Maiusc+Esc (logind torna alla schermata di accesso).
+"""
+import os
+import socket
+import sys
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+SOCK = os.path.join(RUNTIME, "zeta-emergenza.sock")
+SE_STESSO = os.path.abspath(__file__)
+
+if len(sys.argv) < 2 or sys.argv[1] != "--demone":
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.sendto(b"apri", SOCK)
+        sys.exit(0)
+    except OSError:
+        pass
+    finally:
+        s.close()
+    # nessun processo pronto: si avvia e si mostra subito
+    os.execv(SE_STESSO, [SE_STESSO, "--demone", "apri"])
+
+import site  # noqa: E402
+site.main()
+import glob  # noqa: E402
+import subprocess  # noqa: E402
+
+# gtk4-layer-shell prima di libwayland; si rilancia lo script stesso (non
+# python3) perche' il processo si chiami «zeta-emergenza»: earlyoom lo protegge
+if "ZETA_EMERGENZA_PRELOADED" not in os.environ:
+    libs = glob.glob("/usr/lib/*/libgtk4-layer-shell.so.0")
+    if libs:
+        env = dict(os.environ, ZETA_EMERGENZA_PRELOADED="1",
+                   LD_PRELOAD=(libs[0] + " " + os.environ.get("LD_PRELOAD", "")).strip())
+        os.execve(SE_STESSO, [SE_STESSO] + sys.argv[1:], env)
+
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import popup  # noqa: E402
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+CSS = """
+window.zeta-overlay.emergenza { background: @scrim_strong; }
+.em-titolo { font-size: 20px; font-weight: 500; }
+.em-sotto { font-size: 12px; color: @ink_dim; }
+button.em-tile { min-width: 132px; min-height: 96px; padding: 10px; border-radius: 18px;
+                 background: @hover; border: 1px solid @line; box-shadow: none; }
+button.em-tile:hover, button.em-tile:focus-visible { background: @hover_2; border-color: @accent; }
+button.em-tile.pericolo:hover, button.em-tile.pericolo:focus-visible { background: @accent; }
+button.em-tile.conferma { background: @accent; }
+button.em-tile label { font-size: 12px; }
+.em-nota { font-size: 12px; color: @ink_dim; }
+"""
+
+
+def _lancia(cmd):
+    try:
+        p = subprocess.Popen(cmd, start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # il pannello resta vivo: senza aspettare, i programmi chiusi
+        # resterebbero come processi zombie
+        import threading
+        threading.Thread(target=p.wait, daemon=True).start()
+    except OSError:
+        pass
+
+
+def ripristina_desktop():
+    """Barra, notifiche, sfondo e icone ripartono (li riavvia la loro
+    sorveglianza in zeta-session); Hyprland rilegge la configurazione."""
+    uid = str(os.getuid())
+    for nome in ("waybar", "mako", "swaybg"):
+        subprocess.run(["pkill", "-u", uid, "-x", nome], capture_output=True)
+    subprocess.run(["pkill", "-u", uid, "-f", "^/usr/bin/python3 /usr/local/bin/zeta-scrivania$"],
+                   capture_output=True)
+    subprocess.run(["hyprctl", "reload"], capture_output=True, timeout=5)
+    GLib.timeout_add(1500, lambda: (_lancia(["zeta-sfondo", "apply"]), False)[1])
+
+
+def stato():
+    """Una riga su memoria e processore, e chi pesa di piu' (lettura di /proc)."""
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        car = os.getloadavg()[0]
+        pesi = {}
+        for p in psutil.process_iter(["name", "memory_info"]):
+            try:
+                pesi[p.info["name"]] = pesi.get(p.info["name"], 0) + p.info["memory_info"].rss
+            except (psutil.Error, AttributeError, TypeError):
+                pass
+        top = max(pesi.items(), key=lambda kv: kv[1]) if pesi else ("?", 0)
+        return ("Memoria usata %d%% · carico %.1f su %d core · pesa di più: %s (%.1f GB)"
+                % (vm.percent, car, psutil.cpu_count() or 1, top[0], top[1] / 1e9))
+    except Exception:  # noqa: BLE001 - informazione accessoria
+        return ""
+
+
+class Pannello(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Emergenza", decorated=False)
+        popup.make_overlay(self, "zeta-emergenza")
+        self.add_css_class("emergenza")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                      halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        box.append(Gtk.Label(label="Cosa vuoi fare?", css_classes=["em-titolo"]))
+        self.info = Gtk.Label(css_classes=["em-sotto"])
+        box.append(self.info)
+
+        from system import power
+        self.azioni = [
+            [("utilities-system-monitor", "Gestione attività", lambda: _lancia(["zeta-monitor", "processes"])),
+             ("window-close-symbolic", "Chiudi un programma\nbloccato", lambda: _lancia(["zeta-finestre", "scegli"])),
+             ("view-list-symbolic", "Uscita forzata:\nelenco completo", lambda: _lancia(["zeta-finestre", "forza"])),
+             ("utilities-terminal", "Terminale", lambda: _lancia(["foot"])),
+             ("zeta-monitor", "Monitor\ndi sistema", lambda: _lancia(["zeta-monitor"])),
+             ("view-refresh-symbolic", "Ripristina\nil desktop", ripristina_desktop)],
+            [("zeta-lock", "Blocca", power.lock),
+             ("zeta-logout", "Esci", power.logout),
+             ("zeta-restart", "Riavvia", power.reboot),
+             ("zeta-power", "Spegni", power.poweroff)],
+        ]
+        pericolose = {"Esci", "Riavvia", "Spegni"}
+        self.bottoni = []
+        for fila in self.azioni:
+            r = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, margin_top=18)
+            for icona, testo, fn in fila:
+                b = Gtk.Button(css_classes=["em-tile"] + (["pericolo"] if testo in pericolose else []))
+                v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
+                v.append(Gtk.Image(icon_name=icona, pixel_size=28))
+                lab = Gtk.Label(label=testo, justify=Gtk.Justification.CENTER)
+                v.append(lab)
+                b.set_child(v)
+                b.connect("clicked", self._premuto, testo, fn, testo in pericolose, lab)
+                r.append(b)
+                self.bottoni.append(b)
+            box.append(r)
+        box.append(Gtk.Label(
+            label="Esc per tornare indietro · Se anche questo pannello non risponde: "
+                  "Ctrl+Alt+F3 apre una console di testo (poi: zeta processes), "
+                  "Ctrl+Alt+Maiusc+Esc riporta alla schermata di accesso.",
+            css_classes=["em-nota"], wrap=True, max_width_chars=90,
+            justify=Gtk.Justification.CENTER, margin_top=26))
+        self.set_child(box)
+        popup.close_on_outside(self, box, self.nascondi)
+        self._in_conferma = None
+
+    def _premuto(self, btn, testo, fn, pericolosa, lab):
+        # Esci, Riavvia, Spegni: il primo clic chiede conferma (i dati non
+        # salvati andrebbero persi), il secondo esegue
+        if pericolosa and self._in_conferma is not btn:
+            self._annulla_conferma()
+            self._in_conferma = btn
+            btn.add_css_class("conferma")
+            lab.set_label("Conferma:\n%s" % testo.lower())
+            btn._etichetta = (lab, testo)
+            GLib.timeout_add(4000, self._annulla_conferma)
+            return
+        self._annulla_conferma()
+        self.nascondi()
+        GLib.timeout_add(150, lambda: (fn(), False)[1])
+
+    def _annulla_conferma(self):
+        b = self._in_conferma
+        if b is not None:
+            b.remove_css_class("conferma")
+            lab, testo = b._etichetta
+            lab.set_label(testo)
+        self._in_conferma = None
+        return False
+
+    def mostra(self):
+        self.info.set_label(stato())
+        self.set_visible(True)
+        self.present()
+        GLib.idle_add(lambda: (self.bottoni[0].grab_focus(), False)[1])
+
+    def nascondi(self):
+        self._annulla_conferma()
+        self.set_visible(False)
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self, primo):
+        super().__init__(application_id="org.zetarays.Emergenza",
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+        self.primo = primo
+        self.pannello = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.clean_env()
+        os.environ.pop("ZETA_EMERGENZA_PRELOADED", None)
+        popup.load_css(CSS)
+        self.hold()
+        try:
+            os.unlink(SOCK)
+        except FileNotFoundError:
+            pass
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.sock.bind(SOCK)
+        os.chmod(SOCK, 0o600)
+        self.sock.setblocking(False)
+        GLib.io_add_watch(self.sock.fileno(), GLib.PRIORITY_HIGH, GLib.IO_IN, self._ricevi)
+
+    def do_activate(self):
+        if self.pannello is None:
+            self.pannello = Pannello(self)
+            self.pannello.set_visible(False)
+        if self.primo:
+            GLib.idle_add(lambda: (self.pannello.mostra(), False)[1])
+            self.primo = None
+
+    def _ricevi(self, *_a):
+        try:
+            while True:
+                if self.sock.recv(16) == b"apri":
+                    if self.pannello.get_visible():
+                        self.pannello.nascondi()     # stesso tasto: chiude
+                    else:
+                        self.pannello.mostra()
+        except (BlockingIOError, OSError):
+            pass
+        return True
+
+
+if __name__ == "__main__":
+    primo = "apri" if len(sys.argv) > 2 and sys.argv[2] == "apri" else None
+    sys.exit(App(primo).run([sys.argv[0]]))

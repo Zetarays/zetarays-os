@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS OS — informazioni del supporto di avvio (.disk/info) con il nome ZETA RAYS
+set -e
+for d in binary/.disk .disk; do
+  if [ -d "$d" ]; then
+    ARCH=$(sed -n 's/.* \(amd64\|arm64\|i386\) .*/\1/p' "$d/info" 2>/dev/null | head -1)
+    echo "ZETA RAYS OS 1.7 ${ARCH:+$ARCH }Live - $(date -u +%Y%m%d)" > "$d/info"
+    [ -f "$d/mkisofs" ] && sed -i 's/Debian GNU\/Linux/ZETA RAYS OS/g; s/Debian/ZETA RAYS/g' "$d/mkisofs" || true
+    break
+  fi
+done

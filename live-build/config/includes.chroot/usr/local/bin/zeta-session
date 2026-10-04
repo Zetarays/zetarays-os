@@ -1,0 +1,121 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Avvio della sessione grafica di ZETA RAYS (lanciato da Hyprland).
+# La scala e il rilevamento VM sono già stati scritti da zeta-desktop-session.
+
+gsettings set org.gnome.desktop.interface icon-theme 'zeta' 2>/dev/null
+
+# --- I componenti della scrivania si rialzano da soli -----------------------
+# Se uno di essi cade, l'utente non deve restare senza barra, senza sfondo o
+# senza icone: un ciclo lo riavvia. Una pausa crescente evita che un programma
+# rotto consumi CPU riavviandosi all'infinito.
+MIO_HYPRLAND=$(pgrep -nx -u "$(id -u)" Hyprland)
+sorveglia() {
+    local nome="$1"; shift
+    (
+        attesa=2
+        while true; do
+            # Hyprland caduto: la sorveglianza di questa sessione finisce qui,
+            # quella della sessione nuova la sostituisce (vedi zeta-ripresa).
+            if [ -n "$MIO_HYPRLAND" ] && ! kill -0 "$MIO_HYPRLAND" 2>/dev/null; then
+                exit 0
+            fi
+            inizio=$SECONDS
+            "$@" >/dev/null 2>&1
+            codice=$?
+            # Solo le cadute rapide e ripetute allungano l'attesa (un programma
+            # rotto non deve consumare CPU ripartendo di continuo). Se invece
+            # aveva funzionato per più di un minuto si riparte subito: prima
+            # l'attesa cresceva a ogni caduta, anche a ore di distanza, e dopo
+            # qualche caduta la barra impiegava mezzo minuto a tornare.
+            if [ $(( SECONDS - inizio )) -ge 60 ]; then
+                attesa=2
+            fi
+            logger -t zeta-session "$nome terminato (codice $codice), riavvio tra ${attesa}s" 2>/dev/null || true
+            sleep "$attesa"
+            attesa=$(( attesa < 30 ? attesa * 2 : 30 ))
+        done
+    ) &
+}
+
+# Cartelle personali in italiano (Scrivania, Documenti, Scaricati...):
+# si creano al primo accesso, prima che servano alle icone della scrivania.
+xdg-user-dirs-update 2>/dev/null
+
+# Colori, tema, testo, icone, cursore e icone sulla scrivania (zeta-aspetto
+# richiama zeta-accent, che genera i colori di tutte le app, lo sfondo e il
+# simbolo del launcher).
+zeta-aspetto apply
+
+# Le app amministrative (Pacchetti, installer) girano come root via pkexec/sudo:
+# senza questo non potrebbero aprire finestre su Xwayland.
+xhost +si:localuser:root >/dev/null 2>&1 &
+
+# Sfondo scelto dall'utente (o quello di ZETA RAYS generato dal colore d'accento)
+pgrep -x swaybg >/dev/null || zeta-sfondo apply &
+# Barre del titolo: il plugin hyprbars viene caricato dopo la lettura della
+# configurazione, quindi i pulsanti (chiudi/riduci/ingrandisci) si registrano
+# solo alla rilettura successiva. Una sola ricarica all'avvio, se il plugin c'è.
+if [ -f /usr/lib/zeta/hypr/hyprbars.so ]; then
+    ( sleep 2; hyprctl plugin list 2>/dev/null | grep -qi hyprbars && hyprctl reload >/dev/null 2>&1 ) &
+fi
+
+sorveglia barra waybar
+# Notifiche: se mako è già partito da solo (D-Bus lo avvia alla prima
+# notifica), non se ne lancia un secondo, che uscirebbe subito con errore
+# e verrebbe rilanciato ogni 30 secondi per sempre: si aspetta che quello
+# esistente termini, e solo allora si riparte con il nostro.
+notifiche() {
+    local pid
+    pid=$(pgrep -xo -u "$(id -u)" mako)
+    if [ -n "$pid" ]; then
+        tail --pid="$pid" -f /dev/null
+    else
+        mako
+    fi
+}
+sorveglia notifiche notifiche
+# Un solo processo in ascolto degli eventi di Hyprland: aggiorna i numeri degli
+# spazi di lavoro nella barra senza che i moduli debbano interrogare in continuo.
+sorveglia spazi zeta-spazi segnala
+# Selettore delle app (Ctrl+Tab): resta pronto, nascosto, cosi' compare
+# subito. Da fermo non usa CPU (aspetta i comandi su un socket).
+sorveglia selettore zeta-selettore --demone
+# Ctrl+Alt+Canc: il pannello di emergenza resta pronto (compare subito anche
+# quando il computer arranca; earlyoom non lo chiude)
+sorveglia emergenza zeta-emergenza --demone
+# Riduzione a icona con anteprima nella barra e animazione: pronta, nascosta,
+# senza CPU da ferma (aspetta i comandi su un socket)
+sorveglia riduci zeta-riduci --demone
+# Blocco automatico (non nel sistema live: lì la password la conosce chiunque)
+[ -d /run/live/medium ] || pgrep -x hypridle >/dev/null || hypridle &
+/usr/libexec/polkit-mate-authentication-agent-1 &
+
+# Sorveglianza di sfondo e icone della scrivania: se cadono, tornano su.
+zeta-vigila &
+
+# Pannelli della barra pronti in memoria, nascosti (launcher, centro di
+# controllo, energia, ricerca): il clic li mostra all'istante (zeta-pannello) invece di
+# far ripartire Python e GTK ogni volta. Qualche secondo dopo l'accesso, per
+# non rallentarlo; se uno cade, il clic successivo lo riavvia da solo.
+( sleep 6
+  for p in zeta-launcher zeta-controllo zeta-energia zeta-cerca; do
+      ZETA_PANNELLO_NASCOSTO=1 "$p" >/dev/null 2>&1 &
+      sleep 1
+  done ) &
+
+# Modello AI locale: lo si porta in memoria 40 secondi dopo l'accesso, con
+# priorità bassa. Così la prima domanda a ZETA risponde subito invece di
+# far aspettare il caricamento (decine di secondi).
+( sleep 40; nice -n 15 zeta-ai-precarica ) >/dev/null 2>&1 &
+
+# Modalità installazione: la voce "Installa ZETA RAYS OS" del menu di avvio aggiunge
+# "zeta-install" alla riga di comando. In quel caso apriamo subito l'installer;
+# se l'utente lo chiude, resta comunque nel desktop live.
+if grep -qw zeta-install /proc/cmdline 2>/dev/null; then
+    ( sleep 3; zeta-installa ) &
+elif [ -d /run/live/medium ]; then
+    # Sistema live: benvenuto con "Prova" / "Installa". Non dipende dal menu di
+    # avvio, che in alcune macchine virtuali non riceve la tastiera.
+    ( sleep 3; zeta-benvenuto ) &
+fi

@@ -1,0 +1,140 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-sfondo — sfondo della scrivania di ZETA RAYS.
+
+  zeta-sfondo apply                applica lo sfondo salvato (all'avvio sessione)
+  zeta-sfondo set <file> [modo]    usa un'immagine scelta dall'utente
+  zeta-sfondo mode <modo>          cambia solo l'adattamento
+  zeta-sfondo reset                torna allo sfondo ZETA RAYS generato dal colore
+  zeta-sfondo get                  stampa la scelta attuale (percorso e modo)
+
+Modi (come swaybg): fill (riempi), fit (adatta), center (centrato),
+tile (affiancato), stretch (allargato).
+La scelta è salvata in ~/.config/zeta/wallpaper.json e sopravvive al riavvio.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+CFG = os.path.expanduser("~/.config/zeta")
+CONF = os.path.join(CFG, "wallpaper.json")
+GENERATED = os.path.join(CFG, "wallpaper.png")     # generato da zeta-accent
+# la schermata di blocco (hyprlock) legge sempre questo collegamento: punta
+# allo sfondo attuale, così il blocco mostra lo stesso sfondo della scrivania
+BLOCCO = os.path.join(CFG, "sfondo-blocco")
+UFFICIALI = "/usr/share/zeta/wallpapers/"
+MODES = ("fill", "fit", "center", "tile", "stretch")
+
+
+def load():
+    try:
+        with open(CONF) as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            return d
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def save(d):
+    os.makedirs(CFG, exist_ok=True)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.replace(tmp, CONF)
+
+
+def current():
+    """(percorso, modo) effettivi: immagine dell'utente o sfondo ZETA RAYS."""
+    d = load()
+    path = d.get("path") or ""
+    mode = d.get("mode") or "fill"
+    if mode not in MODES:
+        mode = "fill"
+    if path and os.path.isfile(path):
+        return path, mode
+    return GENERATED, mode
+
+
+def collega_blocco(path):
+    """Aggiorna il collegamento letto da hyprlock (senza mai lasciarlo a metà)."""
+    try:
+        if os.path.realpath(BLOCCO) == os.path.realpath(path) and os.path.exists(BLOCCO):
+            return
+        tmp = BLOCCO + ".tmp"
+        if os.path.lexists(tmp):
+            os.remove(tmp)
+        os.symlink(path, tmp)
+        os.replace(tmp, BLOCCO)
+    except OSError:
+        pass
+
+
+def apply():
+    path, mode = current()
+    if not os.path.isfile(path):
+        return 1
+    collega_blocco(path)
+    if not shutil.which("swaybg"):
+        return 1
+    subprocess.run(["pkill", "-x", "swaybg"], check=False)
+    subprocess.Popen(["swaybg", "-m", mode, "-i", path],
+                     start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 0
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "apply"
+    d = load()
+    if cmd == "apply":
+        return apply()
+    if cmd == "get":
+        path, mode = current()
+        print("%s\n%s" % (path, mode))
+        return 0
+    if cmd == "set" and len(argv) > 2:
+        src = os.path.abspath(os.path.expanduser(argv[2]))
+        if not os.path.isfile(src):
+            print("File non trovato: %s" % src, file=sys.stderr)
+            return 1
+        os.makedirs(CFG, exist_ok=True)
+        if src.startswith(UFFICIALI):
+            # sfondo ufficiale: fa parte del sistema, non serve copiarlo
+            dest = src
+        else:
+            # copia nella cartella di ZETA RAYS: lo sfondo resta anche se l'originale sparisce
+            dest = os.path.join(CFG, "sfondo" + os.path.splitext(src)[1].lower())
+            try:
+                if os.path.abspath(src) != os.path.abspath(dest):
+                    shutil.copyfile(src, dest)
+            except OSError as e:
+                print("Impossibile copiare l'immagine: %s" % e, file=sys.stderr)
+                return 1
+        d["path"] = dest
+        d["nome"] = os.path.basename(src)
+        if len(argv) > 3 and argv[3] in MODES:
+            d["mode"] = argv[3]
+        save(d)
+        return apply()
+    if cmd == "mode" and len(argv) > 2:
+        if argv[2] not in MODES:
+            print("Modo non valido. Usa: %s" % ", ".join(MODES), file=sys.stderr)
+            return 1
+        d["mode"] = argv[2]
+        save(d)
+        return apply()
+    if cmd == "reset":
+        d.pop("path", None)
+        d.pop("nome", None)
+        save(d)
+        return apply()
+    print(__doc__)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

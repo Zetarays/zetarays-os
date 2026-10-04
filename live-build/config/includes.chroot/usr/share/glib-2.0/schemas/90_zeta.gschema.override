@@ -1,0 +1,16 @@
+# ZETA RAYS: stesso aspetto anche per le app GTK3 sotto Wayland (che leggono GSettings
+# e non settings.ini): Roboto, tema scuro, icone ZETA RAYS.
+[org.gnome.desktop.interface]
+font-name='Roboto 10'
+document-font-name='Roboto 10'
+monospace-font-name='JetBrains Mono 10'
+color-scheme='prefer-dark'
+gtk-theme='Adwaita'
+cursor-theme='Adwaita'
+enable-animations=true
+icon-theme='zeta'
+
+[org.gnome.desktop.wm.preferences]
+# comandi finestra: ingrandisci + chiudi (Hyprland non implementa la
+# riduzione a icona: niente pulsanti che non fanno nulla)
+button-layout=':maximize,close'

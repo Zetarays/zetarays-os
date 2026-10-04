@@ -1,0 +1,95 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — barre del titolo per ogni finestra (hyprbars).
+#
+# Hyprland non disegna decorazioni lato server: senza questo plugin nessuna
+# finestra avrebbe chiudi / ingrandisci / riduci. I pacchetti Debian di
+# hyprbars sono fermi a 0.53 e non caricano su Hyprland 0.55 (ABI diversa),
+# quindi il plugin si compila qui contro le intestazioni esatte di questa
+# immagine: la versione combacia sempre.
+#
+# Non fatale: se la compilazione non riesce, la build continua e il desktop
+# resta usabile (chiusura con SUPER+Q e dal menu delle finestre).
+set +e
+# i pacchetti di Hyprland corretto (hook 0350) non restano nell immagine,
+# qualunque sia l uscita di questo hook
+trap 'rm -rf /usr/share/zeta/hyprland-corretto' EXIT
+
+SRC_TAG="v0.55.0"          # ramo dei plugin per Hyprland 0.55
+DEST="/usr/lib/zeta/hypr"
+
+HYPR_VER="$(dpkg-query -W -f='${Version}' hyprland 2>/dev/null)"
+if [ -z "$HYPR_VER" ]; then
+    echo "ZETA RAYS: hyprland non installato, salto hyprbars"
+    exit 0
+fi
+echo "ZETA RAYS: compilo hyprbars per Hyprland $HYPR_VER…"
+
+# Pacchetti solo per la compilazione: alla fine si rimuove esattamente ciò che
+# è stato aggiunto qui (niente autoremove alla cieca sul resto del sistema).
+dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-prima.txt
+BUILD_PKGS="build-essential pkg-config git hyprland-dev"
+# Hyprland corretto (hook 0350): intestazioni della stessa versione e con la
+# stessa aquamarine 0.11 del binario, non quelle piu' nuove dei backports.
+LOCALI=/usr/share/zeta/hyprland-corretto
+if ls "$LOCALI"/hyprland-dev_*.deb >/dev/null 2>&1; then
+    BUILD_PKGS="build-essential pkg-config git $(ls "$LOCALI"/hyprland-dev_*.deb "$LOCALI"/libaquamarine-dev_*.deb "$LOCALI"/libhyprutils-dev_*.deb 2>/dev/null | tr '\n' ' ')"
+fi
+if ! apt-get install -y --no-install-recommends $BUILD_PKGS >/tmp/hyprbars-apt.log 2>&1; then
+    echo "ZETA RAYS: dipendenze di compilazione non installabili, salto hyprbars"
+    tail -5 /tmp/hyprbars-apt.log
+    exit 0
+fi
+
+# le versioni devono combaciare: il plugin viene rifiutato da Hyprland se no
+HDR_VER="$(pkg-config --modversion hyprland 2>/dev/null)"
+echo "ZETA RAYS: intestazioni hyprland $HDR_VER"
+
+rm -rf /tmp/hyprland-plugins
+if git clone --quiet --depth 1 --branch "$SRC_TAG" \
+        https://github.com/hyprwm/hyprland-plugins.git /tmp/hyprland-plugins 2>/dev/null &&
+   make -C /tmp/hyprland-plugins/hyprbars all >/tmp/hyprbars-build.log 2>&1 &&
+   [ -f /tmp/hyprland-plugins/hyprbars/hyprbars.so ]; then
+    install -Dm0644 /tmp/hyprland-plugins/hyprbars/hyprbars.so "$DEST/hyprbars.so"
+    echo "ZETA RAYS: hyprbars.so installato in $DEST"
+else
+    echo "ZETA RAYS: ERRORE, compilazione di hyprbars non riuscita" >&2
+    tail -15 /tmp/hyprbars-build.log 2>/dev/null
+    # fatale: senza hyprbars le finestre non hanno le barre del titolo
+    # (chiudi/riduci/ingrandisci). Prima si saltava in silenzio.
+    exit 1
+fi
+rm -rf /tmp/hyprland-plugins
+
+# Ripulitura: gli strumenti di compilazione peserebbero centinaia di MB.
+# Si rimuovono SOLO i pacchetti comparsi durante questo hook, mai altro.
+dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-dopo.txt
+NUOVI=$(comm -13 /tmp/hyprbars-pkgs-prima.txt /tmp/hyprbars-pkgs-dopo.txt | tr '\n' ' ')
+if [ -n "$NUOVI" ]; then
+    echo "ZETA RAYS: rimuovo gli strumenti di compilazione"
+    apt-get purge -y $NUOVI >/dev/null 2>&1
+fi
+rm -f /tmp/hyprbars-pkgs-prima.txt /tmp/hyprbars-pkgs-dopo.txt
+apt-get clean
+
+# rete di sicurezza: se la ripulitura avesse toccato Hyprland, rimettilo
+if ! dpkg-query -W -f='${Status}' hyprland 2>/dev/null | grep -q "install ok installed"; then
+    echo "ZETA RAYS: reinstallo hyprland dopo la ripulitura"
+    apt-get install -y hyprland >/dev/null 2>&1
+fi
+
+# Con le barre del titolo di ZETA RAYS su OGNI finestra, le app GTK non devono
+# disegnare anche i propri pulsanti: resterebbero due file di comandi.
+# Questo file si scrive solo se il plugin c'è davvero; altrimenti resta valido
+# 90_zeta.gschema.override (ingrandisci + chiudi disegnati da GTK).
+if [ -f "$DEST/hyprbars.so" ]; then
+    cat > /usr/share/glib-2.0/schemas/95_zeta_hyprbars.gschema.override <<'EOF'
+# ZETA RAYS: i comandi finestra li disegna la barra del titolo di ZETA RAYS (hyprbars),
+# uguale per tutte le finestre. Le app GTK mostrano solo titolo e menu.
+[org.gnome.desktop.wm.preferences]
+button-layout=':'
+EOF
+    glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1
+fi
+
+exit 0

@@ -1,0 +1,45 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Sessione di ripiego senza accelerazione 3D (Xorg, rendering software).
+#  - Dal live: apre l'installer ZETA RAYS (Calamares), così si installa comunque.
+#  - Sul sistema installato: spiega come attivare il 3D (zeta-no3d).
+# matchbox tiene la finestra a tutto schermo e le dà il fuoco della tastiera.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export LIBGL_ALWAYS_SOFTWARE=1
+mkdir -p "$HOME/.local/share/zeta"
+
+CLIENT="$(mktemp)"
+if [ -d /run/live/medium ]; then
+    cat > "$CLIENT" <<'CL'
+#!/bin/sh
+xset s off -dpms 2>/dev/null
+xhost +si:localuser:root >/dev/null 2>&1
+matchbox-window-manager -use_titlebar no -use_cursor yes -theme ZETA RAYS &
+# Chiuso l'installer, una schermata permette di riaprirlo, spegnere o riavviare.
+while :; do
+    sudo -E /usr/libexec/zeta-installer
+    zeta-no3d --live
+    [ $? -eq 10 ] || break
+done
+CL
+else
+    cat > "$CLIENT" <<'CL'
+#!/bin/sh
+xset s off -dpms 2>/dev/null
+matchbox-window-manager -use_titlebar no -use_cursor yes -theme ZETA RAYS &
+zeta-no3d
+CL
+fi
+chmod +x "$CLIENT"
+
+# Sessione X11 già avviata da SDDM (computer senza driver DRM: SDDM mostra solo
+# sessioni X11): si usa quel server grafico, senza avviarne un secondo.
+if [ -n "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+    exec sh "$CLIENT" > "$HOME/.local/share/zeta/xinstaller.log" 2>&1
+fi
+
+# Primo display libero: dopo un login manuale :0 è ancora della schermata di accesso.
+n=0
+while [ -e "/tmp/.X$n-lock" ] || [ -e "/tmp/.X11-unix/X$n" ]; do n=$((n + 1)); done
+
+exec xinit "$CLIENT" -- ":$n" "vt${XDG_VTNR:-2}" -nolisten tcp > "$HOME/.local/share/zeta/xinstaller.log" 2>&1

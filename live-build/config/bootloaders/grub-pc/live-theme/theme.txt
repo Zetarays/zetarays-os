@@ -1,0 +1,58 @@
+# ZETA RAYS — tema del menu di avvio (GRUB). Posizioni relative al centro:
+# funziona da 800x600 fino a 4K. Usato dal disco di installazione e dal
+# sistema installato (/usr/share/grub/themes/zeta).
+title-text: ""
+desktop-color: "#000000"
+terminal-font: "Unifont Regular 16"
+message-font: "Unifont Regular 16"
+message-color: "#8A8A8E"
+
++ image {
+        left = 50%-60
+        top = 50%-240
+        width = 120
+        height = 140
+        file = "logo.png"
+}
+
++ boot_menu {
+        left = 50%-290
+        top = 50%-50
+        width = 580
+        height = 250
+        item_font = "Unifont Regular 16"
+        item_color = "#8A8A8E"
+        selected_item_font = "Unifont Regular 16"
+        selected_item_color = "#FFFFFF"
+        item_height = 30
+        item_padding = 14
+        item_spacing = 4
+        icon_width = 0
+        icon_height = 0
+        item_icon_space = 0
+        selected_item_pixmap_style = "select_*.png"
+        scrollbar = false
+}
+
++ label {
+        id = "__timeout__"
+        top = 100%-84
+        left = 0
+        width = 100%
+        height = 20
+        align = "center"
+        color = "#6E6E73"
+        font = "Unifont Regular 16"
+        text = "Starting automatically in %d seconds"
+}
+
++ label {
+        top = 100%-54
+        left = 0
+        width = 100%
+        height = 20
+        align = "center"
+        color = "#48484D"
+        font = "Unifont Regular 16"
+        text = "Arrows: choose · Enter: start · E: edit"
+}

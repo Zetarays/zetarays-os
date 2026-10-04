@@ -1,0 +1,60 @@
+# ZETA RAYS — terminale (tema chiaro; generato da zeta-accent)
+font=JetBrains Mono:size=FONTSIZE
+pad=10x8
+# Finestra alta abbastanza da contenere il logo di ZETA RAYS (24 righe) più
+# le informazioni: aprendola più piccola fastfetch non potrebbe mostrarlo.
+initial-window-size-chars=126x34
+term=xterm-256color
+# la shell gira dentro tmux (schede, divisioni, sessioni che sopravvivono
+# alla chiusura della finestra): vedi zeta-terminale e /usr/share/zeta/shell
+shell=zeta-terminale
+
+[cursor]
+style=block
+color=FFFFFF ACCENT
+
+[colors]
+alpha=0.98
+background=FAFAFC
+foreground=1C1C1E
+regular0=2E2E32
+regular1=C21F1F
+regular2=1F7A1C
+regular3=9A6100
+regular4=0A5FD6
+regular5=7A3FC9
+regular6=0F7C87
+regular7=5A5A5F
+bright0=6E6E73
+bright1=E03A3A
+bright2=2E9A2A
+bright3=B37A00
+bright4=2E7CE8
+bright5=9660DC
+bright6=1B94A1
+bright7=1C1C1E
+selection-background=D6D9E0
+selection-foreground=1C1C1E
+
+[key-bindings]
+# copia/incolla come in tutti i terminali Linux: Ctrl+C resta l interruzione
+clipboard-copy=Control+Shift+c XF86Copy
+clipboard-paste=Control+Shift+v XF86Paste
+search-start=none
+spawn-terminal=none
+
+[text-bindings]
+# combinazioni che tmux da solo non distingue: foot le traduce in sequenze
+# che tmux riconosce (user-keys in /usr/share/zeta/shell/tmux.conf)
+\x1b[9990~=Control+Shift+t
+\x1b[9991~=Control+Shift+w
+\x1b[9992~=Control+Shift+d
+\x1b[9993~=Control+Shift+e
+\x1b[9994~=Control+Shift+n
+\x1b[9995~=Control+Shift+r
+\x1b[9996~=Control+Shift+f
+
+# tema del terminale scelto con «zeta shell tema»: vuoto finche' non si sceglie
+# nulla (allora valgono i colori qui sopra, che seguono il tema di sistema)
+[main]
+include=~/.config/foot/tema.ini

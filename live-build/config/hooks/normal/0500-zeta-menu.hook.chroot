@@ -1,0 +1,56 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — pulizia del menù delle applicazioni.
+#
+# Alcuni pacchetti installano voci di menù che non hanno senso per l'utente:
+# strumenti interni (ImageMagick), doppioni (tre voci per lo stesso terminale),
+# pannelli che ZETA RAYS sostituisce con i propri, e soprattutto l'installer di
+# Calamares che si presenta come «Install Debian».
+#
+# Non si modificano i file dei pacchetti: si scrivono copie in
+# /usr/local/share/applications, che nello standard XDG hanno la precedenza.
+# Così la voce sparisce ovunque (launcher, ricerca, dock, «apri con») e un
+# aggiornamento del pacchetto non riporta indietro la modifica.
+set +e
+
+SRC=/usr/share/applications
+DST=/usr/local/share/applications
+mkdir -p "$DST"
+
+# id delle voci da nascondere (si accettano anche i caratteri jolly)
+NASCONDI="
+calamares-install-debian.desktop calamares.desktop
+display-im*.desktop
+footclient.desktop foot-server.desktop
+thunar-settings.desktop thunar-bulk-rename.desktop thunar-volman-settings.desktop
+nm-connection-editor.desktop nm-applet.desktop
+blueman-manager.desktop blueman-adapters.desktop
+pavucontrol.desktop org.pulseaudio.pavucontrol.desktop
+org.gnome.SystemMonitor.desktop gnome-system-monitor.desktop gnome-system-monitor-kde.desktop
+vim.desktop nvim.desktop htop.desktop lynis.desktop
+fish.desktop
+lxpolkit.desktop debian-xterm.desktop debian-uxterm.desktop
+org.gnome.Evince-previewer.desktop org.freedesktop.IBus.Setup.desktop
+org.gnome.font-viewer.desktop
+xfce4-about.desktop qv4l2.desktop qvidcap.desktop
+"
+
+nascosti=0
+for pattern in $NASCONDI; do
+    for f in $SRC/$pattern; do
+        [ -f "$f" ] || continue
+        id=$(basename "$f")
+        # copia con NoDisplay=true subito dopo [Desktop Entry] (mai in fondo:
+        # finirebbe dentro un gruppo [Desktop Action] e non varrebbe)
+        awk '
+            /^NoDisplay[ \t]*=/ { next }
+            { print }
+            /^\[Desktop Entry\]/ && !fatto { print "NoDisplay=true"; fatto = 1 }
+        ' "$f" > "$DST/$id" 2>/dev/null && nascosti=$((nascosti + 1))
+    done
+done
+echo "ZETA RAYS: nascoste $nascosti voci di menù non pertinenti"
+
+update-desktop-database "$DST" >/dev/null 2>&1
+update-desktop-database "$SRC" >/dev/null 2>&1
+exit 0

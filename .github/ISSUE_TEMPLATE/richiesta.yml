@@ -1,0 +1,11 @@
+name: Idea / Richiesta di funzione
+description: Proponi una novità per ZETA RAYS OS
+labels: [richiesta]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Cosa vorresti
+      description: Descrivi l'idea e a cosa ti servirebbe.
+    validations:
+      required: true

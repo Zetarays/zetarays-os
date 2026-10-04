@@ -1,0 +1,111 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — terminale: shell dentro tmux, schede, divisioni, piu' shell.
+#
+#   zeta-terminale                 nuova sessione con la shell predefinita (lo lancia foot)
+#   zeta-terminale menu            menu «Nuova scheda con…» (bash, zsh, fish, …)
+#   zeta-terminale shell NOME      nuova scheda con quella shell
+#   zeta-terminale pulisci SESS    (tmux, alla chiusura della finestra) vedi sotto
+#   zeta-terminale shells          le shell installate
+#
+# Perche' tmux: se la finestra del terminale si chiude o va in crash, i comandi
+# che stavano lavorando continuano e la sessione si riprende con
+# «zeta shell sessioni». Quando invece si chiude una finestra in cui c'era solo
+# il prompt, la sessione si chiude con lei: nessun processo resta in giro.
+set -u
+CONF=/usr/share/zeta/shell/tmux.conf
+PREF="$HOME/.config/zeta/shell"
+
+# Le shell installate, per nome (una volta sola), dalle shell di login note.
+shells() {
+    local visti=" " s n r
+    while read -r s; do
+        case "$s" in ''|\#*) continue ;; esac
+        n=$(basename "$s")
+        # tmux e screen si registrano come shell ma non lo sono; rbash e' bash ristretta
+        case "$n" in rbash|tmux|screen) continue ;; esac
+        [ -x "$s" ] || continue
+        # lo stesso programma con due nomi (sh -> dash): una voce sola
+        r=$(readlink -f "$s")
+        case "$visti" in *" $n "*|*" $r "*) continue ;; esac
+        visti="$visti$n $r "
+        echo "$n $s"
+    done < /etc/shells
+}
+
+percorso() {                 # nome -> percorso eseguibile, vuoto se non c'e'
+    shells | awk -v n="$1" '$1 == n {print $2; exit}'
+}
+
+predefinita() {
+    local n p
+    n=$(cat "$PREF" 2>/dev/null)
+    p=$([ -n "$n" ] && percorso "$n")
+    [ -n "$p" ] || p=$(percorso bash)
+    echo "${p:-/bin/sh}"
+}
+
+# Una sessione il cui unico programma in ogni riquadro e' la shell (nessun
+# comando in corso) si puo' chiudere senza perdere nulla.
+solo_prompt() {
+    local cmd
+    while read -r cmd; do
+        case "$cmd" in bash|zsh|fish|sh|dash|ksh|mksh|tcsh|csh|-*) ;; *) return 1 ;; esac
+    done < <(tmux list-panes -s -t "$1" -F '#{pane_current_command}' 2>/dev/null)
+    return 0
+}
+
+case "${1:-}" in
+    shells)
+        shells ;;
+    pulisci)
+        # chiamato da tmux quando una finestra del terminale si stacca
+        s="${2:-}"
+        [ -n "$s" ] || exit 0
+        [ "$(tmux display -p -t "$s" '#{session_attached}' 2>/dev/null)" = 0 ] || exit 0
+        if solo_prompt "$s"; then
+            tmux kill-session -t "$s" 2>/dev/null
+        else
+            tmux display -t "$s" "Sessione in sospeso: si riprende con «zeta shell sessioni»" 2>/dev/null
+        fi ;;
+    shell)
+        p=$(percorso "${2:-}")
+        if [ -z "$p" ]; then
+            tmux display "Shell non installata: ${2:-}"; exit 1
+        fi
+        tmux new-window -n "${2}" "$p" ;;
+    menu)
+        # «Nuova scheda con…»: le shell installate, e quelle che mancano con
+        # l'installazione (apt, password chiesta da pkexec).
+        voci=()
+        while read -r n p; do
+            voci+=("$n" "" "new-window -n $n $p")
+        done < <(shells)
+        for n in zsh fish; do
+            if [ -z "$(percorso "$n")" ]; then
+                voci+=("Installa $n…" "" "new-window -n installa 'pkexec apt-get install -y $n; echo; read -rp \"Invio per chiudere\" _'")
+            fi
+        done
+        tmux display-menu -T "#[align=centre] Nuova scheda con " -x C -y C "${voci[@]}" ;;
+    '')
+        # nuova finestra del terminale = nuova sessione tmux
+        # colori del prompt e di tmux: rigenerati se mancano o se l'accento
+        # di sistema e' cambiato (un confronto di date: non rallenta)
+        G="$HOME/.cache/zeta/starship.toml"
+        if [ ! -f "$G" ] || [ "$HOME/.config/zeta/accent" -nt "$G" ] || [ "$HOME/.config/zeta/accent-reso" -nt "$G" ]; then
+            zeta-shell applica >/dev/null 2>&1
+        fi
+        # zsh senza ~/.zshrc apre la sua procedura guidata: si usa quella di ZETA RAYS
+        [ -e "$HOME/.zshrc" ] || cp /etc/skel/.zshrc "$HOME/.zshrc" 2>/dev/null
+        SH=$(predefinita)
+        if ! command -v tmux >/dev/null || [ ! -r "$CONF" ]; then
+            exec "$SH" -l
+        fi
+        n=1
+        while tmux has-session -t "=zeta-$n" 2>/dev/null; do n=$((n + 1)); done
+        # le schede nuove (Ctrl+Maiusc+T) usano la stessa shell predefinita
+        exec tmux -f "$CONF" new-session -s "zeta-$n" "$SH" \; set-option -g default-command "$SH"
+        ;;
+    *)
+        sed -n '3,9p' "$0"; exit 1 ;;
+esac

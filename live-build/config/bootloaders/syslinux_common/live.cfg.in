@@ -1,0 +1,18 @@
+label live-@FLAVOUR@
+	menu label ^Try ZETA RAYS OS
+	menu default
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@
+
+label install-@FLAVOUR@
+	menu label ^Install ZETA RAYS OS
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ zeta-install
+
+label live-@FLAVOUR@-failsafe
+	menu label Try ZETA RAYS OS (^safe graphics)
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE_FAILSAFE@

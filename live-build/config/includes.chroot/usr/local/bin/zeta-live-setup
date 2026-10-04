@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Preparazione dell'ambiente LIVE (non del sistema installato):
+# password utente live zeta/zeta + autologin nel display manager.
+# Si attiva solo in live (boot=live sulla riga di comando del kernel).
+grep -qw boot=live /proc/cmdline 2>/dev/null || exit 0
+
+id zeta >/dev/null 2>&1 && echo "zeta:zeta" | chpasswd || true
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/zz-live-autologin.conf <<CONF
+[Autologin]
+User=zeta
+Session=zeta.desktop
+Relogin=false
+CONF

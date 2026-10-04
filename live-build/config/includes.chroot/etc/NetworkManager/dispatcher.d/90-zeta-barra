@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — l'icona della rete nella barra si aggiorna quando la rete cambia
+# davvero (NetworkManager chiama questo script), invece di chiedere lo stato
+# ogni 5 secondi: prima erano 4 processi ogni 5 secondi anche a computer fermo.
+case "$2" in
+    up|down|connectivity-change|dhcp4-change|dhcp6-change|vpn-up|vpn-down|reapply) ;;
+    *) exit 0 ;;
+esac
+pkill -RTMIN+13 -x waybar 2>/dev/null
+exit 0

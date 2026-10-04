@@ -1,0 +1,39 @@
+// ZETA RAYS — configurazione di fastfetch, solo il simbolo (14 righe × 60 colonne)
+// Il disegno di partenza è in negativo (il pieno sta intorno al marchio): qui
+// si usa la resa positiva, generata da tools/gen-logo-ascii.py, così il
+// simbolo esce chiaro sul nero del terminale. Il disegno non è stato
+// ridisegnato né semplificato: cambia solo la risoluzione con cui si stampa.
+// Le sequenze $1 sono direttive di colore di fastfetch e non vengono stampate.
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "source": "/usr/share/zeta/fastfetch/zeta-bianco-minuto.txt",
+    "type": "file",
+    "color": { "1": "LOGOCOLOR" },
+    "padding": { "top": 0, "left": 0, "right": 3 }
+  },
+  // Etichette e titolo nel colore d accento: così l uscita del terminale è
+  // coerente con il resto dell interfaccia. Il simbolo resta bianco: è il
+  // marchio, non un elemento colorabile.
+  "display": { "separator": "  ", "color": { "keys": "ACCENTCOLOR", "title": "ACCENTCOLOR" } },
+  "modules": [
+    { "type": "title", "format": "{user-name}@{host-name}" },
+    { "type": "separator", "string": "─" },
+    { "type": "os", "key": "Sistema  " },
+    { "type": "command", "key": "Kernel   ", "text": "uname -r | sed 's/+.*//'" },
+    { "type": "uptime", "key": "Acceso   " },
+    { "type": "packages", "key": "Pacchetti" },
+    { "type": "shell", "key": "Shell    " },
+    { "type": "terminal", "key": "Terminale" },
+    { "type": "wm", "key": "Ambiente ", "format": "ZETA RAYS Shell (Hyprland)" },
+    { "type": "cpu", "key": "CPU      " },
+    { "type": "gpu", "key": "GPU      " },
+    { "type": "memory", "key": "Memoria  " },
+    { "type": "disk", "key": "Disco    ", "folders": "/",
+      "format": "{size-used} / {size-total} ({size-percentage})" },
+    { "type": "localip", "key": "IP       " },
+    { "type": "locale", "key": "Lingua   " },
+    "break",
+    { "type": "colors", "paddingLeft": 0, "symbol": "circle" }
+  ]
+}

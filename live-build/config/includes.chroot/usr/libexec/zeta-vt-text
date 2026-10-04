@@ -1,0 +1,26 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — prima di SDDM, sui computer senza driver DRM (solo framebuffer, es.
+# VirtualBox "QemuRamFB"): Plymouth esce lasciando la console attiva in modalità
+# grafica (KD_GRAPHICS) e in quello stato il kernel ignora i cambi di console,
+# quindi l'Xorg di SDDM aspetta per sempre la sua VT e lo schermo resta nero.
+# Qui la console attiva torna in modalità testo. Con un driver DRM non fa nulla.
+import fcntl
+import glob
+import os
+
+KDGETMODE, KDSETMODE, KD_TEXT = 0x4B3B, 0x4B3A, 0
+
+if glob.glob("/dev/dri/card*"):
+    raise SystemExit(0)
+try:
+    with open("/sys/class/tty/tty0/active") as f:
+        tty = "/dev/" + f.read().strip()
+    fd = os.open(tty, os.O_RDWR | os.O_NOCTTY)
+    mode = bytearray(4)
+    fcntl.ioctl(fd, KDGETMODE, mode)
+    if int.from_bytes(mode, "little") != KD_TEXT:
+        fcntl.ioctl(fd, KDSETMODE, KD_TEXT)
+    os.close(fd)
+except OSError:
+    pass

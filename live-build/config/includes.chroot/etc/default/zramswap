@@ -1,0 +1,22 @@
+# ZETA RAYS — scambio compresso dentro la memoria.
+#
+# Perche' serve: quando la memoria finisce, il kernel sposta le pagine meno
+# usate sul disco. Su un disco lento (i Mini PC ne montano spesso di
+# economici) questo e' il momento in cui il computer sembra bloccato: ogni
+# clic aspetta il disco. Con zram le stesse pagine vengono compresse e
+# restano in RAM: niente disco, niente attesa. Si paga qualche istante di
+# CPU, che c'e' sempre, invece di secondi di disco, che non ci sono.
+#
+# ALGO: zstd comprime circa 3 volte contro le 2 di lz4, a un costo di CPU che
+# su un processore moderno non si nota. Con 8 GB di memoria significa circa
+# 4 GB in piu' di spazio utile.
+ALGO=zstd
+
+# PERCENT: quanta memoria puo' occupare il dispositivo zram, in percentuale.
+# 50 e' la scelta prudente: anche riempiendolo del tutto resta meta' memoria
+# per i programmi. Alzarlo oltre non aggiunge respiro, lo toglie.
+PERCENT=50
+
+# PRIORITY: piu' alta di qualunque scambio su disco, cosi' il kernel usa
+# prima la memoria compressa e tocca il disco solo se quella finisce.
+PRIORITY=100

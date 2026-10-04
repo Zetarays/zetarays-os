@@ -1,0 +1,44 @@
+#mainApp, QWidget { background-color: #000000; color: #EDEDEA; }
+QLabel { color: #EDEDEA; font-size: 14px; font-family: "Roboto"; }
+/* Titolo di benvenuto: è un <h1> in rich-text, reso da Qt a ~2x del font
+   di base della QLabel. Riducendo il font di base si rimpicciolisce l'<h1>.
+   Allineato a sinistra, in colonna con il logo. */
+QLabel#mainText { font-size: 16px; font-weight: 500; color: #EDEDEA;
+                  qproperty-alignment: 'AlignLeft | AlignVCenter'; }
+QComboBox { background: #19191C; color: #EDEDEA; border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 6px; padding: 4px 8px; }
+QPushButton { background-color: #19191C; color: #EDEDEA; border: 1px solid rgba(255,255,255,0.10);
+              border-radius: 8px; padding: 8px 20px; font-family: "Roboto"; font-size: 14px; }
+QPushButton:hover { background-color: #24242A; }
+QPushButton:focus { border: 1px solid #3A8DFF; }
+QComboBox:focus { border: 1px solid #3A8DFF; }
+QPushButton:default { background-color: #3A8DFF; color: #06070A; border: none; }
+/* Righe alternate: senza un colore esplicito Qt le disegna bianche, e nel
+   dialogo delle partizioni i nomi dei flag (esp, boot, bios-grub) sparivano,
+   testo chiaro su fondo bianco. */
+QTreeView, QListView { background: #0E0E10; color: #EDEDEA;
+                       alternate-background-color: #151518; }
+QTreeView::item, QListView::item { color: #EDEDEA; }
+QListView::indicator { width: 14px; height: 14px; background: #19191C;
+            border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; }
+QListView::indicator:checked { background: #3A8DFF; border: 1px solid #3A8DFF; }
+QLineEdit { background: #19191C; color: #EDEDEA; border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 6px; padding: 7px 10px; font-family: "Roboto"; font-size: 14px;
+            selection-background-color: #3A8DFF; }
+QLineEdit:focus { border: 1px solid #3A8DFF; }
+QCheckBox, QRadioButton { color: #EDEDEA; font-family: "Roboto"; font-size: 14px; spacing: 9px; }
+QCheckBox::indicator, QRadioButton::indicator { width: 14px; height: 14px; background: #19191C;
+            border: 1px solid rgba(255,255,255,0.25); }
+QCheckBox::indicator { border-radius: 4px; }
+QRadioButton::indicator { border-radius: 8px; }
+QCheckBox::indicator:checked, QRadioButton::indicator:checked { background: #3A8DFF; border: 1px solid #3A8DFF; }
+QProgressBar { background: #19191C; border: none; border-radius: 4px; height: 8px; text-align: center; color: transparent; }
+QProgressBar::chunk { background: #3A8DFF; border-radius: 4px; }
+QPushButton:disabled { background-color: #0E0E10; color: rgba(237,237,234,0.30); border: 1px solid rgba(255,255,255,0.05); }
+QScrollBar:vertical { background: transparent; width: 8px; margin: 2px 0; border: none; }
+QScrollBar:horizontal { background: transparent; height: 8px; margin: 0 2px; border: none; }
+QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); border-radius: 4px; min-height: 28px; }
+QScrollBar::handle:horizontal { background: rgba(255,255,255,0.18); border-radius: 4px; min-width: 28px; }
+QScrollBar::handle:hover { background: rgba(255,255,255,0.30); }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: none; background: none; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }

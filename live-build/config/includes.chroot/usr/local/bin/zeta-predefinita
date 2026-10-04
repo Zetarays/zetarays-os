@@ -1,0 +1,40 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-predefinita — apre l'app predefinita di una categoria.
+
+  zeta-predefinita terminale          il terminale scelto
+  zeta-predefinita browser [URL]      il browser scelto
+  zeta-predefinita file [CARTELLA]    il gestore file scelto
+  zeta-predefinita posta | editor | video | immagini | pdf [FILE]
+  zeta-predefinita elenco             le scelte attuali
+
+La scelta si fa in Impostazioni › App predefinite. Le scorciatoie di
+ZETA RAYS (Super+Invio, Super+E, Super+B) passano da qui.
+"""
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import predefinite as P  # noqa: E402
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if len(argv) >= 2 else 1
+    cat = argv[1]
+    if cat == "elenco":
+        for c in P.ORDINE:
+            print("%-10s %s" % (c, P.attuale(c) or "-"))
+        return 0
+    if cat not in P.CATEGORIE:
+        print("Categoria sconosciuta: %s" % cat, file=sys.stderr)
+        return 2
+    ok, msg = P.avvia(cat, argv[2:])
+    if not ok:
+        print(msg, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

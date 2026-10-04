@@ -1,0 +1,138 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* ZETA RAYS — stile della barra */
+@import "colors.css";
+
+* {
+  font-family: "Roboto", sans-serif;
+  font-size: 13px;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  box-shadow: none;
+}
+
+window#waybar {
+  background: @glass;
+  border: 1px solid @line;
+  border-radius: 20px;
+  color: @ink;
+}
+
+tooltip {
+  background: @surface;
+  border: 1px solid @line;
+  border-radius: 10px;
+}
+
+/* Pulsante del launcher: solo il simbolo, senza riquadro.
+   Niente sfondo, bordo o alone — il marchio deve stare sul nero della barra
+   come un elemento intenzionale, non dentro una scatola grigia. Il colore del
+   simbolo lo dà launcher.svg (accento adattato al tema, quindi leggibile sia
+   in scuro sia in chiaro). Un velo appena percettibile compare solo al
+   passaggio del mouse, per dire che è cliccabile. */
+#image.launcher {
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  /* 42 px di simbolo + 9 sopra e sotto = 60, l'altezza della barra */
+  padding: 0 8px;
+  margin: 9px 4px 9px 9px;
+  transition: background 120ms ease;
+}
+#image.launcher:hover {
+  background: @hover;
+}
+
+/* Spazi di lavoro: pulsanti numerati, quello attivo evidenziato */
+#spazi {
+  margin-left: 6px;
+}
+#custom-spazio1, #custom-spazio2, #custom-spazio3 {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0 2px;
+  margin: 17px 3px;
+  font-size: 12px;
+  color: @ink_dim;
+  border-radius: 8px;
+  background: @hover;
+  transition: all 120ms ease;
+}
+#custom-spazio1.active, #custom-spazio2.active, #custom-spazio3.active {
+  background: @accent;
+  color: @accent_ink;
+}
+#custom-spazio1.occupied, #custom-spazio2.occupied, #custom-spazio3.occupied {
+  color: @ink;
+}
+#custom-spazio1:hover, #custom-spazio2:hover, #custom-spazio3:hover {
+  background: @hover_2;
+  color: @ink;
+}
+#custom-spazio1.empty, #custom-spazio2.empty, #custom-spazio3.empty {
+  color: @ink_dim;
+}
+
+/* Dock */
+#dock image {
+  margin: 0 4px;
+  padding: 0;
+  transition: all 150ms ease;
+}
+#dock image:hover {
+  margin-top: -4px;
+}
+
+/* Ricerca: separata dal gruppo di stato */
+#image.search {
+  padding: 0 10px;
+  margin-right: 10px;
+  border-radius: 10px;
+}
+#image.search:hover {
+  background: @hover;
+}
+
+/* Stato di sistema */
+#image.net,
+#image.vol,
+#image.bat {
+  padding: 0 8px;
+  border-radius: 10px;
+}
+#image.net:hover,
+#image.vol:hover,
+#image.bat:hover,
+#image.power:hover,
+#clock:hover {
+  background: @hover;
+}
+#clock {
+  padding: 0 12px;
+  border-radius: 10px;
+  color: @ink;
+}
+/* Energia: in fondo a destra, separato dall'orologio */
+#image.power {
+  padding: 0 14px 0 12px;
+  margin-right: 6px;
+  border-radius: 10px;
+}
+
+/* Finestre ridotte a icona: miniature accanto al dock (come su macOS) */
+#image.ridotta0 {
+  margin-left: 14px;
+}
+#ridotte image {
+  margin: 0 4px;
+  padding: 0;
+  transition: all 150ms ease;
+}
+#ridotte image:hover {
+  margin-top: -4px;
+}
+#ridotte .empty,
+#image.ridotta0.empty {
+  margin: 0;
+  padding: 0;
+}

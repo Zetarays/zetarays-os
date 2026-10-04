@@ -1,0 +1,103 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Sessione grafica di ZETA RAYS (lanciata dal display manager).
+#
+# 1. Senza accelerazione 3D il desktop Wayland non può partire: in quel caso
+#    si apre l'installer sotto Xorg in rendering software (zeta-installer-x).
+# 2. La scala dello schermo e il rilevamento della VM vengono scritti PRIMA
+#    che Hyprland legga la configurazione (zeta_monitor.lua, zeta_vm.lua).
+# 3. Nelle macchine virtuali Hyprland non accetta i buffer GPU (dmabuf) dei
+#    client: le app GTK4 e Xwayland vengono disconnesse. Lì si usano i buffer
+#    in memoria condivisa, che funzionano ovunque.
+# 4. Hyprland si avvia con start-hyprland (watchdog ufficiale).
+
+# --- stesso utente già collegato? (dopo "Cambia utente") ---------------------
+# SDDM aprirebbe una seconda sessione: si torna invece a quella esistente.
+# L'accesso appena fatto dalla schermata di login vale come sblocco.
+if [ -n "$XDG_SESSION_ID" ]; then
+    for old in $(loginctl list-sessions --no-legend 2>/dev/null |
+                 awk -v u="$USER" -v s="$XDG_SESSION_ID" '$3 == u && $1 != s && $4 == "seat0" {print $1}'); do
+        if [ "$(loginctl show-session "$old" -p Type --value)" = wayland ] &&
+           [ "$(loginctl show-session "$old" -p State --value)" != closing ]; then
+            loginctl activate "$old" 2>/dev/null
+            # SDDM, chiudendo questo accesso, torna alla sua console: si ripete
+            # il passaggio dal gestore utente, che sopravvive a questa sessione.
+            systemd-run --user --quiet --on-active=2 loginctl activate "$old" 2>/dev/null ||
+                ( sleep 2; loginctl activate "$old" ) &
+            exit 0
+        fi
+    done
+fi
+
+LOGDIR="$HOME/.local/share/zeta"
+HYPRCFG="$HOME/.config/hypr"
+mkdir -p "$LOGDIR" "$HYPRCFG"
+
+# --- accelerazione 3D disponibile? -----------------------------------------
+has_3d() {
+    local probe out
+    probe=$(ls /usr/bin/eglinfo.* 2>/dev/null | head -1)
+    [ -n "$probe" ] || return 0                  # sonda assente: si prova
+    out=$(timeout 10 "$probe" -B -p gbm 2>/dev/null) || return 1
+    grep -q "OpenGL ES profile renderer" <<<"$out" || return 1
+    ! grep -qiE "OpenGL ES profile renderer:.*(llvmpipe|softpipe)" <<<"$out"
+}
+
+if ! has_3d; then
+    exec zeta-installer-x
+fi
+
+# --- macchina virtuale? ----------------------------------------------------
+# systemd-detect-virt non riconosce VirtualBox su ARM: si guarda anche la GPU.
+is_vm=false
+systemd-detect-virt -q 2>/dev/null && is_vm=true
+for d in /sys/class/drm/card*/device/driver; do
+    [ -e "$d" ] || continue
+    case "$(basename "$(readlink -f "$d")")" in
+        vmwgfx|vboxvideo|virtio*|qxl|bochs*|cirrus*) is_vm=true ;;
+    esac
+done
+printf 'return %s\n' "$is_vm" > "$HYPRCFG/zeta_vm.lua"
+
+# --- scala dello schermo ---------------------------------------------------
+# La scala scelta a mano in Impostazioni > Aspetto ha la precedenza su quella
+# calcolata dai DPI: altrimenti verrebbe sovrascritta a ogni accesso.
+SCALA=$(cat "$HOME/.config/zeta/scala" 2>/dev/null)
+case "$SCALA" in
+    ''|auto|*[!0-9.]*) SCALA="$(zeta-display-scale 2>/dev/null || echo 1)" ;;
+esac
+printf 'return { scale = %s }\n' "$SCALA" > "$HYPRCFG/zeta_monitor.lua"
+
+if $is_vm; then
+    export ZETA_VM=1                 # letto dai wrapper (es. mpv)
+    export GSK_RENDERER=cairo        # GTK4: rendering su wl_shm
+    export XWAYLAND_NO_GLAMOR=1      # Xwayland: niente buffer GPU
+fi
+
+# Hyprland dopo un crash riparte da solo, ma in «modalita' sicura», con una
+# configurazione di emergenza: niente barra, niente scorciatoie di ZETA RAYS.
+# zeta-ripresa (servizio dell'utente) se ne accorge, lascia un segno qui e lo
+# chiude in modo pulito: allora lo si rilancia normale. Senza il segno
+# l'uscita e' voluta (esci, spegni) e la sessione finisce. Il limite di
+# riprese sta in zeta-ripresa, che dopo 3 crash in 10 minuti smette.
+SEGNO="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/zeta-ripresa"
+rm -f "$SEGNO"
+while true; do
+    start-hyprland >> "$LOGDIR/hyprland.log" 2>&1
+    rc=$?
+    [ -f "$SEGNO" ] || exit "$rc"
+    rm -f "$SEGNO"
+    echo "zeta-desktop-session: ripresa dopo un crash di Hyprland ($(date '+%F %T'))" >> "$LOGDIR/hyprland.log"
+    # I pezzi della sessione caduta (partiti da Hyprland) restano orfani e si
+    # ricollegherebbero al nuovo Hyprland accanto a quelli nuovi: prima i
+    # sorveglianti, poi cio' che sorvegliavano.
+    U=$(id -u)
+    pkill -u "$U" -f '^/bin/bash /usr/local/bin/zeta-(session|vigila)$' 2>/dev/null
+    sleep 0.3
+    pkill -u "$U" -f '/usr/local/bin/zeta-(spazi|scrivania)' 2>/dev/null
+    for p in waybar mako swaybg hypridle; do
+        pkill -u "$U" -x "$p" 2>/dev/null
+    done
+    pkill -u "$U" -f '/usr/libexec/polkit-mate-authentication-agent-1' 2>/dev/null
+    sleep 0.5
+done

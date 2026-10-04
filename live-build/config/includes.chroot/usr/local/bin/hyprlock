@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — schermata di blocco.
+#
+# Nelle macchine virtuali Hyprland rifiuta i buffer GPU dei client: hyprlock
+# disegna allora con il rendering software. Fuori dalle VM non cambia nulla.
+#
+# Qui si tiene anche traccia del fatto che lo schermo È bloccato: se hyprlock
+# muore per un difetto, Hyprland mostra una schermata d'emergenza e l'utente
+# resta chiuso fuori dalla sessione. Il file-segnale permette a zeta-vigila di
+# accorgersene e rimettere subito il blocco.
+[ "$ZETA_VM" = 1 ] && export LIBGL_ALWAYS_SOFTWARE=1
+
+SEGNALE="${XDG_RUNTIME_DIR:-/tmp}/zeta-schermo-bloccato"
+: > "$SEGNALE"
+/usr/bin/hyprlock "$@"
+STATO=$?
+# uscita 0 = l'utente ha sbloccato: non c'è più nulla da sorvegliare.
+# uscita diversa = è morto: il segnale resta e zeta-vigila lo rimette.
+[ "$STATO" -eq 0 ] && rm -f "$SEGNALE"
+exit "$STATO"

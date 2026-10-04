@@ -1,0 +1,1 @@
+return { scale = 1 }

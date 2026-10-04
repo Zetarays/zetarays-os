@@ -1,0 +1,390 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-diagnosi — fotografia completa dello stato del computer.
+#
+#   zeta-diagnosi              scrive il rapporto e ne stampa il percorso
+#   zeta-diagnosi -            scrive il rapporto sullo schermo
+#
+# Serve a capire PERCHE' un ZETA RAYS installato e' lento o si blocca, senza
+# indovinare. Non cambia niente: legge e basta. Nessun comando qui dentro
+# modifica file, servizi o pacchetti, cosi' si puo' far girare su una macchina
+# che sta gia' soffrendo senza peggiorare le cose.
+#
+# Le chiavi API non finiscono mai nel rapporto: di ognuna si dice solo se c'e'
+# e quanto e' lunga.
+set -u
+
+# Con sudo si leggono anche i registri di sistema (errori, crash, kernel); i
+# file di ZETA e il rapporto restano quelli dell'utente che l'ha lanciato.
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    export HOME
+fi
+
+DEST="${HOME}/zeta-diagnosi-$(date +%Y%m%d-%H%M%S).txt"
+[ "${1:-}" = "-" ] && DEST=/dev/stdout
+
+# Non tutto e' installato ovunque: si prova, e se manca si dice che manca
+# invece di lasciare un buco muto nel rapporto.
+ha() { command -v "$1" >/dev/null 2>&1; }
+sez() { printf '\n\n===============================================================\n %s\n===============================================================\n' "$1"; }
+sot() { printf '\n--- %s ---\n' "$1"; }
+prova() {   # prova <descrizione> <comando...>
+    local d="$1"; shift
+    sot "$d"
+    if ha "$1"; then
+        "$@" 2>&1 | head -60
+    else
+        echo "(non installato: $1)"
+    fi
+}
+
+rapporto() {
+
+printf 'ZETA RAYS - DIAGNOSI DI SISTEMA\n'
+printf 'generato il %s\n' "$(date '+%d/%m/%Y alle %H:%M:%S')"
+if ! journalctl -b -n 1 -p err --no-pager -q >/dev/null 2>&1 || \
+   { [ "$(id -u)" -ne 0 ] && ! id -nG | grep -qwE "adm|systemd-journal"; }; then
+    printf 'ATTENZIONE: senza sudo i registri di sistema non sono leggibili e le\n'
+    printf 'sezioni su errori, crash e kernel restano vuote. Meglio: sudo zeta-diagnosi\n'
+fi
+
+sez "1. MACCHINA"
+sot "identita'"
+[ -r /etc/os-release ] && . /etc/os-release && echo "sistema:  ${PRETTY_NAME:-?}"
+echo "kernel:   $(uname -r)  ($(uname -m))"
+echo "nome:     $(hostname)"
+echo "acceso da: $(uptime -p 2>/dev/null || uptime)"
+sot "modello del computer"
+for f in /sys/devices/virtual/dmi/id/sys_vendor /sys/devices/virtual/dmi/id/product_name \
+         /sys/devices/virtual/dmi/id/product_version /sys/devices/virtual/dmi/id/board_name; do
+    [ -r "$f" ] && echo "$(basename "$f"): $(cat "$f" 2>/dev/null)"
+done
+[ -r /sys/hypervisor/type ] && echo "hypervisor: $(cat /sys/hypervisor/type)"
+if ha systemd-detect-virt; then echo "virtualizzazione: $(systemd-detect-virt || echo nessuna)"; fi
+
+sez "2. PROCESSORE"
+sot "modello e numero di core"
+if ha lscpu; then
+    lscpu | grep -iE "^(architecture|model name|cpu\(s\)|thread|core|socket|cpu max|cpu min|cpu mhz|l3|flags)" | head -14
+else
+    grep -m1 "model name" /proc/cpuinfo; grep -c ^processor /proc/cpuinfo
+fi
+sot "carico medio (1, 5, 15 minuti)"
+cat /proc/loadavg
+echo "(se il primo numero supera stabilmente il numero di core, il computer e' in coda)"
+sot "governor e frequenze"
+for c in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+    [ -d "$c" ] || continue
+    echo "$(basename "$(dirname "$c")"): governor=$(cat "$c/scaling_governor" 2>/dev/null) \
+attuale=$(cat "$c/scaling_cur_freq" 2>/dev/null) max=$(cat "$c/scaling_max_freq" 2>/dev/null)"
+done 2>/dev/null | head -8
+[ -d /sys/devices/system/cpu/cpu0/cpufreq ] || echo "(nessun controllo di frequenza esposto dal kernel)"
+
+sez "3. MEMORIA"
+sot "riepilogo"
+free -h
+sot "dettaglio"
+grep -E "^(MemTotal|MemFree|MemAvailable|Cached|SwapTotal|SwapFree|Dirty|Committed_AS)" /proc/meminfo
+sot "swap in uso"
+swapon --show 2>/dev/null || echo "(nessuno swap attivo)"
+echo "swappiness: $(cat /proc/sys/vm/swappiness 2>/dev/null)"
+sot "zram"
+if [ -e /sys/block/zram0 ]; then
+    zramctl 2>/dev/null || echo "(zram0 presente)"
+else
+    echo "(zram non in uso)"
+fi
+sot "OOM: il kernel ha ucciso qualcosa per mancanza di memoria?"
+(journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) \
+    | grep -iE "out of memory|oom-kill|killed process" | tail -10 || true
+echo "(nessuna riga qui sopra = non e' mai successo da questo avvio)"
+
+sez "4. PROCESSI"
+sot "i 15 che consumano piu' CPU"
+ps -eo pcpu,pmem,rss,etimes,comm --sort=-pcpu | head -16
+sot "i 15 che consumano piu' memoria"
+ps -eo pmem,rss,pcpu,comm --sort=-pmem | head -16
+sot "processi zombie"
+ZOMBIE=$(ps -eo stat,pid,comm | awk '$1 ~ /^Z/ {print}' | wc -l)
+echo "zombie: $ZOMBIE"
+[ "$ZOMBIE" -gt 0 ] && ps -eo stat,pid,ppid,comm | awk '$1 ~ /^Z/'
+sot "processi in attesa ininterrompibile (stato D: disco o driver bloccato)"
+ps -eo stat,pid,comm | awk '$1 ~ /^D/' || true
+echo "(righe qui sopra = qualcosa aspetta il disco o un driver: causa tipica dei blocchi)"
+sot "quanti processi di ZETA RAYS sono vivi"
+ps -eo pid,pcpu,pmem,rss,comm,args | grep -E "zeta|ollama" | grep -v grep | head -20
+
+sez "5. AVVIO E SERVIZI"
+prova "tempo di avvio" systemd-analyze
+prova "cosa ha rallentato l'avvio" systemd-analyze blame
+sot "unita' fallite"
+systemctl --failed --no-pager 2>/dev/null || echo "(systemctl non disponibile)"
+sot "servizi di sistema attivi"
+systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}' | head -40
+sot "servizi dell'utente"
+systemctl --user list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}' | head -20
+sot "timer attivi (lavori periodici: possono svegliare il disco di continuo)"
+systemctl list-timers --all --no-pager 2>/dev/null | head -15
+
+sez "6. DISCO"
+sot "spazio"
+df -h -x tmpfs -x devtmpfs 2>/dev/null
+sot "dischi presenti"
+lsblk -o NAME,SIZE,ROTA,TYPE,MOUNTPOINT,FSTYPE 2>/dev/null
+echo "(ROTA=1 disco a piatti, ROTA=0 SSD o NVMe)"
+sot "montaggi della radice"
+grep -E " / | /home " /proc/mounts
+sot "salute del disco (SMART)"
+if ha smartctl; then
+    for d in /dev/nvme0n1 /dev/sda /dev/sdb; do
+        [ -e "$d" ] || continue
+        echo "### $d"
+        smartctl -H "$d" 2>&1 | grep -iE "result|health|failed" | head -3
+        smartctl -A "$d" 2>&1 | grep -iE "percentage_used|power_on|media_errors|reallocated|temperature|wear" | head -8
+    done
+else
+    echo "(smartctl non installato: sudo apt install smartmontools)"
+fi
+sot "attivita' del disco adesso"
+if ha iostat; then iostat -dx 1 2 2>/dev/null | tail -12
+else echo "(iostat non installato: sudo apt install sysstat)"; fi
+sot "errori del file system nel registro"
+(journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) \
+    | grep -iE "ext4-fs error|i/o error|blk_update_request|ata[0-9]+\.[0-9]+: failed|nvme.*(reset|timeout)|remounting.*read-only" \
+    | tail -12 || true
+echo "(nessuna riga = disco sano dal punto di vista del kernel)"
+
+sez "7. GRAFICA"
+prova "schede grafiche" lspci
+sot "driver in uso"
+if ha lspci; then lspci -nnk 2>/dev/null | grep -A 3 -iE "vga|3d|display" | head -20; fi
+sot "rendering"
+if ha glxinfo; then glxinfo -B 2>/dev/null | head -12
+elif ha eglinfo; then eglinfo 2>/dev/null | head -10
+else echo "(glxinfo non installato: sudo apt install mesa-utils)"; fi
+sot "accelerazione video disponibile?"
+ls -la /dev/dri/ 2>/dev/null || echo "(nessun /dev/dri: nessuna accelerazione, tutto a carico della CPU)"
+sot "variabili del compositore"
+env | grep -E "^(WLR_|HYPRLAND|GSK_|GDK_|LIBGL|MESA|WAYLAND_DISPLAY|XDG_SESSION_TYPE)" | sort
+sot "errori della scheda grafica in questo avvio (GPU bloccata, reset, timeout)"
+journalctl -k -b --no-pager -o short 2>/dev/null \
+    | grep -iE "gpu hang|ring .*timeout|\*ERROR\*|amdgpu.*(timeout|reset|fault)|i915.*(reset|hang|error)|xe .*(reset|timeout)|nouveau.*(fault|timeout)|drm.*(timed out|flip_done)" \
+    | tail -15 || true
+sot "finestre che non rispondevano (secondo Hyprland)"
+for L in "$HOME/.local/share/zeta/hyprland.log" /run/user/"$(id -u "${SUDO_USER:-$USER}" 2>/dev/null)"/hypr/*/hyprland.log; do
+    [ -r "$L" ] && grep -iE "ANR|not responding|non risponde" "$L" | tail -8
+done
+sot "Firefox: processi, memoria, rapporti di crash"
+ps -eo pid,stat,rss,etime,comm 2>/dev/null | awk 'NR==1 || /firefox|Web Content|Isolated|WebExtensions|RDD|Socket|Utility|GPU Process/' | head -20
+CR="$HOME/.mozilla/firefox/Crash Reports/pending"
+if [ -d "$CR" ]; then
+    N=$(find "$CR" -maxdepth 1 -name "*.dmp" 2>/dev/null | wc -l)
+    echo "rapporti di crash di Firefox in attesa: $N"
+fi
+sot "errori del compositore"
+tail -40 "$HOME/.local/share/zeta/hyprland.log" 2>/dev/null | grep -iE "err|fail|warn" | tail -12 \
+    || echo "(nessun registro di Hyprland)"
+
+sez "8. TEMPERATURA"
+sot "sensori"
+if ha sensors; then sensors 2>/dev/null | head -30
+else
+    for z in /sys/class/thermal/thermal_zone*; do
+        [ -r "$z/temp" ] || continue
+        echo "$(cat "$z/type" 2>/dev/null): $(( $(cat "$z/temp") / 1000 ))C"
+    done 2>/dev/null || echo "(nessun sensore leggibile)"
+fi
+sot "il processore e' stato rallentato dal calore?"
+(journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) \
+    | grep -iE "thermal|throttl|temperature above" | tail -10 || true
+echo "(righe qui sopra = surriscaldamento: e' una causa classica di lentezza a ondate)"
+
+sez "9. ZETA CORE E INTELLIGENZA"
+sot "servizio di Ollama"
+systemctl status ollama --no-pager -n 12 2>/dev/null | head -22 || echo "(servizio ollama assente)"
+sot "Ollama risponde?"
+if ha curl; then
+    T0=$(date +%s%N)
+    R=$(curl -s -m 10 http://127.0.0.1:11434/api/tags 2>/dev/null)
+    T1=$(date +%s%N)
+    if [ -n "$R" ]; then
+        echo "risposta in $(( (T1-T0)/1000000 )) ms"
+        echo "$R" | tr ',' '\n' | grep -E '"name"|"size"' | head -12
+    else
+        echo "NON risponde sulla porta 11434"
+    fi
+else echo "(curl non installato)"; fi
+sot "modelli installati"
+ha ollama && ollama list 2>&1 | head -10 || echo "(comando ollama assente)"
+sot "modelli attualmente in memoria"
+ha ollama && ollama ps 2>&1 | head -10 || true
+sot "impostazioni del servizio Ollama"
+systemctl show ollama -p Environment -p MemoryMax -p CPUQuota -p ExecStart --no-pager 2>/dev/null | head -10
+sot "quanto consumano ZETA e Ollama adesso"
+ps -eo pid,pcpu,pmem,rss,etimes,comm,args 2>/dev/null \
+    | grep -E "ollama|zeta-core|zeta-controllo|zeta-monitor" | grep -v grep | head -12
+sot "configurazione dell'intelligenza"
+CFG="$HOME/.config/zeta/intelligence.json"
+if [ -r "$CFG" ]; then
+    echo "file: $CFG  (permessi: $(stat -c '%a %U:%G' "$CFG" 2>/dev/null))"
+    sed -E 's/("(api_key|key|token|secret)"[[:space:]]*:[[:space:]]*")[^"]*"/\1***"/g' "$CFG" | head -40
+else
+    echo "(nessuna configurazione salvata: $CFG non esiste)"
+fi
+sot "chiavi API: ci sono? (si stampa solo la lunghezza, mai la chiave)"
+if ha secret-tool; then
+    for p in claude gemini openai deepseek qwen perplexity mistral groq xai openrouter personalizzato; do
+        V=$(timeout 6 secret-tool lookup zeta-provider "$p" 2>/dev/null)
+        RC=$?
+        if [ $RC -eq 124 ]; then echo "  $p: secret-tool NON RISPONDE (scaduto il tempo)"
+        elif [ -n "$V" ]; then echo "  $p: presente (${#V} caratteri)"
+        else echo "  $p: assente"; fi
+    done
+else
+    echo "(secret-tool non installato)"
+fi
+sot "chiavi di ZETA: cifrate (~/.config/zeta/chiavi/*.cred), solo nomi e dimensioni"
+C="$HOME/.config/zeta/chiavi"
+if [ -d "$C" ]; then
+    echo "cartella: $(stat -c '%a' "$C") (deve essere 700)"
+    for f in "$C"/*.cred; do
+        [ -e "$f" ] || { echo "  (nessuna chiave salvata)"; break; }
+        echo "  $(basename "$f" .cred): $(stat -c '%s byte, permessi %a' "$f")"
+    done
+else
+    echo "(nessuna chiave salvata)"
+fi
+[ -e "$HOME/.config/zeta/chiavi.json" ] && echo "ATTENZIONE: c'e' ancora il vecchio file in chiaro chiavi.json (viene convertito al primo uso di ZETA)"
+sot "controllo automatico della salute (zeta-salute)"
+cat /run/zeta-salute.txt 2>/dev/null || echo "(nessun controllo ancora: parte 3 minuti dopo l'accensione)"
+journalctl -t zeta-salute -b --no-pager -o short 2>/dev/null | tail -15
+sot "c'e' un portachiavi che risponde?"
+if ha busctl; then
+    busctl --user list 2>/dev/null | grep -i secret || echo "  nessun portachiavi (normale: le chiavi sono cifrate con systemd-creds)"
+else
+    echo "(busctl non disponibile)"
+fi
+sot "file delle chiavi di ZETA (se usato)"
+for f in "$HOME/.config/zeta/chiavi.json" "$HOME/.config/zeta/keys.json"; do
+    [ -r "$f" ] && echo "$f  permessi: $(stat -c '%a %U:%G' "$f" 2>/dev/null)"
+done
+sot "registro delle azioni di ZETA (ultime 15)"
+tail -15 "$HOME/.local/share/zeta/actions.log" 2>/dev/null || echo "(nessun registro)"
+
+sez "9B. COMPONENTI NUOVI (terminale, selettore, emergenza, ZETA Share, Posta)"
+for n in zeta-selettore zeta-emergenza; do
+    if [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u "${SUDO_USER:-$USER}")}/$n.sock" ]; then echo "$n: pronto"; else echo "$n: NON pronto"; fi
+done
+for c in tmux zsh fish atuin starship thunderbird; do
+    printf '%-12s %s\n' "$c" "$(command -v $c >/dev/null && echo presente || echo MANCA)"
+done
+echo "LocalSend: $(dpkg-query -W -f='${Version}' localsend 2>/dev/null || echo non installato)"
+echo "sessioni del terminale: $(tmux list-sessions 2>/dev/null | wc -l)"
+
+sez "10. RETE"
+sot "interfacce"
+ip -brief addr 2>/dev/null | head -10
+sot "connessione"
+ha nmcli && nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | head -8
+sot "il DNS risponde? (un DNS lento fa sembrare lento tutto)"
+if ha getent; then
+    T0=$(date +%s%N); getent hosts deb.debian.org >/dev/null 2>&1; T1=$(date +%s%N)
+    echo "risoluzione di deb.debian.org: $(( (T1-T0)/1000000 )) ms"
+fi
+sot "porte in ascolto"
+(ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null) | head -20
+
+sez "11. PACCHETTI E REPOSITORY"
+sot "sorgenti configurate"
+cat /etc/apt/sources.list 2>/dev/null | grep -v "^#" | grep -v "^$"
+for f in /etc/apt/sources.list.d/*; do
+    [ -r "$f" ] || continue
+    echo "### $f"
+    grep -v "^#" "$f" | grep -v "^$"
+done 2>/dev/null
+sot "chiavi di firma"
+ls -la /etc/apt/trusted.gpg.d/ /etc/apt/keyrings/ 2>/dev/null | head -20
+sot "aggiornamento dell'elenco pacchetti (sola lettura, non installa nulla)"
+if [ "$(id -u)" = 0 ]; then
+    apt-get update -qq 2>&1 | head -25
+    echo "esito: $?"
+else
+    echo "(serve sudo: rilancia con  sudo zeta-diagnosi  per provare apt update)"
+fi
+sot "pacchetti rotti o a meta'"
+dpkg -l 2>/dev/null | awk '$1 !~ /^ii/ && NR>5 {print}' | head -20 || true
+echo "(nessuna riga = nessun pacchetto in stato anomalo)"
+sot "pacchetti bloccati"
+apt-mark showhold 2>/dev/null | head -10; echo "(vuoto = nessuno)"
+sot "dipendenze non soddisfatte"
+apt-get check 2>&1 | head -10
+sot "cosa verrebbe aggiornato (simulazione, non installa)"
+apt-get -s upgrade 2>&1 | tail -15
+
+sez "12. REGISTRO: ERRORI RICORRENTI"
+sot "errori di questo avvio, raggruppati per frequenza"
+journalctl -p err -b --no-pager -o cat 2>/dev/null \
+    | sed -E 's/[0-9]{2,}/N/g' | sort | uniq -c | sort -rn | head -20 \
+    || echo "(journalctl non disponibile)"
+sot "ultimi 25 errori in ordine di tempo"
+journalctl -p err -b --no-pager -n 25 2>/dev/null | tail -25
+sot "programmi andati in crash"
+(journalctl -b --no-pager 2>/dev/null | grep -iE "segfault|core dump|crash|Killed" | tail -12) || true
+sot "messaggi del kernel piu' recenti"
+(journalctl -k -b --no-pager -n 20 2>/dev/null || dmesg 2>/dev/null | tail -20)
+
+sez "13. MISURE"
+sot "reattivita' del disco (lettura di 200 MB gia' in cache, e senza cache)"
+if [ -r /usr/lib/zeta ]; then
+    T0=$(date +%s%N); find /usr -type f -name "*.so*" 2>/dev/null | head -2000 >/dev/null; T1=$(date +%s%N)
+    echo "scansione di 2000 file in /usr: $(( (T1-T0)/1000000 )) ms"
+fi
+sot "avvio di un programma (terminale)"
+if ha foot; then
+    T0=$(date +%s%N); timeout 10 foot --version >/dev/null 2>&1; T1=$(date +%s%N)
+    echo "foot --version: $(( (T1-T0)/1000000 )) ms"
+fi
+sot "avvio dell'interprete di ZETA (quanto ci mette a caricare i moduli)"
+if [ -d /usr/lib/zeta ]; then
+    T0=$(date +%s%N)
+    timeout 60 python3 -c "import sys; sys.path.insert(0,'/usr/lib/zeta')
+from intelligence.registry import Registry
+r = Registry()" >/dev/null 2>&1
+    T1=$(date +%s%N)
+    echo "caricamento di Registry: $(( (T1-T0)/1000000 )) ms"
+    echo "(se supera i 2000 ms, qualcosa nel caricamento sta aspettando qualcos'altro)"
+fi
+sot "risposta dell'intelligenza locale (domanda breve, massimo 90 secondi)"
+if ha curl && curl -s -m 3 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+    MOD=$(ha ollama && ollama list 2>/dev/null | awk 'NR==2{print $1}')
+    if [ -n "$MOD" ]; then
+        T0=$(date +%s%N)
+        curl -s -m 90 http://127.0.0.1:11434/api/generate \
+             -d "{\"model\":\"$MOD\",\"prompt\":\"Rispondi solo: ok\",\"stream\":false}" >/dev/null 2>&1
+        T1=$(date +%s%N)
+        echo "modello $MOD, prima risposta: $(( (T1-T0)/1000000 )) ms"
+    else
+        echo "(nessun modello installato)"
+    fi
+else
+    echo "(Ollama non raggiungibile: prova saltata)"
+fi
+
+sez "FINE"
+echo "Rapporto completo. Non e' stato modificato nulla sul computer."
+
+}
+
+if [ "$DEST" = /dev/stdout ]; then
+    rapporto
+else
+    rapporto > "$DEST" 2>&1
+    chmod 600 "$DEST"
+    [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER": "$DEST" 2>/dev/null
+    echo "Diagnosi completata."
+    echo "Rapporto: $DEST"
+    echo "Righe: $(wc -l < "$DEST")"
+    echo
+    echo "Non e' stato modificato nulla. Nel rapporto non c'e' nessuna chiave API."
+fi

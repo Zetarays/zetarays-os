@@ -1,0 +1,11 @@
+[Unit]
+Description=ZETA RAYS: riprende il desktop normale dopo un crash di Hyprland
+
+[Service]
+ExecStart=/usr/local/libexec/zeta-ripresa
+Restart=always
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=default.target

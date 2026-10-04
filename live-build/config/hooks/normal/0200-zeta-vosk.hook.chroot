@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — riconoscimento vocale offline (Vosk) per ZETA.
+# Non fatale: se il download fallisce, la build continua e la voce resta
+# "da attivare" (ZETA lo spiega, i comandi scritti funzionano comunque).
+set +e
+
+echo "ZETA RAYS: installazione motore vocale Vosk…"
+
+# 1) libreria Python vosk (wheel manylinux per l'architettura)
+pip3 install --no-cache-dir --break-system-packages vosk >/tmp/vosk-pip.log 2>&1 \
+    && echo "ZETA RAYS: vosk (python) installato" \
+    || echo "ZETA RAYS: vosk python non installato (voce disattivata) — vedi /tmp/vosk-pip.log"
+
+# 2) modello italiano «small» (~48 MB) in /usr/share/vosk/model-it
+MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip"
+mkdir -p /usr/share/vosk
+if curl -fsSL --retry 3 -o /tmp/vosk-it.zip "$MODEL_URL"; then
+    unzip -q -o /tmp/vosk-it.zip -d /usr/share/vosk && \
+    mv /usr/share/vosk/vosk-model-small-it-0.22 /usr/share/vosk/model-it 2>/dev/null
+    rm -f /tmp/vosk-it.zip
+    if [ -f /usr/share/vosk/model-it/conf/model.conf ]; then
+        echo "ZETA RAYS: modello vocale italiano installato"
+    else
+        echo "ZETA RAYS: modello vocale non valido, salto"
+    fi
+else
+    echo "ZETA RAYS: modello vocale non scaricato (voce disattivata finché non lo si aggiunge)"
+fi
+
+# 3) modello inglese «small» (~40 MB) in /usr/share/vosk/model-en
+# Vosk carica un modello per volta e non indovina la lingua: averli entrambi
+# permette di scegliere quale ascoltare (Impostazioni, oppure la lingua del
+# sistema). Se il download non riesce, resta l'italiano e nulla si rompe.
+MODEL_EN_URL="https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+if curl -fsSL --retry 3 -o /tmp/vosk-en.zip "$MODEL_EN_URL"; then
+    unzip -q -o /tmp/vosk-en.zip -d /usr/share/vosk && \
+    mv /usr/share/vosk/vosk-model-small-en-us-0.15 /usr/share/vosk/model-en 2>/dev/null
+    rm -f /tmp/vosk-en.zip
+    if [ -f /usr/share/vosk/model-en/conf/model.conf ]; then
+        echo "ZETA RAYS: modello vocale inglese installato"
+    else
+        echo "ZETA RAYS: modello vocale inglese non valido, salto"
+    fi
+else
+    echo "ZETA RAYS: modello vocale inglese non scaricato (resta solo l'italiano)"
+fi
+
+exit 0

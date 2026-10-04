@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — regione radio del Wi-Fi presa dal fuso orario.
+#
+# Senza un paese il kernel usa le regole «mondiali» (00): i canali 12 e 13 a
+# 2,4 GHz e molti a 5 GHz restano solo in ascolto, e alcune schede non si
+# collegano a un router che li usa (in Europa sono permessi e i router dei
+# fornitori li scelgono spesso da soli). Il paese si ricava dal fuso orario
+# scelto all'installazione (Europe/Rome -> IT), con la tabella dei fusi del
+# sistema: nessun paese scritto qui dentro. Se la scheda ha un paese suo
+# (firmware), il kernel tiene quello: questo e' solo il valore di partenza.
+# Lo lancia udev (60-zeta-regione-radio.rules) quando compare una scheda
+# Wi-Fi: all'avvio e anche per una chiavetta collegata dopo.
+# /etc/localtime e' pronto anche all'avvio (timedatectl vorrebbe D-Bus)
+TZ_NOME=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
+[ -n "$TZ_NOME" ] || exit 0
+PAESE=$(awk -v z="$TZ_NOME" '$1 !~ /^#/ && $3 == z {print $1; exit}' /usr/share/zoneinfo/zone.tab 2>/dev/null)
+case "$PAESE" in
+  [A-Z][A-Z]) /usr/sbin/iw reg set "$PAESE" 2>/dev/null && echo "regione radio: $PAESE ($TZ_NOME)" ;;
+  *) echo "regione radio: nessun paese per $TZ_NOME, resta quella della scheda" ;;
+esac
+exit 0

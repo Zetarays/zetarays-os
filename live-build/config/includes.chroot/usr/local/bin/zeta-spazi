@@ -1,0 +1,186 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-spazi — spazi di lavoro nella barra.
+
+Waybar ha un modulo «hyprland/workspaces», ma per attivare uno spazio manda a
+Hyprland un comando nella sintassi storica («dispatch workspace 2»). Hyprland
+0.55, che legge una configurazione in Lua, quella sintassi non la accetta più:
+il risultato è che cliccare un numero nella barra non faceva assolutamente
+nulla. Qui il disegno e il clic sono nostri, e usano la sintassi giusta.
+
+  zeta-spazi stato N   stampa lo stato dello spazio N (lo chiama Waybar)
+  zeta-spazi vai N     porta l'utente sullo spazio N
+  zeta-spazi segnala   resta in ascolto degli eventi di Hyprland e avvisa la
+                       barra quando qualcosa cambia (un solo processo)
+
+Perché un ascoltatore separato invece di tre moduli che restano aperti: Waybar
+non raccoglie i figli longevi quando si ricarica, e ogni ricarica lasciava
+dietro un processo zombie per modulo. Con il segnale i moduli sono comandi
+brevi che finiscono da soli, e in ascolto c'è un processo solo.
+"""
+import json
+import os
+import socket
+import subprocess
+import sys
+
+N_SPAZI = 3
+
+
+def _hyprctl(args):
+    try:
+        r = subprocess.run(["hyprctl"] + args, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def stato(n):
+    """{'text','class','alt'} per lo spazio n: attivo, popolato o vuoto."""
+    out = _hyprctl(["-j", "workspaces"])
+    attivo = _hyprctl(["-j", "activeworkspace"])
+    popolato = False
+    try:
+        for w in json.loads(out or "[]"):
+            if w.get("id") == n and w.get("windows", 0) > 0:
+                popolato = True
+    except ValueError:
+        pass
+    corrente = None
+    try:
+        corrente = json.loads(attivo or "{}").get("id")
+    except ValueError:
+        pass
+    classe = "active" if corrente == n else ("occupied" if popolato else "empty")
+    return {"text": str(n), "class": classe, "alt": classe,
+            "tooltip": "Spazio di lavoro %d" % n}
+
+
+def vai(n):
+    _hyprctl(["dispatch", "hl.dsp.focus({ workspace = %d })" % n])
+
+
+def _socket_eventi():
+    his = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    base = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    if not his:
+        return None
+    for percorso in (os.path.join(base, "hypr", his, ".socket2.sock"),
+                     "/tmp/hypr/%s/.socket2.sock" % his):
+        if os.path.exists(percorso):
+            return percorso
+    return None
+
+
+SEGNALE = 10          # SIGRTMIN+10 (il 9 lo usa il modulo delle finestre ridotte)
+SEGNALE_DOCK = 12     # SIGRTMIN+12: icone del dock che mostrano se l'app e' aperta
+
+
+_conferma = None
+
+
+def _avvisa_barra():
+    """Aggiorna i numeri degli spazi; poco dopo, una seconda volta.
+
+    Con molti eventi insieme (una finestra che si apre ne genera diversi)
+    Waybar a volte perde un aggiornamento: il modulo resta nascosto, e il
+    numero 1 spariva dalla barra fino al cambio di spazio successivo. Il
+    secondo segnale, uno solo per raffica di eventi, lo rimette a posto.
+    Da fermo non costa nulla: parte solo quando ci sono eventi.
+    """
+    global _conferma
+    subprocess.run(["pkill", "-RTMIN+%d" % SEGNALE, "-x", "waybar"],
+                   capture_output=True, check=False)
+    if _conferma is None or _conferma.poll() is not None:
+        _conferma = subprocess.Popen(
+            ["sh", "-c", "sleep 1.5; pkill -RTMIN+%d -x waybar" % SEGNALE],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _ridotta_chiusa(addr):
+    """Un'app ridotta a icona si e' chiusa da sola: via la sua miniatura."""
+    try:
+        import json
+        with open(os.path.expanduser("~/.cache/zeta/finestre.json")) as f:
+            if addr not in json.load(f):
+                return
+        sys.path.insert(0, "/usr/lib/zeta")
+        from system import windows
+        windows.dimentica(addr)
+    except (OSError, ValueError, ImportError):
+        pass
+
+
+def segnala():
+    """Ascolta Hyprland e avvisa la barra a ogni cambiamento.
+
+    Ascoltare invece di interrogare: tre moduli che chiamassero hyprctl ogni
+    secondo sarebbero sei processi al secondo per sempre, e si vedrebbero nel
+    consumo di un computer fermo.
+    """
+    percorso = _socket_eventi()
+    if percorso is None:
+        return 1
+    INTERESSANTI = ("workspace>>", "focusedmon>>", "openwindow>>",
+                    "closewindow>>", "movewindow>>", "createworkspace>>",
+                    "destroyworkspace>>")
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(percorso)
+    except OSError:
+        return 1
+    resto = b""
+    try:
+        while True:
+            dati = sock.recv(4096)
+            if not dati:
+                break
+            resto += dati
+            while b"\n" in resto:
+                riga, resto = resto.split(b"\n", 1)
+                testo = riga.decode("utf-8", "replace")
+                if testo.startswith(INTERESSANTI):
+                    _avvisa_barra()
+                if testo.startswith(("openwindow>>", "closewindow>>")):
+                    subprocess.run(["pkill", "-RTMIN+%d" % SEGNALE_DOCK, "-x", "waybar"],
+                                   capture_output=True, check=False)
+                if testo.startswith("closewindow>>"):
+                    _ridotta_chiusa("0x" + testo.split(">>", 1)[1].strip())
+                # uno schermo compare o sparisce (anche quando si riaccende):
+                # Waybar a volte duplica la barra, si controlla poco dopo
+                if testo.startswith(("monitoradded", "monitorremoved")):
+                    subprocess.Popen(["sh", "-c", "sleep 3; zeta-barra controlla"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
+    except OSError:
+        pass
+    finally:
+        sock.close()
+    return 0                # Hyprland è uscito: esce anche l ascoltatore
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else ""
+    if cmd == "segnala":
+        return segnala()
+    if len(argv) < 3:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    try:
+        n = int(argv[2])
+    except ValueError:
+        return 2
+    if not 1 <= n <= N_SPAZI:
+        return 2
+    if cmd == "vai":
+        vai(n)
+        _avvisa_barra()
+        return 0
+    if cmd == "stato":
+        print(json.dumps(stato(n)))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

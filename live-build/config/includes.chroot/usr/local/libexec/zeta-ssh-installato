@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — accesso remoto acceso di serie sul sistema installato.
+#
+# Gira dentro il sistema appena installato (passo dell'installer). Qui la
+# password e' quella scelta dall'utente nell'installer, non «zeta» come nella
+# sessione dal vivo e nelle OVA (dove SSH resta spento): il server si accende
+# e la porta 22 si apre alla rete locale E DA INTERNET (REMOTE ENABLED), come
+# fa «zeta-ssh remoto attiva». Da internet serve comunque che il router
+# inoltri la porta 22 a questo computer. Protezioni: root non entra, 4
+# tentativi per connessione, oltre 10 connessioni nuove al minuto dallo
+# stesso indirizzo vengono scartate (vedi /etc/nftables.conf).
+# Per tornare alla sola rete locale: sudo zeta-ssh remoto disattiva
+# (o Impostazioni › Wi-Fi e rete › «Anche da internet»).
+# Le chiavi del server non si creano qui: le crea il servizio al primo avvio
+# (ssh.service.d/zeta-chiavi.conf), uniche per questo computer.
+set -e
+systemctl enable ssh.service >/dev/null 2>&1
+mkdir -p /etc/nftables.d
+# stesso file, stesso contenuto che scrive «zeta-ssh remoto attiva»: resta
+# dopo il riavvio e dopo «systemctl restart nftables»
+cat > /etc/nftables.d/zeta-ssh.nft <<'EOF'
+# ZETA RAYS — scritto da zeta-ssh, non modificare a mano.
+# SSH acceso: porta 22 REMOTE ENABLED (rete locale e internet)
+add element inet zeta accesso_lan { 22 }
+add element inet zeta accesso_remoto { 22 }
+EOF
+chmod 0644 /etc/nftables.d/zeta-ssh.nft
+# regole pronte anche in ufw (spento), cosi' chi lo accende non resta fuori
+if command -v ufw >/dev/null 2>&1; then
+    for rete in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fc00::/7 fe80::/10; do
+        ufw allow from "$rete" to any port 22 proto tcp comment 'ZETA RAYS SSH (LAN)' >/dev/null 2>&1 || true
+    done
+    ufw limit 22/tcp comment 'ZETA RAYS SSH (internet)' >/dev/null 2>&1 || true
+fi
+echo "accesso remoto (SSH): acceso, rete locale e internet"

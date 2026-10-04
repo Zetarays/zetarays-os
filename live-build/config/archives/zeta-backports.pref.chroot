@@ -1,0 +1,4 @@
+# ZETA RAYS — Hyprland e le sue librerie arrivano dai backports ufficiali di Debian 13
+Package: hyprland* hyprlock hypridle libhypr* libaquamarine* xdg-desktop-portal-hyprland libxkbcommon* libxkbregistry* libudis86-0
+Pin: release n=trixie-backports
+Pin-Priority: 990

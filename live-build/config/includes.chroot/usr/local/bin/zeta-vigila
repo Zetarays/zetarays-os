@@ -1,0 +1,97 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-vigila — tiene in piedi i pezzi della scrivania.
+#
+# Se lo sfondo o le icone della scrivania cadono (un difetto, la memoria che
+# finisce, un aggiornamento), l'utente non deve restare con uno schermo vuoto:
+# qui si controlla ogni pochi secondi e si riavvia solo ciò che manca.
+# Il ciclo muore insieme alla sessione grafica.
+INTERVALLO=6
+CFG="$HOME/.config/zeta"
+
+# Controlli senza processi esterni: prima ogni giro (6 s) lanciava pgrep tre
+# volte e sleep, cioe' circa 50 processi al minuto anche a computer fermo. Ora
+# si ricorda il pid di ciascun pezzo e si guarda solo se e' ancora vivo
+# (kill -0, interno alla shell); si cerca in /proc solo quando non lo e'.
+declare -A PID
+trova() {        # nome (come in /proc/PID/comm) -> PID[nome], 0 se non c'e'
+    local d n
+    for d in /proc/[0-9]*; do
+        read -r n < "$d/comm" 2>/dev/null || continue
+        [ "$n" = "$1" ] && { PID[$1]=${d#/proc/}; return 0; }
+    done
+    PID[$1]=0; return 1
+}
+vivo() {
+    local p=${PID[$1]:-0}
+    [ "$p" != 0 ] && kill -0 "$p" 2>/dev/null && return 0
+    trova "$1"
+}
+# le icone della scrivania girano come «python3» (per la shell a strati si
+# rilanciano con l'interprete): si riconoscono dalla riga di comando
+vivo_scrivania() {
+    local p=${PID[scrivania]:-0} d n arg
+    [ "$p" != 0 ] && kill -0 "$p" 2>/dev/null && return 0
+    for d in /proc/[0-9]*; do
+        read -r n < "$d/comm" 2>/dev/null || continue
+        [ "$n" = python3 ] || continue
+        mapfile -d '' -t arg < "$d/cmdline" 2>/dev/null
+        if [ "${arg[1]:-}" = /usr/local/bin/zeta-scrivania ]; then
+            PID[scrivania]=${d#/proc/}; return 0
+        fi
+    done
+    PID[scrivania]=0; return 1
+}
+
+# attesa senza «sleep»: una lettura con scadenza su una fifo che nessuno scrive
+FIFO="${XDG_RUNTIME_DIR:-/tmp}/zeta-vigila.$$"
+mkfifo -m 600 "$FIFO" && exec 9<>"$FIFO" && rm -f "$FIFO"
+dormi() { read -r -t "$1" -u 9 _ 2>/dev/null || true; }
+
+# Lo schermo è bloccato? Lo dice il file-segnale scritto dal blocco di ZETA RAYS
+# (vedi /usr/local/bin/hyprlock): è più affidabile dello stato di systemd,
+# che qui nessuno aggiorna.
+SEGNALE="${XDG_RUNTIME_DIR:-/tmp}/zeta-schermo-bloccato"
+bloccata() { [ -f "$SEGNALE" ]; }
+
+# Il ciclo appartiene al Hyprland che l'ha avviato: se quello cade (crash) e
+# ne parte un altro, questo ciclo non deve restare vivo accanto a quello della
+# nuova sessione (si vedevano due barre e due scrivanie).
+MIO_HYPRLAND=$(pgrep -nx -u "$(id -u)" Hyprland)
+giro=0
+while true; do
+    dormi "$INTERVALLO"
+    giro=$(( giro + 1 ))
+    [ -n "$MIO_HYPRLAND" ] && ! kill -0 "$MIO_HYPRLAND" 2>/dev/null && exit 0
+    # Hyprland non c'è più: la sessione è finita, si esce.
+    vivo Hyprland || exit 0
+
+    # Blocco schermo: se il programma di blocco muore mentre lo schermo è
+    # bloccato, Hyprland mostra una schermata d'emergenza in inglese e
+    # l'utente resta chiuso fuori dalla propria sessione. Qui torna su.
+    if bloccata && ! vivo hyprlock; then
+        hyprctl keyword misc:allow_session_lock_restore 1 >/dev/null 2>&1
+        setsid hyprlock >/dev/null 2>&1 </dev/null &
+        dormi 2
+        continue
+    fi
+
+    # sfondo
+    vivo swaybg || zeta-sfondo apply >/dev/null 2>&1
+
+    # la barra in basso dev'essere UNA: ogni 12 s si contano barre e processi
+    # (Waybar a volte si duplica, per esempio quando lo schermo si riaccende)
+    if [ $(( giro % 2 )) -eq 0 ]; then
+        zeta-barra controlla >/dev/null 2>&1
+    fi
+
+    # icone della scrivania (solo se l'utente le vuole)
+    vuole=1; read -r vuole < "$CFG/scrivania" 2>/dev/null
+    if [ "${vuole:-1}" != "0" ]; then
+        # «if», non «a || b &»: con la & tutta la riga andava in una shell a
+        # parte a ogni giro (un processo in piu' ogni 6 secondi)
+        if ! vivo_scrivania; then
+            setsid zeta-scrivania >/dev/null 2>&1 </dev/null &
+        fi
+    fi
+done

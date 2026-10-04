@@ -1,0 +1,64 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-barra — la barra in basso e' sempre UNA (una per schermo, un solo processo).
+#
+#   zeta-barra ricarica   ricarica colori/dock della barra (una alla volta) e controlla
+#   zeta-barra controlla  se ci sono barre doppie le toglie
+#
+# Perche': Waybar a volte duplica le barre (ricariche ravvicinate con SIGUSR2,
+# schermo che si spegne e si riaccende, monitor scollegato e ricollegato) e
+# sulla scrivania comparivano due o tre barre una sopra l'altra. Tutte le
+# ricariche passano da qui, in fila; dopo ognuna, e ogni volta che un monitor
+# compare o sparisce, si conta. Se le barre sono piu' degli schermi (o i
+# processi piu' di uno) si chiude Waybar: la sorveglianza di zeta-session ne
+# riavvia esattamente uno.
+set -u
+CODA="${XDG_RUNTIME_DIR:-/tmp}/zeta-barra.lock"
+
+processi() { pgrep -u "$(id -u)" -x waybar | wc -l; }
+
+barre_e_schermi() {   # stampa "barre schermi"
+    local j
+    j=$(hyprctl -j layers 2>/dev/null) || { echo "0 0"; return; }
+    python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read() or "{}")
+barre = sum(1 for m in d.values() for liv in m.get("levels", {}).values()
+            for l in liv if l.get("namespace") == "waybar")
+print(barre, len(d))' <<<"$j" 2>/dev/null || echo "0 0"
+}
+
+controlla() {
+    local n barre schermi
+    n=$(processi)
+    [ "$n" -eq 0 ] && return 0          # la riavvia la sorveglianza
+    read -r barre schermi < <(barre_e_schermi)
+    if [ "$n" -gt 1 ] || { [ "$schermi" -gt 0 ] && [ "$barre" -gt "$schermi" ]; }; then
+        logger -t zeta-barra "barre doppie (processi $n, barre $barre, schermi $schermi): riavvio" 2>/dev/null
+        pkill -u "$(id -u)" -x waybar
+        # se qualcuna non esce, si insiste
+        for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(processi)" -eq 0 ] && break; sleep 0.2; done
+        pkill -9 -u "$(id -u)" -x waybar 2>/dev/null
+        return 1
+    fi
+    return 0
+}
+
+ricarica() {
+    # una ricarica alla volta; quelle che arrivano mentre una e' in corso si
+    # accodano e si fondono (le richieste ravvicinate facevano barre doppie)
+    exec 8>"$CODA"
+    flock 8
+    pkill -SIGUSR2 -u "$(id -u)" -x waybar 2>/dev/null || return 0
+    sleep 1.2
+    controlla
+}
+
+case "${1:-controlla}" in
+    ricarica) ricarica ;;
+    controlla)
+        exec 8>"$CODA"
+        flock 8
+        controlla ;;
+    *) sed -n '4,5p' "$0"; exit 2 ;;
+esac

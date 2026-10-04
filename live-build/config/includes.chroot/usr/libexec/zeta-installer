@@ -1,0 +1,46 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Avvia Calamares come root per installare ZETA RAYS OS (chiamato da pkexec o sudo).
+# pkexec azzera l'ambiente: qui si ripristinano lingua e impostazioni Qt.
+# L'installer parte in INGLESE: e la lingua che chiunque nel mondo puo leggere,
+# e la prima schermata di Calamares ha il menu per scegliere la propria (la
+# scelta vale sia per l'installazione sia per il sistema installato). Prima qui
+# si forzava l'italiano, e chi non lo parla non capiva nemmeno da dove cambiarlo.
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US:en
+export QT_QPA_PLATFORM=xcb QT_AUTO_SCREEN_SCALE_FACTOR=1 QT_FONT_DPI=82
+
+# Solo nel sistema live: il /etc/fstab di live-build confonde il partizionatore.
+moved=0
+if [ -e /run/live/medium ] && [ -f /etc/fstab ]; then
+    mv /etc/fstab /etc/fstab.zeta-installer && moved=1
+fi
+# Un'installazione interrotta lascia i dischi montati e il partizionatore
+# offrirebbe solo la modalità manuale: si liberano prima di ripartire.
+release_leftovers() {
+    for m in $(awk '$2 ~ /^\/tmp\/calamares-root-/ {print $2}' /proc/mounts | sort -r); do
+        umount -l "$m" 2>/dev/null
+    done
+    for s in $(awk 'NR > 1 && $1 ~ /^\/dev\// {print $1}' /proc/swaps); do
+        [ -e /run/live/medium ] && swapoff "$s" 2>/dev/null
+    done
+}
+release_leftovers
+
+# Durante l'installazione il computer non deve bloccare lo schermo ne'
+# sospendersi. Prima, dopo dieci minuti di inattivita', scattava il blocco:
+# l'installazione continuava sotto, ma chi si era allontanato tornava e
+# trovava una richiesta di password senza capire se fosse finita. Peggio la
+# sospensione (o un portatile chiuso): fermare la scrittura sul disco a meta'
+# lascia un sistema installato a pezzi. L'inibitore vale finche' Calamares e'
+# aperto e sparisce da solo quando si chiude, anche se si chiude male.
+if command -v systemd-inhibit >/dev/null 2>&1; then
+    systemd-inhibit --what=idle:sleep:handle-lid-switch \
+        --who="ZETA RAYS" --why="Installazione in corso" \
+        /usr/bin/calamares "$@"
+else
+    /usr/bin/calamares "$@"
+fi
+rc=$?
+[ "$moved" = 1 ] && mv /etc/fstab.zeta-installer /etc/fstab
+exit $rc

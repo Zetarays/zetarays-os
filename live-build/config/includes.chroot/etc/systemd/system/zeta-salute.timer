@@ -1,0 +1,12 @@
+[Unit]
+Description=ZETA RAYS: controllo della salute ogni due minuti
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=20s
+# niente recuperi all'accensione: un controllo perso non va rifatto
+Persistent=false
+
+[Install]
+WantedBy=timers.target

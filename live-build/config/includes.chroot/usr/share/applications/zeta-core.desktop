@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=ZETA
+GenericName=Intelligenza di ZETA RAYS OS
+Comment=Parla con ZETA: apre, cerca e sistema le cose per te
+Exec=zeta-core
+Icon=zeta-core
+Terminal=false
+Type=Application
+Categories=System;Utility;

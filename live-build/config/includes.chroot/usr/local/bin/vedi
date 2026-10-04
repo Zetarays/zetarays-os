@@ -1,0 +1,60 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# vedi FILE… — mostra qualunque file nel terminale, nel modo giusto per il tipo.
+#   testo e codice   colori (bat)            JSON/YAML/XML   formattati
+#   CSV/TSV          tabella                 log             colori, dalla fine
+#   PDF              testo del PDF           immagini/audio/video  scheda e metadati
+#   archivi          elenco del contenuto    binari          esadecimale (hexyl)
+# Si scorre con le frecce, «/» cerca, «q» esce. Non modifica mai il file.
+set -u
+PAG="less -R -F -X -i -M"
+BAT=$(command -v batcat || command -v bat || true)
+
+colori() {                      # $1 = linguaggio per bat, file su stdin
+    if [ -n "$BAT" ]; then "$BAT" --paging=never --color=always --style=numbers -l "$1"; else cat; fi
+}
+
+vedi_uno() {
+    local f="$1" mime
+    if [ -d "$f" ]; then
+        if command -v eza >/dev/null; then eza --tree --level=2 --color=always "$f"; else ls -la "$f"; fi
+        return
+    fi
+    [ -r "$f" ] || { echo "vedi: non riesco a leggere «$f»" >&2; return 1; }
+    mime=$(file -b --mime-type -- "$f")
+    case "$f" in
+        *.json|*.geojson) jq -C . -- "$f" 2>/dev/null || colori json < "$f"; return ;;
+        *.yaml|*.yml)     colori yaml < "$f"; return ;;
+        *.xml|*.svg)      colori xml < "$f"; return ;;
+        *.csv)            column -s, -t < "$f" | colori csv; return ;;
+        *.tsv)            column -s $'\t' -t < "$f" | colori tsv; return ;;
+        *.md|*.markdown)  colori markdown < "$f"; return ;;
+        *.log|*.log.[0-9]) colori log < "$f"; return ;;
+    esac
+    case "$mime" in
+        application/json) jq -C . -- "$f" 2>/dev/null || colori json < "$f" ;;
+        application/pdf)
+            echo "── PDF: $(pdfinfo -- "$f" 2>/dev/null | awk -F': *' '/^Pages/{print $2" pagine"}') ──"
+            pdftotext -layout -- "$f" - 2>/dev/null ;;
+        image/*|audio/*|video/*)
+            file -b -- "$f"
+            if command -v exiftool >/dev/null; then exiftool -- "$f" 2>/dev/null | head -40; fi ;;
+        application/zip|application/x-tar|application/gzip|application/x-7z-compressed|application/x-rar*|application/x-xz|application/x-bzip2|application/zstd|application/vnd.debian.binary-package|application/x-compressed-tar)
+            echo "── Archivio: $(file -b -- "$f") ──"
+            if command -v bsdtar >/dev/null; then bsdtar -tvf "$f" 2>/dev/null
+            elif [ -x /usr/bin/lesspipe ]; then /usr/bin/lesspipe "$f"
+            else unzip -l -- "$f" 2>/dev/null || tar -tvf "$f"; fi ;;
+        text/*|application/x-shellscript|application/javascript|application/x-*script*|inode/x-empty)
+            if [ -n "$BAT" ]; then "$BAT" --paging=never --color=always --style=numbers -- "$f"; else cat -- "$f"; fi ;;
+        *)
+            echo "── $(file -b -- "$f") ──"
+            if command -v hexyl >/dev/null; then hexyl --length 4096 -- "$f"; else xxd -l 4096 -- "$f"; fi
+            echo "(primi 4 KB; testo leggibile dentro il file: strings \"$f\")" ;;
+    esac
+}
+
+[ $# -gt 0 ] || { sed -n '3,9p' "$0"; exit 1; }
+for f in "$@"; do
+    [ $# -gt 1 ] && printf '\033[1m==> %s <==\033[0m\n' "$f"
+    vedi_uno "$f"
+done 2>&1 | $PAG

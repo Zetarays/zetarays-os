@@ -1,0 +1,18 @@
+# ZETA RAYS — notifiche
+font=Roboto 11
+background-color=#141416EE
+text-color=#EDEDEA
+border-color=#3A8DFF
+border-size=1
+border-radius=14
+width=360
+padding=14
+margin=12
+outer-margin=12
+anchor=top-right
+default-timeout=5000
+icon-path=/usr/share/icons/zeta
+
+# Non disturbare (dal centro di controllo)
+[mode=do-not-disturb]
+invisible=1

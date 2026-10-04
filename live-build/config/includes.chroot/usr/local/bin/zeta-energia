@@ -1,0 +1,134 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — menu di energia e sessione.
+
+Blocca · Sospendi · Cambia utente · Esci · Riavvia · Spegni.
+Si apre dal pulsante di accensione nella barra, dal centro di controllo o con
+Super+Esc. Esc o un clic fuori dai pulsanti chiudono. Stesso comando = apri/chiudi.
+Resta in memoria nascosto (zeta-pannello energia lo mostra all'istante).
+"""
+import os
+import pwd
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import popup  # noqa: E402
+
+popup.preload_layer_shell()
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+from system import power  # noqa: E402
+
+CSS = """
+window.zeta-overlay.energia { background: @scrim_strong; }
+.en-avatar { min-width: 72px; min-height: 72px; border-radius: 999px;
+             background: @hover_2; border: 1px solid @hover_2; }
+.en-avatar label { font-size: 30px; font-weight: 300; }
+.en-name { font-size: 16px; font-weight: 500; }
+.en-host { font-size: 12px; color: @ink_dim; }
+button.en-btn { min-width: 64px; min-height: 64px; padding: 0; border-radius: 999px;
+                background: @hover; border: 1px solid @line;
+                box-shadow: none; }
+button.en-btn:hover, button.en-btn:focus-visible { background: @hover_2; }
+button.en-btn.danger:hover, button.en-btn.danger:focus-visible { background: @accent; }
+button.en-btn.danger:hover image, button.en-btn.danger:focus-visible image { color: @accent_ink; }
+.en-label { font-size: 12px; color: @ink_2; }
+.en-hint { font-size: 12px; color: @ink_dim; }
+"""
+
+ACTIONS = [
+    ("zeta-lock", "Blocca", "lock", False),
+    ("zeta-moon", "Sospendi", "suspend", False),
+    ("zeta-switch-user", "Cambia utente", "switch", False),
+    ("zeta-logout", "Esci", "logout", False),
+    ("zeta-restart", "Riavvia", "reboot", True),
+    ("zeta-power", "Spegni", "poweroff", True),
+]
+
+
+class Energia(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Energia", decorated=False)
+        popup.make_overlay(self, "zeta-energia")
+        self.add_css_class("energia")
+
+        user = pwd.getpwuid(os.getuid())
+        full = (user.pw_gecos.split(",")[0] or user.pw_name).strip()
+
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                           halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        av = Gtk.Box(css_classes=["en-avatar"], halign=Gtk.Align.CENTER)
+        av.append(Gtk.Label(label=full[:1].upper(), hexpand=True, halign=Gtk.Align.CENTER))
+        self.box.append(av)
+        self.box.append(Gtk.Label(label=full, css_classes=["en-name"]))
+        self.box.append(Gtk.Label(label=os.uname().nodename, css_classes=["en-host"]))
+
+        row = Gtk.Box(spacing=28, halign=Gtk.Align.CENTER, margin_top=34)
+        self.buttons = []
+        for icon, label, action, danger in ACTIONS:
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            b = Gtk.Button(css_classes=["en-btn"] + (["danger"] if danger else []),
+                           halign=Gtk.Align.CENTER, tooltip_text=label)
+            b.set_child(Gtk.Image(icon_name=icon, pixel_size=22))
+            b.connect("clicked", lambda _b, a=action: self.do(a))
+            col.append(b)
+            col.append(Gtk.Label(label=label, css_classes=["en-label"]))
+            row.append(col)
+            self.buttons.append(b)
+        self.box.append(row)
+        self.box.append(Gtk.Label(label="Esc per annullare", css_classes=["en-hint"], margin_top=30))
+        self.set_child(self.box)
+        popup.close_on_outside(self, row, self.close_app)
+
+    def prepara(self):
+        """Ogni volta che compare: il fuoco sul primo pulsante (Blocca)."""
+        GLib.idle_add(lambda: self.buttons[0].grab_focus() and False)
+
+    def do(self, action):
+        self.set_visible(False)
+        {"lock": power.lock, "suspend": power.suspend, "switch": power.switch_user,
+         "logout": power.logout, "reboot": power.reboot, "poweroff": power.poweroff}[action]()
+
+    def close_app(self):
+        # resta in memoria, nascosto: la prossima apertura e' immediata
+        self.set_visible(False)
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Energia", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.win = None
+        self.nascosto = False
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.nascosto = popup.avvio_nascosto()
+        popup.clean_env()
+        popup.load_css(CSS)
+        popup.azione_mostra(self, self.alterna)
+        self.hold()                    # resta vivo anche a pannello nascosto
+
+    def do_activate(self):
+        if self.nascosto:              # avviato dalla sessione: pronto, non visibile
+            self.nascosto = False
+            self.win = Energia(self)
+            return
+        self.alterna()
+
+    def alterna(self):
+        if self.win is not None and self.win.get_visible():
+            self.win.set_visible(False)
+            return
+        if self.win is None:
+            self.win = Energia(self)
+        self.win.prepara()
+        self.win.present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

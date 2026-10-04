@@ -1,0 +1,46 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — nelle macchine virtuali la sospensione non si riprende (VirtualBox su
+# ARM resta congelato per sempre): la si disattiva, così logind risponde
+# CanSuspend=na e sia la schermata di accesso sia il menu Energia la nascondono.
+# Sui computer reali non cambia nulla.
+is_vm=false
+systemd-detect-virt -q 2>/dev/null && is_vm=true
+for d in /sys/class/drm/card*/device/driver; do
+    [ -e "$d" ] || continue
+    case "$(basename "$(readlink -f "$d")")" in
+        vmwgfx|vboxvideo|virtio*|qxl|bochs*|cirrus*|hyperv*) is_vm=true ;;
+    esac
+done
+# VirtualBox su ARM: niente DMI e systemd-detect-virt non la riconosce, ma le
+# tabelle ACPI portano la firma del produttore della macchina virtuale.
+grep -qa -e VBOX -e BOCHS -e BXPC -e VMWARE -e PRLS -e 'Microsoft Hyper-V' \
+    /sys/firmware/acpi/tables/DSDT 2>/dev/null && is_vm=true
+
+if $is_vm; then
+    mkdir -p /run/systemd/sleep.conf.d
+    printf '[Sleep]\nAllowSuspend=no\nAllowHibernation=no\nAllowSuspendThenHibernate=no\nAllowHybridSleep=no\n' \
+        > /run/systemd/sleep.conf.d/zeta-vm.conf
+fi
+
+# Audio nelle macchine virtuali: la scheda HDA emulata non da' a PipeWire il
+# tempo giusto, e con la temporizzazione a timer l'uscita non partiva mai
+# (ogni suono restava in attesa per sempre: provato in VirtualBox su ARM;
+# con ALSA diretto invece suonava). Con le interruzioni della scheda suona.
+# Solo nelle macchine virtuali: sui computer veri resta come e'.
+WP=/etc/wireplumber/wireplumber.conf.d/51-zeta-vm.conf
+if $is_vm; then
+    mkdir -p "${WP%/*}"
+    cat > "$WP" <<'EOF'
+# scritto da zeta-vm-sleep all'avvio: solo nelle macchine virtuali
+monitor.alsa.rules = [
+  {
+    matches = [ { node.name = "~alsa_output.*" } ]
+    actions = { update-props = { api.alsa.disable-tsched = true, api.alsa.period-size = 1024, api.alsa.headroom = 1024 } }
+  }
+]
+EOF
+else
+    rm -f "$WP"
+fi
+exit 0

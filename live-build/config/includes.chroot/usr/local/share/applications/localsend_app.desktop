@@ -1,0 +1,9 @@
+[Desktop Entry]
+# ZETA RAYS: LocalSend si usa come «ZETA Share» (zeta-share.desktop). Questa
+# copia in /usr/local nasconde la voce originale dal launcher, senza toccare il
+# pacchetto: un aggiornamento di LocalSend non la fa ricomparire doppia.
+Type=Application
+Name=LocalSend
+Exec=zeta-share %F
+Icon=zeta-share
+NoDisplay=true

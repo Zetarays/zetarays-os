@@ -1,0 +1,18 @@
+[Unit]
+Description=ZETA RAYS — indicizzazione dei contenuti per la ricerca
+
+[Service]
+Type=oneshot
+# L'indicizzazione (OCR compreso) è pesante: resta sempre in secondo piano e
+# non può far mancare memoria al resto del sistema.
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=10
+# CPU solo quando nessun altro la vuole, e l'OCR su un thread solo:
+# tesseract di suo occupa tutti i core.
+CPUSchedulingPolicy=idle
+Environment=OMP_THREAD_LIMIT=1
+MemoryHigh=20%
+MemoryMax=35%
+TimeoutStartSec=1800
+ExecStart=/usr/local/bin/zeta-index

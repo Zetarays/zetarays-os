@@ -1,0 +1,44 @@
+name: Problema / Bug
+description: Qualcosa non funziona in ZETA RAYS OS
+labels: [bug]
+body:
+  - type: dropdown
+    id: immagine
+    attributes:
+      label: Immagine usata
+      options:
+        - zetarays-1.7-amd64.iso
+        - zetarays-1.7-arm64.iso
+        - zetarays-1.7-amd64.ova
+        - zetarays-1.7-arm64.ova
+    validations:
+      required: true
+  - type: dropdown
+    id: dove
+    attributes:
+      label: Dove gira
+      options:
+        - Computer vero (installato)
+        - Computer vero (dalla chiavetta, senza installare)
+        - VirtualBox
+        - VMware
+        - UTM / QEMU
+        - Altro
+    validations:
+      required: true
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa è successo
+      description: Cosa hai fatto, cosa ti aspettavi, cosa è successo invece.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnosi
+    attributes:
+      label: Uscita di «sudo zeta-diagnosi»
+      description: Apri il terminale, scrivi sudo zeta-diagnosi e incolla qui il risultato (non contiene password).
+      render: text
+  - type: markdown
+    attributes:
+      value: "Problemi di sicurezza: non scriverli qui, vedi SECURITY.md."

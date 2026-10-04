@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ZETA RAYS: azioni del tasto destro nel gestore file.
+     Si riprende quella di serie («Apri un terminale qui»), che questo file
+     sostituisce, e si aggiungono la lettura del testo dentro immagini e PDF e ZETA Share. -->
+<actions>
+<action>
+	<icon>utilities-terminal</icon>
+	<name>Apri un terminale qui</name>
+	<unique-id>zeta-terminale-qui</unique-id>
+	<command>foot --working-directory %f</command>
+	<description>Apre il terminale in questa cartella</description>
+	<patterns>*</patterns>
+	<startup-notify/>
+	<directories/>
+</action>
+<action>
+	<icon>zeta-testo</icon>
+	<name>Copia il testo dell'immagine</name>
+	<unique-id>zeta-testo-ocr</unique-id>
+	<command>zeta-testo %f</command>
+	<description>Riconosce il testo (OCR, sul computer) e lo copia negli appunti</description>
+	<patterns>*.png;*.PNG;*.jpg;*.JPG;*.jpeg;*.JPEG;*.webp;*.WEBP;*.tif;*.tiff;*.TIF;*.bmp;*.gif;*.pdf;*.PDF</patterns>
+	<image-files/>
+	<other-files/>
+</action>
+<action>
+	<icon>zeta-share</icon>
+	<name>Condividi con ZETA Share</name>
+	<unique-id>zeta-share</unique-id>
+	<command>zeta-share %F</command>
+	<description>Invia a un telefono o a un computer vicino (LocalSend, in rete locale)</description>
+	<patterns>*</patterns>
+	<directories/>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+</actions>

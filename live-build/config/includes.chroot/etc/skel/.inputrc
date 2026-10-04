@@ -1,0 +1,18 @@
+# ZETA RAYS — tastiera della riga di comando (bash)
+$include /etc/inputrc
+# frecce su/giu: cercano fra i comandi che cominciano con cio' che e' gia'
+# scritto (con la riga vuota scorrono tutta la cronologia)
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+"\eOA": history-search-backward
+"\eOB": history-search-forward
+# Ctrl+frecce: di parola in parola
+"\e[1;5C": forward-word
+"\e[1;5D": backward-word
+set completion-ignore-case on
+set show-all-if-ambiguous on
+set colored-stats on
+set colored-completion-prefix on
+set mark-symlinked-directories on
+# incollare piu' righe non le esegue: si vedono e si conferma con Invio
+set enable-bracketed-paste on

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=ZETA RAYS
+Comment=Sessione grafica di ZETA RAYS (computer senza driver grafico)
+Exec=zeta-desktop-session
+TryExec=/usr/local/bin/zeta-desktop-session
+Type=Application
+DesktopNames=ZETA RAYS

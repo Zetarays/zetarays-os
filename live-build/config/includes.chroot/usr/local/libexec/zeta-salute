@@ -1,0 +1,159 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-salute — controllo leggero della salute del sistema, ogni due minuti.
+#
+# Guarda solo cose che costano pochissimo (file in /proc, poche righe del
+# registro dall'ultimo controllo) e avvisa l'utente quando c'e' davvero
+# qualcosa da sapere:
+#   - memoria quasi finita, o il sistema che rallenta per mancanza di memoria
+#   - un programma chiuso da earlyoom per evitare il blocco (e quale)
+#   - carico della CPU molto alto per piu' di qualche minuto (e chi lo causa)
+#   - disco quasi pieno
+#   - servizi falliti
+#   - errori della scheda grafica nel kernel (GPU bloccata o riavviata)
+#   - processi fermi in attesa del disco per piu' di un controllo
+#   - il modello locale (Ollama) spento quando dovrebbe essere acceso
+# Ogni avviso si ripete al massimo una volta l'ora. Tutto finisce anche nel
+# registro (journalctl -t zeta-salute) e in /run/zeta-salute.txt, che
+# zeta-diagnosi allega al suo rapporto.
+set -u
+STATO=/var/lib/zeta-salute
+mkdir -p "$STATO/avvisati"
+ULTIMO=$(cat "$STATO/ultimo" 2>/dev/null || echo 0)
+ADESSO=$(date +%s)
+[ "$ULTIMO" -gt 0 ] 2>/dev/null || ULTIMO=$((ADESSO - 150))
+SINCE="@$ULTIMO"
+RAPPORTO=()
+
+registra() { RAPPORTO+=("$1: $2"); logger -t zeta-salute -- "$1: $2"; }
+
+# Avvisa ogni sessione grafica aperta, al massimo una volta l'ora per chiave.
+avvisa() {
+    local titolo="$2" testo="$3" f="$STATO/avvisati/$1"   # $1 = chiave dell avviso
+    registra "$titolo" "$testo"
+    if [ -f "$f" ] && [ $((ADESSO - $(cat "$f"))) -lt 3600 ]; then
+        return
+    fi
+    echo "$ADESSO" > "$f"
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid user _; do
+        [ "$(loginctl show-session "$sid" -p Type --value 2>/dev/null)" = wayland ] || continue
+        [ "$(loginctl show-session "$sid" -p Active --value 2>/dev/null)" = yes ] || continue
+        runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            timeout 5 notify-send -a "ZETA RAYS" -i dialog-warning "$titolo" "$testo" \
+            >/dev/null 2>&1 || true
+    done
+}
+
+piu_pesante_ram() { ps -eo comm,rss --sort=-rss --no-headers | head -3 \
+    | awk '{printf "%s%s (%d MB)", (NR>1?", ":""), $1, $2/1024}'; }
+piu_pesante_cpu() { ps -eo comm,pcpu --sort=-pcpu --no-headers | head -2 \
+    | awk '{printf "%s%s (%s%%)", (NR>1?", ":""), $1, $2}'; }
+
+# --- memoria ---
+TOT=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+DISP=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+if [ -n "$TOT" ] && [ "$TOT" -gt 0 ]; then
+    PERC=$((DISP * 100 / TOT))
+    if [ "$PERC" -lt 10 ]; then
+        avvisa memoria "Memoria quasi finita" \
+            "Resta il ${PERC}% della RAM. Usano di piu': $(piu_pesante_ram). Chiudi qualcosa per evitare rallentamenti."
+    fi
+fi
+if [ -r /proc/pressure/memory ]; then
+    FULL=$(awk '/^full/{split($3,a,"="); print int(a[2])}' /proc/pressure/memory)
+    if [ "${FULL:-0}" -ge 15 ]; then
+        avvisa pressione "Il sistema rallenta per mancanza di memoria" \
+            "Nell'ultimo minuto i programmi hanno aspettato la memoria il ${FULL}% del tempo. Usano di piu': $(piu_pesante_ram)."
+    fi
+fi
+
+# --- programmi chiusi da earlyoom per evitare il blocco ---
+CHIUSI=$(journalctl -u earlyoom --since "$SINCE" --no-pager -o cat 2>/dev/null \
+         | sed -n 's/.*sending SIG[A-Z]* to process [0-9]* uid [0-9]* "\([^"]*\)".*/\1/p' | sort -u \
+         | sed -e 's/^llama-server$/il modello AI locale (si ricarica da solo alla prossima domanda)/' \
+               -e 's/^ollama$/il modello AI locale (si ricarica da solo alla prossima domanda)/' \
+               -e 's/^firefox-esr$/Firefox/' -e 's/^Isolated Web Co$/una scheda di Firefox/' \
+               -e 's/^Web Content$/una scheda di Firefox/' -e 's/^tesseract$/il riconoscimento del testo/' \
+         | sort -u | paste -sd, - | sed 's/,/, /g')
+if [ -n "$CHIUSI" ]; then
+    avvisa earlyoom-"$ADESSO" "Programma chiuso per salvare il sistema" \
+        "La memoria stava finendo: per evitare il blocco del computer e' stato chiuso: $CHIUSI."
+fi
+
+# --- CPU: carico alto e prolungato ---
+NCPU=$(nproc)
+CAR5=$(awk '{print int($2)}' /proc/loadavg)
+if [ "$CAR5" -ge $((NCPU * 2)) ]; then
+    avvisa cpu "Processore molto carico" \
+        "Da alcuni minuti il carico e' $CAR5 su $NCPU core. Usa di piu': $(piu_pesante_cpu)."
+fi
+
+# --- disco ---
+while read -r uso libero mp; do
+    # in sola lettura (la chiavetta o il DVD dal vivo, sempre «pieni» al
+    # 100%) un disco pieno non blocca nessun programma: niente avviso
+    case ",$(findmnt -no OPTIONS --target "$mp" 2>/dev/null)," in *,ro,*) continue ;; esac
+    uso=${uso%%%}
+    if [ "$uso" -ge 95 ] || [ "$libero" -lt 1500000 ]; then
+        avvisa "disco-$(echo "$mp" | tr / _)" "Disco quasi pieno" \
+            "In $mp resta $((libero / 1024)) MB ($((100 - uso))% libero). Con il disco pieno i programmi si bloccano."
+    fi
+done < <(df -k --output=pcent,avail,target -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs -x vfat -x iso9660 -x udf 2>/dev/null | tail -n +2)
+
+# --- servizi falliti ---
+FALLITI=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | paste -sd, -)
+if [ -n "$FALLITI" ]; then
+    avvisa servizi "Servizi in errore" "Non funzionano: $FALLITI. Dettagli: journalctl -u <nome>."
+fi
+
+# --- scheda grafica ---
+GPU=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null \
+      | grep -iE "GPU HANG|gpu hang|ring [a-z0-9_.]+ timeout|\*ERROR\* .*(reset|hang|timed out)|amdgpu.*(timeout|reset)|i915.*(reset|hang)|xe .*(reset|timeout)|nouveau.*(fault|timeout)" \
+      | grep -viE "vmw_(msg|host)" | tail -2 | cut -c1-160)
+if [ -n "$GPU" ]; then
+    avvisa gpu "La scheda grafica ha avuto un errore" \
+        "Il kernel ha segnalato un problema della GPU: puo' spiegare finestre bloccate. Per il rapporto completo: zeta-diagnosi. ($GPU)"
+fi
+
+# --- crash del gestore delle finestre (Hyprland) ---
+while IFS= read -r rap; do
+    SEGN=$(grep -m1 -o "signal [0-9]*([A-Z]*)" "$rap" 2>/dev/null)
+    DOVE=$(grep -m1 -oE "Desktop::View::[A-Za-z:]+|C[A-Z][A-Za-z]+::[A-Za-z]+" "$rap" 2>/dev/null | sed -n 3p)
+    avvisa "hyprland-$(basename "$rap")" "Il desktop si e' ripreso da un errore" \
+        "Il gestore delle finestre e' andato in crash ($SEGN${DOVE:+, $DOVE}) ed e' ripartito. Rapporto: $rap"
+done < <(find /home/*/.cache/hyprland -maxdepth 1 -name 'hyprlandCrashReport*.txt' -newermt "@$ULTIMO" 2>/dev/null)
+
+# --- processi fermi sul disco (stato D) per piu' di un controllo ---
+ORA_D=$(ps -eo pid=,stat=,comm= | awk '$2 ~ /^D/ {print $1":"$3}' | sort)
+PRIMA_D=$(cat "$STATO/stato-d" 2>/dev/null)
+echo "$ORA_D" > "$STATO/stato-d"
+FERMI=$(comm -12 <(echo "$PRIMA_D") <(echo "$ORA_D") | grep . | cut -d: -f2 | sort -u | paste -sd, -)
+if [ -n "$FERMI" ]; then
+    avvisa disco-bloccato "Programmi fermi in attesa del disco" \
+        "Da piu' di due minuti non rispondono: $FERMI. Il disco potrebbe essere lento o guasto."
+fi
+BLOCCATI=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null | grep -c "blocked for more than")
+if [ "${BLOCCATI:-0}" -gt 0 ]; then
+    avvisa hung "Il sistema e' rimasto bloccato" \
+        "Il kernel ha visto $BLOCCATI processi fermi per piu' di due minuti. Per il rapporto: zeta-diagnosi."
+fi
+
+# --- intelligenza locale ---
+if systemctl is-enabled --quiet ollama 2>/dev/null && ! systemctl is-active --quiet ollama; then
+    STATO_O=$(systemctl show ollama -p Result --value 2>/dev/null)
+    systemctl reset-failed ollama >/dev/null 2>&1
+    if systemctl start ollama >/dev/null 2>&1; then
+        registra "Ollama" "era fermo ($STATO_O): riavviato"
+    else
+        avvisa ollama "L'intelligenza locale non parte" \
+            "Il servizio Ollama e' fermo ($STATO_O) e non riparte. ZETA puo' usare un servizio in rete (Impostazioni > AI)."
+    fi
+fi
+
+echo "$ADESSO" > "$STATO/ultimo"
+{
+    echo "ultimo controllo: $(date '+%F %T')"
+    echo "memoria disponibile: ${PERC:-?}%  pressione memoria (full avg60): ${FULL:-?}%  carico: $(cut -d' ' -f1-3 /proc/loadavg)"
+    if [ ${#RAPPORTO[@]} -eq 0 ]; then echo "nessun problema"; else printf '%s\n' "${RAPPORTO[@]}"; fi
+} > /run/zeta-salute.txt
+exit 0

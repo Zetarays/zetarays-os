@@ -1,0 +1,174 @@
+# ZETA RAYS — quale programma apre quale tipo di file.
+#
+# Senza questo elenco il sistema sceglie da solo, e sceglie male: le immagini
+# finivano in «display» di ImageMagick (interfaccia X11 di trent'anni fa) e
+# molti formati non si aprivano affatto.
+#
+# Ogni riga qui sotto punta a un programma che è davvero installato: un tipo
+# associato a un programma assente è peggio che nessuna associazione, perché
+# il doppio clic sembra non fare nulla.
+
+[Default Applications]
+
+# --- Cartelle ---------------------------------------------------------------
+inode/directory=thunar.desktop
+
+# --- Testo, codice e dati ---------------------------------------------------
+text/plain=org.gnome.TextEditor.desktop
+text/markdown=org.gnome.TextEditor.desktop
+text/csv=org.gnome.TextEditor.desktop
+text/tab-separated-values=org.gnome.TextEditor.desktop
+text/x-log=org.gnome.TextEditor.desktop
+text/x-readme=org.gnome.TextEditor.desktop
+text/x-shellscript=org.gnome.TextEditor.desktop
+text/x-python=org.gnome.TextEditor.desktop
+text/x-python3=org.gnome.TextEditor.desktop
+text/x-c=org.gnome.TextEditor.desktop
+text/x-csrc=org.gnome.TextEditor.desktop
+text/x-chdr=org.gnome.TextEditor.desktop
+text/x-c++=org.gnome.TextEditor.desktop
+text/x-c++src=org.gnome.TextEditor.desktop
+text/x-java=org.gnome.TextEditor.desktop
+text/x-perl=org.gnome.TextEditor.desktop
+text/x-ruby=org.gnome.TextEditor.desktop
+text/x-php=org.gnome.TextEditor.desktop
+text/x-sql=org.gnome.TextEditor.desktop
+text/x-lua=org.gnome.TextEditor.desktop
+text/x-go=org.gnome.TextEditor.desktop
+text/x-rust=org.gnome.TextEditor.desktop
+text/x-tex=org.gnome.TextEditor.desktop
+text/x-diff=org.gnome.TextEditor.desktop
+text/x-patch=org.gnome.TextEditor.desktop
+text/x-makefile=org.gnome.TextEditor.desktop
+text/x-cmake=org.gnome.TextEditor.desktop
+text/x-dockerfile=org.gnome.TextEditor.desktop
+text/x-ini=org.gnome.TextEditor.desktop
+text/x-yaml=org.gnome.TextEditor.desktop
+text/x-toml=org.gnome.TextEditor.desktop
+text/rtf=org.gnome.TextEditor.desktop
+application/rtf=org.gnome.TextEditor.desktop
+application/json=org.gnome.TextEditor.desktop
+application/xml=org.gnome.TextEditor.desktop
+text/xml=org.gnome.TextEditor.desktop
+application/x-yaml=org.gnome.TextEditor.desktop
+application/toml=org.gnome.TextEditor.desktop
+application/javascript=org.gnome.TextEditor.desktop
+text/javascript=org.gnome.TextEditor.desktop
+application/x-shellscript=org.gnome.TextEditor.desktop
+
+# --- Immagini ---------------------------------------------------------------
+image/png=org.gnome.eog.desktop
+image/jpeg=org.gnome.eog.desktop
+image/gif=org.gnome.eog.desktop
+image/webp=org.gnome.eog.desktop
+image/bmp=org.gnome.eog.desktop
+image/tiff=org.gnome.eog.desktop
+image/svg+xml=org.gnome.eog.desktop
+image/svg+xml-compressed=org.gnome.eog.desktop
+image/x-icon=org.gnome.eog.desktop
+image/vnd.microsoft.icon=org.gnome.eog.desktop
+image/heif=org.gnome.eog.desktop
+image/heic=org.gnome.eog.desktop
+image/avif=org.gnome.eog.desktop
+image/jp2=org.gnome.eog.desktop
+image/x-portable-pixmap=org.gnome.eog.desktop
+image/x-portable-bitmap=org.gnome.eog.desktop
+image/x-xpixmap=org.gnome.eog.desktop
+image/x-tga=org.gnome.eog.desktop
+image/x-pcx=org.gnome.eog.desktop
+
+# --- Documenti da leggere ---------------------------------------------------
+application/pdf=org.gnome.Evince.desktop
+application/postscript=org.gnome.Evince.desktop
+application/x-dvi=org.gnome.Evince.desktop
+application/epub+zip=org.gnome.Evince.desktop
+application/x-cbz=org.gnome.Evince.desktop
+application/x-cbr=org.gnome.Evince.desktop
+application/vnd.comicbook+zip=org.gnome.Evince.desktop
+application/vnd.comicbook-rar=org.gnome.Evince.desktop
+image/vnd.djvu=org.gnome.Evince.desktop
+
+# --- Video ------------------------------------------------------------------
+video/mp4=mpv.desktop
+video/x-m4v=mpv.desktop
+video/quicktime=mpv.desktop
+video/x-msvideo=mpv.desktop
+video/x-matroska=mpv.desktop
+video/webm=mpv.desktop
+video/mpeg=mpv.desktop
+video/mp2t=mpv.desktop
+video/x-ms-wmv=mpv.desktop
+video/x-ms-asf=mpv.desktop
+video/x-flv=mpv.desktop
+video/3gpp=mpv.desktop
+video/3gpp2=mpv.desktop
+video/ogg=mpv.desktop
+video/x-theora+ogg=mpv.desktop
+
+# --- Audio ------------------------------------------------------------------
+audio/mpeg=mpv.desktop
+audio/mp4=mpv.desktop
+audio/x-m4a=mpv.desktop
+audio/aac=mpv.desktop
+audio/x-aac=mpv.desktop
+audio/flac=mpv.desktop
+audio/x-flac=mpv.desktop
+audio/ogg=mpv.desktop
+audio/x-vorbis+ogg=mpv.desktop
+audio/opus=mpv.desktop
+audio/x-opus+ogg=mpv.desktop
+audio/wav=mpv.desktop
+audio/x-wav=mpv.desktop
+audio/x-aiff=mpv.desktop
+audio/x-ms-wma=mpv.desktop
+audio/midi=mpv.desktop
+audio/x-matroska=mpv.desktop
+audio/x-ape=mpv.desktop
+audio/x-musepack=mpv.desktop
+
+# --- Archivi e immagini disco ------------------------------------------------
+application/zip=org.gnome.FileRoller.desktop
+application/x-tar=org.gnome.FileRoller.desktop
+application/gzip=org.gnome.FileRoller.desktop
+application/x-gzip=org.gnome.FileRoller.desktop
+application/x-compressed-tar=org.gnome.FileRoller.desktop
+application/x-bzip=org.gnome.FileRoller.desktop
+application/x-bzip2=org.gnome.FileRoller.desktop
+application/x-bzip-compressed-tar=org.gnome.FileRoller.desktop
+application/x-xz=org.gnome.FileRoller.desktop
+application/x-xz-compressed-tar=org.gnome.FileRoller.desktop
+application/zstd=org.gnome.FileRoller.desktop
+application/x-zstd-compressed-tar=org.gnome.FileRoller.desktop
+application/x-lzip=org.gnome.FileRoller.desktop
+application/x-7z-compressed=org.gnome.FileRoller.desktop
+application/vnd.rar=org.gnome.FileRoller.desktop
+application/x-rar=org.gnome.FileRoller.desktop
+application/x-rar-compressed=org.gnome.FileRoller.desktop
+application/x-lha=org.gnome.FileRoller.desktop
+application/x-cpio=org.gnome.FileRoller.desktop
+application/x-archive=org.gnome.FileRoller.desktop
+application/x-cd-image=org.gnome.FileRoller.desktop
+application/x-iso9660-image=org.gnome.FileRoller.desktop
+application/vnd.debian.binary-package=org.gnome.FileRoller.desktop
+
+# --- Caratteri ---------------------------------------------------------------
+font/ttf=org.gnome.font-viewer.desktop
+font/otf=org.gnome.font-viewer.desktop
+font/woff=org.gnome.font-viewer.desktop
+font/woff2=org.gnome.font-viewer.desktop
+font/collection=org.gnome.font-viewer.desktop
+application/x-font-ttf=org.gnome.font-viewer.desktop
+application/x-font-otf=org.gnome.font-viewer.desktop
+application/x-font-type1=org.gnome.font-viewer.desktop
+application/font-woff=org.gnome.font-viewer.desktop
+
+# --- Pagine web e collegamenti ------------------------------------------------
+text/html=firefox-esr.desktop
+application/xhtml+xml=firefox-esr.desktop
+x-scheme-handler/http=firefox-esr.desktop
+x-scheme-handler/https=firefox-esr.desktop
+x-scheme-handler/ftp=firefox-esr.desktop
+x-scheme-handler/about=firefox-esr.desktop
+# Posta: i link «mailto:» e i messaggi salvati si aprono in Thunderbird
+x-scheme-handler/mailto=thunderbird.desktop
+message/rfc822=thunderbird.desktop

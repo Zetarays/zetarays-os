@@ -1,0 +1,8 @@
+[SddmGreeterTheme]
+Name=ZETA RAYS
+Description=Schermata di accesso di ZETA RAYS
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+QtVersion=6

@@ -1,0 +1,11 @@
+{
+  "policies": {
+    "Homepage": {
+      "URL": "file:///usr/share/zetarays/start/index.html",
+      "StartPage": "homepage",
+      "Locked": false
+    },
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": ""
+  }
+}

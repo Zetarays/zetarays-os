@@ -1,0 +1,22 @@
+# ZETA RAYS — protezione dai blocchi per memoria esaurita.
+# Senza di essa, quando la RAM finisce il kernel può impiegare minuti a
+# reagire e il computer sembra congelato. earlyoom interviene prima,
+# fermando il programma che sta consumando di più.
+#   -m 5  agisce sotto il 5% di RAM libera
+#   -s 10 e sotto il 10% di swap libera
+#   -r 0  nessun rapporto periodico nei log
+# Il desktop va protetto (--avoid): fermarlo farebbe perdere la sessione.
+# I programmi pesanti e riavviabili si fermano per primi (--prefer).
+# Nota: systemd non interpreta le virgolette dentro questa variabile, quindi
+# le espressioni non devono contenere spazi né apici.
+# I nomi sono quelli del processo reale: gli script partono come «python3» o
+# «bash», quindi non si elencano qui (li coprono già i limiti di memoria dei
+# rispettivi servizi).
+# -m 12: si interviene quando resta meno del 12% di memoria libera.
+# Al 5% il computer sta già arrancando da un pezzo — il disco lavora,
+# le finestre non rispondono — e intervenire lì significa intervenire
+# quando l'utente ha già visto il blocco. Meglio prima e in silenzio.
+# --avoid: i pezzi della scrivania non si toccano, altrimenti il rimedio
+# sarebbe peggio del male. --prefer: si sacrificano per primi i grossi
+# divoratori di memoria che si possono riavviare senza perdere nulla.
+EARLYOOM_ARGS=-m 12 -s 20 -r 0 --avoid ^(Hyprland|waybar|mako|swaybg|sddm|systemd|dbus-daemon|zeta-emergenza)$ --prefer ^(ollama|llama-server|tesseract|pdftotext|firefox-esr)$

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=ZETA RAYS
+Comment=Sessione grafica di ZETA RAYS
+Exec=zeta-desktop-session
+TryExec=/usr/local/bin/zeta-desktop-session
+Type=Application
+DesktopNames=Hyprland

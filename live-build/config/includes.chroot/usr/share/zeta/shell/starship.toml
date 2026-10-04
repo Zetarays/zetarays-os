@@ -1,0 +1,72 @@
+# ZETA RAYS — prompt del terminale (starship). @ACCENT@ lo sostituisce
+# zeta-terminale con il colore d'accento del tema in uso.
+# Veloce anche su computer lenti: git con limite di tempo, niente moduli di rete.
+add_newline = false
+command_timeout = 400
+scan_timeout = 20
+format = "$username$hostname$directory$git_branch$git_state$git_status$python$shell$jobs$cmd_duration$memory_usage$status$line_break$character"
+
+[username]
+show_always = true
+format = "[$user]($style)"
+style_user = "bold @ACCENT@"
+style_root = "bold #FF6B6B"
+
+[hostname]
+ssh_only = false
+format = "[@$hostname]($style) "
+style = "@ACCENT@"
+
+[directory]
+format = "[$path]($style)[$read_only]($read_only_style) "
+style = "#8A8A8E"
+truncation_length = 4
+truncate_to_repo = false
+read_only = " (sola lettura)"
+
+[git_branch]
+format = "[$symbol$branch]($style) "
+symbol = " "
+style = "#C79BFF"
+
+[git_status]
+format = "([$all_status$ahead_behind]($style) )"
+style = "#FFB547"
+
+[python]
+format = "[(venv $virtualenv )]($style)"
+style = "#5FD4E0"
+detect_extensions = []
+detect_files = []
+
+[shell]
+disabled = false
+format = "[$indicator]($style) "
+bash_indicator = ""
+zsh_indicator = "zsh"
+fish_indicator = "fish"
+style = "#8A8A8E"
+
+[cmd_duration]
+min_time = 2000
+format = "[⏱ $duration]($style) "
+style = "#8A8A8E"
+
+[memory_usage]
+disabled = false
+threshold = 85
+format = "[RAM $percentage]($style) "
+style = "#FFB547"
+
+[status]
+disabled = false
+format = "[✗ $status]($style) "
+style = "#FF6B6B"
+
+[jobs]
+format = "[$symbol$number]($style) "
+symbol = "⚙ "
+
+[character]
+success_symbol = "[❯](@ACCENT@)"
+error_symbol = "[❯](#FF6B6B)"

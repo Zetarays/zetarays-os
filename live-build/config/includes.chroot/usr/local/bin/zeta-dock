@@ -1,0 +1,197 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-dock — genera e ricarica il dock di ZETA RAYS da ~/.config/zeta/dock.json.
+
+  zeta-dock apply     rigenera la barra dal dock salvato e la ricarica
+  zeta-dock genera    rigenera soltanto, senza ricaricare la barra
+  zeta-dock reset     ripristina il dock predefinito
+  zeta-dock menu N    menu del tasto destro sull'icona N del dock
+  zeta-dock togli N   toglie l'icona N dal dock
+"""
+import subprocess
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import dock  # noqa: E402
+
+# «Impostazioni dell'app»: il comando che apre davvero le preferenze di
+# quell'app. Per le altre si apre l'app e si dice dove trovarle: meglio che
+# una voce che non fa nulla.
+IMPOSTAZIONI_APP = {
+    "thunar": ["thunar-settings"],
+    "firefox-esr": ["firefox-esr", "about:preferences"],
+    "foot": ["zeta-impostazioni", "aspetto"],
+    "zeta-impostazioni": ["zeta-impostazioni"],
+    "zeta-sicurezza": ["zeta-sicurezza"],
+    "zeta-posta": ["zeta-impostazioni", "predefinite"],
+}
+
+
+def _avvia(argv):
+    subprocess.Popen(argv, start_new_session=True, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _notifica(testo):
+    try:
+        _avvia(["notify-send", "-a", "Dock", "-i", "zeta-dock", "Dock", testo])
+    except OSError:
+        pass
+
+
+def _app_della_voce(voce):
+    """La app installata dietro un'icona del dock (per sapere se e' aperta)."""
+    from intelligence.agente import stato
+    for nome in (voce.get("cmd", "").split()[0] if voce.get("cmd") else "", voce.get("name", "")):
+        a = stato.trova_app(nome) if nome else None
+        if a:
+            return a
+    return None
+
+
+def togli(i):
+    voci = dock.load_dock()
+    if not 0 <= i < len(voci):
+        return 1
+    if len(voci) == 1:
+        _notifica("Il dock deve avere almeno un'app.")
+        return 1
+    nome = voci[i].get("name", "")
+    del voci[i]
+    dock.save_dock(voci)
+    dock.apply(voci)
+    _notifica("Tolta dal dock: %s. Si rimette da Impostazioni › Dock." % nome)
+    return 0
+
+
+def menu(i):
+    voci = dock.load_dock()
+    if not 0 <= i < len(voci):
+        return 1
+    voce = voci[i]
+    nome = voce.get("name") or voce.get("cmd", "").split()[0]
+    from ui import popup
+    popup.preload_layer_shell()
+    import json
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gio, Gtk
+
+    try:
+        pos = subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
+                             text=True, timeout=2).stdout
+        x = int(json.loads(pos).get("x", 0))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        x = 0
+    in_alto = dock.posizione() == "top"
+    app = _app_della_voce(voce)
+    from intelligence.agente import stato
+    aperta = bool(app and stato.finestre_di(app))
+
+    def apri():
+        _avvia(["sh", "-c", voce["cmd"]])
+
+    def chiudi():
+        from intelligence.agente import agente
+        es = agente.esegui("close_application", {"app": app.id}, origine="dock")
+        if not es.ok:
+            _notifica(es.messaggio)
+
+    def opzioni():
+        _avvia(["zeta-impostazioni", "dock"])
+
+    def impostazioni_app():
+        prog = voce.get("cmd", "").split()[0]
+        cmd = IMPOSTAZIONI_APP.get(prog)
+        if cmd:
+            _avvia(cmd)
+        else:
+            apri()
+            _notifica("Le impostazioni di %s sono nel suo menu." % nome)
+
+    righe = [("Apri", apri)]
+    for testo, comando in voce.get("voci", []):          # voci proprie dell'app
+        righe.append((testo, lambda c=comando: _avvia(["sh", "-c", c])))
+    if aperta:
+        righe.append(("Chiudi", chiudi))
+    righe += [None, ("Rimuovi dal Dock", lambda: togli(i)), ("Opzioni", opzioni),
+              ("Impostazioni dell'app", impostazioni_app)]
+
+    class Menu(Gtk.ApplicationWindow):
+        def __init__(self, gapp):
+            super().__init__(application=gapp, title=nome, decorated=False)
+            popup.make_overlay(self, "zeta-menu-dock")
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                           css_classes=["zeta-card"], halign=Gtk.Align.START,
+                           valign=Gtk.Align.START if in_alto else Gtk.Align.END)
+            card.set_margin_start(max(8, x - 110))
+            if in_alto:
+                card.set_margin_top(84)
+            else:
+                card.set_margin_bottom(84)
+            titolo = Gtk.Label(label=nome, xalign=0, css_classes=["zeta-caption"])
+            titolo.set_margin_start(10)
+            titolo.set_margin_top(4)
+            card.append(titolo)
+            for r in righe:
+                if r is None:
+                    card.append(Gtk.Separator(margin_top=3, margin_bottom=3))
+                    continue
+                testo, fn = r
+                b = Gtk.Button(css_classes=["zeta-row"])
+                b.set_child(Gtk.Label(label=testo, xalign=0))
+                b.connect("clicked", lambda _b, f=fn: self.fai(f))
+                card.append(b)
+            card.set_size_request(220, -1)
+            card.set_margin_end(8)
+            self.set_child(card)
+            popup.close_on_outside(self, card, self.chiudi)
+
+        def fai(self, fn):
+            self.set_visible(False)
+            try:
+                fn()
+            finally:
+                self.chiudi()
+
+        def chiudi(self):
+            self.get_application().quit()
+            return False
+
+    class App(Gtk.Application):
+        def __init__(self):
+            super().__init__(application_id="org.zetarays.MenuDock",
+                             flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+        def do_startup(self):
+            Gtk.Application.do_startup(self)
+            popup.clean_env()
+            popup.load_css(".zeta-card { padding: 6px; }")
+
+        def do_activate(self):
+            if self.props.active_window:
+                self.quit()
+                return
+            Menu(self).present()
+
+    return App().run([sys.argv[0]])
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "apply"
+    if cmd == "reset":
+        dock.save_dock(dock.DEFAULT)
+        dock.apply(dock.DEFAULT)
+        return 0
+    if cmd == "apply":
+        return 0 if dock.apply() else 1
+    if cmd == "genera":
+        return 0 if dock.apply(reload=False) else 1
+    if cmd in ("menu", "togli") and len(argv) > 2 and argv[2].isdigit():
+        return (menu if cmd == "menu" else togli)(int(argv[2]))
+    print(__doc__)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

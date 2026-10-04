@@ -1,0 +1,82 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-verifica-avvio — controlla che il programma di avvio sia DAVVERO finito
+# sul disco, e fa fallire l'installazione se non c'e'.
+#
+# Perche' esiste
+# --------------
+# Calamares puo' saltare il passo del programma di avvio e arrivare comunque
+# in fondo dicendo «All done». E' successo davvero: configurazione incompleta,
+# oppure partizionamento manuale senza assegnare /boot/efi alla partizione di
+# avvio. In entrambi i casi l'utente riavvia e trova
+#
+#     error: file '/boot/grub/x86_64-efi/normal.mod' not found
+#     grub rescue>
+#
+# senza che niente, durante l'installazione, glielo avesse detto.
+#
+# Questo script gira DENTRO il sistema appena installato, come ultimo passo.
+# Se il programma di avvio non c'e', esce con errore: Calamares mostra che
+# l'installazione NON e' riuscita, e l'utente lo sa subito, davanti allo
+# schermo, invece di scoprirlo al riavvio.
+set -u
+
+errore() {
+    echo "ERRORE: $*" >&2
+    echo >&2
+    echo "Il sistema e' stato copiato sul disco, ma NON e' stato installato" >&2
+    echo "il programma di avvio: al riavvio il computer non partirebbe." >&2
+    echo >&2
+    echo "Se hai scelto il partizionamento manuale, la causa piu' comune e'" >&2
+    echo "non aver assegnato il punto di montaggio /boot/efi alla partizione" >&2
+    echo "di avvio EFI (quella piccola, FAT32, con il flag boot). Torna" >&2
+    echo "indietro, assegnalo SENZA formattarla, e riprova." >&2
+    echo >&2
+    echo "In alternativa, dalla chiavetta di ZETA RAYS:  sudo zeta-ripara-avvio" >&2
+    exit 1
+}
+
+echo "ZETA RAYS: controllo del programma di avvio..."
+
+# I moduli di GRUB devono stare nella radice appena installata. E' il file che
+# manca nell'errore «normal.mod not found».
+MODULI=""
+for P in /boot/grub/x86_64-efi /boot/grub/arm64-efi /boot/grub/i386-pc; do
+    [ -f "$P/normal.mod" ] && MODULI="$MODULI $P"
+done
+[ -n "$MODULI" ] || errore "in /boot/grub non c'e' nessun modulo di GRUB (manca normal.mod)."
+echo "  moduli di GRUB:$MODULI"
+
+if [ -d /sys/firmware/efi ]; then
+    # Avvio UEFI: serve un programma di avvio dentro la partizione EFI.
+    mountpoint -q /boot/efi || errore "/boot/efi non e' montato."
+    TROVATI=$(find /boot/efi/EFI -maxdepth 2 -iname "*.efi" 2>/dev/null | wc -l)
+    [ "$TROVATI" -gt 0 ] || errore "nella partizione EFI non c'e' nessun programma di avvio."
+    echo "  programmi di avvio nella partizione EFI: $TROVATI"
+
+    NOSTRI=$(find /boot/efi/EFI/zetarays -iname "*.efi" 2>/dev/null | wc -l)
+    if [ "$NOSTRI" -gt 0 ]; then
+        echo "  cartella di ZETA RAYS: /boot/efi/EFI/zetarays ($NOSTRI file)"
+    else
+        # Non e' fatale: su alcuni firmware conta solo il percorso di ripiego.
+        echo "  ATTENZIONE: manca /boot/efi/EFI/zetarays, si conta sul percorso di ripiego" >&2
+        find /boot/efi/EFI/BOOT -iname "boot*.efi" 2>/dev/null | head -1 | grep -q . \
+            || errore "manca anche il percorso di ripiego EFI/BOOT."
+    fi
+else
+    echo "  avvio in modalita' BIOS"
+    [ -f /boot/grub/i386-pc/normal.mod ] \
+        || errore "mancano i moduli BIOS di GRUB (/boot/grub/i386-pc)."
+fi
+
+# Il menu deve avere almeno una voce, altrimenti si avvia su un elenco vuoto.
+if [ -r /boot/grub/grub.cfg ]; then
+    VOCI=$(grep -c "^menuentry \|^\s*menuentry " /boot/grub/grub.cfg 2>/dev/null || echo 0)
+    [ "$VOCI" -gt 0 ] || errore "il menu di avvio (/boot/grub/grub.cfg) non ha nessuna voce."
+    echo "  voci nel menu di avvio: $VOCI"
+else
+    errore "manca /boot/grub/grub.cfg."
+fi
+
+echo "ZETA RAYS: programma di avvio installato correttamente."
+exit 0

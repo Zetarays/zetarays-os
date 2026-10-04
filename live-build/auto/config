@@ -1,0 +1,30 @@
+#!/bin/sh
+# Configurazione di live-build per l'ISO di ZETA RAYS.
+# Architettura: ZETA_ARCH=amd64 (predefinita) oppure arm64.
+set -e
+
+ARCH="${ZETA_ARCH:-amd64}"
+
+if [ "$ARCH" = "arm64" ]; then
+  EXTRA="--bootloaders grub-efi"
+else
+  EXTRA="--bootloaders grub-efi,syslinux"
+fi
+
+lb config noauto \
+  --mode debian \
+  --distribution trixie \
+  --architectures "$ARCH" \
+  --linux-flavours "$ARCH" \
+  --archive-areas "main contrib non-free non-free-firmware" \
+  --security true \
+  --updates true \
+  --apt-recommends false \
+  --debian-installer none \
+  --iso-application "ZETA RAYS OS" \
+  --iso-publisher "ZETA RAYS OS" \
+  --iso-volume "ZETA RAYS OS 1.7" \
+  --image-name "zero-1.7" \
+  --bootappend-live "boot=live components quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 locales=it_IT.UTF-8 keyboard-layouts=it timezone=Europe/Rome hostname=zetarays username=zeta" \
+  $EXTRA \
+  "${@}"

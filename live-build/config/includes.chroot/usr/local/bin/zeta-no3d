@@ -1,0 +1,115 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — avviso a tutto schermo quando manca l'accelerazione 3D.
+# Il desktop ZETA RAYS ne ha bisogno; qui si spiega come attivarla e si offre
+# di spegnere o riavviare. Gira sotto Xorg con rendering software.
+import os
+import subprocess
+import sys
+
+# --live: dal live senza 3D, dopo aver chiuso l'installer (si può riaprire)
+LIVE = "--live" in sys.argv
+
+os.environ.setdefault("GSK_RENDERER", "cairo")
+os.environ.setdefault("GDK_BACKEND", "x11")
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gtk  # noqa: E402
+
+LOGO = "/usr/share/zeta/brand/zeta-logo-bianco.svg"
+
+CSS = b"""
+window { background: #000000; }
+.title { font-family: Roboto; font-size: 22px; font-weight: 500; color: #EDEDEA; }
+.body  { font-family: Roboto; font-size: 13px; color: rgba(237,237,234,0.72); }
+.hint  { font-family: Roboto; font-size: 12px; color: rgba(237,237,234,0.50); }
+button { font-family: Roboto; font-size: 13px; min-width: 110px; padding: 6px 18px;
+         border-radius: 8px; background: #19191C; color: #EDEDEA;
+         border: 1px solid rgba(255,255,255,0.10); box-shadow: none; }
+button:hover { background: #24242A; }
+button.primary { background: #3A8DFF; color: #06070A; border: none; }
+button.primary:hover { background: #5A9FFF; }
+button:focus-visible { outline: 2px solid rgba(58,141,255,0.55); outline-offset: 2px; }
+"""
+
+
+def run(*cmd):
+    subprocess.Popen(["systemctl", *cmd])
+
+
+def on_activate(app):
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    win = Gtk.ApplicationWindow(application=app, title="ZETA RAYS")
+    win.set_decorated(False)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+    box.set_halign(Gtk.Align.CENTER)
+    box.set_valign(Gtk.Align.CENTER)
+    box.set_size_request(460, -1)
+
+    if os.path.exists(LOGO):
+        logo = Gtk.Image.new_from_file(LOGO)
+        logo.set_pixel_size(64)
+        logo.set_margin_bottom(10)
+        box.append(logo)
+
+    def label(text, cls):
+        lb = Gtk.Label(label=text, wrap=True, justify=Gtk.Justification.CENTER)
+        lb.set_max_width_chars(52)
+        lb.add_css_class(cls)
+        box.append(lb)
+
+    if LIVE:
+        # sulla chiavetta in inglese, come il menu di avvio: la lingua si
+        # sceglie nella prima schermata dell'installer
+        label("Install ZETA RAYS OS", "title")
+        label("Without 3D acceleration the live desktop cannot start, "
+              "but you can still install ZETA RAYS OS on this computer.", "body")
+        label("After installing, the desktop needs 3D graphics.\n"
+              "In VirtualBox: shut the machine down, open Settings → Display, "
+              "choose the «VMSVGA» graphics controller and tick «Enable 3D Acceleration».",
+              "hint")
+    else:
+        label("Accelerazione 3D non disponibile", "title")
+        label("Il desktop di ZETA RAYS OS ha bisogno dell'accelerazione grafica 3D, "
+              "che su questo computer non è attiva.", "body")
+        label("In VirtualBox: spegni la macchina, apri Impostazioni → Schermo, "
+              "scegli la scheda grafica «VMSVGA» e attiva «Abilita accelerazione 3D».\n"
+              "Su un computer reale: installa il driver della scheda grafica.",
+              "hint")
+
+    row = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, margin_top=16)
+    off = Gtk.Button(label="Shut down" if LIVE else "Spegni")
+    off.connect("clicked", lambda *_: run("poweroff"))
+    reboot = Gtk.Button(label="Restart" if LIVE else "Riavvia")
+    reboot.connect("clicked", lambda *_: run("reboot"))
+    row.append(off)
+    row.append(reboot)
+    if LIVE:
+        # esce con codice 10: zeta-installer-x riapre l'installer
+        inst = Gtk.Button(label="Install")
+        inst.add_css_class("primary")
+        inst.connect("clicked", lambda *_: os._exit(10))
+        row.append(inst)
+        primary = inst
+    else:
+        reboot.add_css_class("primary")
+        primary = reboot
+    box.append(row)
+
+    win.set_child(box)
+    win.set_default_widget(primary)
+    win.fullscreen()
+    win.present()
+    primary.grab_focus()      # Invio attiva subito il pulsante principale
+
+
+app = Gtk.Application(application_id="org.zetarays.No3D")
+app.connect("activate", on_activate)
+app.run([])

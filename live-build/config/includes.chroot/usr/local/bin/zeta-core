@@ -1,0 +1,610 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA — l intelligenza di ZETA RAYS OS (finestra GTK4).
+
+Non è più solo un'animazione: capisce comandi in linguaggio naturale (scritti o,
+se il motore vocale è installato, a voce) e li ESEGUE davvero — apre cartelle,
+app, impostazioni, il monitor di sistema, chiude finestre, legge lo stato di
+CPU/RAM/rete. I comandi comuni sono riconosciuti in locale, senza Internet e
+senza modello AI; le domande aperte passano al modello linguistico solo se ne è
+stato configurato uno in Impostazioni › AI. Le azioni che cambiano il sistema
+chiedono conferma.
+
+La sfera in alto mostra lo stato: attesa · ascolto · elaborazione · risposta.
+"""
+import os
+import re
+import sys
+import threading
+
+sys.path.insert(0, "/usr/lib/zeta")
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+from core.orb import Orb  # noqa: E402
+from ui import accento  # noqa: E402
+from ui import tema  # noqa: E402
+from intelligence import speech  # noqa: E402
+
+HYPRBARS = "/usr/lib/zeta/hypr/hyprbars.so"
+
+CSS = """
+window.zeta-core { background: @surface; }
+.zeta-head { background: @surface_2; border-bottom: 1px solid @line;
+             min-height: 38px; box-shadow: none; }
+.head-title { font-size: 13px; color: @ink_2; }
+.transcript { padding: 6px 4px; }
+.bubble { border-radius: 12px; padding: 9px 13px; margin: 3px 2px; }
+.bubble.user { background: @accent_soft; color: @ink; }
+.bubble.zeta { background: @surface_2; color: @ink; }
+.bubble.info { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.bubble.pending { color: @ink_dim; font-style: italic; }
+.who { font-size: 10px; letter-spacing: 0.06em; color: @ink_dim; margin: 6px 4px 0 4px; }
+.prompt { background: @hover; border: 1px solid @line;
+          border-radius: 12px; padding: 8px 12px; color: @ink; caret-color: @accent; }
+.prompt:focus { border-color: @accent; }
+.circle { min-width: 40px; min-height: 40px; border-radius: 20px;
+          background: @hover; }
+.circle:hover { background: @hover_2; }
+.send { background: @accent; border-radius: 20px; min-width: 40px; min-height: 40px; }
+.hint { font-size: 11px; color: @ink_dim; }
+.motore { font-size: 11px; color: @ink_dim; letter-spacing: 0.02em; margin-bottom: 4px; }
+.mic-on { background: #E5484D; }
+"""
+
+
+def _md(testo):
+    """Il Markdown che scrivono i modelli (**grassetto**, *corsivo*, `codice`,
+    titoli con #) diventa formattazione vera, invece di asterischi a vista.
+    Il testo e' prima reso sicuro: una risposta non puo' iniettare markup."""
+    t = GLib.markup_escape_text(testo or "")
+    t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"(?<![*\w])\*(?![\s*])(.+?)(?<![\s*])\*(?![*\w])", r"<i>\1</i>", t)
+    t = re.sub(r"`([^`\n]+)`", r"<tt>\1</tt>", t)
+    return re.sub(r"(?m)^#{1,6}\s+", "", t)
+
+
+def _senza_md(testo):
+    """Per la voce: niente asterischi o cancelletti letti ad alta voce."""
+    return re.sub(r"[*`#]+", "", testo or "")
+
+
+def read_color():
+    """Il colore della sfera è il colore d'accento del sistema.
+
+    Non ne esiste una copia qui: se ne esistesse, cambiando accento dalle
+    Impostazioni la sfera resterebbe indietro e l'interfaccia direbbe due
+    cose diverse nello stesso momento.
+    """
+    return accento.colore_rgb()
+
+
+class Window(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="ZETA")
+        self.set_default_size(600, 800)
+        self.add_css_class("zeta-core")
+        self.color = read_color()
+        # La sfera segue l'accento mentre l'utente lo cambia: non serve
+        # riaprire ZETA per vederla del colore giusto.
+        self._sorveglianti = accento.segui(self._cambia_colore)
+        self.state = "attesa"
+        self.t = 0.0
+        self.orb = Orb()
+        self.assistant = None            # creato al primo uso (in un thread)
+        self._busy = False
+        self._pending = None
+        self._pending_timer = 0
+        self._richiesta = 0          # per scartare le risposte annullate
+
+        # Barra del titolo: la disegna ZETA RAYS (hyprbars) per tutte le finestre.
+        # Solo se il plugin non c'è ne mettiamo una nostra, altrimenti il titolo
+        # comparirebbe due volte.
+        if not os.path.exists(HYPRBARS):
+            header = Gtk.HeaderBar(show_title_buttons=True, css_classes=["zeta-head"])
+            header.set_title_widget(Gtk.Label(label="ZETA",
+                                              css_classes=["head-title"]))
+            self.set_titlebar(header)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # --- sfera ---
+        self.area = Gtk.DrawingArea(content_height=330, hexpand=True)
+        self.area.set_draw_func(self.on_draw)
+        root.append(self.area)
+        # quale intelligenza risponde davvero (fornitore, modello, dove gira):
+        # se quella scelta non e' pronta il sistema ne usa un'altra, e qui si vede
+        self.motore = Gtk.Label(label="", css_classes=["motore"], ellipsize=3,
+                                tooltip_text="Si cambia in Impostazioni › AI")
+        root.append(self.motore)
+        threading.Thread(target=self._leggi_motore, daemon=True).start()
+
+        # --- trascrizione ---
+        self.log = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0,
+                           css_classes=["transcript"], valign=Gtk.Align.START)
+        self.scroller = Gtk.ScrolledWindow(vexpand=True,
+                                           hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.scroller.set_child(self.log)
+        root.append(self.scroller)
+        # La conversazione resta sempre in fondo: una risposta lunga arriva
+        # dopo che il riquadro è stato disegnato, quindi si scorre quando
+        # l'altezza del contenuto cambia, non subito.
+        self.scroller.get_vadjustment().connect("changed", self._keep_at_end)
+
+        # --- riga di input ---
+        row = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=6, margin_bottom=14)
+        self.entry = Gtk.Entry(hexpand=True, css_classes=["prompt"],
+                               placeholder_text="Scrivi un comando…  «apri i documenti»")
+        self.entry.connect("activate", lambda *_: self.submit(self.entry.get_text()))
+        self.mic = Gtk.Button(css_classes=["circle"], tooltip_text="Parla")
+        self.mic.set_child(Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic"))
+        self.mic.connect("clicked", lambda *_: self.on_mic())
+        self.send = send = Gtk.Button(css_classes=["send"], tooltip_text="Invia")
+        self.send_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
+        send.set_child(self.send_icon)
+        send.connect("clicked", self.on_send)
+        # Lettura ad alta voce: il pulsante c'è solo se la sintesi vocale è
+        # davvero installata (niente pulsanti che non fanno nulla).
+        self.voce = None
+        if speech.available():
+            self.voce = Gtk.ToggleButton(css_classes=["circle"],
+                                         tooltip_text="Leggi le risposte ad alta voce")
+            self.voce.set_child(Gtk.Image.new_from_icon_name("audio-speakers-symbolic"))
+            self.voce.set_active(speech.enabled())
+            self.voce.connect("toggled", self.on_voce)
+        row.append(self.entry)
+        row.append(self.mic)
+        if self.voce is not None:
+            row.append(self.voce)
+        row.append(send)
+        root.append(row)
+        self.set_child(root)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+
+        self._ultimo_tick = GLib.get_monotonic_time()
+        self._tick_id = 0
+        self._programma_tick()
+        self._say_zeta("Ciao, io sono ZETA. Dimmi cosa fare: «apri le impostazioni», "
+                       "«quanta RAM sto usando», «apri il terminale».")
+        GLib.idle_add(lambda: (self.entry.grab_focus(), False)[1])
+        self._prepara_voce()
+        self._prepara_modello()
+
+    # ---------- sfera ----------
+    def on_draw(self, _a, ctx, w, h):
+        self.orb.draw(ctx, w, h, self.t, self.color, self.state)
+
+    # Quanti fotogrammi al secondo per la sfera. Prima erano sempre 60, anche
+    # a finestra ferma o dietro ad altre: quasi mezzo core occupato per nulla.
+    def _fps(self):
+        if not self.get_mapped() or not self.area.get_mapped():
+            return 0                      # nascosta o ridotta a icona: niente
+        # Con il disegno via software (macchine virtuali senza accelerazione,
+        # GSK_RENDERER=cairo) ogni fotogramma ricalcola la finestra sulla CPU:
+        # si dimezza.
+        k = 2 if os.environ.get("GSK_RENDERER") == "cairo" else 1
+        if self.state != "attesa":
+            return 30 // k                # sta ascoltando, pensando, rispondendo
+        return (15 if self.is_active() else 5) // k or 2
+
+    def _programma_tick(self):
+        fps = self._fps()
+        self._tick_id = GLib.timeout_add(1000 // fps if fps else 500, self._tick)
+
+    def _tick(self):
+        adesso = GLib.get_monotonic_time()
+        # il tempo dell'animazione segue l'orologio, non il numero di
+        # fotogrammi: la sfera gira alla stessa velocita' a 8 o a 30 fps
+        self.t += min(0.25, (adesso - self._ultimo_tick) / 1e6)
+        self._ultimo_tick = adesso
+        if self._fps():
+            self.area.queue_draw()
+        self._programma_tick()
+        return False
+
+    def set_state(self, state, revert_after=0):
+        self.state = state
+        if revert_after:
+            GLib.timeout_add(revert_after, lambda: (setattr(self, "state", "attesa"), False)[1])
+
+    # ---------- trascrizione ----------
+    def _bubble(self, who, text, info=False):
+        lbl_who = Gtk.Label(label=who, xalign=0 if who == "ZETA RAYS" else 1, css_classes=["who"])
+        bubble = Gtk.Label(label=text, xalign=0, wrap=True, selectable=True,
+                           wrap_mode=Pango.WrapMode.WORD_CHAR,
+                           max_width_chars=52, halign=Gtk.Align.START if who == "ZETA RAYS" else Gtk.Align.END)
+        cls = ["bubble", "zeta" if who == "ZETA RAYS" else "user"]
+        if info:
+            cls.append("info")
+        for c in cls:
+            bubble.add_css_class(c)
+        self.log.append(lbl_who)
+        self.log.append(bubble)
+        GLib.idle_add(self._scroll_end)
+
+    def _scroll_end(self):
+        self._keep_at_end(self.scroller.get_vadjustment())
+        return False
+
+    def _keep_at_end(self, adj):
+        adj.set_value(max(0.0, adj.get_upper() - adj.get_page_size()))
+
+    def _say_user(self, text):
+        self._bubble("Tu", text)
+
+    def _say_zeta(self, text):
+        info = "\n" in text or text.startswith(("Uso ", "Memoria", "OS:", "Applicazioni"))
+        self._bubble("ZETA RAYS", text, info=info)
+
+    # ---------- esecuzione comandi ----------
+    def on_send(self, _b=None):
+        if self._busy:
+            self.annulla()
+        else:
+            self.submit(self.entry.get_text())
+
+    def annulla(self):
+        """Smette di aspettare la risposta e restituisce il controllo.
+
+        La richiesta in corso non si può interrompere a metà (è una chiamata
+        di rete), ma il suo risultato verrà scartato e l'interfaccia torna
+        subito utilizzabile: non si resta mai bloccati ad aspettare."""
+        self._richiesta += 1
+        self._busy = False
+        self._modo_invio(False)
+        self._togli_pending()
+        self.set_state("attesa")
+        self._say_zeta("Richiesta annullata.")
+
+    def _modo_invio(self, occupato):
+        """Il pulsante di invio diventa «ferma» mentre si elabora."""
+        self.send_icon.set_from_icon_name(
+            "process-stop-symbolic" if occupato else "go-up-symbolic")
+        self.send.set_tooltip_text("Ferma" if occupato else "Invia")
+
+    def submit(self, text):
+        text = (text or "").strip()
+        if not text or self._busy:
+            return
+        self.entry.set_text("")
+        self._say_user(text)
+        self._busy = True
+        self._streamed = ""
+        self._richiesta += 1
+        self._modo_invio(True)
+        self.set_state("elaborazione")
+        # riscontro immediato: una bolla "sto lavorando" che poi diventa la risposta
+        self._pending = self._pending_bubble()
+        self._elapsed = 0
+        self._pending_timer = GLib.timeout_add_seconds(1, self._tick_pending)
+        threading.Thread(target=self._work, args=(text, self._richiesta),
+                         daemon=True).start()
+
+    @staticmethod
+    def _descrivi(prov):
+        c = prov.config
+        dove = "locale" if c.kind == "local" else "in rete"
+        modello = c.model
+        if not modello and hasattr(prov, "_model"):
+            try:
+                modello = prov._model()              # Ollama: quello che usera' davvero
+            except Exception:  # noqa: BLE001
+                modello = ""
+        return " · ".join(x for x in (c.label, modello, dove) if x)
+
+    def _leggi_motore(self):
+        try:
+            from intelligence.registry import Registry
+            prov = Registry().resolve_default()
+            testo = self._descrivi(prov) + ("" if prov.available() else " · non pronto")
+        except Exception as e:  # noqa: BLE001
+            testo = "AI non disponibile (%s)" % e
+        GLib.idle_add(self.motore.set_text, testo)
+
+    def _fase(self, testo, richiesta):
+        """Cosa sta succedendo davvero (caricamento, contatto col servizio)."""
+        if richiesta == self._richiesta and self._pending is not None and not self._streamed:
+            self._fase_testo = testo
+            self._pending.set_text(testo)
+        return False
+
+    def _pending_bubble(self, testo="Sto elaborando…"):
+        self.log.append(Gtk.Label(label="ZETA RAYS", xalign=0, css_classes=["who"]))
+        lbl = Gtk.Label(label=testo, xalign=0, wrap=True,
+                        halign=Gtk.Align.START, css_classes=["bubble", "zeta", "pending"])
+        self.log.append(lbl)
+        GLib.idle_add(self._scroll_end)
+        return lbl
+
+    def _tick_pending(self):
+        """Mostra che sta lavorando, con la fase vera (vedi _fase) e i secondi:
+        prima diceva «carico il modello locale» dopo 4 s anche con un servizio
+        in rete o con il modello gia' in memoria."""
+        if not self._busy or self._pending is None or self._streamed:
+            return bool(self._busy and self._pending is not None)
+        self._elapsed += 1
+        fase = getattr(self, "_fase_testo", "") or "Sto elaborando…"
+        if self._elapsed >= 4:
+            self._pending.set_text("%s (%ds)" % (fase, self._elapsed))
+        return True
+
+    def _work(self, text, richiesta):
+        try:
+            from intelligence.registry import Registry
+            prov = Registry().resolve_default()
+            if self.assistant is None:
+                from intelligence.assistant import Assistant
+                self.assistant = Assistant(prov)
+            else:
+                # il fornitore cambiato in Impostazioni vale dalla domanda dopo,
+                # senza chiudere ZETA (la conversazione resta)
+                vecchio = self.assistant.provider.config
+                nuovo = prov.config
+                if (vecchio.name, vecchio.model, vecchio.endpoint) != (nuovo.name, nuovo.model, nuovo.endpoint):
+                    self.assistant.provider = prov
+            prov = self.assistant.provider
+            GLib.idle_add(self.motore.set_text, self._descrivi(prov))
+            self._fase_testo = ""
+            from intelligence.providers.ollama import OllamaProvider
+            from intelligence.agente.capire import capire
+            if capire(text):
+                fase = "Eseguo…"                     # comando: il modello non serve
+            elif isinstance(prov, OllamaProvider):
+                fase = ("Sto elaborando…" if prov._gia_caricato() else
+                        "Carico il modello %s in memoria, la prima risposta è più lenta…" % prov.config.model)
+            else:
+                fase = "Contatto %s…" % prov.config.label
+            GLib.idle_add(self._fase, fase, richiesta)
+            self._streamed = ""
+            answer = self.assistant.respond(
+                text, confirm=self._confirm,
+                on_text=lambda c: GLib.idle_add(self._chunk, c, richiesta))
+        except Exception as e:  # noqa: BLE001
+            answer = "Si è verificato un errore: %s" % e
+        GLib.idle_add(self._done, answer, richiesta)
+
+    def _chunk(self, pezzo, richiesta):
+        """Un pezzo di risposta in arrivo: la bolla si riempie mentre il
+        modello scrive, invece di restare su «Sto elaborando…» fino alla fine."""
+        if richiesta != self._richiesta or self._pending is None:
+            return False                  # richiesta annullata nel frattempo
+        if not self._streamed and getattr(self, "_pending_timer", 0):
+            GLib.source_remove(self._pending_timer)
+            self._pending_timer = 0
+            self._pending.remove_css_class("pending")
+        self._streamed += pezzo
+        self._pending.set_markup(_md(self._streamed))
+        self._scroll_end()
+        return False
+
+    def _done(self, answer, richiesta=None):
+        if richiesta is not None and richiesta != self._richiesta:
+            return False              # risposta di una richiesta annullata
+        self._modo_invio(False)
+        if getattr(self, "_pending_timer", 0):
+            GLib.source_remove(self._pending_timer)
+            self._pending_timer = 0
+        if self._pending is not None:
+            # la bolla di attesa diventa la risposta vera (testo del modello:
+            # con la sua formattazione; rapporti di sistema: testo semplice)
+            if self._streamed:
+                self._pending.set_markup(_md(answer))
+            else:
+                self._pending.set_text(answer)
+            self._pending.remove_css_class("pending")
+            # Carattere a spaziatura fissa solo per i rapporti dei comandi di
+            # sistema (tabelle, elenchi): una risposta del modello su piu'
+            # righe, come una poesia, resta nel carattere normale.
+            if not self._streamed and ("\n" in answer or answer.startswith(
+                    ("Uso ", "Memoria", "OS:", "Applicazioni"))):
+                self._pending.add_css_class("info")
+            self._pending = None
+            GLib.idle_add(self._scroll_end)
+        else:
+            self._say_zeta(answer)
+        self.set_state("risposta", revert_after=1400)
+        self._busy = False
+        self._speak(_senza_md(answer))
+        return False
+
+    def _speak(self, text):
+        """Legge la risposta se l'utente ha acceso la voce."""
+        if self.voce is None or not self.voce.get_active():
+            return
+        if speech.say(text, on_done=lambda: GLib.idle_add(self._spoken)):
+            self.set_state("risposta")
+
+    def _spoken(self):
+        if self.state == "risposta":
+            self.set_state("attesa")
+        return False
+
+    def on_voce(self, btn):
+        speech.set_enabled(btn.get_active())
+        if not btn.get_active():
+            speech.stop()
+            self._spoken()
+
+    def _confirm(self, res):
+        """Chiede conferma (thread di lavoro) mostrando un dialogo sul thread UI."""
+        ev = threading.Event()
+        out = {"ok": False}
+
+        def show():
+            dlg = Gtk.Window(transient_for=self, modal=True, title="Conferma azione",
+                             default_width=420)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
+                          margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
+            box.append(Gtk.Label(label="ZETA RAYS vuole eseguire un'azione di sistema:",
+                                 xalign=0, wrap=True))
+            box.append(Gtk.Label(label=res.preview, xalign=0, selectable=True,
+                                 css_classes=["bubble", "info"]))
+            box.append(Gtk.Label(label=res.impact, xalign=0, wrap=True, css_classes=["hint"]))
+            btns = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+            cancel = Gtk.Button(label="Annulla")
+            ok = Gtk.Button(label="Autorizza", css_classes=["suggested-action"])
+            cancel.connect("clicked", lambda *_: (dlg.destroy(), ev.set()))
+            ok.connect("clicked", lambda *_: (out.__setitem__("ok", True), dlg.destroy(), ev.set()))
+            btns.append(cancel)
+            btns.append(ok)
+            box.append(btns)
+            dlg.set_child(box)
+            dlg.connect("close-request", lambda *_: (ev.set(), False)[1])
+            dlg.present()
+            # il fuoco su «Annulla»: un Invio dato per sbaglio non autorizza
+            # nulla (e il testo dell'azione non appare tutto selezionato)
+            cancel.grab_focus()
+            return False
+
+        GLib.idle_add(show)
+        ev.wait(timeout=120)
+        return out["ok"]
+
+    # ---------- modello ----------
+    def _prepara_modello(self):
+        """Con il modello locale, lo si comincia a caricare appena si apre
+        ZETA: ci mette 1-2 secondi, e intanto si scrive la domanda. Non lo fa
+        se l'utente ha scelto «Solo quando serve» (Impostazioni › AI)."""
+        def lavoro():
+            try:
+                with open(os.path.expanduser("~/.config/zeta/ai-precarica")) as f:
+                    if f.read().strip() == "0":
+                        return
+            except OSError:
+                pass
+            try:
+                from intelligence.registry import Registry
+                from intelligence.providers.ollama import OllamaProvider
+                prov = Registry().resolve_default()
+                if isinstance(prov, OllamaProvider) and prov.available():
+                    prov.preload()
+            except Exception:  # noqa: BLE001 - la prima domanda lo carichera' comunque
+                pass
+        threading.Thread(target=lavoro, daemon=True).start()
+
+    # ---------- voce ----------
+    def _prepara_voce(self):
+        """Carica il motore vocale in sottofondo: al primo comando a voce
+        l'attesa sarebbe di qualche secondo, e sembrerebbe bloccato."""
+        def lavoro():
+            try:
+                from intelligence import voice
+                if voice.available():
+                    voice.preload()
+            except Exception:  # noqa: BLE001
+                pass
+        threading.Thread(target=lavoro, daemon=True).start()
+
+    def on_mic(self):
+        if self._busy:
+            return
+        from intelligence import voice
+        if not voice.available():
+            self._say_zeta(voice.why_unavailable())
+            return
+        self._busy = True
+        self.mic.add_css_class("mic-on")
+        self.set_state("ascolto")
+        self._pending = self._pending_bubble("Parla pure…")
+        self._elapsed = 0
+        threading.Thread(target=self._listen, daemon=True).start()
+
+    def _listen(self):
+        from intelligence import voice
+        errore = None
+        testo = ""
+        confidenza = 0.0
+        try:
+            rec = voice.Recognizer()
+            testo = rec.listen(on_stato=lambda st: GLib.idle_add(self._stato_voce, st))
+            confidenza = getattr(rec, "ultima_confidenza", 0.0)
+        except voice.ErroreMicrofono as e:
+            errore = str(e)
+        except Exception as e:  # noqa: BLE001
+            errore = "Errore del microfono: %s" % e
+        GLib.idle_add(self._heard, testo, confidenza, errore)
+
+    def _stato_voce(self, stato):
+        """Riscontro visivo mentre si parla."""
+        testi = {"attesa": "Parla pure…", "ascolto": "Ti sto ascoltando…",
+                 "elaborazione": "Sto capendo…"}
+        if self._pending is not None and stato in testi:
+            self._pending.set_text(testi[stato])
+        self.set_state("ascolto" if stato != "elaborazione" else "elaborazione")
+        return False
+
+    def _heard(self, testo, confidenza, errore):
+        self.mic.remove_css_class("mic-on")
+        self.set_state("attesa")
+        self._busy = False
+        self._togli_pending()
+        if errore:
+            self._say_zeta(errore)
+        elif not testo:
+            self._say_zeta("Non ho sentito nulla. Premi il microfono e parla, "
+                           "oppure scrivi il comando.")
+        elif confidenza and confidenza < 0.55:
+            # meglio dire cosa si è capito che eseguire la cosa sbagliata
+            self._say_zeta("Non sono sicuro di aver capito: «%s». "
+                           "Ripeti pure, oppure scrivilo." % testo)
+        else:
+            self.submit(testo)
+        return False
+
+    def _togli_pending(self):
+        if getattr(self, "_pending_timer", 0):
+            GLib.source_remove(self._pending_timer)
+            self._pending_timer = 0
+        if self._pending is not None:
+            parent = self._pending.get_parent()
+            if parent is not None:
+                # toglie anche l'etichetta "ZETA RAYS" sopra la bolla
+                prev = self._pending.get_prev_sibling()
+                parent.remove(self._pending)
+                if prev is not None and prev.has_css_class("who"):
+                    parent.remove(prev)
+            self._pending = None
+
+    # ---------- tasti / colore ----------
+    def on_key(self, _c, keyval, _kc, _mod):
+        if keyval == Gdk.KEY_Escape:
+            speech.stop()
+            self.close()
+            return True
+        return False
+
+    def _cambia_colore(self, rgb):
+        self.color = rgb
+        if hasattr(self, "area"):
+            self.area.queue_draw()
+        # Anche il pulsante d'invio e il bordo del campo usano @accent, che sta
+        # nel CSS: ricaricandolo seguono il nuovo colore senza riaprire ZETA,
+        # come fa gia la sfera. zeta-accent ha appena riscritto colors.css.
+        try:
+            tema.apply(CSS)
+        except Exception:  # noqa: BLE001 — un ritocco estetico non deve far cadere ZETA
+            pass
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Core")
+
+    def do_activate(self):
+        tema.apply(CSS)
+        (self.props.active_window or Window(self)).present()
+
+
+def main(argv):
+    return App().run(None)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

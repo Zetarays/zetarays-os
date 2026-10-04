@@ -1,0 +1,35 @@
+# Controlli veloci a ogni modifica: non costruiscono le immagini (servono ore
+# e decine di GB), controllano che script, Python e firewall siano validi.
+name: Controlli
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  controlli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strumenti
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck nftables python3
+      - name: Sintassi degli script shell
+        run: |
+          set -e
+          for f in build.sh tools/*.sh live-build/config/hooks/normal/*.hook.chroot \
+                   live-build/config/includes.chroot/etc/initramfs-tools/hooks/*; do
+            bash -n "$f"
+          done
+          shellcheck -S error build.sh tools/*.sh
+      - name: Python
+        run: |
+          set -e
+          find live-build/config/includes.chroot/usr/lib/zeta tools -name '*.py' -print0 | xargs -0 python3 -m py_compile
+          for f in live-build/config/includes.chroot/usr/local/bin/zeta-*; do
+            if head -1 "$f" | grep -q python; then python3 -m py_compile "$f"; fi
+          done
+      - name: Firewall (nft -c)
+        run: |
+          sudo mkdir -p /etc/nftables.d
+          sudo nft -c -f live-build/config/includes.chroot/etc/nftables.conf
+      - name: Nessun segreto
+        run: |
+          ! grep -rIE '(sk-ant-api[0-9A-Za-z_-]{20,}|AIza[0-9A-Za-z_-]{35}|ghp_[0-9A-Za-z]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' .

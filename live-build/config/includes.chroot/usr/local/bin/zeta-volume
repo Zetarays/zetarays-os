@@ -1,0 +1,50 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — controllo del volume, in un posto solo.
+#
+# Prima ogni punto che cambiava il volume (scorciatoie da tastiera, rotella
+# sull'icona della barra, azioni di ZETA) chiamava wpctl per conto suo, e la
+# barra si accorgeva del cambiamento solo rileggendo lo stato ogni 2 secondi:
+# trenta processi al minuto, sempre, anche a computer fermo. Qui il volume si
+# cambia e si avvisa subito la barra con un segnale: l'icona si aggiorna
+# all'istante e la lettura periodica puo diventare rara.
+#
+# Uso: zeta-volume su [passo] | giu [passo] | muto | imposta <0-100>
+#      (passo in punti percentuali, predefinito 5: quello dei tasti del volume)
+set -u
+
+SEGNALE=11   # SIGRTMIN+11 (8 launcher, 9 finestre, 10 spazi)
+SINK="@DEFAULT_AUDIO_SINK@"
+
+if ! command -v wpctl >/dev/null 2>&1; then
+    echo "Controllo del volume non disponibile (wpctl assente)." >&2
+    exit 1
+fi
+
+passo="${2:-5}"
+case "$passo" in ''|*[!0-9]*) passo=5 ;; esac
+[ "$passo" -gt 50 ] && passo=50
+
+case "${1:-}" in
+    su)      wpctl set-volume -l 1 "$SINK" "${passo}%+" ;;
+    giu)     wpctl set-volume "$SINK" "${passo}%-" ;;
+    muto)    wpctl set-mute "$SINK" toggle ;;
+    imposta)
+        liv="${2:-}"
+        case "$liv" in
+            ''|*[!0-9]*) echo "Livello non valido: serve un numero da 0 a 100." >&2; exit 1 ;;
+        esac
+        [ "$liv" -gt 100 ] && liv=100
+        wpctl set-volume -l 1 "$SINK" "${liv}%"
+        ;;
+    *)
+        echo "Uso: zeta-volume su [passo] | giu [passo] | muto | imposta <0-100>" >&2
+        exit 1
+        ;;
+esac
+stato=$?
+
+# La barra si aggiorna subito, senza aspettare il prossimo giro di lettura.
+pkill -RTMIN+$SEGNALE -x waybar 2>/dev/null
+
+exit $stato

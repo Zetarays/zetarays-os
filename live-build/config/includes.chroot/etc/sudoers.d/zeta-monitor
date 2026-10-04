@@ -1,0 +1,3 @@
+# ZETA RAYS Monitor: sola lettura (regole del firewall, connessioni, eventi di accesso)
+# senza password per gli amministratori. Le modifiche passano da pkexec.
+%sudo ALL=(root) NOPASSWD: /usr/libexec/zeta-monitor-helper firewall, /usr/libexec/zeta-monitor-helper sockets, /usr/libexec/zeta-monitor-helper auth

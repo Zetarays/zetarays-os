@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=ZETA RAYS
+Description=Avvio di ZETA RAYS
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/zeta
+ScriptFile=/usr/share/plymouth/themes/zeta/zeta.script

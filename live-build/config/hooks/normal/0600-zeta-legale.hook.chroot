@@ -1,0 +1,259 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — documenti legali generati dall'immagine vera.
+#
+# L'elenco dei componenti e delle licenze non si scrive a mano: si legge dal
+# database dei pacchetti di QUESTA immagine, al momento in cui viene costruita.
+# Scritto a mano invecchierebbe alla prima aggiunta di un pacchetto, e un
+# documento legale che elenca cose sbagliate è peggio di nessun documento.
+set +e
+
+python3 - <<'PYFINE'
+import collections
+import os
+import re
+import time
+
+DEST = "/usr/share/zeta/legale"
+os.makedirs(DEST, exist_ok=True)
+OGGI = time.strftime("%d/%m/%Y")
+
+# --- pacchetti realmente installati ---
+stato = open("/var/lib/dpkg/status", encoding="utf-8", errors="replace").read()
+pacchetti = {}
+for blocco in stato.split("\n\n"):
+    campi = dict(re.findall(r"^([A-Za-z-]+): (.*)$", blocco, re.M))
+    if campi.get("Status", "").endswith("installed") and campi.get("Package"):
+        pacchetti[campi["Package"]] = {
+            "versione": campi.get("Version", ""),
+            "descrizione": campi.get("Description", "").split("\n")[0],
+        }
+
+# --- licenze dai file copyright ---
+LIC = re.compile(r"^License:\s*(.+)$", re.M)
+NOTI = ("GPL-3", "GPL-2", "LGPL-3", "LGPL-2", "MIT", "BSD", "Apache-2.0",
+        "MPL-2.0", "ISC", "Artistic", "Zlib", "CC0")
+licenze = {}
+for nome in pacchetti:
+    p = "/usr/share/doc/%s/copyright" % nome
+    if not os.path.exists(p):
+        continue
+    try:
+        testo = open(p, encoding="utf-8", errors="replace").read()
+    except OSError:
+        continue
+    trovate = [x.strip() for x in LIC.findall(testo)]
+    if not trovate:
+        for n in NOTI:
+            if re.search(re.escape(n), testo, re.I):
+                trovate = [n]
+                break
+    licenze[nome] = trovate or ["(nel file copyright del pacchetto)"]
+
+
+def norm(l):
+    return l.split(" or ")[0].split(",")[0].strip()
+
+
+# --- elenco completo, leggibile da una macchina ---
+with open("%s/COMPONENTI.csv" % DEST, "w") as f:
+    f.write("pacchetto;versione;licenze;descrizione\n")
+    for nome in sorted(pacchetti):
+        lic = " | ".join(sorted(set(norm(x) for x in licenze.get(nome, ["-"]))))
+        f.write("%s;%s;%s;%s\n" % (nome, pacchetti[nome]["versione"], lic,
+                                   pacchetti[nome]["descrizione"].replace(";", ",")))
+
+# --- famiglie: si contano i PACCHETTI, non le righe «License:» ---
+FAMIGLIE = [("GPL", "GNU General Public License", "/usr/share/common-licenses/GPL-3"),
+            ("LGPL", "GNU Lesser General Public License", "/usr/share/common-licenses/LGPL-3"),
+            ("Apache", "Apache License 2.0", "/usr/share/common-licenses/Apache-2.0"),
+            ("BSD", "Licenza BSD", "/usr/share/common-licenses/BSD"),
+            ("MIT", "Licenza MIT (Expat)", "—"),
+            ("Expat", "Licenza MIT (Expat)", "—"),
+            ("MPL", "Mozilla Public License", "/usr/share/common-licenses/MPL-2.0"),
+            ("CC0", "Creative Commons Zero", "—"),
+            ("ISC", "Licenza ISC", "—")]
+
+
+def famiglia_di(l):
+    u = l.upper()
+    for chiave, nome, dove in FAMIGLIE:
+        if u.startswith(chiave.upper()):
+            return nome, dove
+    return None, None
+
+
+per_fam = collections.defaultdict(set)
+dove_fam = {}
+for nome, v in licenze.items():
+    for l in set(norm(x) for x in v):
+        fam, dove = famiglia_di(l)
+        if fam:
+            per_fam[fam].add(nome)
+            dove_fam[fam] = dove
+famiglie = sorted(((f, len(s), dove_fam[f]) for f, s in per_fam.items()),
+                  key=lambda r: -r[1])
+
+CHIAVE = [
+    ("ZETA RAYS", "ZETA, ZETA Core, Monitor, Impostazioni, scrivania, script e temi", "GPL-3.0-or-later", "zetarays.org"),
+    ("Linux", "kernel del sistema", "GPL-2", "kernel.org"),
+    ("systemd", "avvio e gestione dei servizi", "LGPL-2.1+", "systemd.io"),
+    ("Hyprland", "compositore grafico (ZETA RAYS Shell)", "BSD-3-clause", "hypr.land"),
+    ("hyprbars", "barre del titolo delle finestre", "BSD-3-clause", "github.com/hyprwm/hyprland-plugins"),
+    ("Waybar", "barra e dock", "MIT", "github.com/Alexays/Waybar"),
+    ("mako", "notifiche", "MIT", "github.com/emersion/mako"),
+    ("foot", "terminale", "MIT", "codeberg.org/dnkl/foot"),
+    ("Thunar", "gestore file", "GPL-2+", "docs.xfce.org/xfce/thunar"),
+    ("GTK / libadwaita", "interfaccia delle applicazioni", "LGPL-2.1+", "gtk.org"),
+    ("SDDM", "schermata di accesso", "GPL-2+", "github.com/sddm/sddm"),
+    ("Calamares", "installatore di sistema", "GPL-3+", "calamares.io"),
+    ("Plymouth", "schermata di avvio", "GPL-2+", "freedesktop.org"),
+    ("GRUB", "avviatore", "GPL-3+", "gnu.org/software/grub"),
+    ("PipeWire / WirePlumber", "audio", "MIT", "pipewire.org"),
+    ("NetworkManager", "rete", "GPL-2+", "networkmanager.dev"),
+    ("nftables", "firewall", "GPL-2", "netfilter.org"),
+    ("Firefox ESR", "navigatore web", "MPL-2.0", "mozilla.org"),
+    ("mpv", "riproduttore audio e video", "GPL-2+ / LGPL-2.1+", "mpv.io"),
+    ("FFmpeg", "codec audio e video", "LGPL-2.1+ / GPL-2+", "ffmpeg.org"),
+    ("Evince", "lettore di documenti", "GPL-2+", "wiki.gnome.org/Apps/Evince"),
+    ("Eye of GNOME", "visualizzatore di immagini", "GPL-2+", "wiki.gnome.org/Apps/EyeOfGnome"),
+    ("File Roller, p7zip, unar", "archivi", "GPL-2+ / LGPL", "—"),
+    ("GNOME Text Editor", "editor di testo", "GPL-3+", "gitlab.gnome.org/GNOME/gnome-text-editor"),
+    ("fastfetch", "riepilogo di sistema nel terminale", "MIT", "github.com/fastfetch-cli/fastfetch"),
+    ("Ollama", "esecuzione del modello AI in locale", "MIT", "ollama.com"),
+    ("Llama 3.2 (1B)", "modello linguistico incluso", "Llama 3.2 Community License", "llama.com"),
+    ("Vosk", "riconoscimento vocale offline", "Apache-2.0", "alphacephei.com/vosk"),
+    ("eSpeak NG", "sintesi vocale", "GPL-3+", "github.com/espeak-ng/espeak-ng"),
+    ("Tesseract", "riconoscimento del testo nelle immagini", "Apache-2.0", "github.com/tesseract-ocr"),
+    ("Roboto", "carattere dell'interfaccia", "Apache-2.0", "fonts.google.com"),
+]
+
+
+def tabella(righe, testate):
+    out = ["| " + " | ".join(testate) + " |",
+           "|" + "|".join(["---"] * len(testate)) + "|"]
+    out += ["| " + " | ".join(str(c) for c in r) + " |" for r in righe]
+    return "\n".join(out)
+
+
+TESTO = """# ZETA RAYS OS — software di terze parti e licenze
+
+*Generato automaticamente dall'immagine di ZETA RAYS OS 1.7 il {oggi}.*
+
+ZETA RAYS OS è composto in larghissima parte da **software libero e open
+source** scritto da altri. Questo documento elenca che cosa c'è dentro, con
+quali licenze, e dove trovarne il testo completo.
+
+## In breve
+
+L'immagine contiene **{n} pacchetti** installati. Per ognuno, il testo
+integrale della licenza e l'elenco degli autori sono nel sistema stesso, in
+`/usr/share/doc/<nome-del-pacchetto>/copyright`.
+
+L'elenco completo, pacchetto per pacchetto con versione e licenza, è nel file
+`COMPONENTI.csv` accanto a questo documento.
+
+## Famiglie di licenza presenti
+
+Un pacchetto può comparire in più famiglie: molti progetti usano licenze
+diverse per parti diverse del codice.
+
+{famiglie}
+
+I testi delle licenze più diffuse sono in `/usr/share/common-licenses/`.
+
+## Componenti principali
+
+Questi sono i programmi che danno forma a ZETA RAYS. Ognuno resta dei suoi
+autori e mantiene la propria licenza.
+
+{chiave}
+
+## Base del sistema
+
+ZETA RAYS OS è costruito sulla distribuzione **Debian GNU/Linux 13 (trixie)**
+e ne usa gli archivi dei pacchetti (`deb.debian.org`, sezioni `main`,
+`contrib`, `non-free`, `non-free-firmware` e `trixie-backports`).
+
+Debian è un marchio di SPI Inc. ZETA RAYS OS non è prodotto, sostenuto né
+approvato da Debian o da SPI Inc.: è un sistema indipendente che ne usa la
+base tecnica, come le licenze del software libero consentono.
+
+## Componenti scritti per ZETA RAYS
+
+Sono di ZETA RAYS la scrivania e le applicazioni di sistema (i comandi
+`zeta-*`), i temi, le icone, il marchio e i testi in italiano.
+
+**Il marchio ZETA RAYS, il nome, il simbolo e il logotipo non sono software
+libero**: restano di proprietà del titolare del progetto. Le licenze del
+software libero riguardano il codice, non i marchi (GPL-3 §7e, Apache-2.0 §6).
+
+## Modello linguistico incluso
+
+L'immagine include **Llama 3.2 (1B)**, distribuito da Meta con la *Llama 3.2
+Community License*: una licenza propria, non una licenza open source
+approvata. Consente uso, copia e modifica con alcune condizioni, fra cui il
+limite dei 700 milioni di utenti attivi mensili e l'obbligo di indicare
+«Built with Llama». Il testo è su llama.com/llama3_2/license.
+
+## Firmware non libero
+
+L'immagine include i pacchetti `firmware-*` della sezione `non-free-firmware`
+di Debian, necessari perché schede di rete, schede video e adattatori senza
+fili funzionino su hardware reale. Sono distribuiti dai rispettivi produttori
+con licenze di sola redistribuzione, il cui testo è nei relativi file
+`copyright`.
+
+## Come ottenere il codice sorgente
+
+Per ogni pacchetto incluso, il codice sorgente corrispondente si ottiene dagli
+archivi Debian con:
+
+    apt-get source <nome-del-pacchetto>
+
+Questo soddisfa l'obbligo di messa a disposizione del sorgente previsto dalla
+GPL e dalle licenze analoghe.
+""".format(oggi=OGGI, n=len(pacchetti),
+           famiglie=tabella([(f, "%d su %d" % (c, len(pacchetti)), d)
+                             for f, c, d in famiglie],
+                            ["Famiglia di licenza", "Pacchetti", "Testo integrale"]),
+           chiave=tabella(CHIAVE, ["Componente", "A che serve", "Licenza", "Dove sta di casa"]))
+
+open("%s/LICENZE.md" % DEST, "w").write(TESTO)
+print("ZETA RAYS: documenti legali generati (%d pacchetti, %d famiglie di licenza)"
+      % (len(pacchetti), len(famiglie)))
+
+# --- Llama 3.2: gli obblighi della licenza del modello incluso ---
+# La Llama 3.2 Community License chiede a chi distribuisce il modello di
+# (A) accompagnarlo con una copia della licenza, (iii) conservare un file
+# «Notice» con una frase di attribuzione precisa, e di rispettare la policy
+# d'uso. I testi ufficiali viaggiano gia dentro il modello (strati «license»
+# del pacchetto Ollama): li si prende da li, cosi sono sempre quelli giusti
+# per la versione inclusa, e si mettono accanto agli altri documenti.
+import json, os
+MODELLI = "/usr/share/ollama/.ollama/models"
+MANIFEST = MODELLI + "/manifests/registry.ollama.ai/library/llama3.2/1b"
+LLAMA = DEST + "/llama-3.2"
+os.makedirs(LLAMA, exist_ok=True)
+testi = []
+for strato in json.load(open(MANIFEST))["layers"]:
+    if strato["mediaType"] == "application/vnd.ollama.image.license":
+        blob = MODELLI + "/blobs/" + strato["digest"].replace(":", "-")
+        testi.append(open(blob, encoding="utf-8").read())
+# la licenza CITA la policy per nome, quindi «Acceptable Use Policy» compare in
+# entrambi i testi: la licenza e quella col titolo dell'accordo, la policy e
+# l'altra (quella che NON e la licenza), non «la prima che nomina la policy».
+licenza = next(t for t in testi if "COMMUNITY LICENSE AGREEMENT" in t)
+policy = next(t for t in testi if "COMMUNITY LICENSE AGREEMENT" not in t)
+open(LLAMA + "/LICENSE.txt", "w").write(licenza)
+open(LLAMA + "/USE_POLICY.md", "w").write(policy)
+# la frase e quella richiesta dalla sezione 1.b.iii, parola per parola
+open(LLAMA + "/NOTICE.txt", "w").write(
+    "Llama 3.2 is licensed under the Llama 3.2 Community License, "
+    "Copyright \u00a9 Meta Platforms, Inc. All Rights Reserved.\n\n"
+    "Built with Llama.\n\n"
+    "ZETA RAYS OS include il modello Llama 3.2 (1B) per l'intelligenza locale di ZETA.\n"
+    "Licenza: LICENSE.txt. Policy d'uso: USE_POLICY.md (anche su https://www.llama.com/llama3_2/use-policy).\n")
+print("ZETA RAYS: licenza, policy e notice di Llama 3.2 in %s" % LLAMA)
+PYFINE
+exit 0

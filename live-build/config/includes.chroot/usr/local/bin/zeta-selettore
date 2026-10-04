@@ -1,0 +1,582 @@
+#!/usr/bin/python3 -S
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — selettore delle app (Ctrl+Tab), come Cmd+Tab su macOS.
+
+  Ctrl+Tab              apre il selettore sull'app usata prima di quella attuale
+  Tab (con Ctrl giu')   avanti          Maiusc+Tab   indietro
+  rilascio di Ctrl      porta in primo piano l'app scelta
+  Esc                   chiude senza cambiare nulla
+  Ctrl+Q                chiude l'app scelta (chiusura normale, non uccisa)
+  clic su un'icona      la porta in primo piano;  rotella: avanti/indietro
+
+Come funziona:
+  - la tastiera la gestisce Hyprland (submap «zeta-selettore» in hyprland.lua):
+    ogni tasto lancia «zeta-selettore <comando>», un client minimo che manda
+    il comando al processo residente e termina in pochi millisecondi;
+  - il processo residente (--demone) tiene pronta la finestra, nascosta:
+    compare subito, senza caricare GTK a ogni Ctrl+Tab. Da fermo non consuma
+    CPU: aspetta sul socket, senza controlli periodici;
+  - le app e il loro ordine (dalla piu' usata di recente) si chiedono a
+    Hyprland a ogni apertura: nessun elenco da mantenere, nessuna voce vecchia.
+"""
+import os
+import socket
+import sys
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+SOCK = os.path.join(RUNTIME, "zeta-selettore.sock")
+COMANDI = ("apri", "apri_indietro", "avanti", "indietro", "attiva", "annulla", "chiudi")
+
+
+def _invia(cmd):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.sendto(cmd.encode(), SOCK)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+# ---------------------------------------------------------------- client
+if len(sys.argv) > 1 and sys.argv[1] in COMANDI:
+    if _invia(sys.argv[1]):
+        sys.exit(0)
+    if not sys.argv[1].startswith("apri"):
+        sys.exit(0)
+    # nessun processo residente (primo uso, o e' caduto): lo si avvia e il
+    # comando «apri» gli arriva come argomento
+    os.execv("/usr/bin/python3", ["/usr/bin/python3", os.path.abspath(__file__), "--demone", sys.argv[1]])
+
+if len(sys.argv) < 2 or sys.argv[1] != "--demone":
+    print(__doc__)
+    sys.exit(0 if len(sys.argv) < 2 else 1)
+
+# ---------------------------------------------------------------- demone
+import site  # noqa: E402  (lanciato con -S: i moduli di sistema servono qui)
+site.main()
+import glob  # noqa: E402
+import json  # noqa: E402
+import time  # noqa: E402
+
+# gtk4-layer-shell va caricato prima di libwayland
+if "ZETA_SELETTORE_PRELOADED" not in os.environ:
+    libs = glob.glob("/usr/lib/*/libgtk4-layer-shell.so.0")
+    if libs:
+        env = dict(os.environ, ZETA_SELETTORE_PRELOADED="1",
+                   LD_PRELOAD=(libs[0] + " " + os.environ.get("LD_PRELOAD", "")).strip())
+        os.execve("/usr/bin/python3", ["/usr/bin/python3", os.path.abspath(__file__)] + sys.argv[1:], env)
+
+sys.path.insert(0, "/usr/lib/zeta")
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+try:
+    gi.require_version("Gtk4LayerShell", "1.0")
+    from gi.repository import Gtk4LayerShell as LayerShell
+except (ValueError, ImportError):
+    LayerShell = None
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+from ui import tema  # noqa: E402
+from ui.nomi_app import NOMI  # noqa: E402
+from system import windows  # noqa: E402
+
+NASCOSTE = windows.HIDDEN          # finestre ridotte a icona
+ICONA = 72                          # dimensione delle icone (px logici)
+DEBUG = bool(os.environ.get("ZETA_SELETTORE_DEBUG"))
+
+CSS = """
+.sel-fondo {
+    background-color: alpha(@surface, 0.86);
+    border: 1px solid @line;
+    border-radius: 26px;
+    padding: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+}
+.sel-app {
+    padding: 12px 10px 8px 10px;
+    border-radius: 18px;
+    border: 2px solid transparent;
+    min-width: 96px;
+}
+.sel-app:hover { background-color: @hover; }
+.sel-app.scelta {
+    background-color: @accent_soft;
+    border-color: @accent;
+}
+.sel-nome { color: @ink_2; font-size: 12px; margin-top: 6px; }
+.sel-app.scelta .sel-nome { color: @ink; font-weight: 700; }
+.sel-conta {
+    background-color: @accent; color: @accent_ink;
+    border-radius: 999px; font-size: 10px; font-weight: 700;
+    padding: 0 6px; min-width: 10px;
+}
+.sel-titolo { color: @ink_dim; font-size: 11px; margin-top: 10px; }
+"""
+
+
+# ------------------------------------------------------------ Hyprland
+def _hypr(msg, timeout=1.0):
+    """Richiesta diretta al socket di Hyprland: niente processo hyprctl,
+    quindi pochi millisecondi anche con il computer carico."""
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not sig:
+        try:
+            sig = sorted(os.listdir(os.path.join(RUNTIME, "hypr")),
+                         key=lambda d: os.path.getmtime(os.path.join(RUNTIME, "hypr", d)))[-1]
+        except (OSError, IndexError):
+            return None
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(os.path.join(RUNTIME, "hypr", sig, ".socket.sock"))
+        s.sendall(msg.encode())
+        parti = []
+        while True:
+            b = s.recv(65536)
+            if not b:
+                break
+            parti.append(b)
+        return b"".join(parti).decode(errors="replace")
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def _json(msg):
+    r = _hypr("j/" + msg)
+    try:
+        return json.loads(r) if r else None
+    except ValueError:
+        return None
+
+
+def _dispatch(lua):
+    return _hypr("dispatch " + lua)
+
+
+# ----------------------------------------------------------- icone e nomi
+class Catalogo:
+    """Classe della finestra -> (nome, icona), dai file .desktop installati.
+    Si ricostruisce solo quando una classe non si trova (app appena
+    installata), al massimo ogni 10 secondi: niente scansioni continue."""
+
+    def __init__(self):
+        self._mappa = {}
+        self._costruito = 0
+
+    def _costruisci(self):
+        m = {}
+        for info in Gio.AppInfo.get_all():
+            if not isinstance(info, Gio.DesktopAppInfo):
+                continue
+            aid = info.get_id() or ""
+            chiavi = {aid[:-8].lower() if aid.endswith(".desktop") else aid.lower()}
+            wm = info.get_startup_wm_class()
+            if wm:
+                chiavi.add(wm.lower())
+            exe = info.get_executable()
+            if exe:
+                chiavi.add(os.path.basename(exe).lower())
+            for k in chiavi:
+                # un .desktop «vero» non viene sostituito da uno nascosto
+                if k and (k not in m or not info.get_nodisplay()):
+                    m[k] = info
+        self._mappa, self._costruito = m, time.monotonic()
+
+    def trova(self, classe):
+        k = (classe or "").lower()
+        prove = [k, k.rsplit(".", 1)[-1]]
+        for tentativo in (0, 1):
+            if tentativo and time.monotonic() - self._costruito < 10:
+                break
+            if tentativo or not self._mappa:
+                self._costruisci()
+            for p in prove:
+                if p in self._mappa:
+                    info = self._mappa[p]
+                    nome = NOMI.get(info.get_id(), info.get_display_name())
+                    return nome, info.get_icon()
+        return None, None
+
+
+# ----------------------------------------------------------- l'elenco
+def app_aperte(catalogo):
+    """Le app con finestre aperte, dalla piu' usata di recente.
+
+    Una voce per app (come su macOS): piu' finestre della stessa app, o piu'
+    istanze, sono una voce sola con il numero di finestre; si porta in primo
+    piano quella usata per ultima. Le finestre ridotte a icona ci sono: si
+    riaprono. Il desktop stesso (barra, scrivania) non compare: non e' una
+    finestra di Hyprland.
+    """
+    clienti = _json("clients") or []
+    app, ordine = {}, []
+    for c in sorted(clienti, key=lambda c: c.get("focusHistoryID", 1 << 30)):
+        if not c.get("mapped", True) or not c.get("address"):
+            continue
+        ws = str((c.get("workspace") or {}).get("name", ""))
+        if ws.startswith("special:") and ws != NASCOSTE:
+            continue                    # altri spazi speciali: non sono app aperte
+        classe = c.get("class") or c.get("initialClass") or ""
+        if not classe and not c.get("title"):
+            continue
+        chiave = classe.lower() or ("finestra-%s" % c["address"])
+        if chiave not in app:
+            nome, icona = catalogo.trova(classe)
+            app[chiave] = {"nome": nome or classe or c.get("title") or "Finestra",
+                           "icona": icona, "finestre": []}
+            ordine.append(chiave)
+        app[chiave]["finestre"].append({
+            "address": c["address"], "title": c.get("title") or "",
+            "ridotta": ws == NASCOSTE, "monitor": c.get("monitor"),
+            "pid": c.get("pid") or 0})
+    return [app[k] for k in ordine]
+
+
+# ----------------------------------------------------------- la finestra
+class Selettore(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Selettore delle app")
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.add_css_class("zeta-selettore")
+        if LayerShell and LayerShell.is_supported():
+            LayerShell.init_for_window(self)
+            LayerShell.set_namespace(self, "zeta-selettore")
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            # la tastiera resta a Hyprland (submap): la finestra non ruba il fuoco
+            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.NONE)
+            LayerShell.set_exclusive_zone(self, -1)
+        fondo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["sel-fondo"])
+        self.fila = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        self.titolo = Gtk.Label(css_classes=["sel-titolo"], ellipsize=Pango.EllipsizeMode.END,
+                                max_width_chars=60, halign=Gtk.Align.CENTER)
+        fondo.append(self.fila)
+        fondo.append(self.titolo)
+        self.set_child(fondo)
+        rotella = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL
+                                            | Gtk.EventControllerScrollFlags.DISCRETE)
+        rotella.connect("scroll", self._rotella)
+        self.add_controller(rotella)
+        self.voci, self.scelta, self.caselle = [], 0, []
+        self.mostrato_a = 0.0
+
+    def mostra(self, voci, scelta, monitor_nome):
+        self.voci, self.scelta = voci, scelta
+        while (c := self.fila.get_first_child()) is not None:
+            self.fila.remove(c)
+        self.caselle = []
+        for i, v in enumerate(voci):
+            self.caselle.append(self._casella(i, v))
+            self.fila.append(self.caselle[-1])
+        self._evidenzia()
+        if LayerShell and LayerShell.is_supported():
+            mon = self._monitor(monitor_nome)
+            if mon is not None:
+                LayerShell.set_monitor(self, mon)
+        self.mostrato_a = time.monotonic()
+        self.set_visible(True)
+
+    def _monitor(self, nome):
+        """Il monitor della finestra attiva: il selettore compare li', una volta."""
+        if not nome:
+            return None
+        elenco = Gdk.Display.get_default().get_monitors()
+        for i in range(elenco.get_n_items()):
+            m = elenco.get_item(i)
+            if m.get_connector() == nome:
+                return m
+        return None
+
+    def _casella(self, i, v):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["sel-app"])
+        sopra = Gtk.Overlay()
+        img = Gtk.Image(pixel_size=ICONA)
+        if v["icona"] is not None:
+            img.set_from_gicon(v["icona"])
+        else:
+            img.set_from_icon_name("application-x-executable")
+        sopra.set_child(img)
+        n = len(v["finestre"])
+        if n > 1:
+            conta = Gtk.Label(label=str(n), css_classes=["sel-conta"],
+                              halign=Gtk.Align.END, valign=Gtk.Align.START)
+            sopra.add_overlay(conta)
+        box.append(sopra)
+        nome = Gtk.Label(label=v["nome"], css_classes=["sel-nome"],
+                         ellipsize=Pango.EllipsizeMode.END, max_width_chars=12)
+        box.append(nome)
+        box.set_tooltip_text(v["nome"])
+        clic = Gtk.GestureClick()
+        clic.connect("released", lambda *_a, idx=i: self._clic(idx))
+        box.add_controller(clic)
+        passa = Gtk.EventControllerMotion()
+        passa.connect("motion", lambda _c, x, y, idx=i: self._mouse(idx, x, y))
+        box.add_controller(passa)
+        return box
+
+    def _evidenzia(self):
+        for i, c in enumerate(self.caselle):
+            if i == self.scelta:
+                c.add_css_class("scelta")
+            else:
+                c.remove_css_class("scelta")
+        if self.voci:
+            v = self.voci[self.scelta]
+            f = v["finestre"][0]
+            testo = f["title"] or v["nome"]
+            if f["ridotta"]:
+                testo += "  (ridotta a icona)"
+            if len(v["finestre"]) > 1:
+                testo += "  -  %d finestre" % len(v["finestre"])
+            self.titolo.set_text(testo)
+
+    def sposta(self, passo):
+        if self.voci:
+            self.scelta = (self.scelta + passo) % len(self.voci)
+            self._evidenzia()
+
+    def _mouse(self, idx, x, y):
+        """Il passaggio del mouse sceglie un'icona solo se il puntatore si e'
+        mosso davvero: se il selettore compare sotto il puntatore fermo, la
+        scelta fatta con la tastiera non deve cambiare."""
+        if DEBUG:
+            print("mouse su %d (%.0f,%.0f)" % (idx, x, y), file=sys.stderr, flush=True)
+        if time.monotonic() - self.mostrato_a < 0.25:
+            return
+        self.sposta_a(idx)
+
+    def sposta_a(self, idx):
+        if 0 <= idx < len(self.voci):
+            self.scelta = idx
+            self._evidenzia()
+
+    def _clic(self, idx):
+        if DEBUG:
+            print("clic su %d" % idx, file=sys.stderr, flush=True)
+        self.get_application().attiva_voce(idx)
+
+    def _rotella(self, _c, _dx, dy):
+        self.sposta(1 if dy > 0 else -1)
+        return True
+
+
+class App(Gtk.Application):
+    def __init__(self, primo):
+        super().__init__(application_id="org.zetarays.Selettore",
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+        self.primo = primo
+        self.finestra = None
+        self.catalogo = Catalogo()
+        self._rilascio_rapido = 0.0
+        self._aperto_a = 0.0              # quando si e' aperto (per i doppioni)
+        self._colori_mtime = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        # LD_PRELOAD serviva solo a questo processo: le app non la ereditano
+        pre = " ".join(p for p in os.environ.get("LD_PRELOAD", "").split()
+                       if "gtk4-layer-shell" not in p)
+        if pre:
+            os.environ["LD_PRELOAD"] = pre
+        else:
+            os.environ.pop("LD_PRELOAD", None)
+        os.environ.pop("ZETA_SELETTORE_PRELOADED", None)
+        tema.apply(CSS)
+        self._colori_mtime = self._mtime_colori()
+        self.hold()                       # resta vivo anche con la finestra nascosta
+        self._ascolta()
+
+    def do_activate(self):
+        if self.finestra is None:
+            self.finestra = Selettore(self)
+        if self.primo:
+            GLib.idle_add(self.comando, self.primo)
+            self.primo = None
+
+    # --- socket: un datagramma per comando, nessun controllo periodico
+    def _ascolta(self):
+        try:
+            os.unlink(SOCK)
+        except FileNotFoundError:
+            pass
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.sock.bind(SOCK)
+        os.chmod(SOCK, 0o600)
+        self.sock.setblocking(False)
+        GLib.io_add_watch(self.sock.fileno(), GLib.PRIORITY_HIGH, GLib.IO_IN, self._ricevi)
+
+    def _ricevi(self, *_a):
+        try:
+            while True:
+                dati = self.sock.recv(64)
+                self.comando(dati.decode(errors="replace").strip())
+        except BlockingIOError:
+            pass
+        except OSError:
+            pass
+        return True
+
+    def comando(self, cmd):
+        if DEBUG:
+            print("%.3f comando %s" % (time.monotonic(), cmd), file=sys.stderr, flush=True)
+        try:
+            getattr(self, "c_" + cmd)()
+        except AttributeError:
+            pass
+        except Exception as e:      # mai far cadere il selettore per un errore
+            print("zeta-selettore: %s: %s" % (cmd, e), file=sys.stderr)
+            self._chiudi_tutto()
+        return False
+
+    # --- stato
+    def _mtime_colori(self):
+        try:
+            return os.path.getmtime(tema.COLORS_FILE)
+        except OSError:
+            return None
+
+    def _aggiorna_tema(self):
+        m = self._mtime_colori()
+        if m != self._colori_mtime:
+            self._colori_mtime = m
+            tema.ricarica()
+
+    def _visibile(self):
+        return self.finestra is not None and self.finestra.get_visible()
+
+    def _reset_tasti(self):
+        _dispatch('hl.dsp.submap("reset")')
+
+    def _chiudi_tutto(self):
+        if self.finestra is not None:
+            self.finestra.set_visible(False)
+        self._reset_tasti()
+
+    # --- comandi
+    def c_apri_indietro(self):
+        self.c_apri(indietro=True)
+
+    # Lo stesso Ctrl+Tab che apre il selettore fa scattare anche la scorciatoia
+    # della submap appena attivata: arrivano «apri» e «avanti» (o «indietro»)
+    # insieme, in un ordine qualsiasi. Il secondo dei due si ignora.
+    DOPPIONE = 0.15
+
+    def _doppione(self):
+        return time.monotonic() - self._aperto_a < self.DOPPIONE
+
+    def c_apri(self, indietro=False):
+        if self._visibile():
+            if self._doppione():
+                return
+            return self.c_indietro() if indietro else self.c_avanti()
+        # Ctrl+Tab premuto e rilasciato di colpo: il rilascio puo' arrivare
+        # prima dell'apertura (due processi lanciati quasi insieme). Il cambio
+        # rapido e' gia' stato fatto: non si riapre.
+        if time.monotonic() - self._rilascio_rapido < 0.4:
+            return
+        self._aggiorna_tema()
+        voci = app_aperte(self.catalogo)
+        if not voci:
+            self._reset_tasti()
+            return
+        attiva = _json("activewindow") or {}
+        mon = None
+        monitor = _json("monitors") or []
+        for m in monitor:
+            if attiva.get("monitor") is not None and m.get("id") == attiva.get("monitor"):
+                mon = m.get("name")
+        if mon is None:
+            mon = next((m.get("name") for m in monitor if m.get("focused")), None)
+        if len(voci) < 2:
+            scelta = 0
+        else:
+            scelta = len(voci) - 1 if indietro else 1
+        self.finestra.mostra(voci, scelta, mon)
+        self._aperto_a = time.monotonic()
+
+    def c_avanti(self):
+        if not self._visibile():
+            return self.c_apri()          # arrivato prima di «apri»
+        if not self._doppione():
+            self.finestra.sposta(1)
+
+    def c_indietro(self):
+        if not self._visibile():
+            return self.c_apri(indietro=True)
+        if not self._doppione():
+            self.finestra.sposta(-1)
+
+    def c_annulla(self):
+        self._chiudi_tutto()
+
+    def c_attiva(self):
+        if not self._visibile():
+            # rilascio arrivato prima dell'apertura: cambio rapido all'app
+            # precedente, come un Ctrl+Tab veloce su macOS
+            voci = app_aperte(self.catalogo)
+            self._rilascio_rapido = time.monotonic()
+            self._reset_tasti()
+            if len(voci) > 1:
+                self._porta_avanti(voci[1])
+            return
+        self.attiva_voce(self.finestra.scelta)
+
+    def attiva_voce(self, idx):
+        voci = self.finestra.voci if self.finestra else []
+        if DEBUG and 0 <= idx < len(voci):
+            print("attivo %d = %s (elenco: %s)" % (idx, voci[idx]["nome"],
+                  ", ".join(v["nome"] for v in voci)), file=sys.stderr, flush=True)
+        self.finestra.set_visible(False)
+        self._reset_tasti()
+        if 0 <= idx < len(voci):
+            self._porta_avanti(voci[idx])
+
+    def _porta_avanti(self, voce):
+        # Quando il selettore sparisce, Hyprland (follow_mouse) da' il fuoco
+        # alla finestra sotto il puntatore: si aspetta che l'abbia fatto, poi
+        # si porta avanti l'app scelta. Stesso motivo e stessa attesa del
+        # pannello delle finestre (zeta-finestre).
+        GLib.timeout_add(120, self._porta_avanti_ora, voce)
+
+    def _porta_avanti_ora(self, voce):
+        f = voce["finestre"][0]
+        if f["ridotta"]:
+            windows.restore(f["address"])     # dallo spazio nascosto al suo posto
+        else:
+            _dispatch('hl.dsp.focus({ window = "address:%s" })' % f["address"])
+        return False
+
+    def c_chiudi(self):
+        """Ctrl+Q: chiusura normale di tutte le finestre dell'app scelta (come
+        il pulsante di chiusura: l'app puo' chiedere di salvare). Nessun
+        segnale al processo: per le app bloccate c'e' l'uscita forzata."""
+        if not self._visibile():
+            return
+        voce = self.finestra.voci[self.finestra.scelta]
+        for f in voce["finestre"]:
+            _dispatch('hl.dsp.window.close({ window = "address:%s" })' % f["address"])
+        GLib.timeout_add(350, self._dopo_chiusura)
+
+    def _dopo_chiusura(self):
+        if not self._visibile():
+            return False
+        voci = app_aperte(self.catalogo)
+        if not voci:
+            self._chiudi_tutto()
+            return False
+        scelta = min(self.finestra.scelta, len(voci) - 1)
+        self.finestra.mostra(voci, scelta, None)
+        return False
+
+
+def main():
+    primo = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] in COMANDI else None
+    return App(primo).run([sys.argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

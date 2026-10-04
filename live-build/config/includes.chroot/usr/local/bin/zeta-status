@@ -1,0 +1,44 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-status net|vol|bat
+# Restituisce il percorso dell'icona di stato per la barra di ZETA RAYS.
+# Se un elemento non esiste (per esempio la batteria su un PC fisso) non stampa nulla
+# e la barra nasconde l'icona.
+# Le icone ricolorate per il tema (generate da zeta-accent) hanno la
+# precedenza; se mancano si usano quelle di sistema.
+DIR=/usr/share/zeta/status
+[ -d "$HOME/.config/zeta/barra" ] && DIR="$HOME/.config/zeta/barra"
+
+case "$1" in
+  net)
+    state=$(nmcli -t -f TYPE,STATE device 2>/dev/null)
+    if grep -q '^ethernet:connected' <<<"$state"; then
+      echo "$DIR/ethernet.svg"
+    elif grep -q '^wifi:connected' <<<"$state"; then
+      echo "$DIR/wifi.svg"
+    else
+      echo "$DIR/wifi-off.svg"
+    fi
+    ;;
+  vol)
+    out=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
+    if [ -z "$out" ] || grep -q MUTED <<<"$out"; then
+      echo "$DIR/volume-mute.svg"
+    else
+      vol=$(LC_ALL=C awk '{printf "%d", $2 * 100}' <<<"$out")
+      if [ "$vol" -eq 0 ]; then echo "$DIR/volume-mute.svg"
+      elif [ "$vol" -lt 40 ]; then echo "$DIR/volume-low.svg"
+      else echo "$DIR/volume.svg"; fi
+    fi
+    ;;
+  bat)
+    bat=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
+    [ -n "$bat" ] || exit 0
+    cap=$(cat "$bat/capacity" 2>/dev/null || echo 100)
+    status=$(cat "$bat/status" 2>/dev/null)
+    if [ "$status" = "Charging" ]; then echo "$DIR/battery-charging.svg"
+    elif [ "$cap" -le 15 ]; then echo "$DIR/battery-low.svg"
+    elif [ "$cap" -le 60 ]; then echo "$DIR/battery-half.svg"
+    else echo "$DIR/battery-full.svg"; fi
+    ;;
+esac

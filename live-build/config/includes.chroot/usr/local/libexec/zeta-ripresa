@@ -1,0 +1,49 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-ripresa — riporta il desktop normale dopo un crash di Hyprland.
+#
+# Dopo un crash, start-hyprland rilancia Hyprland con --safe-mode e una
+# configurazione di emergenza: il computer funziona, ma senza nulla di ZETA
+# RAYS (barra, scorciatoie, tema). Qui ci si accorge della modalita' sicura,
+# si lascia un segno per zeta-desktop-session e si chiude Hyprland in modo
+# pulito: la sessione lo rilancia normale in pochi secondi.
+# Mai piu' di 3 riprese in 10 minuti: se Hyprland continua a cadere, si resta
+# in modalita' sicura, che e' fatta apposta per non girare a vuoto.
+set -u
+RUN="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+STORIA="$RUN/zeta-riprese"
+avvisato=0
+# Si guarda la cartella delle istanze di Hyprland: una nuova istanza (dopo un
+# crash) vi crea la sua cartella. Solo allora si controlla con pgrep se e'
+# partita in modalita' sicura. Prima pgrep e sleep giravano ogni 3 secondi,
+# sempre: 40 processi al minuto a computer fermo. L'attesa e' una lettura con
+# scadenza su una fifo (interna alla shell, nessun processo).
+FIFO="$RUN/zeta-ripresa.$$"
+mkfifo -m 600 "$FIFO" && exec 9<>"$FIFO" && rm -f "$FIFO"
+dormi() { read -r -t "$1" -u 9 _ 2>/dev/null || true; }
+istanze() { local d; ISTANZE=""; for d in "$RUN"/hypr/*/; do ISTANZE+="$d "; done; }
+istanze; prima="$ISTANZE"; controlla=1
+while dormi 3; do
+    istanze
+    if [ "$ISTANZE" != "$prima" ]; then prima="$ISTANZE"; controlla=1; fi
+    [ "$controlla" = 1 ] || continue
+    if ! pgrep -u "$(id -u)" -f "Hyprland .*--safe-mode" >/dev/null; then
+        avvisato=0; controlla=0; continue
+    fi
+    adesso=$(date +%s)
+    recenti=$(awk -v a="$adesso" 'a - $1 < 600' "$STORIA" 2>/dev/null | wc -l)
+    if [ "$recenti" -ge 3 ]; then
+        if [ "$avvisato" = 0 ]; then
+            logger -t zeta-ripresa "Hyprland e' caduto 3 volte in 10 minuti: resto in modalita' sicura"
+            avvisato=1
+        fi
+        continue
+    fi
+    echo "$adesso" >> "$STORIA"
+    logger -t zeta-ripresa "Hyprland in modalita' sicura dopo un crash: lo riavvio normale"
+    touch "$RUN/zeta-ripresa"
+    FIRMA=$(ls -t "$RUN/hypr" 2>/dev/null | head -1)
+    # sintassi Lua di Hyprland 0.55: «dispatch exit» (vecchia) viene rifiutata
+    HYPRLAND_INSTANCE_SIGNATURE="$FIRMA" hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1
+    dormi 15
+done

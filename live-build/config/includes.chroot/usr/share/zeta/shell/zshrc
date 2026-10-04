@@ -1,0 +1,39 @@
+# ZETA RAYS — zsh interattiva (caricata da ~/.zshrc)
+[[ -o interactive ]] || return
+
+HISTFILE=~/.zsh_history
+HISTSIZE=20000
+SAVEHIST=50000
+setopt EXTENDED_HISTORY INC_APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_SPACE \
+       HIST_IGNORE_ALL_DUPS HIST_REDUCE_BLANKS HIST_VERIFY
+# comandi con password, chiavi o token: fuori dalla cronologia di zsh
+zshaddhistory() {
+  emulate -L zsh
+  [[ $1 == (#i)*(password|passwd|token|secret|api_key|api-key)=* ]] && return 1
+  [[ $1 == (#i)*--(password|passwd|token|api-key|apikey)* ]] && return 1
+  [[ $1 == *(sk-ant-|sk-proj-|ghp_|glpat-)* ]] && return 1
+  return 0
+}
+setopt EXTENDED_GLOB
+
+autoload -Uz compinit && compinit -d ~/.cache/zcompdump
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+bindkey -e
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search; zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search;  bindkey '^[OA' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search; bindkey '^[OB' down-line-or-beginning-search
+bindkey '^[[1;5C' forward-word; bindkey '^[[1;5D' backward-word
+bindkey '^[[3~' delete-char; bindkey '^[[H' beginning-of-line; bindkey '^[[F' end-of-line
+
+. /usr/share/zeta/shell/comune.sh
+
+if [[ -z $ZETA_SHELL_SEMPLICE ]]; then
+  [[ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] && . /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+  [[ -r /usr/share/doc/fzf/examples/key-bindings.zsh ]] && . /usr/share/doc/fzf/examples/key-bindings.zsh
+  (( $+commands[atuin] )) && eval "$(atuin init zsh --disable-up-arrow)"
+  (( $+commands[starship] )) && eval "$(starship init zsh)"
+  # l'evidenziazione della sintassi va caricata per ultima
+  [[ -r /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] && . /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+fi

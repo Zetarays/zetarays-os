@@ -1,0 +1,53 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — fastfetch con il marchio ufficiale.
+#
+# Il disegno è largo 119 colonne e alto 67 righe. In una finestra più piccola
+# non ci sta: invece di lasciarlo tagliare a metà, qui si sceglie da soli la
+# resa. Il disegno NON viene mai modificato, cambia solo la risoluzione con
+# cui lo si stampa (vedi tools/gen-logo-ascii.py):
+#
+#   >= 70 righe e 168 colonne -> disegno intero
+#   >= 36 righe e 168 colonne -> mezzi blocchi, stesso disegno
+#   >= 18 righe e 104 colonne -> solo il simbolo, a metà risoluzione
+#   più piccola               -> solo le informazioni
+#
+# Per forzare una resa:  ZETA_LOGO=intero|compatto|minuto|nessuno fastfetch
+REALE=/usr/bin/fastfetch
+[ -x "$REALE" ] || { echo "fastfetch non installato" >&2; exit 127; }
+
+# Il colore del marchio segue il tema (chiaro sul nero di ZETA RAYS, scuro sul
+# chiaro): zeta-accent scrive le configurazioni nella cartella dell utente. Se
+# non ci sono ancora — primo avvio, oppure root — valgono quelle di sistema.
+UTENTE="$HOME/.config/fastfetch"
+scegli() {
+    if [ -f "$UTENTE/$1.jsonc" ]; then
+        echo "--config $UTENTE/$1.jsonc"
+    else
+        echo "--config /etc/fastfetch/$1.jsonc"
+    fi
+}
+INTERO=$(scegli config)
+COMPATTO=$(scegli compatto)
+MINUTO=$(scegli minuto)
+
+RIGHE=0; COLONNE=0
+if [ -t 1 ]; then
+    RIGHE=$(tput lines 2>/dev/null) || RIGHE=0
+    COLONNE=$(tput cols 2>/dev/null) || COLONNE=0
+fi
+case "$RIGHE"   in ''|*[!0-9]*) RIGHE=0 ;; esac
+case "$COLONNE" in ''|*[!0-9]*) COLONNE=0 ;; esac
+
+case "${ZETA_LOGO:-}" in
+    intero)   exec "$REALE" $INTERO "$@" ;;
+    compatto) exec "$REALE" $COMPATTO "$@" ;;
+    minuto)   exec "$REALE" $MINUTO "$@" ;;
+    nessuno)  exec "$REALE" $MINUTO --logo none "$@" ;;
+esac
+
+if   [ "$RIGHE" -ge 70 ] && [ "$COLONNE" -ge 168 ]; then exec "$REALE" $INTERO "$@"
+elif [ "$RIGHE" -ge 36 ] && [ "$COLONNE" -ge 168 ]; then exec "$REALE" $COMPATTO "$@"
+elif [ "$RIGHE" -ge 18 ] && [ "$COLONNE" -ge 104 ]; then exec "$REALE" $MINUTO "$@"
+fi
+exec "$REALE" $MINUTO --logo none "$@"

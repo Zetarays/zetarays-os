@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Monitor
+GenericName=Monitor di sistema
+Comment=ZETA RAYS Monitor — intelligenza di sistema in tempo reale
+Exec=zeta-monitor
+Icon=zeta-monitor
+Terminal=false
+Type=Application
+Categories=System;Monitor;Security;

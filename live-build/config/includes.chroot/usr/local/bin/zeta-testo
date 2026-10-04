@@ -1,0 +1,279 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — il testo dentro immagini, schermo e PDF (OCR, tutto in locale).
+
+  zeta-testo                 seleziona una zona dello schermo (Super+Maiusc+T)
+  zeta-testo FILE            un'immagine o un PDF
+  zeta-testo --lingue        le lingue installate
+
+Il testo riconosciuto finisce subito negli appunti (si incolla dove si vuole)
+e compare in una finestra dove se ne puo' selezionare una parte, cambiare
+lingua o salvarlo in un file. Niente va in rete: il riconoscimento lo fa
+tesseract, sul computer.
+"""
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+
+LINGUE_PREDEFINITE = "ita+eng"
+NOMI_LINGUE = {"ita": "Italiano", "eng": "Inglese", "deu": "Tedesco", "fra": "Francese",
+               "spa": "Spagnolo", "por": "Portoghese"}
+
+
+def lingue():
+    try:
+        r = subprocess.run(["tesseract", "--list-langs"], capture_output=True,
+                           text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [x.strip() for x in r.stdout.splitlines()[1:] if x.strip() and x.strip() != "osd"]
+
+
+def _ambiente_leggero():
+    """Il riconoscimento non deve rubare il computer: al massimo due thread
+    (tesseract, di suo, li usa tutti) e priorita' bassa."""
+    env = dict(os.environ)
+    env["OMP_THREAD_LIMIT"] = "2"
+    return env
+
+
+def ocr_immagine(percorso, lingua):
+    r = subprocess.run(["nice", "-n", "10", "tesseract", percorso, "stdout", "-l", lingua,
+                        "--psm", "3"],
+                       capture_output=True, text=True, timeout=180, env=_ambiente_leggero())
+    if r.returncode != 0:
+        raise RuntimeError("tesseract: %s" % (r.stderr.strip().splitlines() or ["errore"])[-1])
+    return r.stdout
+
+
+def testo_pdf(percorso, lingua, avanzamento=None):
+    """Un PDF con testo vero si legge direttamente (esatto e immediato);
+    solo se non ce n'e' (scansioni, foto) si passa all'OCR, pagina per pagina."""
+    try:
+        r = subprocess.run(["pdftotext", "-layout", percorso, "-"], capture_output=True,
+                           text=True, timeout=60)
+        diretto = r.stdout if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        diretto = ""
+    if len("".join(diretto.split())) >= 20:
+        return diretto
+    with tempfile.TemporaryDirectory(prefix="zeta-testo-") as tmp:
+        subprocess.run(["nice", "-n", "10", "pdftoppm", "-r", "200", "-png", percorso,
+                        os.path.join(tmp, "p")], capture_output=True, timeout=300, check=True)
+        pagine = sorted(f for f in os.listdir(tmp) if f.endswith(".png"))
+        parti = []
+        for i, f in enumerate(pagine, 1):
+            if avanzamento:
+                avanzamento("Leggo la pagina %d di %d…" % (i, len(pagine)))
+            parti.append(ocr_immagine(os.path.join(tmp, f), lingua))
+        return "\n\f".join(parti)
+
+
+def cattura_zona():
+    """Zona dello schermo scelta col mouse, catturata a doppia risoluzione: il
+    testo piccolo delle interfacce si riconosce molto meglio. None = annullato."""
+    try:
+        r = subprocess.run(["slurp", "-d"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    fd, dest = tempfile.mkstemp(prefix="zeta-testo-", suffix=".png")
+    os.close(fd)
+    c = subprocess.run(["grim", "-s", "2", "-g", r.stdout.strip(), dest], capture_output=True)
+    if c.returncode != 0:
+        c = subprocess.run(["grim", "-g", r.stdout.strip(), dest], capture_output=True)
+    if c.returncode != 0:
+        os.unlink(dest)
+        return None
+    return dest
+
+
+def copia(testo):
+    try:
+        subprocess.run(["wl-copy"], input=testo, text=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def avvisa(testo):
+    subprocess.Popen(["notify-send", "-a", "ZETA RAYS", "-t", "4000", "Testo", testo],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# ------------------------------------------------------------------ riga di comando
+if "--lingue" in sys.argv[1:]:
+    print(" ".join(lingue()))
+    sys.exit(0)
+if not shutil.which("tesseract"):
+    avvisa("Il riconoscimento del testo non è installato (tesseract).")
+    sys.exit(1)
+
+SORGENTE = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
+TEMPORANEO = False
+if SORGENTE is None:
+    SORGENTE = cattura_zona()           # prima di caricare GTK: il mirino e' subito pronto
+    if SORGENTE is None:
+        sys.exit(0)
+    TEMPORANEO = True
+elif not os.path.isfile(SORGENTE):
+    avvisa("File non trovato: %s" % SORGENTE)
+    sys.exit(1)
+
+sys.path.insert(0, "/usr/lib/zeta")
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from ui import tema  # noqa: E402
+
+CSS = """
+.testo-stato { color: @ink_dim; }
+textview, textview text { font-size: 13px; }
+"""
+
+
+class Finestra(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        titolo = "Testo dalla zona dello schermo" if TEMPORANEO else os.path.basename(SORGENTE)
+        super().__init__(application=app, title=titolo, default_width=620, default_height=460)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=14,
+                      margin_bottom=14, margin_start=14, margin_end=14)
+        self.set_child(box)
+
+        cima = Gtk.Box(spacing=8)
+        self.stato = Gtk.Label(label="Sto leggendo…", xalign=0, hexpand=True, wrap=True,
+                               css_classes=["testo-stato"])
+        cima.append(self.stato)
+        self.codici = lingue() or ["ita", "eng"]
+        voci = ["Italiano + Inglese"] + [NOMI_LINGUE.get(c, c) for c in self.codici]
+        self.lingua = Gtk.DropDown(model=Gtk.StringList.new(voci), valign=Gtk.Align.CENTER,
+                                   tooltip_text="Lingua del testo")
+        self.lingua.connect("notify::selected", lambda *_: self.leggi())
+        cima.append(self.lingua)
+        box.append(cima)
+
+        self.vista = Gtk.TextView(editable=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                                  left_margin=8, right_margin=8, top_margin=8, bottom_margin=8)
+        box.append(Gtk.ScrolledWindow(child=self.vista, vexpand=True))
+
+        righe = Gtk.Box(spacing=8)
+        self.b_copia = Gtk.Button(label="Copia tutto", sensitive=False)
+        self.b_copia.connect("clicked", self._copia)
+        self.b_salva = Gtk.Button(label="Salva come file di testo…", sensitive=False)
+        self.b_salva.connect("clicked", self._salva)
+        chiudi = Gtk.Button(label="Chiudi", css_classes=["zeta-primary"], halign=Gtk.Align.END,
+                            hexpand=True)
+        chiudi.connect("clicked", lambda *_: self.close())
+        for b in (self.b_copia, self.b_salva, chiudi):
+            righe.append(b)
+        box.append(righe)
+        self.connect("close-request", self._pulisci)
+        self._richiesta = 0
+        self.leggi()
+
+    def _codice_lingua(self):
+        i = self.lingua.get_selected()
+        return LINGUE_PREDEFINITE if i == 0 else self.codici[i - 1]
+
+    def leggi(self):
+        """Il riconoscimento va in un thread: su una foto grande o un PDF di
+        molte pagine dura secondi, e la finestra deve restare viva."""
+        self._richiesta += 1
+        n, lingua = self._richiesta, self._codice_lingua()
+        self.stato.set_text("Sto leggendo…")
+        self.b_copia.set_sensitive(False)
+        self.b_salva.set_sensitive(False)
+
+        def passo(t):
+            GLib.idle_add(lambda: (n == self._richiesta and self.stato.set_text(t), False)[1])
+
+        def lavora():
+            try:
+                if SORGENTE.lower().endswith(".pdf"):
+                    testo = testo_pdf(SORGENTE, lingua, passo)
+                else:
+                    testo = ocr_immagine(SORGENTE, lingua)
+                errore = ""
+            except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+                testo, errore = "", "Non sono riuscito a leggere: %s" % e
+            GLib.idle_add(self._fine, n, testo, errore)
+        threading.Thread(target=lavora, daemon=True).start()
+
+    def _fine(self, n, testo, errore):
+        if n != self._richiesta:
+            return False                      # nel frattempo si e' cambiata lingua
+        testo = testo.strip()
+        if errore:
+            self.stato.set_text(errore)
+            return False
+        if not testo:
+            self.stato.set_text("Non ho trovato testo leggibile. Prova un'altra lingua, "
+                                "o una zona più grande e nitida.")
+            self.vista.get_buffer().set_text("")
+            return False
+        self.vista.get_buffer().set_text(testo)
+        self.b_copia.set_sensitive(True)
+        self.b_salva.set_sensitive(True)
+        if copia(testo):
+            self.stato.set_text("Testo copiato negli appunti: incollalo dove vuoi. "
+                                "Puoi anche selezionarne solo una parte.")
+        else:
+            self.stato.set_text("Seleziona il testo che ti serve, oppure «Copia tutto».")
+        return False
+
+    def _testo(self):
+        buf = self.vista.get_buffer()
+        if buf.get_has_selection():
+            a, b = buf.get_selection_bounds()
+        else:
+            a, b = buf.get_bounds()
+        return buf.get_text(a, b, False)
+
+    def _copia(self, _b):
+        if copia(self._testo()):
+            self.b_copia.set_label("Copiato ✓")
+            GLib.timeout_add(1500, lambda: (self.b_copia.set_label("Copia tutto"), False)[1])
+
+    def _salva(self, _b):
+        dialogo = Gtk.FileDialog(title="Salva il testo", initial_name=(
+            "testo.txt" if TEMPORANEO else os.path.splitext(os.path.basename(SORGENTE))[0] + ".txt"))
+        if not TEMPORANEO:
+            dialogo.set_initial_folder(Gio.File.new_for_path(os.path.dirname(os.path.abspath(SORGENTE))))
+
+        def fatto(d, res):
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return                        # annullato
+            try:
+                with open(f.get_path(), "w", encoding="utf-8") as out:
+                    out.write(self._testo())
+                self.stato.set_text("Salvato in %s" % f.get_path())
+            except OSError as e:
+                self.stato.set_text("Non salvato: %s" % e)
+        dialogo.save(self, None, fatto)
+
+    def _pulisci(self, *_):
+        if TEMPORANEO:
+            try:
+                os.unlink(SORGENTE)
+            except OSError:
+                pass
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Testo",
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def do_activate(self):
+        tema.apply(CSS)
+        Finestra(self).present()
+
+
+sys.exit(App().run([sys.argv[0]]))
