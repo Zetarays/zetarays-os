@@ -32,6 +32,14 @@ curl
 nano
 htop
 
+# --- Orologio ---
+# Senza un client NTP l'ora veniva solo dall'orologio della macchina: con
+# VMware Fusion o accanto a Windows (orologio in ora locale) restava sbagliata
+# di due ore. timesyncd la corregge appena c'e' internet; gli strumenti VMware
+# la prendono dal Mac anche senza rete (partono solo dentro VMware).
+systemd-timesyncd
+open-vm-tools
+
 # --- Firmware ---
 firmware-linux-free
 firmware-misc-nonfree
@@ -348,6 +356,15 @@ cups-client
 cups-filters
 cups-browsed
 printer-driver-gutenprint
+# Stampanti USB moderne senza driver (IPP su USB) e i driver delle marche
+# piu' diffuse che non parlano IPP: HP, Epson, Brother.
+ipp-usb
+printer-driver-hpcups
+printer-driver-escpr
+printer-driver-brlaser
 system-config-printer
 avahi-daemon
+# Risolve i nomi «.local» (stampante-ufficio.local): senza, le stampanti di
+# rete trovate non si potevano aggiungere senza driver.
+libnss-mdns
 

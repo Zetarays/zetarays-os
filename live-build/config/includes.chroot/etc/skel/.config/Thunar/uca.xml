@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- ZETA RAYS: azioni del tasto destro nel gestore file.
      Si riprende quella di serie («Apri un terminale qui»), che questo file
-     sostituisce, e si aggiungono la lettura del testo dentro immagini e PDF e ZETA Share. -->
+     sostituisce, e si aggiungono la lettura del testo dentro immagini e PDF, ZETA Share e le
+     azioni da amministratore per le cartelle di sistema (/opt...). -->
 <actions>
 <action>
 	<icon>utilities-terminal</icon>
@@ -36,5 +37,23 @@
 	<other-files/>
 	<text-files/>
 	<video-files/>
+</action>
+<action>
+	<icon>edit-paste</icon>
+	<name>Incolla qui come amministratore</name>
+	<unique-id>zeta-incolla-amministratore</unique-id>
+	<command>zeta-incolla-amministratore incolla %f</command>
+	<description>Incolla i file copiati in una cartella di sistema (/opt, /usr/local...) chiedendo la password</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>dialog-password</icon>
+	<name>Apri come amministratore</name>
+	<unique-id>zeta-apri-amministratore</unique-id>
+	<command>zeta-incolla-amministratore apri %f</command>
+	<description>Apre la cartella con i permessi di amministratore: si puo' copiare, rinominare e cancellare</description>
+	<patterns>*</patterns>
+	<directories/>
 </action>
 </actions>

@@ -241,6 +241,56 @@ hl.window_rule({ name = "zeta-posta-scrivi",
                  match = { class = "^thunderbird$", title = "^(Componi|Scrivi|Compose|Write): .*" },
                  size = "(monitor_w*0.62) (monitor_h*0.72)" })
 
+-- Finestre principali che nascono piccole. Qui tutte le finestre sono
+-- fluttuanti, e un programma senza una misura salvata si apre con la sua
+-- misura minima di fabbrica (Thunar 640x480, l'editor di testo 700x520): su
+-- uno schermo grande sembrava una finestra «chiusa» da allargare a mano.
+-- Si allargano solo le finestre principali: la prima finestra di un
+-- programma, o una nuova con lo stesso finale del titolo («... - Thunar»).
+-- I dialoghi (Preferenze, Copia file, Autentica, Proprieta') restano come
+-- sono, e cosi' un programma che si ricorda gia' una misura grande.
+local ZETA_NON_ALLARGARE = { "^zenity$", "^yad$", "^kdialog$", "^polkit", "^pinentry",
+    "portal", "^gcr%-prompter$", "^zeta%-", "^org%.zetarays%.", "^nm%-", "^blueman" }
+
+local function zeta_finale_titolo(t)
+    return (t or ""):match(" [-—] ([^-—]+)$")
+end
+
+local function zeta_finestra_principale(w)
+    local finale = zeta_finale_titolo(w.title)
+    local altre = 0
+    for _, a in ipairs(hl.get_windows()) do
+        if a.address ~= w.address and a.class == w.class and a.mapped then
+            altre = altre + 1
+            if finale and zeta_finale_titolo(a.title) == finale then return true end
+        end
+    end
+    return altre == 0
+end
+
+hl.on("window.open", function(w)
+    if not w.floating or w.fullscreen ~= 0 or w.class == "" then return end
+    for _, p in ipairs(ZETA_NON_ALLARGARE) do
+        if w.class:find(p) then return end
+    end
+    local m = w.monitor
+    if not m then return end
+    local sc = (m.scale and m.scale > 0) and m.scale or 1
+    local mw, mh = m.width / sc, m.height / sc
+    if m.transform % 2 == 1 then mw, mh = mh, mw end
+    local W, H = w.size.x, w.size.y
+    if W * H >= mw * mh * 0.42 then return end           -- gia' grande
+    if W < 560 or H < 380 then return end                -- misura da dialogo
+    if not zeta_finestra_principale(w) then return end
+    local nw, nh = math.floor(mw * 0.72), math.floor(mh * 0.76)
+    -- stesso centro di prima (la regola «center» l'aveva gia' centrata),
+    -- dentro lo schermo
+    local nx = math.max(m.x, math.min(w.at.x - (nw - W) // 2, m.x + mw - nw))
+    local ny = math.max(m.y, math.min(w.at.y - (nh - H) // 2, m.y + mh - nh))
+    hl.dispatch(hl.dsp.window.resize({ x = nw, y = nh, window = w }))
+    hl.dispatch(hl.dsp.window.move({ x = nx, y = ny, window = w }))
+end)
+
 hl.window_rule({
     name  = "fix-xwayland-drags",
     match = { class = "^$", title = "^$", xwayland = true, float = true, fullscreen = false, pin = false },

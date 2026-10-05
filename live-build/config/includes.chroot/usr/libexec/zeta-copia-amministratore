@@ -1,0 +1,114 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — copia o sposta file in una cartella di sistema (/opt, /usr/local...).
+
+Si avvia solo con pkexec, dopo la password di un amministratore (azione
+org.zetarays.copia.amministratore). Fa una cosa sola:
+
+  zeta-copia-amministratore copia|sposta sostituisci|entrambi|salta DEST -- SORGENTE...
+
+I file copiati diventano di root, come tutto il resto delle cartelle di
+sistema (un programma in /opt che appartiene all'utente potrebbe essere
+modificato da qualsiasi cosa giri con il suo nome). Spostare = copiare e poi
+togliere l'originale, perche' l'originale e' quasi sempre in un altro disco
+(la home) e cosi' la proprieta' resta quella giusta.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+# Cartelle che non si sostituiscono mai per intero, nemmeno da amministratore:
+# un errore di trascinamento non deve poter cancellare il sistema.
+INTOCCABILI = {"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64",
+               "/opt", "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/tmp",
+               "/usr", "/usr/bin", "/usr/lib", "/usr/local", "/usr/sbin", "/usr/share",
+               "/var", "/efi", "/boot/efi"}
+
+
+def esci(codice, **dati):
+    print(json.dumps(dati, ensure_ascii=False))
+    sys.exit(codice)
+
+
+def nome_libero(dest, nome):
+    base, ext = os.path.splitext(nome)
+    if os.path.isdir(os.path.join(dest, nome)):
+        base, ext = nome, ""
+    n = 2
+    while True:
+        cand = "%s (%d)%s" % (base, n, ext)
+        if not os.path.lexists(os.path.join(dest, cand)):
+            return cand
+        n += 1
+
+
+def togli(percorso):
+    if os.path.isdir(percorso) and not os.path.islink(percorso):
+        shutil.rmtree(percorso)
+    else:
+        os.unlink(percorso)
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        esci(2, errore="serve pkexec")
+    if len(argv) < 5 or argv[0] not in ("copia", "sposta") or \
+            argv[1] not in ("sostituisci", "entrambi", "salta") or argv[3] != "--":
+        esci(2, errore="argomenti non validi")
+    azione, conflitto, dest, sorgenti = argv[0], argv[1], argv[2], argv[4:]
+    if not os.path.isabs(dest) or not os.path.isdir(dest):
+        esci(2, errore="la cartella di destinazione non esiste: %s" % dest)
+    dest = os.path.realpath(dest)
+    fatti, saltati, errori = [], [], []
+    for src in sorgenti:
+        if not os.path.isabs(src) or not os.path.lexists(src):
+            errori.append("%s: non esiste" % src)
+            continue
+        src = os.path.normpath(src)
+        nome = os.path.basename(src)
+        if not nome or nome in (".", ".."):
+            errori.append("%s: nome non valido" % src)
+            continue
+        reale = os.path.realpath(src)
+        if dest == reale or dest.startswith(reale.rstrip("/") + "/"):
+            errori.append("%s: non si copia una cartella dentro se stessa" % nome)
+            continue
+        if os.path.dirname(reale) == dest and os.path.basename(reale) == nome:
+            saltati.append(nome)          # gia' li': niente da fare
+            continue
+        bersaglio = os.path.join(dest, nome)
+        if os.path.lexists(bersaglio):
+            if conflitto == "salta":
+                saltati.append(nome)
+                continue
+            if conflitto == "entrambi":
+                bersaglio = os.path.join(dest, nome_libero(dest, nome))
+            else:
+                if os.path.realpath(bersaglio) in INTOCCABILI:
+                    errori.append("%s: cartella di sistema, non si sostituisce" % nome)
+                    continue
+                try:
+                    togli(bersaglio)
+                except OSError as e:
+                    errori.append("%s: %s" % (nome, e.strerror))
+                    continue
+        # -R senza -a: i permessi e le date restano, il proprietario diventa
+        # root; -P copia i collegamenti come collegamenti
+        r = subprocess.run(["cp", "-R", "-P", "--preserve=mode,timestamps,links",
+                            "--", src, bersaglio], capture_output=True, text=True)
+        if r.returncode != 0:
+            errori.append("%s: %s" % (nome, r.stderr.strip() or "copia non riuscita"))
+            continue
+        if azione == "sposta":
+            try:
+                togli(src)
+            except OSError as e:
+                errori.append("%s: copiato, ma l'originale non si toglie (%s)" % (nome, e.strerror))
+        fatti.append(os.path.basename(bersaglio))
+    esci(0 if not errori else 1, fatti=fatti, saltati=saltati, errori=errori)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

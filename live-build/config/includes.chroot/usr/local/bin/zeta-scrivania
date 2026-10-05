@@ -241,7 +241,7 @@ def _desktop_scrivi_icona(percorso, icona):
 
 def _ha_icona_personale(percorso):
     """Vero se questo elemento ha un'icona scelta dall'utente."""
-    if percorso.endswith(".desktop"):
+    if _desktop_proprio(percorso):
         try:
             with open(percorso, encoding="utf-8") as f:
                 return CHIAVE_ORIGINALE + "=" in f.read()
@@ -261,6 +261,137 @@ def _app_del_collegamento(percorso):
         return Gio.DesktopAppInfo.new_from_filename(percorso)
     except (GLib.Error, TypeError):
         return None
+
+
+# ---------------------------------------- collegamenti a programmi
+# «Invia a › Scrivania» del gestore file crea un collegamento simbolico. Per un
+# programma scaricato e messo in /opt (Blender, per esempio) il collegamento
+# puo' puntare al programma stesso o al suo file .desktop, che spesso dice
+# solo «Exec=blender»: un nome che vale soltanto nella sua cartella, non nel
+# PATH del sistema. Prima nessuno dei due partiva dalla scrivania.
+
+_CODICI_CAMPO = re.compile(r"%[fFuUdDnNickvm%]")
+
+
+def _e_programma(percorso):
+    """Vero se il file (seguendo il collegamento) e' un programma da avviare:
+    eseguibile e binario ELF o script con «#!». Un'immagine con il permesso
+    di esecuzione (succede con i dischi di Windows) resta un'immagine."""
+    reale = os.path.realpath(percorso)
+    if not (os.path.isfile(reale) and os.access(reale, os.X_OK)):
+        return False
+    try:
+        with open(reale, "rb") as f:
+            testa = f.read(4)
+    except OSError:
+        return False
+    return testa == b"\x7fELF" or testa[:2] == b"#!"
+
+
+def _comando_del_collegamento(percorso):
+    """(argv, cartella) per un .desktop, cercando il programma anche accanto
+    al file .desktop vero quando nel PATH non c'e'. None se non si avvia."""
+    reale = os.path.realpath(percorso)
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(reale, GLib.KeyFileFlags.NONE)
+        exec_ = kf.get_string("Desktop Entry", "Exec")
+    except GLib.Error:
+        return None
+    try:
+        cartella = kf.get_string("Desktop Entry", "Path") or None
+    except GLib.Error:
+        cartella = None
+    try:
+        ok, argv = GLib.shell_parse_argv(_CODICI_CAMPO.sub("", exec_).strip())
+    except GLib.Error:
+        return None
+    if not ok or not argv:
+        return None
+    prog = argv[0]
+    if os.path.isabs(prog):
+        return (argv, cartella) if os.access(prog, os.X_OK) else None
+    if GLib.find_program_in_path(prog):
+        return argv, cartella
+    vicino = os.path.join(os.path.dirname(reale), prog)
+    if os.path.isfile(vicino) and os.access(vicino, os.X_OK):
+        return [vicino] + argv[1:], cartella or os.path.dirname(reale)
+    return None
+
+
+def _voce_collegamento(percorso):
+    """(nome, icona) letti direttamente dal .desktop. Serve quando GIO non lo
+    accetta: DesktopAppInfo rifiuta un .desktop se il programma di Exec non
+    e' nel PATH, cioe' proprio il caso dei programmi messi in /opt."""
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(os.path.realpath(percorso), GLib.KeyFileFlags.NONE)
+    except GLib.Error:
+        return None, None
+    voci = []
+    for chiave in ("Name", "Icon"):
+        try:
+            voci.append(kf.get_locale_string("Desktop Entry", chiave, None) or None)
+        except GLib.Error:
+            voci.append(None)
+    return voci[0], voci[1]
+
+
+def _icona_vicina(percorso, nome_icona):
+    """Un file icona accanto al programma o al .desktop vero (blender.svg
+    vicino a blender), per le icone che il tema di sistema non conosce."""
+    cartella = os.path.dirname(os.path.realpath(percorso))
+    nomi = [nome_icona] if nome_icona else []
+    nomi.append(os.path.splitext(os.path.basename(os.path.realpath(percorso)))[0])
+    for n in nomi:
+        if os.path.isabs(n) and os.path.isfile(n):
+            return n
+        for est in ("svg", "png", "xpm"):
+            f = os.path.join(cartella, "%s.%s" % (n, est))
+            if os.path.isfile(f):
+                return f
+    return None
+
+
+def _nome_e_icona_collegamento(percorso, display, gicon):
+    """Nome e icona dell'applicazione di un .desktop (anche se e' un
+    collegamento simbolico a un .desktop in /opt). Un'icona che il tema non
+    conosce (Icon=blender) si cerca accanto al .desktop vero."""
+    app = _app_del_collegamento(percorso)
+    if app is not None:
+        display = app.get_display_name() or display
+        gicon = app.get_icon() or gicon
+    elif _comando_del_collegamento(percorso):
+        nome_kf, icona_kf = _voce_collegamento(percorso)
+        display = nome_kf or display
+        if icona_kf and os.path.isabs(icona_kf):
+            gicon = Gio.FileIcon.new(Gio.File.new_for_path(icona_kf))
+        elif icona_kf:
+            gicon = Gio.ThemedIcon.new(icona_kf)
+    else:
+        return display, gicon
+    nome_ic = gicon.get_names()[0] if isinstance(gicon, Gio.ThemedIcon) else None
+    tema = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+    if nome_ic and not tema.has_icon(nome_ic):
+        vicino = _icona_vicina(percorso, nome_ic)
+        if vicino:
+            gicon = Gio.FileIcon.new(Gio.File.new_for_path(vicino))
+    return display, gicon
+
+
+def _icona_programma(percorso):
+    vicino = _icona_vicina(percorso, None)
+    return (Gio.FileIcon.new(Gio.File.new_for_path(vicino)) if vicino
+            else Gio.ThemedIcon.new("application-x-executable"))
+
+
+def _desktop_proprio(percorso):
+    """Vero per un .desktop che sta davvero sulla scrivania: l'icona scelta
+    si scrive dentro. Un collegamento simbolico a un .desktop di /opt no:
+    il file vero e' del sistema (non scrivibile) e sostituirlo con una copia
+    romperebbe un Exec relativo. Per quello l'icona va nei metadati, come
+    per i file normali."""
+    return percorso.endswith(".desktop") and not os.path.islink(percorso)
 
 
 def trash_count():
@@ -413,11 +544,10 @@ class Scrivania(Gtk.ApplicationWindow):
             display = info.get_display_name() or name
             # Un collegamento mostra il nome e l'icona dell'applicazione, non
             # il nome del file: è quello che l'utente si aspetta di vedere.
-            if name.endswith(".desktop"):
-                app = _app_del_collegamento(percorso)
-                if app is not None:
-                    display = app.get_display_name() or display
-                    gicon = app.get_icon() or gicon
+            if name.endswith(".desktop") or os.path.realpath(percorso).endswith(".desktop"):
+                display, gicon = _nome_e_icona_collegamento(percorso, display, gicon)
+            elif _e_programma(percorso):
+                gicon = _icona_programma(percorso)
             # Icona scelta dall'utente (Cambia icona…). Per i collegamenti sta
             # già in Icon= e arriva da get_icon(); per file e cartelle si usa
             # metadata::custom-icon, l'attributo standard di GIO che anche i
@@ -656,17 +786,39 @@ class Scrivania(Gtk.ApplicationWindow):
         # I collegamenti si avviano: passarli a «gio open» li farebbe aprire
         # in un editor di testo, perché GIO non si fida di un .desktop
         # qualsiasi. Qui si legge il file e si lancia l'applicazione.
-        elif it.name.endswith(".desktop"):
+        elif it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
+            comando = _comando_del_collegamento(it.path)
             app = _app_del_collegamento(it.path)
-            if app is not None:
+            if comando is not None and app is not None and \
+                    GLib.find_program_in_path(app.get_executable() or ""):
                 try:
-                    app.launch([], None)
+                    app.launch([], None)   # programma installato nel sistema
                     return
-                except GLib.Error as e:
+                except GLib.Error:
+                    pass
+            if comando is not None:
+                argv, cartella = comando
+                try:
+                    _avvia(argv, cwd=cartella, start_new_session=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError as e:
                     self._error("Non è stato possibile avviare «%s»: %s"
-                                % (it.display, e.message))
+                                % (it.display, e.strerror))
                     return
-            self._error("«%s» non è un collegamento valido." % it.display)
+            self._error("«%s» non è un collegamento valido: il programma "
+                        "che indica non si trova." % it.display)
+            return
+        elif _e_programma(it.path):
+            # un programma (o un collegamento a un programma): si avvia dalla
+            # sua cartella, come facendo doppio clic nel gestore file
+            reale = os.path.realpath(it.path)
+            try:
+                _avvia([reale], cwd=os.path.dirname(reale), start_new_session=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError as e:
+                self._error("Non è stato possibile avviare «%s»: %s"
+                            % (it.display, e.strerror))
             return
         for cmd in (["gio", "open", target], ["xdg-open", target],
                     ["thunar", target]):
@@ -1341,7 +1493,12 @@ class Scrivania(Gtk.ApplicationWindow):
         filtri = Gio.ListStore.new(Gtk.FileFilter)
         filtri.append(filt)
         dialog.set_filters(filtri)
-        dialog.open(self, None, lambda d, r: self._icona_scelta(d, r, it, poi))
+        # Senza finestra «genitore»: la scrivania e' uno strato (layer-shell),
+        # non una finestra normale. Chiedere il selettore di file per suo conto
+        # fa esportare a GTK una superficie che non lo permette, Hyprland
+        # chiude la connessione e la scrivania cade: il selettore non compariva
+        # mai («Cambia icona» sembrava non fare nulla, anche da Proprieta').
+        dialog.open(None, None, lambda d, r: self._icona_scelta(d, r, it, poi))
 
     def _icona_scelta(self, dialog, result, it, poi=None):
         try:
@@ -1357,7 +1514,7 @@ class Scrivania(Gtk.ApplicationWindow):
         except (OSError, GLib.Error, shutil.Error) as e:
             self._error("Non è stato possibile usare quell'immagine: %s" % e)
             return
-        if it.path.endswith(".desktop"):
+        if _desktop_proprio(it.path):
             try:
                 _desktop_scrivi_icona(it.path, icona)
             except OSError as e:
@@ -1379,7 +1536,7 @@ class Scrivania(Gtk.ApplicationWindow):
     def ripristina_icona(self, it, poi=None):
         """Rimette l'icona che l'elemento aveva prima."""
         try:
-            if it.path.endswith(".desktop"):
+            if _desktop_proprio(it.path):
                 if not _desktop_scrivi_icona(it.path, None):
                     self._error("Questo collegamento non ha un'icona da ripristinare.")
                     return
@@ -1403,10 +1560,10 @@ class Scrivania(Gtk.ApplicationWindow):
         except GLib.Error:
             return Gio.ThemedIcon.new("text-x-generic")
         gicon = info.get_icon() or Gio.ThemedIcon.new("text-x-generic")
-        if it.path.endswith(".desktop"):
-            app = _app_del_collegamento(it.path)
-            if app is not None:
-                gicon = app.get_icon() or gicon
+        if it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
+            _, gicon = _nome_e_icona_collegamento(it.path, it.display, gicon)
+        elif _e_programma(it.path):
+            gicon = _icona_programma(it.path)
         custom = info.get_attribute_string("metadata::custom-icon")
         if custom:
             f = Gio.File.new_for_uri(custom)
@@ -1426,7 +1583,9 @@ class Scrivania(Gtk.ApplicationWindow):
             self._error(str(e))
             return
         kind = "Cartella" if it.is_dir else (
-            "Collegamento a un programma" if it.path.endswith(".desktop") else "File")
+            "Collegamento a un programma"
+            if os.path.realpath(it.path).endswith(".desktop") or _e_programma(it.path)
+            else "File")
         size = "—" if it.is_dir else _human(st.st_size)
         d, box = self._dialog("Proprietà")
 

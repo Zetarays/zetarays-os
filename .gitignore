@@ -16,9 +16,9 @@ live-build/config/includes.chroot/usr/share/grub/themes/zeta/
 sito-zetarays/
 
 # Bozze, archivi e file personali o del Mac
-design/
-kerno-design/
-brand/
+/design/
+/kerno-design/
+/brand/
 *.zip
 .claude/
 .DS_Store

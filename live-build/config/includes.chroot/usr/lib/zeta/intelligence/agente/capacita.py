@@ -724,15 +724,16 @@ PAGINE = {"aspetto": "aspetto", "tema": "aspetto", "colori": "aspetto", "sfondo"
           "luminosita": "schermo", "monitor": "schermo",
           "notifiche": "notifiche", "rete": "rete", "wifi": "rete", "wi-fi": "rete", "internet": "rete",
           "bluetooth": "bluetooth", "audio": "audio", "suono": "audio", "volume": "audio",
+          "stampanti": "stampanti", "stampante": "stampanti", "stampa": "stampanti",
           "ai": "ai", "intelligenza": "ai", "intelligenza artificiale": "ai", "zeta": "ai",
           "informazioni": "info", "info": "info", "sistema": "info",
           "app predefinite": "predefinite", "applicazioni predefinite": "predefinite", "predefinite": "predefinite"}
 APP_IMPOSTAZIONI = {"sicurezza": "zeta-sicurezza", "firewall": "zeta-sicurezza",
-                    "pacchetti": "synaptic", "stampanti": "system-config-printer"}
+                    "pacchetti": "synaptic"}
 
 
 @capacita("open_settings", "Apre le Impostazioni, anche su una pagina (aspetto, dock, schermo, notifiche, "
-          "rete, bluetooth, audio, ai, informazioni, app predefinite).", {"pagina": "facoltativa"})
+          "rete, bluetooth, audio, stampanti, ai, informazioni, app predefinite).", {"pagina": "facoltativa"})
 def open_settings(args):
     p = S.norm(args.get("pagina") or "")
     p = re.sub(r"^(di |del |della |dello |dei |delle |per |su |sul |sulla )", "", p)

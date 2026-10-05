@@ -14,14 +14,14 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
 sys.path.insert(0, "/usr/lib/zeta")
-from ui.settings_pages import AudioPage, BluetoothPage, NetworkPage  # noqa: E402
+from ui.settings_pages import AudioPage, BluetoothPage, NetworkPage, PrintersPage  # noqa: E402
 from system import dock as dockmod  # noqa: E402
 from system import sfondi  # noqa: E402
 from ui import tema  # noqa: E402
 
 TITLES = {"aspetto": "Aspetto", "dock": "Dock", "schermo": "Schermo e blocco",
           "notifiche": "Notifiche", "rete": "Wi-Fi e rete", "bluetooth": "Bluetooth",
-          "audio": "Audio", "ai": "AI", "info": "Informazioni", "predefinite": "App predefinite"}
+          "audio": "Audio", "stampanti": "Stampanti", "ai": "AI", "info": "Informazioni", "predefinite": "App predefinite"}
 
 ACCENT_FILE = os.path.expanduser("~/.config/zeta/accent")
 SWATCHES = [("#3A8DFF", "Blu"), ("#C8102E", "Rosso"), ("#FFFFFF", "Bianco"), ("#4CC94A", "Verde")]
@@ -64,6 +64,7 @@ class Window(Adw.ApplicationWindow):
                       "schermo": self.page_schermo(), "notifiche": self.page_notifiche(),
                       "rete": NetworkPage(),
                       "bluetooth": BluetoothPage(), "audio": AudioPage(),
+                      "stampanti": PrintersPage(),
                       "ai": self.page_ai(), "predefinite": self.page_predefinite(),
                       "info": self.page_info()}
         self.dock_entries = dockmod.load_dock()
@@ -83,7 +84,7 @@ class Window(Adw.ApplicationWindow):
             ("zeta-wifi", "Wi-Fi e rete", lambda: self.show("rete", TITLES["rete"]), "rete"),
             ("zeta-bluetooth", "Bluetooth", lambda: self.show("bluetooth", TITLES["bluetooth"]), "bluetooth"),
             ("zeta-volume", "Audio", lambda: self.show("audio", TITLES["audio"]), "audio"),
-            ("zeta-printer", "Stampanti", lambda: launch("system-config-printer"), None),
+            ("zeta-printer", "Stampanti", lambda: self.show("stampanti", TITLES["stampanti"]), "stampanti"),
             ("zeta-ai", "AI", lambda: self.show("ai", "AI"), "ai"),
             ("zeta-app", "App predefinite", lambda: self.show("predefinite", TITLES["predefinite"]), "predefinite"),
             ("zeta-shield", "Sicurezza", lambda: launch("zeta-sicurezza"), None),

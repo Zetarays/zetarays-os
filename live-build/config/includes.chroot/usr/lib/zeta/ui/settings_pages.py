@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Impostazioni — pagine Rete, Bluetooth e Audio (libadwaita).
+"""ZETA RAYS Impostazioni — pagine Rete, Bluetooth, Stampanti e Audio (libadwaita).
 
 Sostituiscono le finestre generiche (nm-connection-editor, blueman, pavucontrol):
 stesso aspetto del resto di ZETA RAYS. I comandi lenti girano in thread; la UI si
@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-from system import audio, bluetooth, network, run  # noqa: E402
+from system import audio, bluetooth, network, run, stampanti  # noqa: E402
 
 
 def bg(work, done=None):
@@ -657,6 +657,244 @@ class BluetoothPage(Adw.PreferencesPage):
             toast(self, "Connessione a %s…" % d["name"])
             bg(lambda: bluetooth.connect(d["mac"]),
                lambda ok: (toast(self, "Connesso" if ok else "Connessione non riuscita"), self.refresh()))
+
+
+# =============================== STAMPANTI ===============================
+STATI_STAMPANTE = {"pronta": "Pronta", "stampa": "Sta stampando", "ferma": "Ferma"}
+
+
+class PrintersPage(Adw.PreferencesPage):
+    """Stampanti senza finestre tecniche: quelle in rete (Wi-Fi o cavo) e
+    USB compaiono da sole, si aggiungono con un clic e si provano subito.
+    Le opzioni rare (driver a mano, code condivise) restano nelle
+    impostazioni avanzate di CUPS."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows, self.found_rows = [], []
+        self._cercando = False
+        self._cercato = False
+
+        self.g = Adw.PreferencesGroup(title="Le tue stampanti")
+        self.add(self.g)
+
+        self.g_found = Adw.PreferencesGroup(
+            title="Stampanti trovate",
+            description="Accendi la stampante: quelle collegate alla stessa rete del "
+                        "computer (Wi-Fi o cavo) e quelle con il cavo USB compaiono qui da sole.")
+        testa = Gtk.Box(spacing=8)
+        self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
+        self.cerca_btn = Gtk.Button(label="Cerca di nuovo", valign=Gtk.Align.CENTER)
+        self.cerca_btn.connect("clicked", lambda *_: self.cerca())
+        testa.append(self.spinner)
+        testa.append(self.cerca_btn)
+        self.g_found.set_header_suffix(testa)
+        self.add(self.g_found)
+
+        self.g_ip = Adw.PreferencesGroup(
+            title="Non la trovi?",
+            description="Scrivi l'indirizzo IP della stampante: lo mostra il suo display "
+                        "nelle impostazioni di rete, oppure la pagina di configurazione che stampa da sola.")
+        self.ip = Adw.EntryRow(title="Indirizzo della stampante (es. 192.168.1.50)",
+                               show_apply_button=True)
+        self.ip.connect("apply", lambda *_: self.aggiungi_ip())
+        self.g_ip.add(self.ip)
+        wifi = Adw.ActionRow(
+            title="La stampante non è ancora in Wi-Fi?",
+            subtitle="Collegala alla rete dal suo pannello (Impostazioni › Wi-Fi) o con il "
+                     "tasto WPS del router, poi premi «Cerca di nuovo».")
+        wifi.add_prefix(Gtk.Image(icon_name="zeta-wifi"))
+        self.g_ip.add(wifi)
+        avanzate = Adw.ActionRow(title="Impostazioni avanzate",
+                                 subtitle="Driver scelto a mano, opzioni e code di stampa",
+                                 activatable=True)
+        avanzate.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        avanzate.connect("activated", lambda *_: _avvia_staccato("system-config-printer"))
+        self.g_ip.add(avanzate)
+        self.add(self.g_ip)
+
+        self.none = Adw.StatusPage(icon_name="zeta-printer", title="Servizio di stampa non attivo",
+                                   description="")
+        self.none_group = Adw.PreferencesGroup()
+        self.none_group.add(self.none)
+        self.none_group.set_visible(False)
+        self.add(self.none_group)
+        # la ricerca parte quando la pagina si apre, non all'avvio delle
+        # Impostazioni: chi apre l'Aspetto non deve aspettare le stampanti
+        self.connect("map", lambda *_: self.refresh(cerca=not self._cercato))
+
+    # ---- elenco ----
+    def refresh(self, cerca=False):
+        def leggi():
+            attivo = stampanti.servizio_attivo()
+            if attivo:
+                stampanti.assicura_predefinita()
+            return attivo, stampanti.gestibili(), stampanti.elenco()
+        bg(leggi, lambda res: self._apply(res, cerca))
+
+    def _apply(self, res, cerca):
+        attivo, gestibili, elenco = res
+        self.none_group.set_visible(not attivo or not gestibili)
+        for g in (self.g_found, self.g_ip):
+            g.set_visible(attivo and gestibili)
+        if not attivo:
+            self.none.set_title("Servizio di stampa non attivo")
+            self.none.set_description("CUPS non risponde. Riavvia il computer; se non basta, "
+                                      "da terminale: sudo systemctl restart cups")
+        elif not gestibili:
+            self.none.set_title("Serve il permesso per le stampanti")
+            self.none.set_description("Questo utente non è nel gruppo lpadmin. Da terminale: "
+                                      "sudo usermod -aG lpadmin $USER, poi esci e rientra.")
+        clear_group(self.g, self.rows)
+        if not elenco:
+            r = Adw.ActionRow(title="Nessuna stampante",
+                              subtitle="Scegline una tra quelle trovate qui sotto.")
+            r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
+            self.g.add(r)
+            self.rows.append(r)
+        for s in elenco:
+            self.g.add(self._riga_stampante(s))
+        # mentre stampa, lo stato si aggiorna da solo (finche' la pagina e'
+        # aperta): «1 in coda» non deve restare quando la stampa e' finita
+        if any(s["lavori"] or s["stato"] == "stampa" for s in elenco) and \
+                not getattr(self, "_segue", False):
+            self._segue = True
+
+            def ancora():
+                self._segue = False
+                if self.get_mapped():
+                    self.refresh()
+                return False
+            GLib.timeout_add_seconds(3, ancora)
+        if cerca and attivo and gestibili:
+            self.cerca()
+
+    def _riga_stampante(self, s):
+        parti = []
+        if s["predefinita"]:
+            parti.append("Predefinita")
+        parti.append(STATI_STAMPANTE.get(s["stato"], s["stato"]))
+        parti.append(s["collegamento"])
+        if s["lavori"]:
+            parti.append("%d in coda" % s["lavori"])
+        r = Adw.ActionRow(title=s["descrizione"], subtitle=" · ".join(parti))
+        r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
+        if s["stato"] == "ferma":
+            b = Gtk.Button(label="Riprendi", valign=Gtk.Align.CENTER)
+            b.connect("clicked", lambda _b: self._azione(stampanti.riprendi, s, "Stampante ripresa"))
+            r.add_suffix(b)
+        if s["lavori"]:
+            b = Gtk.Button(label="Annulla stampe", valign=Gtk.Align.CENTER)
+            b.connect("clicked", lambda _b: self._azione(stampanti.annulla_lavori, s, "Stampe annullate"))
+            r.add_suffix(b)
+        prova = Gtk.Button(label="Pagina di prova", valign=Gtk.Align.CENTER)
+        prova.connect("clicked", lambda _b: self._azione(
+            stampanti.pagina_di_prova, s, "Pagina di prova inviata a %s" % s["descrizione"]))
+        r.add_suffix(prova)
+        if not s["predefinita"]:
+            st = Gtk.Button(icon_name="starred-symbolic", valign=Gtk.Align.CENTER,
+                            css_classes=["flat"], tooltip_text="Usala come predefinita")
+            st.connect("clicked", lambda _b: self._azione(
+                stampanti.imposta_predefinita, s, "%s è la predefinita" % s["descrizione"]))
+            r.add_suffix(st)
+        rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                        css_classes=["flat"], tooltip_text="Rimuovi")
+        rm.connect("clicked", lambda _b: self._rimuovi(s))
+        r.add_suffix(rm)
+        self.rows.append(r)
+        return r
+
+    def _azione(self, funzione, s, messaggio, cerca=False):
+        def fatto(res):
+            ok, err = res
+            toast(self, messaggio if ok else "Non riuscito: %s" % (err or "errore di CUPS"))
+            self.refresh(cerca=cerca)
+        bg(lambda: funzione(s["nome"]), fatto)
+
+    def _rimuovi(self, s):
+        dlg = Adw.AlertDialog(heading="Rimuovere «%s»?" % s["descrizione"],
+                              body="Potrai aggiungerla di nuovo quando vuoi.")
+        dlg.add_response("cancel", "Annulla")
+        dlg.add_response("rm", "Rimuovi")
+        dlg.set_response_appearance("rm", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_close_response("cancel")
+        dlg.connect("response", lambda _d, resp: self._azione(
+            stampanti.rimuovi, s, "«%s» rimossa" % s["descrizione"], cerca=True)
+            if resp == "rm" else None)
+        dlg.present(self.get_root())
+
+    # ---- ricerca ----
+    def cerca(self):
+        if self._cercando:
+            return
+        self._cercando = True
+        self._cercato = True
+        self.spinner.start()
+        self.cerca_btn.set_sensitive(False)
+        self.cerca_btn.set_label("Ricerca…")
+        bg(lambda: stampanti.cerca(8), self._trovate)
+
+    def _trovate(self, trovate):
+        self._cercando = False
+        self.spinner.stop()
+        self.cerca_btn.set_sensitive(True)
+        self.cerca_btn.set_label("Cerca di nuovo")
+        clear_group(self.g_found, self.found_rows)
+        if not trovate:
+            r = Adw.ActionRow(title="Nessuna nuova stampante trovata",
+                              subtitle="Controlla che sia accesa e sulla stessa rete, "
+                                       "oppure scrivi il suo indirizzo qui sotto.")
+            self.g_found.add(r)
+            self.found_rows.append(r)
+        for t in trovate:
+            sotto = t["collegamento"]
+            if t["modello"] and t["modello"].lower() not in t["nome"].lower():
+                sotto += " · " + t["modello"]
+            r = Adw.ActionRow(title=t["nome"], subtitle=sotto)
+            r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
+            b = Gtk.Button(label="Aggiungi", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+            b.connect("clicked", lambda btn, t=t: self._aggiungi(btn, t))
+            r.add_suffix(b)
+            self.g_found.add(r)
+            self.found_rows.append(r)
+
+    def _aggiungi(self, btn, t):
+        btn.set_sensitive(False)
+        btn.set_label("Aggiunta…")
+
+        def fatto(res):
+            ok, msg = res
+            toast(self, msg)
+            if ok:
+                self.refresh(cerca=True)
+            else:
+                btn.set_sensitive(True)
+                btn.set_label("Aggiungi")
+        bg(lambda: stampanti.aggiungi(t["uri"], t["nome"], t["device_id"], t["modello"]), fatto)
+
+    def aggiungi_ip(self):
+        testo = self.ip.get_text().strip()
+        if not testo:
+            return
+        self.ip.set_sensitive(False)
+        toast(self, "Collegamento a %s…" % testo)
+
+        def fatto(res):
+            ok, msg = res
+            self.ip.set_sensitive(True)
+            if ok:
+                self.ip.set_text("")
+            toast(self, msg)
+            self.refresh()
+        bg(lambda: stampanti.aggiungi_indirizzo(testo), fatto)
+
+
+def _avvia_staccato(prog):
+    try:
+        subprocess.Popen([prog], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 
 # =============================== AUDIO ===============================

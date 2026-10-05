@@ -105,6 +105,17 @@ def on_activate(app):
 
     win.set_child(box)
     win.set_default_widget(primary)
+    # Grande quanto lo schermo anche se il gestore delle finestre (matchbox)
+    # non e' ancora pronto quando la finestra compare: prima, in quel caso,
+    # la richiesta di tutto schermo andava persa e il riquadro restava
+    # schiacciato nell'angolo in alto a sinistra.
+    try:
+        monitori = Gdk.Display.get_default().get_monitors()
+        if monitori.get_n_items():
+            g = monitori.get_item(0).get_geometry()
+            win.set_default_size(g.width, g.height)
+    except (AttributeError, TypeError):
+        pass
     win.fullscreen()
     win.present()
     primary.grab_focus()      # Invio attiva subito il pulsante principale

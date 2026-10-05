@@ -144,8 +144,9 @@ EOF
       for b in /usr/sbin/grub-install /usr/sbin/update-grub; do rm -f \$b; dpkg-divert --local --rename --remove \$b >/dev/null; done
       apt-get autoremove -y -qq >/dev/null || true
       rm -f /etc/sddm.conf
-      for g in sudo audio video netdev plugdev bluetooth; do getent group \$g >/dev/null || groupadd -r \$g; done
-      id zeta >/dev/null 2>&1 || useradd -m -s /bin/bash -G adm,sudo,audio,video,netdev,plugdev,bluetooth zeta
+      for g in sudo audio video netdev plugdev bluetooth lpadmin scanner; do getent group \$g >/dev/null || groupadd -r \$g; done
+      id zeta >/dev/null 2>&1 || useradd -m -s /bin/bash -G adm,sudo,audio,video,netdev,plugdev,bluetooth,lpadmin,scanner zeta
+      usermod -aG lpadmin,scanner zeta
       echo zeta:zeta | chpasswd
       mkdir -p /etc/sddm.conf.d
       printf \"[Autologin]\nUser=zeta\nSession=zeta.desktop\n\" > /etc/sddm.conf.d/20-zeta-autologin.conf

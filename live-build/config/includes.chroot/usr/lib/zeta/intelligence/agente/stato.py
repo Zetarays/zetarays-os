@@ -196,7 +196,7 @@ SINONIMI = {
     "video": "mpv", "lettore video": "mpv", "musica": "mpv", "lettore multimediale": "mpv",
     "archivi": "org.gnome.FileRoller", "gestore archivi": "org.gnome.FileRoller",
     "zeta": "zeta-core", "zeta core": "zeta-core", "assistente": "zeta-core",
-    "testo da immagine": "zeta-testo", "ocr": "zeta-testo", "stampanti": "system-config-printer",
+    "testo da immagine": "zeta-testo", "ocr": "zeta-testo", "stampanti avanzate": "system-config-printer",
     "cerca": "zeta-cerca", "ricerca": "zeta-cerca",
 }
 

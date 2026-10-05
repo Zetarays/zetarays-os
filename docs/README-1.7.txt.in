@@ -254,7 +254,19 @@ Apps
   Firefox, Thunderbird, a text editor, a media player, an image viewer, a PDF
   viewer, a terminal with tabs, splits, bash, zsh and fish. Settings > App
   predefinite chooses the default for each role, and every program follows the
-  choice. Printing (CUPS) with automatic discovery of printers.
+  choice.
+
+Printers
+  Settings > Stampanti finds Wi-Fi, wired and USB printers by itself and adds
+  them with one click, without drivers (IPP Everywhere) or with the right
+  driver (HP, Epson, Brother, Gutenprint for older Canon and others). There
+  is a test page button, and a printer can also be added by its IP address.
+
+Files and system folders
+  In Files, right-click inside a system folder such as /opt: "Incolla qui
+  come amministratore" pastes the copied files after asking for your
+  password, "Apri come amministratore" opens the folder with full rights.
+  "Invia a > Scrivania" puts a working link to any program on the desktop.
 
 Terminal tools
   ip, ifconfig, route, ss, ping, traceroute, tracepath, mtr, dig, host,

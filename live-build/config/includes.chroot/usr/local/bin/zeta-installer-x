@@ -15,6 +15,7 @@ if [ -d /run/live/medium ]; then
 xset s off -dpms 2>/dev/null
 xhost +si:localuser:root >/dev/null 2>&1
 matchbox-window-manager -use_titlebar no -use_cursor yes -theme ZETA RAYS &
+sleep 1   # il gestore delle finestre deve esserci prima della prima finestra
 # Chiuso l'installer, una schermata permette di riaprirlo, spegnere o riavviare.
 while :; do
     sudo -E /usr/libexec/zeta-installer
@@ -27,6 +28,7 @@ else
 #!/bin/sh
 xset s off -dpms 2>/dev/null
 matchbox-window-manager -use_titlebar no -use_cursor yes -theme ZETA RAYS &
+sleep 1   # il gestore delle finestre deve esserci prima della prima finestra
 zeta-no3d
 CL
 fi
