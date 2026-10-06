@@ -1,0 +1,20 @@
+# ZETA RAYS — AppImage nel menu da sole: quando in una di queste cartelle
+# compare, cambia o sparisce un file, zeta-app integra le AppImage (nome e
+# icona letti dal file senza eseguirlo). Lo controlla systemd (inotify):
+# nessun processo in piu' resta acceso.
+[Unit]
+Description=ZETA RAYS: nuove AppImage nelle cartelle comuni
+
+[Path]
+PathChanged=%h/Applicazioni
+PathChanged=%h/Scaricati
+PathChanged=%h/Downloads
+PathChanged=%h/Scrivania
+PathChanged=%h/.local/bin
+PathChanged=/opt
+MakeDirectory=no
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=20
+
+[Install]
+WantedBy=default.target

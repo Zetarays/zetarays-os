@@ -41,6 +41,11 @@ sorveglia() {
 # Cartelle personali in italiano (Scrivania, Documenti, Scaricati...):
 # si creano al primo accesso, prima che servano alle icone della scrivania.
 xdg-user-dirs-update 2>/dev/null
+# Cartella per le AppImage: quelle messe qui (o in Scaricati, o in /opt)
+# entrano nel menu da sole (zeta-appimage.path). Al primo accesso si integrano
+# quelle gia' presenti, in secondo piano e senza fretta.
+mkdir -p "$HOME/Applicazioni"
+( sleep 20; nice -n 10 zeta-app appimage >/dev/null 2>&1 ) &
 
 # Colori, tema, testo, icone, cursore e icone sulla scrivania (zeta-aspetto
 # richiama zeta-accent, che genera i colori di tutte le app, lo sfondo e il

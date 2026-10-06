@@ -34,7 +34,7 @@ for d in usr/lib/firmware lib/firmware; do
     for f in amdgpu nvidia radeon i915 xe nouveau netronome liquidio mediatek \
              cxgb4 qed bnx2x mrvl ath10k ath11k ath12k iwlwifi rtw88 rtw89 brcm \
              phanfw.bin; do
-        rm -rf "$DESTDIR/$d/$f" "$DESTDIR/$d/$f".* 2>/dev/null
+        rm -rf "${DESTDIR:?}/$d/$f" "${DESTDIR:?}/$d/$f".* 2>/dev/null
     done
 done
 for v in "$DESTDIR"/usr/lib/modules/* "$DESTDIR"/lib/modules/*; do

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7 — 4 October 2026
+## 1.7 — 6 October 2026
 
 Images: `zetarays-1.7-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
 
@@ -22,6 +22,26 @@ Images: `zetarays-1.7-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   can add a printer by its IP address.
 - File manager: "Paste here as administrator" and "Open as administrator"
   for system folders such as /opt (asks for the password).
+- One application registry for the whole system: the app menu, the Dock,
+  search, the desktop and ZETA show the same apps with the same name and
+  icon, from APT, Flatpak, AppImage or /opt.
+- Right-click on an app (menu or search): open, open file location, add to
+  the desktop or the Dock, information (source, version, package or Flatpak
+  ID, executable, .desktop file, folder, architecture), remove from the menu,
+  uninstall. System apps (ZETA, Files, Terminal, Settings...) are protected.
+- Flatpak with Flathub ready; AppImages put in Applicazioni or Scaricati join
+  the menu by themselves, with name and icon read without running them.
+- Double-click a .deb or a .flatpakref to install it: what will be added,
+  password, result, "Open" and "Add to Dock". Uninstalling never removes
+  system components and cleans the desktop and Dock links.
+- Change the icon of any app (right-click › Change icon…): the new icon is
+  used everywhere, menu, Dock, search, desktop, Ctrl+Tab, and can be reset.
+  Apps removed from outside (Synaptic, terminal) lose their Dock and desktop
+  links by themselves; Dock icons follow app updates.
+- Connect to a server: shared folders of Windows PCs, Macs and NAS (SMB),
+  SSH (SFTP), FTP, WebDAV, NFS and older Macs (AFP), local or remote.
+  Servers on the local network are found by themselves; favourites also
+  appear in the file manager; passwords can be remembered in the keyring.
 
 ### Fixed
 - Kernel panic in virtual machines with little memory (VMware Fusion, 768 MB):
@@ -41,3 +61,13 @@ Images: `zetarays-1.7-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
 - The clock could be two hours off (VMware Fusion, or next to Windows): the
   time is now synchronised from the internet, and from the host in VMware.
 - The "3D acceleration not available" screen could open squeezed in a corner.
+- Blender (official build) could open in a tiny window: Hyprland dropped the
+  "start maximized" request made before the window appeared. Fixed in our
+  Hyprland build, for every program that asks for it.
+- Search: your own files could be missing from the results, pushed out by
+  system files (/usr/bin, /usr/libexec...). Now your files come first, even
+  ones created a second ago, each with the icon of its type; outside your
+  home only external disks, /opt and /etc are shown.
+- Search: one file with a non-UTF-8 name (old zip archives, Windows disks)
+  stopped the content index for good; such files are now skipped.
+- The search index timer of new users pointed to a file that did not exist.

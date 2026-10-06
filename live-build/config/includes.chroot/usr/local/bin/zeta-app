@@ -1,0 +1,670 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — gestione delle applicazioni (registro unico: system/applicazioni).
+
+  zeta-app avvia ID            avvia come dal menu (lo usa il Dock)
+  zeta-app info ID             informazioni: provenienza, versione, percorsi
+  zeta-app posizione ID        apre il gestore file sul programma
+  zeta-app scrivania ID        collegamento sulla Scrivania (mai doppio)
+  zeta-app dock ID             aggiunge al Dock (mai doppio)
+  zeta-app togli-dock ID
+  zeta-app cambia-icona ID     sceglie un'immagine come icona (vale ovunque)
+  zeta-app ripristina-icona ID rimette l'icona originale
+  zeta-app manutenzione        dopo installazioni e rimozioni: collegamenti
+                               di app sparite, icone del Dock aggiornate
+  zeta-app nascondi ID         toglie dal menu (non dalle protette)
+  zeta-app mostra ID           rimette nel menu
+  zeta-app nascoste            finestra con le app tolte dal menu
+  zeta-app disinstalla ID      APT, Flatpak, AppImage, voce dell'utente
+  zeta-app installa FILE       pacchetto .deb o Flatpak (.flatpakref/.flatpak)
+  zeta-app appimage            integra le AppImage trovate (menu, icona)
+  zeta-app elenco [--json]     tutte le app con provenienza e percorsi
+
+ID e' il nome del file .desktop (con o senza «.desktop») o il nome dell'app.
+"""
+import json
+import os
+import subprocess
+import sys
+import threading
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import applicazioni as reg  # noqa: E402
+
+def avviso(titolo, testo="", icona="zeta-app"):
+    try:
+        subprocess.run(["notify-send", "-a", "ZETA RAYS", "-i", icona, titolo, testo],
+                       timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def app_o_esci(chiave):
+    a = reg.trova(chiave)
+    if a is None:
+        print("zeta-app: nessuna applicazione «%s»" % chiave, file=sys.stderr)
+        sys.exit(1)
+    return a
+
+
+# =================================================================== finestre
+def _gtk():
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+    return Adw, Gdk, Gio, GLib, Gtk
+
+
+CSS = """
+.zeta-titolo-app { font-size: 20px; font-weight: 600; }
+.zeta-fonte { padding: 2px 10px; border-radius: 999px; font-size: 11px;
+              background: @accent_soft; color: @accent; }
+.zeta-percorso { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+.zeta-pkg-lista { font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: @ink_2; }
+"""
+
+
+def esegui_finestra(costruisci, app_id):
+    Adw, Gdk, Gio, GLib, Gtk = _gtk()
+    from ui import tema
+    app = Adw.Application(application_id=app_id, flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def attiva(a):
+        tema.apply(CSS)
+        reg.icone_gtk()
+        w = costruisci(a)
+        w.present()
+    app.connect("activate", attiva)
+    return app.run([])
+
+
+def _testa(Gtk, a, sotto=""):
+    box = Gtk.Box(spacing=16, margin_top=18, margin_bottom=8, margin_start=18, margin_end=18)
+    img = Gtk.Image(pixel_size=64)
+    if a.icona and os.path.isabs(a.icona):
+        img.set_from_file(a.icona)
+    elif a.icona:
+        img.set_from_icon_name(a.icona)
+    else:
+        img.set_from_icon_name("application-x-executable")
+    box.append(img)
+    col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER)
+    t = Gtk.Label(label=a.nome, xalign=0, wrap=True)
+    t.add_css_class("zeta-titolo-app")
+    col.append(t)
+    riga = Gtk.Box(spacing=8)
+    f = Gtk.Label(label=reg.FONTI.get(a.fonte, a.fonte))
+    f.add_css_class("zeta-fonte")
+    riga.append(f)
+    if a.protetta:
+        p = Gtk.Label(label="Sistema")
+        p.add_css_class("zeta-fonte")
+        riga.append(p)
+    col.append(riga)
+    if sotto:
+        s = Gtk.Label(label=sotto, xalign=0, wrap=True, css_classes=["dim-label"])
+        col.append(s)
+    box.append(col)
+    return box
+
+
+def finestra_info(a):
+    Adw, Gdk, Gio, GLib, Gtk = _gtk()
+
+    def costruisci(application):
+        win = Adw.ApplicationWindow(application=application, title=a.nome,
+                                    default_width=560, default_height=620)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        corpo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        # stessa colonna dei dettagli (Adw.Clamp come le PreferencesPage)
+        corpo.append(Adw.Clamp(maximum_size=600, child=_testa(Gtk, a, a.descrizione)))
+        pagina = Adw.PreferencesPage()
+        gruppo = Adw.PreferencesGroup(title="Dettagli")
+        pagina.add(gruppo)
+        attesa = Adw.ActionRow(title="Lettura delle informazioni…")
+        gruppo.add(attesa)
+        toasts = Adw.ToastOverlay(child=pagina)
+
+        def copia(testo):
+            Gdk.Display.get_default().get_clipboard().set(testo)
+            toasts.add_toast(Adw.Toast(title="Copiato", timeout=2))
+
+        def mostra(righe):
+            gruppo.remove(attesa)
+            for etichetta, valore, percorso in righe[1:]:
+                if etichetta == "Descrizione":
+                    continue                    # e' gia' sotto il nome
+                r = Adw.ActionRow(title=etichetta, subtitle=GLib.markup_escape_text(valore))
+                r.set_subtitle_selectable(True)
+                if percorso:
+                    b = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER,
+                                   css_classes=["flat"], tooltip_text="Apri posizione")
+                    b.connect("clicked", lambda _b, p=percorso: reg.mostra_nel_gestore_file(p))
+                    r.add_suffix(b)
+                    c = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER,
+                                   css_classes=["flat"], tooltip_text="Copia il percorso")
+                    c.connect("clicked", lambda _b, p=percorso: copia(p))
+                    r.add_suffix(c)
+                gruppo.add(r)
+            return False
+
+        threading.Thread(target=lambda: GLib.idle_add(mostra, reg.dettagli(a)), daemon=True).start()
+
+        azioni = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_top=6, margin_bottom=14,
+                         margin_start=18, margin_end=18)
+        for etichetta, fn, classe in (
+                ("Cambia icona…", lambda: (reg.lancia(["zeta-app", "cambia-icona", a.id]), win.close()), None),
+                ("Apri posizione", lambda: reg.mostra_nel_gestore_file(reg.posizione(a)), None),
+                ("Aggiungi al Dock", lambda: toasts.add_toast(Adw.Toast(title=reg.aggiungi_dock(a)[1], use_markup=False)), None),
+                ("Aggiungi alla Scrivania", lambda: toasts.add_toast(Adw.Toast(title=reg.aggiungi_scrivania(a)[1], use_markup=False)), None),
+                ("Apri", lambda: (reg.avvia(a), win.close()), "suggested-action")):
+            b = Gtk.Button(label=etichetta)
+            if classe:
+                b.add_css_class(classe)
+            b.connect("clicked", lambda _b, f=fn: f())
+            azioni.append(b)
+        corpo.append(toasts)
+        toasts.set_vexpand(True)
+        azioni.set_halign(Gtk.Align.CENTER)
+        corpo.append(azioni)
+        view.set_content(corpo)
+        win.set_content(view)
+        return win
+    return esegui_finestra(costruisci, "org.zetarays.InfoApp")
+
+
+class Operazione:
+    """Pagina di avanzamento comune (disinstalla, installa): un comando in un
+    thread, l'interfaccia non si blocca mai; alla fine esito chiaro."""
+
+    def __init__(self, Adw, Gtk, GLib, stack):
+        self.Adw, self.Gtk, self.GLib, self.stack = Adw, Gtk, GLib, stack
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER,
+                      margin_start=24, margin_end=24)
+        self.spinner = Gtk.Spinner(width_request=32, height_request=32, halign=Gtk.Align.CENTER)
+        self.titolo = Gtk.Label(css_classes=["title-3"], wrap=True)
+        self.dettaglio = Gtk.Label(css_classes=["dim-label"], wrap=True, selectable=True)
+        box.append(self.spinner)
+        box.append(self.titolo)
+        box.append(self.dettaglio)
+        stack.add_named(box, "lavoro")
+
+    def avvia(self, titolo, lavoro, fine):
+        self.titolo.set_label(titolo)
+        self.dettaglio.set_label("")
+        self.spinner.start()
+        self.stack.set_visible_child_name("lavoro")
+
+        def corri():
+            try:
+                esito = lavoro(lambda t: self.GLib.idle_add(self.dettaglio.set_label, t))
+            except Exception as e:      # noqa: BLE001 — l'errore va mostrato, non perso
+                esito = (False, str(e))
+            self.GLib.idle_add(self._fine, fine, esito)
+        threading.Thread(target=corri, daemon=True).start()
+
+    def _fine(self, fine, esito):
+        self.spinner.stop()
+        fine(*esito)
+        return False
+
+
+def _esito_pagina(Adw, Gtk, stack, nome, icona, titolo, testo, pulsanti):
+    from gi.repository import GLib
+    # la descrizione e' markup: un errore di apt («Depends: x (<< 2)») o un
+    # nome con «&» avrebbero lasciato la pagina vuota
+    pagina = Adw.StatusPage(icon_name=icona, title=GLib.markup_escape_text(titolo),
+                            description=GLib.markup_escape_text(testo or ""))
+    riga = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
+    for etichetta, fn, classe in pulsanti:
+        b = Gtk.Button(label=etichetta, css_classes=["pill"] + ([classe] if classe else []))
+        b.connect("clicked", lambda _b, f=fn: f())
+        riga.append(b)
+    pagina.set_child(riga)
+    vecchia = stack.get_child_by_name(nome)
+    if vecchia is not None:
+        stack.remove(vecchia)
+    stack.add_named(pagina, nome)
+    stack.set_visible_child_name(nome)
+
+
+def _pkexec_json(argv, mostra):
+    """Esegue un aiutante con pkexec; mostra l'avanzamento; legge l'esito."""
+    p = subprocess.Popen(["pkexec"] + argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    ultima = []
+
+    def leggi_err():
+        for riga in p.stderr:
+            riga = riga.strip()
+            if riga:
+                ultima.append(riga)
+                mostra(riga[-90:])
+    t = threading.Thread(target=leggi_err, daemon=True)
+    t.start()
+    out = p.stdout.read()
+    p.wait()
+    t.join(2)
+    if p.returncode in (126, 127) and not out.strip():
+        return False, "Operazione annullata: serve la password di un amministratore."
+    try:
+        esito = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return False, (ultima[-1] if ultima else "errore sconosciuto")
+    if p.returncode == 0:
+        return True, esito
+    return False, esito.get("errore", "errore sconosciuto")
+
+
+def finestra_disinstalla(a):
+    Adw, Gdk, Gio, GLib, Gtk = _gtk()
+
+    def costruisci(application):
+        win = Adw.ApplicationWindow(application=application, title="Disinstalla %s" % a.nome,
+                                    default_width=520, default_height=460)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        op = Operazione(Adw, Gtk, GLib, stack)
+        view.set_content(stack)
+        win.set_content(view)
+        chiudi = win.close
+
+        def fine_ok(msg, pulisci=True):
+            if pulisci:
+                reg.dopo_disinstallazione(a)
+            _esito_pagina(Adw, Gtk, stack, "fatto", "object-select-symbolic", "Disinstallata",
+                          msg, [("Chiudi", chiudi, "suggested-action")])
+
+        def fine_errore(msg):
+            _esito_pagina(Adw, Gtk, stack, "errore", "dialog-error-symbolic",
+                          "Non è stato possibile disinstallarla", msg, [("Chiudi", chiudi, None)])
+
+        def conferma(testo, dettagli, azioni):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            box.append(_testa(Gtk, a))
+            lab = Gtk.Label(label=testo, wrap=True, xalign=0, margin_start=18, margin_end=18)
+            box.append(lab)
+            if dettagli:
+                d = Gtk.Label(label=dettagli, wrap=True, xalign=0, selectable=True,
+                              margin_start=18, margin_end=18, css_classes=["zeta-pkg-lista"])
+                sc = Gtk.ScrolledWindow(vexpand=True, child=d, margin_start=0)
+                box.append(sc)
+            else:
+                box.append(Gtk.Box(vexpand=True))
+            riga = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_bottom=14, margin_end=18)
+            b = Gtk.Button(label="Annulla")
+            b.connect("clicked", lambda *_: chiudi())
+            riga.append(b)
+            for etichetta, fn, classe in azioni:
+                x = Gtk.Button(label=etichetta)
+                if classe:
+                    x.add_css_class(classe)
+                x.connect("clicked", lambda _b, f=fn: f())
+                riga.append(x)
+            box.append(riga)
+            stack.add_named(box, "conferma")
+            stack.set_visible_child_name("conferma")
+
+        si, perche = reg.disinstallabile(a)
+        if not si:
+            _esito_pagina(Adw, Gtk, stack, "no", "dialog-information-symbolic",
+                          "Non si disinstalla da qui", "«%s» %s." % (a.nome, perche),
+                          [("Chiudi", chiudi, None)])
+            return win
+
+        if a.fonte == "apt":
+            def prepara(mostra):
+                pkg = reg.pacchetto_app(a)
+                if not pkg:
+                    return False, "Non trovo il pacchetto che ha installato «%s»." % a.nome
+                rc, via, _su, msg = reg.simula_apt(["remove", pkg])
+                if rc != 0:
+                    return False, msg
+                bloccati = [p for p in via if reg.pacchetto_di_sistema(p)]
+                return True, (pkg, via, bloccati)
+
+            def pronto(ok, dati):
+                if not ok:
+                    fine_errore(dati)
+                    return
+                pkg, via, bloccati = dati
+                if bloccati:
+                    fine_errore("Toglierebbe anche componenti del sistema (%s): per sicurezza "
+                                "non si procede." % ", ".join(bloccati[:6]))
+                    return
+                altri = [p for p in via if p.split(":")[0] != pkg]
+                testo = "Verrà disinstallato il pacchetto «%s»." % pkg
+                if altri:
+                    testo += " Insieme a lui apt toglie anche questi pacchetti, che dipendono da lui:"
+                conferma(testo, "\n".join(altri), [(
+                    "Disinstalla", lambda: op.avvia(
+                        "Disinstallazione di %s…" % a.nome,
+                        lambda m: _pkexec_json(["/usr/libexec/zeta-pacchetti", "rimuovi", pkg], m),
+                        lambda ok, e: fine_ok("«%s» è stata tolta dal sistema." % a.nome) if ok else fine_errore(e)),
+                    "destructive-action")])
+            op.avvia("Controllo di cosa verrebbe tolto…", prepara, pronto)
+        elif a.fonte == "flatpak":
+            fid = a.flatpak_id or a.id[:-8]
+
+            def togli(mostra):
+                out = subprocess.run(["flatpak", "info", "--show-location", fid],
+                                     capture_output=True, text=True).stdout
+                dove = ["--user"] if "/.local/share/flatpak" in out else ["--system"]
+                p = subprocess.run(["flatpak", "uninstall", "-y", "--noninteractive"] + dove + [fid],
+                                   capture_output=True, text=True)
+                if p.returncode != 0:
+                    return False, (p.stderr or p.stdout).strip()[-400:]
+                return True, ""
+            conferma("Verrà disinstallata l'app Flatpak «%s» (%s). I dati restano in ~/.var/app." % (a.nome, fid),
+                     "", [("Disinstalla", lambda: op.avvia(
+                         "Disinstallazione di %s…" % a.nome, togli,
+                         lambda ok, e: fine_ok("«%s» è stata tolta." % a.nome) if ok else fine_errore(e)),
+                         "destructive-action")])
+        elif a.fonte == "appimage":
+            def solo_menu():
+                reg.togli_integrazione_appimage(a)
+                fine_ok("«%s» è stata tolta dal menu. Il file resta in %s." % (a.nome, a.appimage), False)
+
+            def anche_file():
+                reg.togli_integrazione_appimage(a, ignora=False)
+                try:
+                    Gio.File.new_for_path(a.appimage).trash(None)
+                    fine_ok("«%s» è stata tolta e il file è nel Cestino." % a.nome, False)
+                except GLib.Error as e:
+                    fine_errore(e.message)
+            conferma("«%s» è un'AppImage: un solo file, in\n%s" % (a.nome, a.appimage), "",
+                     [("Togli solo dal menu", solo_menu, None),
+                      ("Sposta il file nel Cestino", anche_file, "destructive-action")])
+        else:   # voce dell'utente in ~/.local/share/applications
+            def via_voce():
+                try:
+                    Gio.File.new_for_path(a.desktop).trash(None)
+                    fine_ok("La voce di «%s» è nel Cestino." % a.nome)
+                except GLib.Error as e:
+                    fine_errore(e.message)
+            conferma("«%s» è una voce del menu creata nella tua cartella (%s). Verrà spostata nel "
+                     "Cestino; il programma non viene toccato." % (a.nome, a.desktop), "",
+                     [("Sposta nel Cestino", via_voce, "destructive-action")])
+        return win
+    return esegui_finestra(costruisci, "org.zetarays.DisinstallaApp")
+
+
+def _nuove_app_del_pacchetto(pkg):
+    out = subprocess.run(["dpkg-query", "-L", pkg], capture_output=True, text=True).stdout
+    voci = [os.path.basename(r) for r in out.splitlines()
+            if r.endswith(".desktop") and "/applications/" in r]
+    reg._CACHE["firma"] = None
+    return [a for a in (reg.trova(v) for v in voci) if a is not None and a.nel_menu]
+
+
+def finestra_installa(percorso):
+    Adw, Gdk, Gio, GLib, Gtk = _gtk()
+    percorso = os.path.realpath(percorso)
+    flatpak = percorso.endswith((".flatpakref", ".flatpak"))
+
+    def costruisci(application):
+        win = Adw.ApplicationWindow(application=application, title="Installa programma",
+                                    default_width=520, default_height=440)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        op = Operazione(Adw, Gtk, GLib, stack)
+        view.set_content(stack)
+        win.set_content(view)
+
+        def finito(app_nuove, nome):
+            if not app_nuove:
+                _esito_pagina(Adw, Gtk, stack, "fatto", "object-select-symbolic", "Installato",
+                              "«%s» è installato." % nome, [("Chiudi", win.close, "suggested-action")])
+                return
+            a = app_nuove[0]
+            if not a.avviabile:
+                _esito_pagina(Adw, Gtk, stack, "fatto", "dialog-warning-symbolic", "Installato, ma non si avvia",
+                              "Il programma di «%s» non si trova: %s" % (a.nome, a.comando),
+                              [("Chiudi", win.close, None)])
+                return
+            avviso("«%s» installata" % a.nome, "La trovi nel menu delle app.")
+            _esito_pagina(Adw, Gtk, stack, "fatto", "object-select-symbolic", "Installata",
+                          "«%s» è nel menu delle app." % a.nome,
+                          [("Aggiungi al Dock", lambda: reg.aggiungi_dock(a), None),
+                           ("Apri", lambda: (reg.avvia(a), win.close()), "suggested-action")])
+
+        def errore(msg):
+            _esito_pagina(Adw, Gtk, stack, "errore", "dialog-error-symbolic",
+                          "Installazione non riuscita", msg, [("Chiudi", win.close, None)])
+
+        if flatpak:
+            def lavoro(mostra):
+                argv = ["flatpak", "install", "--user", "-y", "--noninteractive"]
+                argv += ["--from", percorso] if percorso.endswith(".flatpakref") else ["--bundle", percorso]
+                p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                righe = []
+                for r in p.stdout:
+                    r = r.strip()
+                    if r:
+                        righe.append(r)
+                        mostra(r[-90:])
+                p.wait()
+                if p.returncode != 0:
+                    return False, righe[-1] if righe else "flatpak: errore %d" % p.returncode
+                fid = ""
+                try:
+                    kf = GLib.KeyFile()
+                    kf.load_from_file(percorso, GLib.KeyFileFlags.NONE)
+                    fid = kf.get_string("Flatpak Ref", "Name")
+                except GLib.Error:
+                    pass
+                reg._CACHE["firma"] = None
+                trovate = [a for a in reg.tutte(rileggi=True) if fid and a.flatpak_id == fid]
+                return True, (trovate, fid or os.path.basename(percorso))
+            op.avvia("Installazione da Flathub…", lavoro,
+                     lambda ok, d: finito(*d) if ok else errore(d))
+            return win
+
+        # pacchetto .deb
+        def leggi(mostra):
+            r = subprocess.run(["dpkg-deb", "-f", percorso, "Package", "Version", "Description"],
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                return False, "Il file non è un pacchetto Debian valido."
+            campi = {}
+            for riga in r.stdout.splitlines():
+                if ":" in riga and not riga.startswith(" "):
+                    k, _, v = riga.partition(":")
+                    campi[k] = v.strip()
+            rc, via, su, msg = reg.simula_apt(["install", percorso])
+            if rc != 0:
+                return False, "Mancano dipendenze che i repository non hanno:\n" + msg
+            bloccati = [p for p in via if reg.pacchetto_di_sistema(p)]
+            if bloccati:
+                return False, "Toglierebbe componenti del sistema (%s): non si procede." % ", ".join(bloccati[:6])
+            return True, (campi, su, via)
+
+        def pronto(ok, dati):
+            if not ok:
+                errore(dati)
+                return
+            campi, su, via = dati
+            nome = campi.get("Package", os.path.basename(percorso))
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=18,
+                          margin_start=18, margin_end=18)
+            t = Gtk.Label(label="%s %s" % (nome, campi.get("Version", "")), xalign=0,
+                          css_classes=["zeta-titolo-app"], wrap=True)
+            box.append(t)
+            box.append(Gtk.Label(label=campi.get("Description", ""), xalign=0, wrap=True,
+                                 css_classes=["dim-label"]))
+            extra = [p for p in su if p != nome]
+            if extra:
+                box.append(Gtk.Label(label="Verranno installati anche: " + ", ".join(extra[:20]),
+                                     xalign=0, wrap=True, css_classes=["zeta-pkg-lista"]))
+            if via:
+                box.append(Gtk.Label(label="Verranno tolti: " + ", ".join(via[:20]),
+                                     xalign=0, wrap=True, css_classes=["zeta-pkg-lista"]))
+            box.append(Gtk.Box(vexpand=True))
+            riga = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_bottom=14)
+            b = Gtk.Button(label="Annulla")
+            b.connect("clicked", lambda *_: win.close())
+            i = Gtk.Button(label="Installa", css_classes=["suggested-action"])
+            i.connect("clicked", lambda *_: op.avvia(
+                "Installazione di %s…" % nome,
+                lambda m: _pkexec_json(["/usr/libexec/zeta-pacchetti", "installa", percorso], m),
+                lambda ok, e: finito(_nuove_app_del_pacchetto(nome), nome) if ok else errore(e)))
+            riga.append(b)
+            riga.append(i)
+            box.append(riga)
+            stack.add_named(box, "conferma")
+            stack.set_visible_child_name("conferma")
+        op.avvia("Lettura del pacchetto…", leggi, pronto)
+        return win
+    return esegui_finestra(costruisci, "org.zetarays.InstallaApp")
+
+
+def scegli_icona(a):
+    """Selettore di file per la nuova icona (finestra normale, non uno strato:
+    funziona anche se chiamato dal menu delle app o dalla ricerca)."""
+    Adw, Gdk, Gio, GLib, Gtk = _gtk()
+    app = Adw.Application(application_id="org.zetarays.IconaApp", flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def attiva(application):
+        from ui import tema
+        tema.apply(CSS)
+        application.hold()
+        dlg = Gtk.FileDialog(title="Scegli l'immagine per l'icona di %s" % a.nome)
+        filt = Gtk.FileFilter()
+        filt.set_name("Immagini")
+        for m in ("image/png", "image/svg+xml", "image/jpeg", "image/webp", "image/bmp",
+                  "image/x-icon", "image/tiff"):
+            filt.add_mime_type(m)
+        filtri = Gio.ListStore.new(Gtk.FileFilter)
+        filtri.append(filt)
+        dlg.set_filters(filtri)
+        cart = os.path.expanduser("~/Immagini")
+        if os.path.isdir(cart):
+            dlg.set_initial_folder(Gio.File.new_for_path(cart))
+
+        def scelta(d, r):
+            try:
+                f = d.open_finish(r)
+                if f is not None and f.get_path():
+                    ok, msg = reg.cambia_icona(a, f.get_path())
+                    avviso(msg)
+            except GLib.Error:
+                pass                     # annullato
+            except OSError as e:
+                avviso("Non è stato possibile cambiare l'icona", str(e))
+            finally:
+                application.release()
+        dlg.open(None, None, scelta)
+    app.connect("activate", attiva)
+    return app.run([])
+
+
+def finestra_nascoste():
+    Adw, Gdk, Gio, GLib, Gtk = _gtk()
+
+    def costruisci(application):
+        win = Adw.ApplicationWindow(application=application, title="App tolte dal menu",
+                                    default_width=460, default_height=520)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        pagina = Adw.PreferencesPage()
+        gruppo = Adw.PreferencesGroup(description="Le app tolte dal menu restano installate. "
+                                                  "Rimettile qui quando vuoi.")
+        pagina.add(gruppo)
+        nascoste = [a for a in reg.tutte(rileggi=True) if a.nascosta]
+        if not nascoste:
+            gruppo.add(Adw.ActionRow(title="Nessuna app tolta dal menu"))
+        for a in nascoste:
+            r = Adw.ActionRow(title=a.nome, subtitle=reg.FONTI.get(a.fonte, ""), use_markup=False)
+            img = Gtk.Image(pixel_size=32)
+            if os.path.isabs(a.icona):
+                img.set_from_file(a.icona)
+            else:
+                img.set_from_icon_name(a.icona or "application-x-executable")
+            r.add_prefix(img)
+            b = Gtk.Button(label="Rimetti nel menu", valign=Gtk.Align.CENTER)
+
+            def rimetti(btn, a=a):
+                reg.nascondi(a, False)
+                btn.set_label("Rimessa")
+                btn.set_sensitive(False)
+            b.connect("clicked", rimetti)
+            r.add_suffix(b)
+            gruppo.add(r)
+        view.set_content(pagina)
+        win.set_content(view)
+        return win
+    return esegui_finestra(costruisci, "org.zetarays.AppNascoste")
+
+
+# =================================================================== comandi
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    cmd, resto = argv[0], argv[1:]
+    if cmd == "elenco":
+        app = reg.tutte()
+        if "--json" in resto:
+            print(json.dumps([dict(a.__dict__) for a in app], ensure_ascii=False, indent=1))
+        else:
+            for a in app:
+                stato = "" if a.nel_menu else (" [nascosta]" if a.nascosta else
+                                                " [servizio]" if a.servizio else " [non avviabile]")
+                print("%-34s %-9s %s%s\n%36s%s" % (a.nome[:34], a.fonte, a.id, stato, "",
+                                                     a.eseguibile or a.comando))
+        return 0
+    if cmd == "appimage":
+        # l'annuncio «nel menu delle app» lo fa il menu stesso, che vede
+        # comparire la voce nuova (una notifica sola per tutte le provenienze)
+        nuove = reg.integra_appimage()
+        print("\n".join(nuove))
+        return 0
+    if cmd == "nascoste":
+        return finestra_nascoste()
+    if cmd == "manutenzione":
+        for n in reg.manutenzione():
+            print("tolti i collegamenti di «%s» (non e' piu' installata)" % n)
+        return 0
+    if cmd == "installa" and resto:
+        return finestra_installa(resto[0])
+    if not resto:
+        print(__doc__)
+        return 2
+    a = app_o_esci(resto[0])
+    if cmd == "avvia":
+        return 0 if reg.avvia(a) else 1
+    if cmd == "info":
+        return finestra_info(a)
+    if cmd == "posizione":
+        return 0 if reg.mostra_nel_gestore_file(reg.posizione(a)) else 1
+    if cmd == "disinstalla":
+        return finestra_disinstalla(a)
+    if cmd == "cambia-icona":
+        if len(resto) > 1:                       # immagine gia' scelta
+            ok, msg = reg.cambia_icona(a, resto[1])
+            print(msg)
+            return 0 if ok else 1
+        return scegli_icona(a)
+    if cmd == "ripristina-icona":
+        ok, msg = reg.ripristina_icona(a)
+        print(msg)
+        return 0 if ok else 1
+    risultati = {"scrivania": reg.aggiungi_scrivania, "dock": reg.aggiungi_dock,
+                 "togli-dock": reg.togli_dock}
+    if cmd in risultati:
+        ok, msg = risultati[cmd](a)
+        print(msg)
+        return 0 if ok else 1
+    if cmd in ("nascondi", "mostra"):
+        ok = reg.nascondi(a, cmd == "nascondi")
+        print("fatto" if ok else "«%s» è protetta: resta nel menu" % a.nome)
+        return 0 if ok else 1
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

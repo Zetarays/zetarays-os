@@ -30,6 +30,8 @@ except (ValueError, ImportError):
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from search import indexer  # noqa: E402
+from system import applicazioni as reg  # noqa: E402
+from ui import menu_app  # noqa: E402
 
 HOME = os.path.expanduser("~")
 
@@ -39,6 +41,8 @@ ACTIONS = [
     ("Aspetto", "Colore, tema, sfondo", "zeta-palette", "aspetto tema colore sfondo wallpaper", ["zeta-impostazioni", "aspetto"]),
     ("Dock", "Personalizza la barra", "zeta-dock", "dock barra taskbar", ["zeta-impostazioni", "dock"]),
     ("Wi-Fi e rete", "Connessioni di rete", "zeta-wifi", "rete wifi network internet", ["zeta-impostazioni", "rete"]),
+    ("Connetti a un server", "Windows, Mac, NAS, SSH, FTP, WebDAV", "zeta-server-rete",
+     "server samba smb ssh sftp ftp webdav nfs nas condivisione cartella condivisa rete", ["zeta-server"]),
     ("Audio", "Volume e dispositivi", "zeta-volume", "audio suono volume", ["zeta-impostazioni", "audio"]),
     ("AI", "ZETA e provider", "zeta-ai", "ai intelligenza assistente", ["zeta-impostazioni", "ai"]),
     ("Monitor di sistema", "CPU, rete, processi", "zeta-monitor", "monitor sistema cpu processi rete", ["zeta-monitor"]),
@@ -100,44 +104,115 @@ def spawn(cmd):
     if not env["LD_PRELOAD"]:
         env.pop("LD_PRELOAD", None)
     env.pop("ZETA_CERCA_PRELOADED", None)
-    subprocess.Popen(cmd, start_new_session=True, env=env)
+    # la ricerca resta accesa: l'uscita va raccolta, o resta un processo zombie
+    reg.lancia(cmd if isinstance(cmd, list) else ["sh", "-c", cmd], env=env,
+               stdout=None, stderr=None)
+
+
+# fuori dalla home si mostrano solo i dischi esterni, i programmi in /opt e la
+# configurazione; mai i file interni del sistema (/usr, /var, /proc...)
+ALTRI_POSTI = ("/media/", "/mnt/", "/run/media/", "/opt/", "/srv/", "/etc/")
+# i dischi esterni non sono nell'indice di plocate (Debian esclude /media):
+# si guardano direttamente, come la home
+DISCHI = ("/media/" + os.environ.get("USER", ""), "/run/media/" + os.environ.get("USER", ""))
+
+_IN_CORSO = set()                 # find/plocate della ricerca attuale
+_IN_CORSO_LOCK = threading.Lock()
+
+
+def ferma_ricerche():
+    """Una lettera in piu' rende vecchia la ricerca in corso: i suoi find e
+    plocate si fermano subito invece di lavorare per niente."""
+    with _IN_CORSO_LOCK:
+        for proc in list(_IN_CORSO):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+
+def _righe(argv, timeout):
+    """Righe complete stampate dal comando entro il tempo dato (le ultime,
+    tagliate a meta' dal tempo scaduto, si scartano). Nomi di file non UTF-8
+    non fermano la ricerca."""
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError:
+        return []
+    with _IN_CORSO_LOCK:
+        _IN_CORSO.add(proc)
+    try:
+        out, _err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _err = proc.communicate()
+    finally:
+        with _IN_CORSO_LOCK:
+            _IN_CORSO.discard(proc)
+    testo = out.decode("utf-8", errors="replace")
+    righe = testo.split("\n")
+    return righe[:-1]             # l'ultima e' vuota, o incompleta
+
+
+def _glob_letterale(testo):
+    """Il testo cercato dentro un modello (find, plocate): * ? [ ] valgono se stessi."""
+    return "".join("\\" + c if c in "*?[]\\" else c for c in testo)
 
 
 def file_results(query, limit=8):
-    """File per nome: plocate (indice di sistema) o, se assente, find nella home."""
-    out = []
-    seen = set()
-    try:
-        p = subprocess.run(["plocate", "-i", "-l", str(limit * 3), "--", query],
-                           capture_output=True, text=True, timeout=4)
-        lines = [l for l in p.stdout.splitlines() if l]
-    except (FileNotFoundError, subprocess.SubprocessError):
-        lines = []
-    if not lines:
-        try:
-            p = subprocess.run(["find", HOME, "-maxdepth", "4", "-iname", "*%s*" % query,
-                                "-not", "-path", "*/.*"],
-                               capture_output=True, text=True, timeout=4)
-            lines = p.stdout.splitlines()
-        except (OSError, subprocess.SubprocessError):
-            lines = []
-    # priorità: prima i file dell'utente (home), poi il resto; si saltano i
-    # percorsi di sistema più rumorosi (header, cache, doc).
-    NOISE = ("/usr/include/", "/usr/lib/", "/usr/share/doc/", "/var/lib/",
-             "/usr/src/", "/proc/", "/sys/")
-    home_hits, other_hits = [], []
-    for path in lines:
-        if path in seen or not os.path.exists(path):
-            continue
-        seen.add(path)
-        if path.startswith(HOME):
-            home_hits.append(path)
-        elif not any(n in path for n in NOISE):
-            other_hits.append(path)
-    for path in home_hits + other_hits:
-        out.append(path)
-        if len(out) >= limit:
-            break
+    """File per nome, come Spotlight: prima quelli dell'utente (anche appena
+    creati: la home si guarda direttamente), poi dischi esterni, /opt, /etc.
+    Ritorna coppie (percorso, e_cartella)."""
+    query = query.strip()
+    if not query:
+        return []
+    q = query.casefold()
+    modello = "*%s*" % _glob_letterale(query)
+    casa_reale = os.path.realpath(HOME)
+    case = {HOME, casa_reale}
+
+    def cerca_in(cartella, profondita, timeout):
+        # -H: la home puo' essere un collegamento (/home/u -> /dati/u)
+        return _righe(["find", "-H", cartella, "-maxdepth", str(profondita), "-name", ".*", "-prune",
+                       "-o", "-iname", modello, "-print"], timeout)
+
+    casa = cerca_in(HOME, 6, 2)
+    dischi = []
+    for d in DISCHI:
+        if os.path.isdir(d):
+            dischi += cerca_in(d, 5, 2)
+    altrove = []
+    # plocate per posto: un solo elenco con un limite si riempirebbe di /etc
+    # (che viene prima nell'indice) per le parole corte
+    for base in (casa_reale,) + tuple(a.rstrip("/") for a in ALTRI_POSTI if a not in ("/media/", "/run/media/")):
+        for path in _righe(["plocate", "-i", "-l", "400", "--", base + "/" + modello], 3):
+            if q not in os.path.basename(path).casefold():
+                continue                    # il testo era in una cartella, non nel nome
+            if base == casa_reale:
+                if "/." not in path[len(casa_reale):]:
+                    casa.append(path)       # piu' in profondita' di dove guarda find
+            else:
+                altrove.append(path)
+
+    def ordine(path):
+        nome = os.path.basename(path).casefold()
+        return (0 if nome.startswith(q) else 1, path.count("/"), nome)
+
+    def posto(path):
+        return next((i for i, a in enumerate(ALTRI_POSTI) if path.startswith(a)), len(ALTRI_POSTI))
+
+    out, visti = [], set()
+    for gruppo in (sorted(set(casa), key=ordine),
+                   sorted(set(dischi) | set(altrove), key=lambda x: (posto(x), ordine(x)))):
+        for path in gruppo:
+            if path in visti or path in case or not os.path.lexists(path):
+                continue
+            visti.add(path)
+            # qui, fuori dall'interfaccia: un disco di rete bloccato fa
+            # aspettare questa ricerca, non congela la finestra
+            out.append((path, os.path.isdir(path)))
+            if len(out) >= limit:
+                return out
     return out
 
 
@@ -177,7 +252,13 @@ class Cerca(Gtk.ApplicationWindow):
         self.empty = Gtk.Label(label="Scrivi per cercare in app, file, documenti e impostazioni.",
                                css_classes=["sp-empty"])
         root.append(self.empty)
-        self.set_child(root)
+        # menu del tasto destro sulle app: sopra i risultati, dentro la finestra
+        overlay = Gtk.Overlay(child=root)
+        self.menu = menu_app.MenuInterno(overlay)
+        self.set_child(overlay)
+        fuori = Gtk.GestureClick()
+        fuori.connect("pressed", self._clic_fuori_menu)
+        self.add_controller(fuori)
 
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_key)
@@ -189,6 +270,7 @@ class Cerca(Gtk.ApplicationWindow):
 
     def prepara(self):
         """Ogni volta che compare: ricerca vuota, nessun risultato vecchio."""
+        self.menu.chiudi()
         self.search.set_text("")
         self._clear()
 
@@ -199,16 +281,10 @@ class Cerca(Gtk.ApplicationWindow):
         self._timer = GLib.timeout_add(130, self._run_query)
 
     def _app_infos(self):
-        """Elenco delle applicazioni, letto una volta sola.
-
-        Gio.AppInfo.get_all() rilegge tutti i file .desktop del sistema: farlo
-        a ogni tasto premuto significa toccare il disco decine di volte mentre
-        l'utente scrive.
-        """
-        infos = getattr(self, "_apps_cache", None)
-        if infos is None:
-            infos = self._apps_cache = [i for i in Gio.AppInfo.get_all() if i.should_show()]
-        return infos
+        """Le app del registro unico: stesse del menu (anche quelle installate
+        dopo l'apertura: il registro si rilegge solo se le cartelle cambiano)."""
+        reg.icone_gtk()
+        return reg.menu()
 
     def _run_query(self):
         self._timer = 0
@@ -219,23 +295,30 @@ class Cerca(Gtk.ApplicationWindow):
         # e vanno buttati, non mostrati sopra quelli nuovi.
         self._gen = getattr(self, "_gen", 0) + 1
         gen = self._gen
+        ferma_ricerche()
         if not query:
             self.empty.set_visible(True)
             return False
         rows = []
         low = query.casefold()
 
-        # 1) applicazioni
-        for info in self._app_infos():
-            name = info.get_display_name() or ""
-            hay = (name + " " + (info.get_executable() or "")).casefold()
+        # 1) applicazioni: nome, provenienza e percorso; le piu' pertinenti prima
+        trovate = []
+        for app in self._app_infos():
+            nome = app.nome.casefold()
+            hay = " ".join([nome, app.id, os.path.basename(app.eseguibile),
+                            app.descrizione] + app.parole).casefold()
             if all(w in hay for w in low.split()):
-                rows.append(("App", name, info.get_description() or "Applicazione",
-                             info.get_icon(), lambda i=info: self._launch_app(i)))
+                peso = 0 if nome.startswith(low) else 1 if any(p.startswith(low) for p in nome.split()) else 2
+                trovate.append((peso, nome, app))
+        for _p, _n, app in sorted(trovate, key=lambda t: (t[0], t[1]))[:8]:
+            dove = app.flatpak_id if app.fonte == "flatpak" else (app.appimage or app.eseguibile or app.desktop)
+            sub = "%s · %s" % (reg.FONTI.get(app.fonte, app.fonte), (dove or "").replace(HOME, "~"))
+            rows.append(("App", app.nome, sub, app.icona, lambda a=app: self._launch_app(a), app))
         # 2) azioni e impostazioni
         for title, sub, icon, words, cmd in ACTIONS:
             if all(any(w in field for field in (title.casefold(), words)) for w in low.split()):
-                rows.append(("Azione", title, sub, icon, lambda c=cmd: (spawn(c), self.close())))
+                rows.append(("Azione", title, sub, icon, lambda c=cmd: (spawn(c), self.close()), None))
 
         # App e azioni sono immediate: si mostrano subito.
         self._mostra(rows)
@@ -247,32 +330,45 @@ class Cerca(Gtk.ApplicationWindow):
         return False
 
     def _cerca_file(self, query, gen):
-        """Parte lenta della ricerca, fuori dal filo dell'interfaccia."""
+        """Parte lenta della ricerca, fuori dal filo dell'interfaccia. Un
+        problema in una delle due ricerche non cancella i risultati dell'altra."""
+        contenuti, percorsi = [], []
         try:
-            contenuti = indexer.search(query, limit=6)
+            # l'indice si aggiorna ogni mezz'ora: un file appena cancellato non si mostra
+            contenuti = [r for r in indexer.search(query, limit=6) if os.path.exists(r["path"])]
+        except Exception as e:  # noqa: BLE001
+            print("cerca: ricerca nei contenuti non riuscita: %s" % e, file=sys.stderr)
+        try:
             percorsi = file_results(query, limit=8)
         except Exception as e:  # noqa: BLE001
-            print("cerca: ricerca file non riuscita: %s" % e, file=sys.stderr)
-            return
-        GLib.idle_add(self._file_pronti, gen, contenuti, percorsi)
+            print("cerca: ricerca dei file non riuscita: %s" % e, file=sys.stderr)
+        GLib.idle_add(self._file_pronti, gen, query, contenuti, percorsi)
 
-    def _file_pronti(self, gen, contenuti, percorsi):
+    def _file_pronti(self, gen, query, contenuti, percorsi):
         if gen != getattr(self, "_gen", 0):
             return False                      # ricerca superata da una più recente
-        rows = []
-        visti = set()
+        # prima i file trovati per nome (dalla ricerca o dall'indice, una
+        # volta sola), poi quelli che contengono la parola nel testo; tutti
+        # con l'icona del loro tipo e la cartella sotto il nome
+        q = query.strip().casefold()
+        per_nome, nel_testo, visti = [], [], set()
+        for path, cartella in percorsi:
+            visti.add(path)
+            per_nome.append((path, cartella, ""))
         for r in contenuti:
-            visti.add(r["path"])
-            sub = r["snippet"] or r["path"].replace(HOME, "~")
-            rows.append(("Contenuto", r["name"], sub, self._file_icon(r["kind"]),
-                         lambda p=r["path"]: self._open_path(p)))
-        for path in percorsi:
-            if path in visti:
+            if r["path"] in visti:
                 continue
-            sub = os.path.dirname(path).replace(HOME, "~")
-            rows.append(("File", os.path.basename(path), sub,
-                         self._file_icon("cartella" if os.path.isdir(path) else "file"),
-                         lambda p=path: self._open_path(p)))
+            visti.add(r["path"])
+            if q in r["name"].casefold():
+                per_nome.append((r["path"], False, ""))
+            else:
+                nel_testo.append((r["path"], False, r["snippet"]))
+        rows = []
+        for categoria, elenco in (("File", per_nome), ("Contenuto", nel_testo)):
+            for path, cartella, estratto in elenco:
+                sub = estratto or os.path.dirname(path).replace(HOME, "~")
+                rows.append((categoria, os.path.basename(path), sub, self._icona_percorso(path, cartella),
+                             lambda p=path: self._open_path(p), None))
         self._mostra(rows, aggiungi=True)
         return False
 
@@ -283,8 +379,8 @@ class Cerca(Gtk.ApplicationWindow):
             while c:
                 gia += 1
                 c = c.get_next_sibling()
-        for cat, title, sub, icon, action in rows[:max(0, 24 - gia)]:
-            self.listbox.append(self._make_row(cat, title, sub, icon, action))
+        for cat, title, sub, icon, action, app in rows[:max(0, 24 - gia)]:
+            self.listbox.append(self._make_row(cat, title, sub, icon, action, app))
         if aggiungi:
             # Solo ora si sa davvero se non c'è nulla: prima mancavano i file.
             self.empty.set_visible(gia == 0 and not rows)
@@ -295,11 +391,16 @@ class Cerca(Gtk.ApplicationWindow):
             if first:
                 self.listbox.select_row(first)
 
-    def _make_row(self, cat, title, sub, icon, action):
+    def _make_row(self, cat, title, sub, icon, action, app=None):
         box = Gtk.Box(spacing=12, css_classes=["sp-row"])
         img = Gtk.Image(pixel_size=30)
         if isinstance(icon, Gio.Icon):
             img.set_from_gicon(icon)
+        elif app is not None and icon:
+            try:
+                img.set_from_gicon(Gio.Icon.new_for_string(icon))
+            except GLib.Error:
+                img.set_from_icon_name("application-x-executable")
         elif icon and os.path.isabs(icon):
             img.set_from_file(icon)
         elif icon:
@@ -318,11 +419,38 @@ class Cerca(Gtk.ApplicationWindow):
         box.append(Gtk.Label(label=cat, css_classes=["sp-cat"], valign=Gtk.Align.CENTER))
         row = Gtk.ListBoxRow(child=box)
         row.action = action
+        if app is not None:
+            # stesso menu del menu delle app: posizione, Scrivania, Dock,
+            # Informazioni, disinstalla. Tasto destro o pulsante «⋯».
+            def menu(widget, x, y, a=app):
+                self.menu.apri(widget, x, y, menu_app.voci_app(a, self._launch_app, self.close))
+            altro = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
+                               css_classes=["flat"], tooltip_text="Altre azioni")
+            altro.connect("clicked", lambda b: menu(b, b.get_width() / 2, b.get_height()))
+            box.append(altro)
+            destro = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+            destro.connect("pressed", lambda g, _n, x, y: menu(g.get_widget(), x, y))
+            row.add_controller(destro)
+            # la versione la chiede a dpkg/flatpak: arriva dopo, senza far aspettare
+            def versione(a=app, lab=s, base=sub):
+                v = reg.versione(a)
+                if v:
+                    GLib.idle_add(lab.set_label, "%s · %s" % (base, v))
+            threading.Thread(target=versione, daemon=True).start()
         return row
 
-    def _file_icon(self, kind):
-        return {"pdf": "org.gnome.Evince", "immagine": "eog", "cartella": "org.xfce.thunar",
-                "testo": "org.gnome.TextEditor"}.get(kind, "text-x-generic")
+    def _icona_percorso(self, path, cartella):
+        """Icona del tipo di file (foglio di calcolo, PDF, immagine...), come
+        nel gestore file; se il tema non ce l'ha, quella generica. Il tipo si
+        ricava dal nome: qui il file non si apre."""
+        if cartella:
+            return "folder"
+        tipo, _incerto = Gio.content_type_guess(path, None)
+        tema = Gtk.IconTheme.get_for_display(self.get_display())
+        for nome in Gio.content_type_get_icon(tipo).get_names():
+            if tema.has_icon(nome):
+                return nome
+        return "text-x-generic"
 
     # -------- apertura --------
     def _open(self, row):
@@ -333,11 +461,12 @@ class Cerca(Gtk.ApplicationWindow):
         row = self.listbox.get_selected_row() or self.listbox.get_row_at_index(0)
         self._open(row)
 
-    def _launch_app(self, info):
-        try:
-            info.launch([], clean_env_ctx())
-        except GLib.Error:
-            pass
+    def _clic_fuori_menu(self, gesture, _n, x, y):
+        if self.menu.aperto() and not self.menu.contiene(self.pick(x, y, Gtk.PickFlags.DEFAULT)):
+            self.menu.chiudi()
+
+    def _launch_app(self, app):
+        reg.avvia(app, clean_env_ctx())
         self.close()
 
     def _open_path(self, path):
@@ -367,6 +496,13 @@ class Cerca(Gtk.ApplicationWindow):
         self.search.grab_focus_without_selecting()
 
     def on_key(self, _c, keyval, _kc, _mod):
+        if self.menu.aperto():
+            # menu del tasto destro aperto: Esc lo chiude, frecce e Invio
+            # muovono e scelgono le sue voci (non i risultati sotto)
+            if keyval == Gdk.KEY_Escape:
+                self.menu.chiudi()
+                return True
+            return False
         if keyval == Gdk.KEY_Escape:
             self.close()
             return True

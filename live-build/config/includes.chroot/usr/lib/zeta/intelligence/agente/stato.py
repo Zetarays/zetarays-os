@@ -168,9 +168,13 @@ def nome_programma(cmd: list[str]) -> str:
 
 # ------------------------------------------------------------ app installate
 # nell'ordine di precedenza di XDG: una voce dell'utente o di /usr/local
-# (es. LocalSend nascosto da ZETA Share) vince su quella del pacchetto
+# vince su quella del pacchetto
+# (es. LocalSend nascosto da ZETA Share); poi le app Flatpak. Le AppImage
+# integrate hanno la loro voce in ~/.local/share/applications.
 DIRS_DESKTOP = [os.path.join(HOME, ".local/share/applications"),
-                "/usr/local/share/applications", "/usr/share/applications"]
+                "/usr/local/share/applications", "/usr/share/applications",
+                os.path.join(HOME, ".local/share/flatpak/exports/share/applications"),
+                "/var/lib/flatpak/exports/share/applications"]
 
 # modi comuni di chiamare le app (dopo norm): -> id del .desktop, senza .desktop
 SINONIMI = {

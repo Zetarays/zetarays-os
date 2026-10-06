@@ -1200,15 +1200,15 @@ def dock_add(args):
     a, err = _app_o_errore(args)
     if err:
         return err
-    d = _dock()
-    voci = d.load_dock()
-    if any(S.norm(v.get("name", "")) == S.norm(a.nome) or v.get("cmd", "").split()[0] == a.binario for v in voci):
+    _dock()                                  # mette /usr/lib/zeta nel percorso
+    from system import applicazioni as reg   # stesso registro del menu
+    r = reg.trova(a.id)
+    if r is None:
+        return Esito(False, "Non trovo la voce del menu di %s." % a.nome)
+    ok, msg = reg.aggiungi_dock(r)
+    if not ok and "già" in msg:
         return Esito(True, "%s è già nel dock." % a.nome)
-    voci.append({"cmd": " ".join(a.argv), "name": a.nome, "icon": a.icona})
-    d.save_dock(voci)
-    d.apply(voci)
-    ok = any(v.get("name") == a.nome for v in d.load_dock())
-    return Esito(ok, "Ho aggiunto %s al dock." % a.nome)
+    return Esito(ok and reg.nel_dock(r), "Ho aggiunto %s al dock." % a.nome if ok else msg)
 
 
 @capacita("dock_remove", "Toglie un'app dal dock (non la disinstalla).", {"app": "nome dell'app"}, ["app"])
@@ -1216,6 +1216,12 @@ def dock_remove(args):
     nome = (args.get("app") or "").strip()
     a = S.trova_app(nome)
     d = _dock()
+    if a is not None:
+        from system import applicazioni as reg
+        r = reg.trova(a.id)
+        if r is not None and reg.nel_dock(r):
+            ok, msg = reg.togli_dock(r)
+            return Esito(ok, "Ho tolto %s dal dock." % r.nome if ok else msg)
     voci = d.load_dock()
     tenute = [v for v in voci if not (S.norm(v.get("name", "")) in {S.norm(nome), S.norm(a.nome) if a else ""}
                                        or (a and v.get("cmd", "").split()[:1] == [a.binario]))]

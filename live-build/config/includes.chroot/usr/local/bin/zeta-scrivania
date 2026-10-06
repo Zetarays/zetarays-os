@@ -38,12 +38,20 @@ MIME_IMMAGINI = ("image/png", "image/jpeg", "image/webp", "image/gif", "image/bm
                  "image/avif", "image/svg+xml")
 
 
+_FIGLI = set()
+
+
 def _avvia(cmd, **kw):
     """Avvia un programma e ne raccoglie l'uscita quando finisce: lanciato e
     dimenticato, «gio open» restava come processo zombie (visto)."""
     p = subprocess.Popen(cmd, **kw)
     from gi.repository import GLib as _G
-    _G.child_watch_add(_G.PRIORITY_DEFAULT_IDLE, p.pid, lambda *_a: None)
+    _FIGLI.add(p)                  # Python non lo raccoglie una seconda volta
+
+    def finito(_pid, stato, proc=p):
+        proc.returncode = stato
+        _FIGLI.discard(proc)
+    _G.child_watch_add(_G.PRIORITY_DEFAULT_IDLE, p.pid, finito)
     return p
 
 popup.preload_layer_shell()
@@ -270,9 +278,6 @@ def _app_del_collegamento(percorso):
 # solo «Exec=blender»: un nome che vale soltanto nella sua cartella, non nel
 # PATH del sistema. Prima nessuno dei due partiva dalla scrivania.
 
-_CODICI_CAMPO = re.compile(r"%[fFuUdDnNickvm%]")
-
-
 def _e_programma(percorso):
     """Vero se il file (seguendo il collegamento) e' un programma da avviare:
     eseguibile e binario ELF o script con «#!». Un'immagine con il permesso
@@ -303,7 +308,7 @@ def _comando_del_collegamento(percorso):
     except GLib.Error:
         cartella = None
     try:
-        ok, argv = GLib.shell_parse_argv(_CODICI_CAMPO.sub("", exec_).strip())
+        ok, argv = GLib.shell_parse_argv(_registro()._senza_codici(exec_).strip())
     except GLib.Error:
         return None
     if not ok or not argv:
@@ -392,6 +397,13 @@ def _desktop_proprio(percorso):
     romperebbe un Exec relativo. Per quello l'icona va nei metadati, come
     per i file normali."""
     return percorso.endswith(".desktop") and not os.path.islink(percorso)
+
+
+def _registro():
+    if "/usr/lib/zeta" not in sys.path:
+        sys.path.insert(0, "/usr/lib/zeta")
+    from system import applicazioni
+    return applicazioni
 
 
 def trash_count():
@@ -666,6 +678,7 @@ class Scrivania(Gtk.ApplicationWindow):
 
     # ---------------------------------------- disegno
     def refresh(self):
+        _registro().icone_gtk()          # icone delle app Flatpak appena installate
         selezionati = {i.name for i in self.selection}
         for it in self.items:
             if it.widget is not None:
@@ -1642,8 +1655,7 @@ class Scrivania(Gtk.ApplicationWindow):
 
     def new_launcher(self):
         """Crea sulla scrivania un collegamento a un'applicazione installata."""
-        apps = sorted((a for a in Gio.AppInfo.get_all() if a.should_show()),
-                      key=lambda a: (a.get_display_name() or "").lower())
+        apps = _registro().menu()      # le stesse app (nomi, icone) del menu
         if not apps:
             self._error("Nessuna applicazione installata da collegare.")
             return
@@ -1666,16 +1678,15 @@ class Scrivania(Gtk.ApplicationWindow):
                 c = lista.get_first_child()
             t = testo.casefold()
             for a in apps:
-                nome = a.get_display_name() or ""
+                nome = a.nome
                 if t and t not in nome.casefold():
                     continue
                 riga = Gtk.Box(spacing=10, margin_top=6, margin_bottom=6,
                                margin_start=8, margin_end=8)
                 img = Gtk.Image(pixel_size=24)
-                icona = a.get_icon()
-                if icona is not None:
-                    img.set_from_gicon(icona)
-                else:
+                try:
+                    img.set_from_gicon(Gio.Icon.new_for_string(a.icona or "application-x-executable"))
+                except GLib.Error:
                     img.set_from_icon_name("application-x-executable")
                 riga.append(img)
                 riga.append(Gtk.Label(label=nome, xalign=0, hexpand=True))
@@ -1708,32 +1719,12 @@ class Scrivania(Gtk.ApplicationWindow):
         win.present()
 
     def _crea_collegamento(self, app):
-        nome = app.get_display_name() or app.get_id() or "Collegamento"
-        dest = self._nome_libero(nome + ".desktop")
-        origine = None
-        if isinstance(app, Gio.DesktopAppInfo):
-            origine = app.get_filename()
-        try:
-            if origine and os.path.isfile(origine):
-                shutil.copy2(origine, dest)
-            else:
-                icona = app.get_icon()
-                with open(dest, "w") as f:
-                    f.write("[Desktop Entry]\nType=Application\n"
-                            "Name=%s\nExec=%s\nIcon=%s\nTerminal=false\n"
-                            % (nome, app.get_commandline() or app.get_executable() or "",
-                               icona.to_string() if icona is not None else ""))
-            os.chmod(dest, 0o755)
-        except (OSError, shutil.Error) as e:
-            self._error("Non è stato possibile creare il collegamento: %s" % e)
-            return
-        # Senza il contrassegno di fiducia, GIO e il gestore file trattano il
-        # collegamento come un file di testo sospetto invece che come un'app.
-        try:
-            Gio.File.new_for_path(dest).set_attribute_string(
-                "metadata::trusted", "true", Gio.FileQueryInfoFlags.NONE, None)
-        except GLib.Error:
-            pass
+        # Lo stesso collegamento del menu delle app (tasto destro › Aggiungi
+        # alla Scrivania): copia della voce, comando completo per i programmi
+        # in /opt, segnato come fidato, mai due volte la stessa app.
+        ok, msg = _registro().aggiungi_scrivania(app)
+        if not ok:
+            self._error(msg)
         self.refresh()
 
     def _create(self, name, folder):

@@ -103,6 +103,8 @@ class ActionEngine:
     def _log(self, name: str, args: dict, level: int) -> None:
         try:
             LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            if LOG_FILE.exists() and LOG_FILE.stat().st_size > 1_000_000:
+                LOG_FILE.replace(LOG_FILE.with_name(LOG_FILE.name + ".1"))   # resta corto
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps({"t": time.strftime("%Y-%m-%dT%H:%M:%S"),
                                     "action": name, "level": level, "args": args},
@@ -1142,26 +1144,13 @@ def _ip_address() -> str:
 
 
 def _list_applications() -> str:
-    apps = []
-    seen = set()
-    for d in ("/usr/share/applications", os.path.expanduser("~/.local/share/applications")):
-        for path in sorted(Path(d).glob("*.desktop")) if os.path.isdir(d) else []:
-            try:
-                txt = path.read_text(errors="replace")
-            except OSError:
-                continue
-            if "NoDisplay=true" in txt or "Type=Application" not in txt:
-                continue
-            name = ""
-            for line in txt.splitlines():
-                if line.startswith("Name="):
-                    name = line[5:].strip()
-                    break
-            if name and name not in seen:
-                seen.add(name)
-                apps.append(name)
-    apps.sort(key=str.lower)
-    return "Applicazioni disponibili:\n" + ", ".join(apps[:60]) if apps else "Nessuna applicazione trovata."
+    """Le app del menu (registro unico: anche Flatpak e AppImage)."""
+    import sys
+    if "/usr/lib/zeta" not in sys.path:
+        sys.path.insert(0, "/usr/lib/zeta")
+    from system import applicazioni
+    nomi = [a.nome for a in applicazioni.menu()]
+    return "Applicazioni disponibili:\n" + ", ".join(nomi[:60]) if nomi else "Nessuna applicazione trovata."
 
 
 def _set_accent(args: dict) -> ActionResult:

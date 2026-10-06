@@ -105,6 +105,10 @@ ICONS["printer"] = ('<path d="M7 9V4.5h10V9"/>'
 # che invia due onde, cioe' «ai dispositivi vicini». Prima era il simbolo
 # generico di condivisione (tre punti collegati), uguale a mille app Linux.
 ICONS["share"] = ('<path d="M12 9.6L5.9 20.1h12.2z"/><path d="M12 9.6v6.6M12 16.2l-6.1 3.9M12 16.2l6.1 3.9" stroke-opacity="0.55"/><path d="M8.7 6.6a4.7 4.7 0 0 1 6.6 0"/><path d="M6 3.9a8.5 8.5 0 0 1 12 0"/>')
+# Server: due unita' impilate con la spia, per «Connetti a un server»
+ICONS["server"] = ('<rect x="4" y="4" width="16" height="6.5" rx="1.6"/>'
+                   '<rect x="4" y="13.5" width="16" height="6.5" rx="1.6"/>'
+                   '<path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5"/>')
 ICONS["cerca"] = '<circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/>'
 ICONS["app"] = ('<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/>'
                 '<rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>')
@@ -147,6 +151,7 @@ APP_ICONS = {
     # solo i nomi delle app: «document-print» e l'icona dei pulsanti Stampa
     # nelle barre degli strumenti e deve restare piccola e simbolica
     "printer": ["printer", "system-config-printer"],
+    "server": ["zeta-server"],
 }
 for glyph, names in APP_ICONS.items():
     for n in names:
@@ -220,6 +225,7 @@ UI_ICONS = {
     "shield": '<path d="M12 3.5l7 2.8v5.2c0 4.3-3 7.7-7 9-4-1.3-7-4.7-7-9V6.3z"/>',
     "ai": '<path d="M12 4l1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
     "printer": ICONS["printer"],
+    "server-rete": ICONS["server"],
 }
 for name, glyph in UI_ICONS.items():
     write("usr/share/icons/zeta/scalable/apps/zeta-%s.svg" % name,

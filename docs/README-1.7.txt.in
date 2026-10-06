@@ -262,11 +262,35 @@ Printers
   driver (HP, Epson, Brother, Gutenprint for older Canon and others). There
   is a test page button, and a printer can also be added by its IP address.
 
+Search
+  The magnifying glass in the bar finds apps, settings, your files and the
+  text inside your documents. Your own files come first, even ones you
+  created a second ago, each with the icon of its type; then external
+  disks, /opt and /etc. Internal system files are left out.
+
 Files and system folders
   In Files, right-click inside a system folder such as /opt: "Incolla qui
   come amministratore" pastes the copied files after asking for your
   password, "Apri come amministratore" opens the folder with full rights.
   "Invia a > Scrivania" puts a working link to any program on the desktop.
+
+Installing and managing programs
+  Right-click any app in the app menu or in search: open it, open its file
+  location, add it to the desktop or the Dock, see where it comes from
+  (APT, Flatpak, AppImage, /opt), its version and paths, remove it from the
+  menu or uninstall it. System apps cannot be removed by mistake.
+  Double-click a .deb file or a .flatpakref (the "Install" button on
+  flathub.org) to install it. AppImages placed in the Applicazioni or
+  Scaricati folder join the menu by themselves, with their own icon.
+  "Cambia icona..." gives an app a new icon everywhere (menu, Dock, search,
+  desktop); "Ripristina l'icona" puts the original back.
+
+Servers and shared folders
+  "Connetti a un server" (app menu, search, or Settings > Wi-Fi e rete)
+  opens shared folders of Windows PCs, Macs and NAS (SMB), SSH servers
+  (SFTP), FTP, WebDAV (Nextcloud), NFS and older Macs (AFP). Servers on the
+  local network are listed by themselves. Favourites also appear in the
+  file manager, and the password can be remembered.
 
 Terminal tools
   ip, ifconfig, route, ss, ping, traceroute, tracepath, mtr, dig, host,

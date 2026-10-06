@@ -172,3 +172,12 @@ x-scheme-handler/about=firefox-esr.desktop
 # Posta: i link «mailto:» e i messaggi salvati si aprono in Thunderbird
 x-scheme-handler/mailto=thunderbird.desktop
 message/rfc822=thunderbird.desktop
+
+# --- Programmi da installare ------------------------------------------------
+# doppio clic su un .deb o su un .flatpakref (pulsante «Install» di Flathub):
+# finestra di ZETA RAYS con cosa si installa, password, esito e «Apri»
+application/vnd.debian.binary-package=zeta-installa-programma.desktop
+application/x-deb=zeta-installa-programma.desktop
+application/x-debian-package=zeta-installa-programma.desktop
+application/vnd.flatpak.ref=zeta-installa-programma.desktop
+application/vnd.flatpak=zeta-installa-programma.desktop

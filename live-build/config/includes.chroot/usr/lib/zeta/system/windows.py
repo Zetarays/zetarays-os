@@ -120,11 +120,12 @@ def _icona_app(classe):
         import sys
         if "/usr/lib/zeta" not in sys.path:
             sys.path.insert(0, "/usr/lib/zeta")
-        from intelligence.agente import stato
-        from system import dock
-        for a in stato.app_installate():
-            if (classe or "").lower() in a.classi and a.icona:
-                p = dock.resolve_icon(a.icona)
+        from system import applicazioni
+        c = (classe or "").lower()
+        for a in applicazioni.tutte():
+            nomi = {a.wm_class.lower(), a.id[:-8].lower(), os.path.basename(a.eseguibile).lower()}
+            if c and c in nomi and a.icona:
+                p = applicazioni.icona_file(a.icona)
                 return p if os.path.exists(p) else None
     except Exception:  # noqa: BLE001 - senza icona la miniatura resta valida
         return None

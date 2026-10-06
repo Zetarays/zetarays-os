@@ -117,7 +117,8 @@ class Window(Adw.ApplicationWindow):
         self.set_content(self.toasts)
 
     def toast(self, text):
-        self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
+        # testo semplice: nomi di stampanti o reti con «&» non devono sparire
+        self.toasts.add_toast(Adw.Toast(title=text, timeout=4, use_markup=False))
 
     # --- App predefinite ---
     def page_predefinite(self):
@@ -149,6 +150,31 @@ class Window(Adw.ApplicationWindow):
             row.connect("notify::selected", self._cambia_predefinita, cat, ids)
             g.add(row)
         page.add(g)
+
+        # Gestione delle app: le tolte dal menu si rimettono da qui; AppImage
+        # e Flatpak entrano nel menu da sole (registro unico, zeta-app)
+        ga = Adw.PreferencesGroup(
+            title="Applicazioni",
+            description="Tasto destro su un'app nel menu o nella ricerca: aprirla, vedere dove è "
+                        "installata, metterla sulla Scrivania o nel Dock, toglierla o disinstallarla.")
+        nascoste = Adw.ActionRow(title="App tolte dal menu",
+                                 subtitle="Restano installate: rimettile nel menu quando vuoi",
+                                 activatable=True)
+        nascoste.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        nascoste.connect("activated", lambda *_: launch("zeta-app", "nascoste"))
+        ga.add(nascoste)
+        appimage = Adw.ActionRow(
+            title="AppImage",
+            subtitle="Mettile nella cartella Applicazioni (o lasciale in Scaricati): entrano nel "
+                     "menu da sole, con nome e icona.", activatable=True)
+        appimage.add_suffix(Gtk.Image(icon_name="folder-open-symbolic"))
+        appimage.connect("activated", lambda *_: launch("thunar", os.path.expanduser("~/Applicazioni")))
+        ga.add(appimage)
+        ga.add(Adw.ActionRow(
+            title="Flatpak",
+            subtitle="Flathub è già pronto: su flathub.org il pulsante «Install» apre "
+                     "l'installazione, e l'app compare nel menu."))
+        page.add(ga)
         return page
 
     def _cambia_predefinita(self, row, _p, cat, ids):
@@ -801,7 +827,7 @@ class Window(Adw.ApplicationWindow):
         listbox = Gtk.ListBox(css_classes=["boxed-list"], margin_start=10, margin_end=10,
                               margin_top=8, margin_bottom=10, selection_mode=Gtk.SelectionMode.NONE)
         apps = dockmod.installed_apps()
-        present = {e.get("cmd") for e in self.dock_entries}
+        present = dockmod.presenti() | {e.get("app") for e in self.dock_entries if e.get("app")}
 
         def build(query=""):
             child = listbox.get_first_child()
@@ -809,7 +835,7 @@ class Window(Adw.ApplicationWindow):
                 listbox.remove(child)
                 child = listbox.get_first_child()
             for app in apps:
-                if app["exec"] in present:
+                if app["id"] in present:
                     continue
                 if query and query.lower() not in app["name"].lower():
                     continue

@@ -15,13 +15,11 @@ for tentativo in 1 2 3; do
   dpkg --configure -a || true
   [ "$tentativo" = 3 ] && { echo "ZETA RAYS: aggiornamento dei pacchetti non riuscito" >&2; exit 1; }
 done
-# Hyprland: deve restare quello corretto (+zeta1) oppure uno ufficiale gia'
-# con la correzione (0.56 e oltre, vedi 0350-zeta-hyprland-corretto)
+# Hyprland: deve restare quello corretto (+zeta2, bloccato dal hook 0350)
 V=$(dpkg-query -W -f='${Version}' hyprland)
 case "$V" in
-  *+zeta1) ;;
-  *) dpkg --compare-versions "$V" ge 0.56 \
-       || { echo "ZETA RAYS: ERRORE, l'aggiornamento ha messo Hyprland $V senza la correzione" >&2; exit 1; } ;;
+  *+zeta2) ;;
+  *) echo "ZETA RAYS: ERRORE, l'aggiornamento ha messo Hyprland $V senza le correzioni" >&2; exit 1 ;;
 esac
 echo "ZETA RAYS: Hyprland dopo l'aggiornamento: $V"
 n=$(apt list --upgradable 2>/dev/null | grep -c / || true)

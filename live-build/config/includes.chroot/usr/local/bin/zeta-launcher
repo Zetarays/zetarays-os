@@ -32,29 +32,12 @@ CATEGORIES = [
     ("Multimedia", {"AudioVideo", "Audio", "Video", "Graphics", "Player", "Photography"}),
 ]
 
-# Nomi italiani semplici per le app principali (id del file .desktop -> nome)
-# Nomi italiani delle app principali: condivisi con il selettore (Ctrl+Tab)
+# Le app vengono dal registro unico (system/applicazioni): stessi nomi,
+# icone e regole (voci di servizio, app tolte dal menu) di Dock, ricerca e
+# Scrivania.
 sys.path.insert(0, "/usr/lib/zeta")
-try:
-    from ui.nomi_app import NOMI as NAMES  # noqa: E402
-except ImportError:
-    NAMES = {}
-
-# Voci di servizio da non mostrare (sono raggiungibili da Impostazioni)
-HIDDEN = {
-    "footclient.desktop", "foot-server.desktop", "thunar-settings.desktop", "thunar-bulk-rename.desktop",
-    "thunar-volman-settings.desktop", "nm-connection-editor.desktop", "blueman-manager.desktop",
-    "blueman-adapters.desktop", "pavucontrol.desktop", "org.pulseaudio.pavucontrol.desktop", "lxpolkit.desktop", "debian-xterm.desktop",
-    "debian-uxterm.desktop", "display-im6.q16.desktop", "org.gnome.Evince-previewer.desktop",
-    "calamares-install-debian.desktop", "calamares.desktop",
-    "vim.desktop", "nvim.desktop", "htop.desktop", "nm-applet.desktop", "org.freedesktop.IBus.Setup.desktop",
-    # doppione: ZETA RAYS Monitor copre già processi, risorse e rete
-    "org.gnome.SystemMonitor.desktop", "gnome-system-monitor.desktop",
-}
-
-# L'installer ha senso solo nel sistema live, non dopo l'installazione.
-if not os.path.exists("/run/live/medium"):
-    HIDDEN.add("zeta-installa.desktop")
+from system import applicazioni as reg  # noqa: E402
+from ui import menu_app  # noqa: E402
 
 CSS = """
 window.zeta-launcher { background: @scrim_strong; }
@@ -150,10 +133,14 @@ class Launcher(Gtk.ApplicationWindow):
         self.flow.set_sort_func(self._ordine)
         self._riempi()
         # app installate o tolte mentre il launcher e' in memoria: l'elenco si
-        # rifa' alla prossima apertura (non a ogni apertura: e' la parte lenta)
+        # rifa' alla prossima apertura (non a ogni apertura: e' la parte lenta).
+        # Le app nuove si annunciano con una notifica, una volta sola.
         self._da_rifare = False
+        self._note = {a.id for a in reg.tutte()}
+        self._attesa_nuove = 0
+        self._ricontrollo = 0
         self._monitor = Gio.AppInfoMonitor.get()
-        self._monitor.connect("changed", lambda *_: setattr(self, "_da_rifare", True))
+        self._monitor.connect("changed", lambda *_: self._cambiate())
 
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.scroller = scroller
@@ -164,7 +151,10 @@ class Launcher(Gtk.ApplicationWindow):
         self.empty.add_css_class("zeta-empty")
         root.append(self.empty)
 
-        self.set_child(root)
+        # il menu del tasto destro sulle app si disegna sopra la griglia
+        overlay = Gtk.Overlay(child=root)
+        self.menu = menu_app.MenuInterno(overlay)
+        self.set_child(overlay)
 
         # Esc chiude, un clic fuori dalle app chiude
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
@@ -182,9 +172,47 @@ class Launcher(Gtk.ApplicationWindow):
             nxt = child.get_next_sibling()
             self.flow.remove(child)
             child = nxt
-        for info in Gio.AppInfo.get_all():
-            if info.should_show() and info.get_id() not in HIDDEN:
-                self.flow.append(self.make_tile(info))
+        reg.icone_gtk()
+        for app in reg.menu():
+            self.flow.append(self.make_tile(app))
+
+    def _cambiate(self):
+        self._da_rifare = True
+        # l'installazione scrive piu' file di seguito: si aspetta che finisca
+        if self._attesa_nuove:
+            GLib.source_remove(self._attesa_nuove)
+        self._attesa_nuove = GLib.timeout_add_seconds(3, self._annuncia_nuove)
+
+    def _annuncia_nuove(self):
+        self._attesa_nuove = 0
+        # app tolte anche da fuori (Synaptic, terminale): via i collegamenti
+        # di ZETA rimasti senza app; icone del Dock allineate
+        for nome in reg.manutenzione():
+            menu_app.avviso("«%s» non è più installata" % nome,
+                            "Tolti i suoi collegamenti dal Dock e dalla Scrivania.")
+        # un'app mancante si toglie solo se manca ancora dopo un po' (apt
+        # puo' toglierla e rimetterla): si ricontrolla da soli
+        if reg.orfane_in_attesa() and not self._ricontrollo:
+            self._ricontrollo = GLib.timeout_add_seconds(reg.ATTESA_ORFANI + 5, self._ricontrolla)
+        ora = reg.tutte(rileggi=True)
+        for a in ora:
+            if a.id in self._note or not a.nel_menu and a.avviabile:
+                continue
+            if a.servizio or a.nascosta:
+                continue
+            if a.avviabile:
+                menu_app.avviso("«%s» è nel menu delle app" % a.nome,
+                                "%s · %s" % (reg.FONTI.get(a.fonte, a.fonte), a.eseguibile))
+            else:
+                menu_app.avviso("«%s» installata, ma non si avvia" % a.nome,
+                                "Il programma indicato non esiste: %s" % (a.comando or "?"))
+        self._note = {a.id for a in ora}
+        return False
+
+    def _ricontrolla(self):
+        self._ricontrollo = 0
+        self._annuncia_nuove()
+        return False
 
     def prepara(self):
         """Ogni volta che compare: ricerca vuota, tutte le app, in cima."""
@@ -202,37 +230,49 @@ class Launcher(Gtk.ApplicationWindow):
 
     def nascondi(self):
         # resta in memoria, nascosto: la prossima apertura e' immediata
+        self.menu.chiudi()
         self.set_visible(False)
 
-    def make_tile(self, info):
+    def make_tile(self, app):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         icon = Gtk.Image(pixel_size=56)
         icon.add_css_class("zeta-app-icon")
-        if info.get_icon():
-            icon.set_from_gicon(info.get_icon())
-        else:
+        try:
+            icon.set_from_gicon(Gio.Icon.new_for_string(app.icona or "application-x-executable"))
+        except GLib.Error:
             icon.set_from_icon_name("application-x-executable")
-        name = NAMES.get(info.get_id(), info.get_display_name())
-        label = Gtk.Label(label=name, ellipsize=Pango.EllipsizeMode.END,
+        label = Gtk.Label(label=app.nome, ellipsize=Pango.EllipsizeMode.END,
                           max_width_chars=14, justify=Gtk.Justification.CENTER)
         label.add_css_class("zeta-app-label")
         box.append(icon)
         box.append(label)
 
-        button = Gtk.Button(child=box, tooltip_text=info.get_description() or info.get_display_name())
+        button = Gtk.Button(child=box, tooltip_text=app.descrizione or app.nome)
         button.add_css_class("zeta-app")
-        button.connect("clicked", lambda *_: self.launch(info))
+        button.connect("clicked", lambda *_: self.launch(app))
+        # tasto destro: Apri, posizione, Scrivania, Dock, Informazioni, togli,
+        # disinstalla (lo stesso menu della ricerca)
+        destro = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+        destro.connect("pressed", lambda g, _n, x, y: self._apri_menu(g.get_widget(), x, y, app))
+        button.add_controller(destro)
 
         child = Gtk.FlowBoxChild(child=button)
-        child.info = info
-        child.sort_key = GLib.utf8_collate_key(name.casefold(), -1)
-        child.nome = name.casefold()
-        cats = info.get_categories() if isinstance(info, Gio.DesktopAppInfo) else None
-        child.cats = set((cats or "").split(";"))
-        keywords = info.get_keywords() if isinstance(info, Gio.DesktopAppInfo) else []
-        child.haystack = " ".join([name, info.get_display_name(), info.get_name(), info.get_executable() or ""]
-                                  + list(keywords or [])).casefold()
+        child.app = app
+        child.sort_key = GLib.utf8_collate_key(app.nome.casefold(), -1)
+        child.nome = app.nome.casefold()
+        child.cats = set(app.categorie)
+        child.haystack = " ".join([app.nome, app.id, os.path.basename(app.eseguibile),
+                                   app.descrizione] + app.parole).casefold()
         return child
+
+    def _apri_menu(self, widget, x, y, app):
+        self.menu.apri(widget, x, y, menu_app.voci_app(app, self.launch, self._dopo_menu))
+
+    def _dopo_menu(self):
+        # si chiude subito; l'elenco (app tolta dal menu, nuova icona) si rifa'
+        # alla prossima apertura
+        self.nascondi()
+        self._da_rifare = True
 
     def _pertinenza(self, child):
         """Quanto un'app corrisponde a cio' che si sta scrivendo (0 = meglio).
@@ -292,26 +332,31 @@ class Launcher(Gtk.ApplicationWindow):
     def launch_first(self):
         first = next(self.visible_children(), None)
         if first:
-            self.launch(first.info)
+            self.launch(first.app)
 
-    def launch(self, info):
+    def launch(self, app):
         ctx = Gdk.Display.get_default().get_app_launch_context()
-        ctx.unsetenv("LD_PRELOAD")
-        try:
-            info.launch([], ctx)
-        except GLib.Error as e:
-            print("Impossibile avviare %s: %s" % (info.get_display_name(), e.message), file=sys.stderr)
+        if not reg.avvia(app, ctx):
+            print("Impossibile avviare %s" % app.nome, file=sys.stderr)
         self.nascondi()
 
     def on_key(self, _ctrl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape:
-            self.nascondi()
+            if self.menu.aperto():
+                self.menu.chiudi()
+            else:
+                self.nascondi()
             return True
         if not self.search.get_focus_child() and Gdk.keyval_to_unicode(keyval):
             self.search.grab_focus()
         return False
 
     def on_background_click(self, gesture, _n, x, y):
+        # menu del tasto destro aperto: un clic fuori chiude solo il menu
+        if self.menu.aperto():
+            if not self.menu.contiene(self.pick(x, y, Gtk.PickFlags.DEFAULT)):
+                self.menu.chiudi()
+            return
         picked = self.pick(x, y, Gtk.PickFlags.DEFAULT)
         widget = picked
         while widget is not None and widget is not self:

@@ -20,6 +20,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 HOME = Path(os.path.expanduser("~"))
@@ -95,6 +96,17 @@ def _kind(ext: str) -> str:
     return "file"
 
 
+def _utf8(nome: str) -> bool:
+    """Nomi non UTF-8 (vecchi zip, dischi di Windows) diventano in Python
+    stringhe con «surrogati» che SQLite e GTK rifiutano: si saltano, invece di
+    fermare tutta l'indicizzazione."""
+    try:
+        nome.encode("utf-8")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 def _iter_files():
     seen_roots = set()
     for root in ROOTS:
@@ -109,12 +121,12 @@ def _iter_files():
                 dirnames[:] = []
                 continue
             dirnames[:] = [d for d in dirnames
-                           if not d.startswith(".") and d not in EXCLUDE_NAMES]
+                           if not d.startswith(".") and d not in EXCLUDE_NAMES and _utf8(d)]
             # la home stessa: solo i file di primo livello, non tutte le sottocartelle
             if root == HOME and depth == 0:
                 dirnames[:] = []
             for name in filenames:
-                if name.startswith("."):
+                if name.startswith(".") or not _utf8(name):
                     continue
                 yield Path(dirpath) / name
 
@@ -141,12 +153,17 @@ def reindex(full: bool = False) -> dict:
         prev = known.get(sp)
         if prev and abs(prev[0] - st.st_mtime) < 1 and prev[1] == st.st_size:
             continue
-        content = _extract_text(path, ext, ocr_left)
-        db.execute("DELETE FROM docs WHERE path = ?", (sp,))
-        db.execute("INSERT INTO docs (path, name, kind, content) VALUES (?,?,?,?)",
-                   (sp, path.name, _kind(ext), content))
-        db.execute("INSERT OR REPLACE INTO meta (path, mtime, size) VALUES (?,?,?)",
-                   (sp, st.st_mtime, st.st_size))
+        try:
+            content = _extract_text(path, ext, ocr_left)
+            db.execute("DELETE FROM docs WHERE path = ?", (sp,))
+            db.execute("INSERT INTO docs (path, name, kind, content) VALUES (?,?,?,?)",
+                       (sp, path.name, _kind(ext), content))
+            db.execute("INSERT OR REPLACE INTO meta (path, mtime, size) VALUES (?,?,?)",
+                       (sp, st.st_mtime, st.st_size))
+        except (sqlite3.Error, UnicodeError, ValueError) as e:
+            # un file strano non deve fermare l'indice di tutti gli altri
+            print("indice: salto %r: %s" % (sp, e), file=sys.stderr)
+            continue
         if prev:
             updated += 1
         else:

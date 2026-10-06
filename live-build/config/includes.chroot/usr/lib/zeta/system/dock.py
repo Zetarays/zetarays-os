@@ -10,8 +10,8 @@ intatta: non si genera mai un file rotto.
 from __future__ import annotations
 
 import json
+import shlex
 import os
-import re
 import signal
 import subprocess
 from pathlib import Path
@@ -22,12 +22,6 @@ DOCK_FILE = CFG / "dock.json"
 WAYBAR = HOME / ".config" / "waybar" / "config.jsonc"
 
 SEGNALE_DOCK = 12        # SIGRTMIN+12: finestre aperte/chiuse (lo manda zeta-spazi)
-
-ICON_DIRS = [
-    "/usr/share/icons/zeta/scalable/apps",
-    "/usr/share/icons/hicolor/scalable/apps",
-    "/usr/share/pixmaps",
-]
 
 # Dock predefinito: accesso immediato alle funzioni principali del sistema.
 DEFAULT = [
@@ -47,58 +41,34 @@ DEFAULT = [
 ]
 
 
+def _registro():
+    import sys
+    if "/usr/lib/zeta" not in sys.path:
+        sys.path.insert(0, "/usr/lib/zeta")
+    from system import applicazioni
+    return applicazioni
+
+
 def resolve_icon(name: str) -> str:
-    """Nome icona -> percorso di un file, cercando prima nel tema di ZETA RAYS."""
-    if os.path.isabs(name) and os.path.exists(name):
-        return name
-    for d in ICON_DIRS:
-        for ext in (".svg", ".png"):
-            p = os.path.join(d, name + ext)
-            if os.path.exists(p):
-                return p
-    # ripiego: icona generica
-    fallback = "/usr/share/icons/zeta/scalable/apps/zeta-app.svg"
-    return fallback if os.path.exists(fallback) else name
-
-
-def _read_desktop(path: Path) -> dict | None:
-    try:
-        txt = path.read_text(errors="replace")
-    except OSError:
-        return None
-    d = {}
-    in_entry = False
-    for line in txt.splitlines():
-        if line.strip() == "[Desktop Entry]":
-            in_entry = True
-            continue
-        if in_entry and line.startswith("["):
-            break
-        if in_entry and "=" in line:
-            k, _, v = line.partition("=")
-            d.setdefault(k.strip(), v.strip())
-    if d.get("Type") != "Application" or d.get("NoDisplay") == "true":
-        return None
-    exec_ = re.sub(r"%[a-zA-Z]", "", d.get("Exec", "")).strip()
-    if not exec_:
-        return None
-    return {"id": path.stem, "name": d.get("Name", path.stem),
-            "icon": d.get("Icon", ""), "exec": exec_}
+    """Nome icona -> percorso di un file: lo stesso risultato del menu delle
+    app (tema ZETA RAYS, Adwaita, hicolor in tutte le misure, app Flatpak e
+    della home, pixmaps). Prima qui si guardavano solo tre cartelle e le app
+    con l'icona solo in PNG (48x48, 256x256...) avevano nel Dock quella
+    generica."""
+    return _registro().icona_file(name)
 
 
 def installed_apps() -> list[dict]:
-    """Applicazioni grafiche installate, per la scelta del dock."""
-    apps, seen = [], set()
-    for d in ("/usr/share/applications", str(HOME / ".local/share/applications")):
-        if not os.path.isdir(d):
-            continue
-        for path in sorted(Path(d).glob("*.desktop")):
-            info = _read_desktop(path)
-            if info and info["name"].lower() not in seen:
-                seen.add(info["name"].lower())
-                apps.append(info)
-    apps.sort(key=lambda a: a["name"].lower())
-    return apps
+    """Applicazioni per la scelta del Dock: le stesse del menu."""
+    return [{"id": a.id, "name": a.nome, "icon": a.icona, "exec": a.comando}
+            for a in _registro().menu()]
+
+
+def voce_da_app(app) -> dict:
+    """Voce del Dock per un'app del registro: si avvia come dal menu
+    (zeta-app avvia), e l'id evita i doppioni e serve a toglierla."""
+    return {"app": app.id, "cmd": "zeta-app avvia %s" % shlex.quote(app.id),
+            "name": app.nome, "icon": app.icona}
 
 
 def load_dock() -> list[dict]:
@@ -127,8 +97,25 @@ def save_dock(entries: list[dict]) -> None:
 
 
 def entry_from_desktop(app: dict) -> dict:
-    """Converte una app installata in una voce del dock."""
+    """Converte una app di installed_apps() in una voce del dock."""
+    a = _registro().trova(app.get("id", ""))
+    if a is not None:
+        return voce_da_app(a)
     return {"cmd": app["exec"], "name": app["name"], "icon": app.get("icon", "")}
+
+
+def presenti() -> set:
+    """Id delle app gia' nel Dock (anche voci vecchie, senza id)."""
+    reg = _registro()
+    ids = set()
+    for e in load_dock():
+        if e.get("app"):
+            ids.add(e["app"])
+        else:
+            a = reg.da_comando(e.get("cmd", ""))
+            if a is not None:
+                ids.add(a.id)
+    return ids
 
 
 def posizione() -> str:
@@ -160,11 +147,18 @@ def render_config(dock: list[dict]) -> dict:
     dock_modules = []
     images = {}
     size = icon_size()
+    reg = _registro()
     for i, e in enumerate(dock):
         key = "image#dock%d" % i
         dock_modules.append(key)
+        # l'icona viene dal registro delle app: se l'app la cambia (un
+        # aggiornamento, o «Cambia icona…») il Dock la segue
+        icona = e.get("icon", "")
+        app = reg.trova(e["app"]) if e.get("app") else reg.da_comando(e.get("cmd", ""))
+        if app is not None and (e.get("app") or app.icona_personale) and app.icona:
+            icona = app.icona
         images[key] = {
-            "path": resolve_icon(e.get("icon", "")),
+            "path": resolve_icon(icona),
             "size": size, "tooltip": False,
             "on-click": e["cmd"],
         }
@@ -277,6 +271,19 @@ def reload_waybar() -> None:
                 os.kill(int(pid), signal.SIGUSR2)
         except (OSError, ValueError, subprocess.SubprocessError):
             pass
+
+
+def apply_se_cambia() -> bool:
+    """Rigenera la barra solo se il risultato e' diverso da quello attuale
+    (icone cambiate, app sparite): niente ricariche inutili di Waybar."""
+    try:
+        attuale = WAYBAR.read_text()
+        attuale = json.loads(attuale[attuale.index("{"):])
+    except (OSError, ValueError):
+        attuale = None
+    if attuale == json.loads(json.dumps(render_config(load_dock()))):
+        return False
+    return apply()
 
 
 def apply(dock: list[dict] | None = None, reload: bool = True) -> bool:

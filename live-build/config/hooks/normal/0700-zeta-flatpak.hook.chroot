@@ -1,0 +1,15 @@
+#!/bin/sh
+# ZETA RAYS — Flathub, il catalogo ufficiale delle app Flatpak, gia' pronto:
+# «flatpak install flathub org.gimp.GIMP» o il pulsante «Install» del sito
+# (file .flatpakref, aperto da zeta-app) funzionano subito.
+# Fatale: senza il catalogo le app Flatpak non si installano.
+set -e
+for tentativo in 1 2 3; do
+    if flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo; then
+        break
+    fi
+    [ "$tentativo" = 3 ] && { echo "ZETA RAYS: ERRORE, Flathub non raggiungibile" >&2; exit 1; }
+    sleep 10
+done
+flatpak remotes --system | grep -q '^flathub' || { echo "ZETA RAYS: ERRORE, manca Flathub" >&2; exit 1; }
+echo "ZETA RAYS: Flathub configurato"

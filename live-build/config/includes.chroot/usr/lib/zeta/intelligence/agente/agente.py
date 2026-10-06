@@ -38,6 +38,8 @@ def _registra(nome, args, esito, origine):
     try:
         os.makedirs(os.path.dirname(LOG), exist_ok=True)
         sicuri = {k: ("***" if k in SEGRETI and v else v) for k, v in (args or {}).items()}
+        if os.path.exists(LOG) and os.path.getsize(LOG) > 1_000_000:
+            os.replace(LOG, LOG + ".1")          # il registro resta corto
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps({"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "azione": nome, "args": sicuri,
                                 "ok": esito.ok, "esito": esito.messaggio[:300], "origine": origine},

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installa programma
+Comment=Installa un pacchetto .deb o un'app Flatpak con un doppio clic
+Exec=zeta-app installa %f
+Icon=system-software-install
+NoDisplay=true
+Terminal=false
+MimeType=application/vnd.debian.binary-package;application/x-deb;application/x-debian-package;application/vnd.flatpak.ref;application/vnd.flatpak;

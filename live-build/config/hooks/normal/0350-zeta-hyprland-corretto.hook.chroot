@@ -7,21 +7,23 @@
 # desktop: crash in CPopup::coordsRelativeToParent. Il pacchetto installato qui
 # e' il sorgente Debian ufficiale con solo quella correzione, compilato con le
 # stesse librerie del pacchetto ufficiale (tools/build-hyprland-zeta.sh).
-# Versione 0.55.2+ds-1~bpo13+1+zeta1: un Hyprland piu' nuovo dai backports
-# (0.56 e oltre, che hanno gia' la correzione) lo sostituisce da solo.
+# Versione 0.55.2+ds-1~bpo13+1+zeta2, con anche la correzione della finestra
+# ingrandita all'avvio (Blender). Bloccata (apt-mark hold): un Hyprland piu'
+# nuovo dai backports toglierebbe la correzione e cambia la configurazione Lua.
 #
 # Fatale: senza correzione l immagine non deve uscire.
 set -e
 D=/usr/share/zeta/hyprland-corretto
 A=$(dpkg --print-architecture)
-DEB=$(ls "$D"/hyprland_*zeta1_"$A".deb)
+DEB=$(ls "$D"/hyprland_*zeta2_"$A".deb)
 echo "ZETA RAYS: installo $(basename "$DEB")"
 apt-get install -y --no-install-recommends "$DEB"
 V=$(dpkg-query -W -f='${Version}' hyprland)
 case "$V" in
-    *+zeta1) echo "ZETA RAYS: Hyprland $V" ;;
+    *+zeta2) echo "ZETA RAYS: Hyprland $V" ;;
     *) echo "ZETA RAYS: ERRORE, Hyprland installato e' $V" >&2; exit 1 ;;
 esac
+apt-mark hold hyprland
 if ldd /usr/bin/Hyprland | grep -q "not found"; then
     ldd /usr/bin/Hyprland | grep "not found" >&2
     exit 1

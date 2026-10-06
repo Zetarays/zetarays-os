@@ -1,0 +1,153 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — installa o toglie pacchetti Debian per il menu delle app.
+
+Si avvia solo con pkexec (azione org.zetarays.pacchetti, password di un
+amministratore). Due operazioni, nient'altro:
+
+  zeta-pacchetti rimuovi PACCHETTO...   apt-get remove, dopo una simulazione
+  zeta-pacchetti installa FILE.deb      apt-get install ./file.deb (con le
+                                        dipendenze dai repository)
+
+Prima di agire si simula: se apt volesse togliere un componente del sistema
+(anche solo come effetto collaterale: togliere una libreria toglie chi la
+usa) ci si ferma e non si tocca niente. Se un'operazione precedente era
+rimasta a meta' (dpkg interrotto) la si completa prima. L'esito e' una riga
+JSON sull'uscita standard; il resto (l'avanzamento di apt) va sull'errore.
+"""
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system.applicazioni import pacchetto_di_sistema as di_sistema, simula_apt as simula  # noqa: E402
+
+# niente «+» o «-» finale: per apt «pacchetto+» in una rimozione vuol dire installarlo
+NOME = re.compile(r"^[a-z0-9][a-z0-9+.-]*[a-z0-9](:[a-z0-9]+)?$")
+ENV = dict(os.environ, DEBIAN_FRONTEND="noninteractive", LANG="C.UTF-8", LC_ALL="C.UTF-8",
+           APT_LISTCHANGES_FRONTEND="none")
+
+
+def esci(codice, **dati):
+    print(json.dumps(dati, ensure_ascii=False), flush=True)
+    sys.exit(codice)
+
+
+def apt(argv, timeout=3600):
+    try:
+        p = subprocess.run(["apt-get", "-y", "-o", "Dpkg::Options::=--force-confdef",
+                            "-o", "Dpkg::Options::=--force-confold"] + argv,
+                           env=ENV, stdout=sys.stderr, stderr=sys.stderr, timeout=timeout)
+        return p.returncode
+    except subprocess.TimeoutExpired:
+        return 124
+
+
+def protetti(via):
+    return [p for p in via if di_sistema(p)]
+
+
+def ripara():
+    """Un'installazione interrotta lascia dpkg a meta': prima si completa.
+    Anche la riparazione passa dalla simulazione: «apt-get -f install» puo'
+    togliere pacchetti, e quelli del sistema non si toccano mai."""
+    if not subprocess.run(["dpkg", "--audit"], capture_output=True, text=True).stdout.strip():
+        return
+    subprocess.run(["dpkg", "--configure", "-a"], env=ENV, stdout=sys.stderr, stderr=sys.stderr)
+    rc, via, _su, msg = simula(["-f", "install"])
+    if rc != 0:
+        esci(1, errore="il sistema dei pacchetti va riparato a mano (sudo apt -f install): " + msg)
+    bloccati = protetti(via)
+    if bloccati:
+        esci(1, errore="la riparazione toglierebbe componenti del sistema (%s): fermato. "
+                       "Ripara a mano con sudo apt -f install." % ", ".join(bloccati[:8]))
+    apt(["-f", "install"])
+
+
+def rimuovi(pacchetti):
+    if not pacchetti or not all(NOME.match(p) for p in pacchetti):
+        esci(2, errore="nome di pacchetto non valido")
+    ripara()
+    rc, via, su, msg = simula(["remove"] + pacchetti)
+    if rc != 0:
+        esci(1, errore="apt non può togliere il pacchetto: " + msg)
+    if su:
+        esci(1, errore="una rimozione non deve installare nulla (%s)" % ", ".join(su[:5]))
+    bloccati = protetti(via)
+    if bloccati:
+        esci(1, errore="toglierebbe componenti del sistema: " + ", ".join(bloccati[:8]), tolti=via)
+    rc = apt(["remove"] + pacchetti)
+    if rc != 0:
+        esci(1, tolti=via, errore="apt-get remove: codice %d" % rc)
+    esci(0, tolti=via)
+
+
+def installa(origine):
+    origine = os.path.realpath(origine)
+    if not origine.endswith(".deb"):
+        esci(2, errore="non è un pacchetto .deb")
+    # si apre il file una volta sola, senza seguire collegamenti, e si copia da
+    # li': tra il controllo e la copia nessuno puo' scambiarlo con un
+    # collegamento a un file di sistema (/etc/shadow...)
+    try:
+        fd = os.open(origine, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        esci(2, errore="non riesco ad aprire il pacchetto")
+    with os.fdopen(fd, "rb") as sorgente:
+        if not stat.S_ISREG(os.fstat(sorgente.fileno()).st_mode):
+            esci(2, errore="non è un pacchetto .deb")
+        # copia in una cartella di root: il file controllato e' quello installato
+        cartella = tempfile.mkdtemp(prefix="zeta-pacchetti-", dir="/var/tmp")
+        deb = os.path.join(cartella, "pacchetto.deb")
+        try:
+            with open(os.open(deb, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as copia:
+                shutil.copyfileobj(sorgente, copia)
+        except OSError as e:
+            shutil.rmtree(cartella, ignore_errors=True)
+            esci(1, errore="non riesco a copiare il pacchetto: %s" % e.strerror)
+    try:
+        r = subprocess.run(["dpkg-deb", "-f", deb, "Package", "Architecture"], capture_output=True, text=True)
+        if r.returncode != 0:
+            esci(1, errore="il file non è un pacchetto Debian valido")
+        # solo un pacchetto vero diventa leggibile da _apt (che scarica le dipendenze)
+        os.chmod(cartella, 0o755)
+        os.chmod(deb, 0o644)
+        nome, arch = (r.stdout.split("\n") + ["", ""])[:2]
+        nome = nome.split(":", 1)[-1].strip()
+        arch = arch.split(":", 1)[-1].strip()
+        mia = subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True).stdout.strip()
+        if arch not in ("all", mia):
+            esci(1, errore="il pacchetto è per %s, questo computer è %s" % (arch, mia))
+        ripara()
+        rc, via, su, msg = simula(["install", deb])
+        if rc != 0:
+            esci(1, errore="dipendenze non soddisfatte: " + msg)
+        bloccati = protetti(via)
+        if bloccati:
+            esci(1, errore="toglierebbe componenti del sistema: " + ", ".join(bloccati[:8]))
+        rc = apt(["install", deb])
+        if rc != 0:
+            ripara()
+            esci(1, errore="installazione non riuscita (codice %d): il sistema è stato rimesso in ordine" % rc)
+        esci(0, installato=nome, aggiunti=su)
+    finally:
+        shutil.rmtree(cartella, ignore_errors=True)
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        esci(2, errore="serve pkexec")
+    if len(argv) >= 2 and argv[0] == "rimuovi":
+        rimuovi(argv[1:])
+    if len(argv) == 2 and argv[0] == "installa":
+        installa(argv[1])
+    esci(2, errore="uso: rimuovi PACCHETTO... | installa FILE.deb")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

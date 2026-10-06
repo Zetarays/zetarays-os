@@ -83,6 +83,11 @@ fi
 SEGNO="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/zeta-ripresa"
 rm -f "$SEGNO"
 while true; do
+    # registro di Hyprland: si tiene corto (oltre 2 MB passa a .1), senza
+    # crescere sessione dopo sessione
+    if [ "$(stat -c %s "$LOGDIR/hyprland.log" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+        mv -f "$LOGDIR/hyprland.log" "$LOGDIR/hyprland.log.1"
+    fi
     start-hyprland >> "$LOGDIR/hyprland.log" 2>&1
     rc=$?
     [ -f "$SEGNO" ] || exit "$rc"

@@ -1,0 +1,10 @@
+[Unit]
+Description=ZETA RAYS: integra le AppImage nel menu
+
+[Service]
+Type=oneshot
+# un download in corso cambia il file piu' volte: si aspetta un attimo
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/local/bin/zeta-app appimage
+Nice=10
+IOSchedulingClass=idle

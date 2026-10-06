@@ -32,6 +32,21 @@ curl
 nano
 htop
 
+# --- Programmi: Flatpak e AppImage ---
+# Flatpak (con Flathub) e le AppImage come app vere del sistema: nel menu,
+# nel Dock, nella ricerca, con icona e percorso (zeta-app). libfuse2 serve
+# alle AppImage per avviarsi; unsquashfs ne legge nome e icona senza
+# eseguirle.
+flatpak
+libfuse2t64
+squashfs-tools
+
+# --- Password dei server ---
+# «Ricorda la password» di Connetti a un server (e del gestore file) la
+# salva nel portachiavi, sbloccato all'accesso (PAM di SDDM gia' predisposto)
+gnome-keyring
+libpam-gnome-keyring
+
 # --- Orologio ---
 # Senza un client NTP l'ora veniva solo dall'orologio della macchina: con
 # VMware Fusion o accanto a Windows (orologio in ora locale) restava sbagliata

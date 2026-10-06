@@ -1,18 +1,27 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Ricompila Hyprland 0.55.2 (sorgente Debian ufficiale, trixie-backports) con
-# la correzione ufficiale #15416 (Hyprland 0.56.0): «desktop/popup: fix crash
-# on destroy». Senza, chiudere di colpo un programma che ha un menu a comparsa
-# aperto (Firefox che si pianta, uscita forzata) fa cadere tutto il desktop.
+# due correzioni:
+#  - la #15416 ufficiale (Hyprland 0.56.0), «desktop/popup: fix crash on
+#    destroy»: senza, chiudere di colpo un programma con un menu a comparsa
+#    aperto (Firefox che si pianta, uscita forzata) fa cadere tutto il desktop;
+#  - la richiesta di finestra ingrandita fatta all'avvio, che veniva scartata
+#    (Blender ufficiale restava minuscolo).
 #   tools/build-hyprland-zeta.sh arm64|amd64
 set -euo pipefail
 ARCH="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/cache/hyprland-zeta/$ARCH"
 mkdir -p "$OUT"
-docker run --rm --platform "linux/$ARCH" -e PARALLELO="${PARALLELO:-}" -v "$OUT:/out" debian:trixie bash -euxo pipefail -c '
-  echo "deb http://deb.debian.org/debian trixie-backports main" > /etc/apt/sources.list.d/bp.list
-  echo "deb-src http://deb.debian.org/debian trixie-backports main" >> /etc/apt/sources.list.d/bp.list
+# I backports di Debian cambiano: dal 3 ottobre 2026 hyprutils 0.14 non
+# compila piu' aquamarine 0.11 ne' Hyprland 0.55.2. Si compila contro i
+# backports com'erano il 27 settembre 2026 (snapshot.debian.org), cioe' le
+# stesse librerie del pacchetto ufficiale e delle immagini: build riproducibile.
+SNAP="${SNAPSHOT:-20260927T000000Z}"
+docker run --rm --platform "linux/$ARCH" -e PARALLELO="${PARALLELO:-}" -e SNAP="$SNAP" -v "$OUT:/out" debian:trixie bash -euxo pipefail -c '
+  echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/$SNAP trixie-backports main" > /etc/apt/sources.list.d/bp.list
+  echo "deb-src [check-valid-until=no] http://snapshot.debian.org/archive/debian/$SNAP trixie-backports main" >> /etc/apt/sources.list.d/bp.list
+  echo "Acquire::Retries \"5\";" > /etc/apt/apt.conf.d/80riprova
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends build-essential devscripts dpkg-dev fakeroot python3 >/dev/null
   # Stesse librerie dell Hyprland ufficiale di trixie-backports (compilato con
@@ -24,7 +33,7 @@ docker run --rm --platform "linux/$ARCH" -e PARALLELO="${PARALLELO:-}" -v "$OUT:
   apt-get build-dep -y -qq aquamarine=$AQ >/dev/null
   mkdir -p /aq && cd /aq
   apt-get source -qq aquamarine=$AQ
-  (cd aquamarine-0.11.0 && DEB_BUILD_OPTIONS="nocheck parallel=${PARALLELO:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -2)
+  (cd aquamarine-0.11.0 && DEB_BUILD_OPTIONS="nocheck parallel=${PARALLELO:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -15)
   apt-get install -y -qq --allow-downgrades ./libaquamarine10_${AQ}_*.deb ./libaquamarine-dev_${AQ}_*.deb >/dev/null
   apt-mark hold libaquamarine-dev libaquamarine10
   cd /
@@ -74,10 +83,45 @@ s = s[:m.end()] + "\n" + agg + s[m.end():]
 io.open(p, "w", encoding="utf-8").write(s)
 print("correzione 2/2 applicata")
 PY
-  DEBEMAIL="zeta@zetarays.org" DEBFULLNAME="ZETA RAYS" dch --local +zeta "Correzione ufficiale #15416 (Hyprland 0.56.0): niente crash quando un menu a comparsa viene distrutto con la sua finestra."
+  # Correzione 3: la richiesta di finestra ingrandita fatta da un programma
+  # PRIMA di comparire (xdg_toplevel.set_maximized prima del primo disegno, o
+  # _NET_WM_STATE_MAXIMIZED su X11) veniva scartata: onUpdateState la gestiva
+  # solo per finestre gia mappate, mentre quella a schermo intero viene
+  # ricordata (m_wantsInitialFullscreen). Il programma (Blender ufficiale, che
+  # parte cosi) crede di essere ingrandito e resta alla misura provvisoria,
+  # a volte minuscola. Ora la richiesta si ricorda e si applica alla
+  # comparsa, rispettando suppress_event maximize come gia prevede onMap.
+  python3 - <<PY
+import io
+def rep(p, a, b):
+    s = io.open(p, encoding="utf-8").read()
+    assert s.count(a) == 1, ("NON TROVATO", p, a)
+    io.open(p, "w", encoding="utf-8").write(s.replace(a, b))
+rep("src/desktop/view/Window.hpp",
+    "        bool      m_wantsInitialFullscreen        = false;\n",
+    "        bool      m_wantsInitialFullscreen        = false;\n        bool      m_wantsInitialMaximize          = false;\n")
+rep("src/desktop/view/Window.cpp",
+    """    if (requestsMX.has_value() && !(m_suppressedEvents & SUPPRESS_MAXIMIZE)) {
+        if (m_isMapped) {""",
+    """    if (requestsMX.has_value() && !(m_suppressedEvents & SUPPRESS_MAXIMIZE)) {
+        if (!m_isMapped)
+            m_wantsInitialMaximize = requestsMX.value();
+        if (m_isMapped) {""")
+rep("src/desktop/view/Window.cpp",
+    """    if (m_wantsInitialFullscreen || (m_isX11 && m_xwaylandSurface->m_fullscreen))
+        requestedClientFSMode = FSMODE_FULLSCREEN;
+""",
+    """    if (m_wantsInitialFullscreen || (m_isX11 && m_xwaylandSurface->m_fullscreen))
+        requestedClientFSMode = FSMODE_FULLSCREEN;
+    else if (m_wantsInitialMaximize)
+        requestedClientFSMode = FSMODE_MAXIMIZED;
+""")
+print("correzione 3 applicata (ingrandimento iniziale)")
+PY
+  DEBEMAIL="zeta@zetarays.org" DEBFULLNAME="ZETA RAYS" dch -v "$(dpkg-parsechangelog -S Version)+zeta2" "Correzione ufficiale #15416 (Hyprland 0.56.0): niente crash quando un menu a comparsa viene distrutto con la sua finestra. Richiesta di finestra ingrandita all avvio rispettata (prima veniva scartata)."
   DEB_BUILD_OPTIONS="nocheck parallel=${PARALLELO:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -5
-  dpkg-deb -f ../hyprland_*zeta1_*.deb Depends | tr "," "\n" | grep -E "aquamarine|hypr"
-  dpkg-deb -f ../hyprland_*zeta1_*.deb Depends | grep -q "libaquamarine10 " || { echo "DIPENDENZE DIVERSE DALL UFFICIALE"; exit 1; }
+  dpkg-deb -f ../hyprland_*zeta2_*.deb Depends | tr "," "\n" | grep -E "aquamarine|hypr"
+  dpkg-deb -f ../hyprland_*zeta2_*.deb Depends | grep -q "libaquamarine10 " || { echo "DIPENDENZE DIVERSE DALL UFFICIALE"; exit 1; }
   rm -f /out/*.deb
   cp -v ../*.deb /out/
   # le intestazioni di aquamarine 0.11 servono anche per compilare hyprbars

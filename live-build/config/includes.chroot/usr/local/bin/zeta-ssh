@@ -261,7 +261,9 @@ diagnosi() {
     t "Vicini (router)"
     ip neigh 2>/dev/null | head -8
     t "Filtro dell'indirizzo di ritorno (rp_filter: 0 spento, 1 rigido, 2 largo)"
-    for f in all default $(ls /sys/class/net | grep -v '^lo$'); do
+    for f in all default /sys/class/net/*; do
+        f=${f##*/}
+        [ "$f" = lo ] && continue
         printf '  %-10s %s\n' "$f" "$(sysctl -n net.ipv4.conf."$f".rp_filter 2>/dev/null)"
     done
     printf '  ip_forward %s\n' "$(sysctl -n net.ipv4.ip_forward)"

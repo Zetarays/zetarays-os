@@ -162,6 +162,19 @@ class NetworkPage(Adw.PreferencesPage):
         self.g_proxy.set_header_suffix(papply)
         self.add(self.g_proxy)
 
+        # Server e condivisioni: file di altri computer (Windows, Mac, NAS,
+        # SSH, FTP, WebDAV, NFS), con la finestra «Connetti a un server»
+        g_server = Adw.PreferencesGroup(title="Server e condivisioni")
+        srv = Adw.ActionRow(title="Connetti a un server",
+                            subtitle="Cartelle di PC Windows, Mac e NAS, server SSH, FTP, WebDAV e NFS, "
+                                     "nella rete di casa o su internet",
+                            activatable=True)
+        srv.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
+        srv.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        srv.connect("activated", lambda *_: _avvia_staccato("zeta-server"))
+        g_server.add(srv)
+        self.add(g_server)
+
         self.active_conn = None
         self.refresh()
         self.load_proxy()
@@ -777,7 +790,7 @@ class PrintersPage(Adw.PreferencesPage):
         parti.append(s["collegamento"])
         if s["lavori"]:
             parti.append("%d in coda" % s["lavori"])
-        r = Adw.ActionRow(title=s["descrizione"], subtitle=" · ".join(parti))
+        r = Adw.ActionRow(title=s["descrizione"], subtitle=" · ".join(parti), use_markup=False)
         r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
         if s["stato"] == "ferma":
             b = Gtk.Button(label="Riprendi", valign=Gtk.Align.CENTER)
@@ -850,7 +863,7 @@ class PrintersPage(Adw.PreferencesPage):
             sotto = t["collegamento"]
             if t["modello"] and t["modello"].lower() not in t["nome"].lower():
                 sotto += " · " + t["modello"]
-            r = Adw.ActionRow(title=t["nome"], subtitle=sotto)
+            r = Adw.ActionRow(title=t["nome"], subtitle=sotto, use_markup=False)
             r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
             b = Gtk.Button(label="Aggiungi", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
             b.connect("clicked", lambda btn, t=t: self._aggiungi(btn, t))
@@ -889,10 +902,19 @@ class PrintersPage(Adw.PreferencesPage):
         bg(lambda: stampanti.aggiungi_indirizzo(testo), fatto)
 
 
+_FIGLI = set()
+
+
 def _avvia_staccato(prog):
     try:
-        subprocess.Popen([prog], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen([prog], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _FIGLI.add(p)                 # niente zombie e niente doppia raccolta
+
+        def finito(_pid, stato, proc=p):
+            proc.returncode = stato
+            _FIGLI.discard(proc)
+        GLib.child_watch_add(GLib.PRIORITY_DEFAULT_IDLE, p.pid, finito)
     except OSError:
         pass
 
