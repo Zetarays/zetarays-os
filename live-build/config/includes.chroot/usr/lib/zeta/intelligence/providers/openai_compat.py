@@ -13,21 +13,27 @@ di collegamento elenca quelli che il servizio offre davvero.
 from __future__ import annotations
 
 import json
-from typing import Callable
+import re
+from typing import Callable, Iterator
 
 import urllib.parse
 import urllib.request
 
+from i18n import tr
+
 from .base import Message, Provider, ProviderError, Reply, ToolCall, ToolSpec
 
+# Modelli predefiniti verificati sulla documentazione dei servizi il 7 ottobre
+# 2026: i veloci ed economici, adatti a un assistente. Se uno sparisce, ZETA
+# ne sceglie da solo un altro fra quelli offerti (assistant.py).
 PRESETS = {
-    "openai":     ("OpenAI",     "https://api.openai.com/v1/chat/completions",   "gpt-5-mini"),
-    "deepseek":   ("DeepSeek",   "https://api.deepseek.com/v1/chat/completions", "deepseek-chat"),
-    "qwen":       ("Qwen",       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", "qwen-plus"),
+    "openai":     ("OpenAI",     "https://api.openai.com/v1/chat/completions",   "gpt-6-luna"),
+    "deepseek":   ("DeepSeek",   "https://api.deepseek.com/v1/chat/completions", "deepseek-flash"),
+    "qwen":       ("Qwen",       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", "qwen3.8-flash"),
     # Perplexity: risponde cercando sul web, con le fonti
     "perplexity": ("Perplexity", "https://api.perplexity.ai/chat/completions",   "sonar"),
     "mistral":    ("Mistral",    "https://api.mistral.ai/v1/chat/completions",   "mistral-small-latest"),
-    "groq":       ("Groq",       "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
+    "groq":       ("Groq",       "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-20b"),
     # xAI: l'interfaccia chat/completions e' quella compatibile («legacy» per xAI)
     "xai":        ("xAI Grok",   "https://api.x.ai/v1/chat/completions",         "grok-4.7"),
     # OpenRouter: una chiave sola per molti modelli; «auto» sceglie da se'
@@ -45,6 +51,21 @@ PRESETS = {
 #    comandi li riconosce gia' ZETA da solo (intents.py), prima del modello.
 SENZA_STRUMENTI = {"perplexity", "personalizzato"}
 
+# I modelli «che ragionano» di OpenAI (gpt-5 e successivi, serie o) rifiutano
+# max_tokens (vogliono max_completion_tokens) e una temperatura diversa da
+# quella di fabbrica: con questi due campi ZETA riceveva solo un errore 400.
+_OPENAI_RAGIONA = re.compile(r"^(gpt-[5-9]|o[1-9])")
+
+
+def _sforzo(model: str) -> str:
+    """Sforzo di ragionamento minimo: un assistente deve rispondere subito.
+    I primi gpt-5 conoscono «minimal»; dai gpt-5.1 in poi c'e' «none», e sulle
+    Chat Completions i gpt-6 usano le azioni solo con «none». Serie o: il loro."""
+    breve = model.split("-20", 1)[0]                # senza la data della versione
+    if breve in ("gpt-5", "gpt-5-mini", "gpt-5-nano"):
+        return "minimal"
+    return "none" if breve.startswith("gpt-") else ""
+
 # Servizi che possono girare sul computer stesso, senza chiave
 _HOST_LOCALI = ("localhost", "127.0.0.1", "::1")
 
@@ -53,6 +74,9 @@ class OpenAICompatProvider(Provider):
     # Un servizio che rifiuta le azioni lo si scopre alla prima risposta: da
     # li' in poi, per quel servizio, si scrive senza (vale per la sessione).
     _rifiuta_strumenti: set[str] = set()
+    # Campi che un servizio ha rifiutato (per servizio e modello): imparati
+    # dalla prima risposta 400, non si rimandano piu' nella sessione.
+    _adattamenti: dict[tuple[str, str], set[str]] = {}
 
     @property
     def usa_strumenti(self) -> bool:          # type: ignore[override]
@@ -87,6 +111,43 @@ class OpenAICompatProvider(Provider):
         out.extend({"role": m.role, "content": m.content} for m in messages)
         return out
 
+    def _base(self, messages: list[Message]) -> dict:
+        """La richiesta comune a chat e stream, nella forma che il servizio
+        e il modello accettano."""
+        model = self._model()
+        payload = {"model": model, "messages": self._messages(messages),
+                   "max_tokens": self.config.max_tokens,
+                   "temperature": self.config.temperature}
+        if self.config.name == "openai" and _OPENAI_RAGIONA.match(model):
+            payload["max_completion_tokens"] = payload.pop("max_tokens")
+            payload.pop("temperature")
+            if _sforzo(model):
+                payload["reasoning_effort"] = _sforzo(model)
+        for campo in self._adattamenti.get((self.config.name, model), ()):
+            self._togli(payload, campo)
+        return payload
+
+    @staticmethod
+    def _togli(payload: dict, campo: str) -> None:
+        if campo == "max_tokens" and "max_tokens" in payload:
+            payload["max_completion_tokens"] = payload.pop("max_tokens")
+        else:
+            payload.pop(campo, None)
+
+    def _adatta(self, payload: dict, e: ProviderError) -> bool:
+        """Un 400 che nomina un campo della richiesta («Unsupported parameter:
+        'max_tokens'», «temperature does not support 0.7»): lo si toglie e si
+        riprova. Vero se la richiesta e' cambiata."""
+        if e.status not in (400, 422):
+            return False
+        msg = str(e).lower()
+        for campo in ("max_tokens", "temperature", "reasoning_effort"):
+            if campo in payload and campo in msg:
+                self._togli(payload, campo)
+                self._adattamenti.setdefault((self.config.name, payload["model"]), set()).add(campo)
+                return True
+        return False
+
     def _tools(self, tools: list[ToolSpec] | None) -> list[dict] | None:
         if not tools:
             return None
@@ -95,24 +156,24 @@ class OpenAICompatProvider(Provider):
                               "parameters": t.schema}} for t in tools]
 
     def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None) -> Reply:
-        payload = {
-            "model": self._model(),
-            "messages": self._messages(messages),
-            "max_tokens": self.config.max_tokens,
-            "temperature": self.config.temperature,
-        }
+        payload = self._base(messages)
         tool_defs = self._tools(tools) if self.usa_strumenti else None
         if tool_defs:
             payload["tools"] = tool_defs
-        try:
-            data = self._post(self._url(), payload, self._headers())
-        except ProviderError as e:
-            # Molti servizi compatibili non accettano le azioni e rispondono
-            # 400/422: si riprova una volta senza, invece di fallire.
-            if not tool_defs or e.status not in (400, 404, 422):
-                raise
-            self._rifiuta_strumenti.add(self.config.name)
-            payload.pop("tools", None)
+        for _tentativo in range(4):
+            try:
+                data = self._post(self._url(), payload, self._headers())
+                break
+            except ProviderError as e:
+                if self._adatta(payload, e):
+                    continue
+                # Molti servizi compatibili non accettano le azioni e rispondono
+                # 400/422: si riprova senza, invece di fallire.
+                if "tools" not in payload or e.status not in (400, 404, 422):
+                    raise
+                self._rifiuta_strumenti.add(self.config.name)
+                payload.pop("tools", None)
+        else:
             data = self._post(self._url(), payload, self._headers())
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message", {})
@@ -133,15 +194,10 @@ class OpenAICompatProvider(Provider):
 
     def stream(self, messages: list[Message],
                on_text: Callable[[str], None]) -> Reply:
-        payload = {
-            "model": self._model(),
-            "messages": self._messages(messages),
-            "max_tokens": self.config.max_tokens,
-            "temperature": self.config.temperature,
-            "stream": True,
-        }
+        payload = self._base(messages)
+        payload["stream"] = True
         reply = Reply()
-        for raw in self._post_stream(self._url(), payload, self._headers()):
+        for raw in self._righe_stream(payload):
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
                 continue
@@ -158,6 +214,24 @@ class OpenAICompatProvider(Provider):
                 reply.text += chunk
                 on_text(chunk)
         return reply
+
+    def _righe_stream(self, payload: dict) -> Iterator[bytes]:
+        """Le righe della risposta in streaming; se il servizio rifiuta un campo
+        prima di cominciare, lo si toglie e si riprova (come in chat)."""
+        for _tentativo in range(3):
+            righe = self._post_stream(self._url(), payload, self._headers())
+            try:
+                prima = next(righe)
+            except StopIteration:
+                return
+            except ProviderError as e:
+                if self._adatta(payload, e):
+                    continue
+                raise
+            yield prima
+            yield from righe
+            return
+        yield from self._post_stream(self._url(), payload, self._headers())
 
     # --- prova di collegamento ---
     def modelli_offerti(self) -> list[str]:
@@ -177,17 +251,17 @@ class OpenAICompatProvider(Provider):
 
     def test(self, timeout: float = 25.0) -> tuple[bool, str]:
         if not self._url():
-            return False, "Manca l'indirizzo del servizio (endpoint)."
+            return False, tr("The service address (endpoint) is missing.")
         if not self._model():
-            return False, "Manca il nome del modello."
+            return False, tr("The model name is missing.")
         if not self.config.api_key and not self._locale():
-            return False, "Manca la chiave API."
+            return False, tr("The API key is missing.")
         ok, msg = super().test(timeout) if self.config.api_key else self._prova_locale(timeout)
         if not ok and any(k in msg.lower() for k in ("model", "modello", "404", "not found")):
             offerti = self._modelli_offerti()
             if offerti:
                 elenco = ", ".join(offerti[:12]) + ("…" if len(offerti) > 12 else "")
-                msg += " Modelli disponibili: %s" % elenco
+                msg += " " + tr("Available models: {models}").format(models=elenco)
         return ok, msg
 
     def _prova_locale(self, timeout: float) -> tuple[bool, str]:
@@ -197,7 +271,7 @@ class OpenAICompatProvider(Provider):
         self.config.max_tokens, self.timeout = 16, timeout
         try:
             self.chat([Message(role="user", content="ok")])
-            return True, "Collegato (modello %s)." % self._model()
+            return True, tr("Connected (model {model}).").format(model=self._model())
         except ProviderError as e:
             return False, str(e)
         finally:

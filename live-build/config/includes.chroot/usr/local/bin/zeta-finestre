@@ -14,6 +14,8 @@
                              riduce a icona la finestra attiva (o quella indicata)
   zeta-finestre ripristina <indirizzo>
   zeta-finestre conta        testo per la barra (vuoto se non c'è nulla di ridotto)
+  zeta-finestre recupera     tutte le finestre di nuovo dentro lo schermo, con la
+                             barra del titolo a portata (Super+Maiusc+W)
 
 Il pulsante «riduci» delle barre del titolo chiama «minimizza»: la finestra
 sparisce dallo schermo e torna da qui.
@@ -25,6 +27,7 @@ import threading
 
 sys.path.insert(0, "/usr/lib/zeta")
 from system import windows  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
 
 
 SCELTA = None          # finestra scelta col mirino, da confermare
@@ -32,7 +35,7 @@ MODO_FORZA = False
 
 
 def _avvisa(testo, attesa=False):
-    comando = ["notify-send", "-a", "ZETA RAYS", "-t", "5000", "Uscita forzata", testo]
+    comando = ["notify-send", "-a", "ZETA RAYS", "-t", "5000", tr("Force Quit Applications"), testo]
     try:
         if attesa:
             subprocess.run(comando, capture_output=True, timeout=5)
@@ -50,8 +53,8 @@ def _mirino():
     secondi, e il mirino deve comparire subito.
     """
     global SCELTA, MODO_FORZA
-    _avvisa("Clicca la finestra che non risponde. Esc per annullare, "
-            "clic sullo sfondo per l'elenco completo.")
+    _avvisa(tr("Click the window that isn't responding. Press Esc to cancel, "
+               "or click the background for the full list."))
     try:
         r = subprocess.run(["slurp", "-p", "-b", "#00000030", "-c", "#E5484DFF", "-w", "2"],
                            capture_output=True, text=True, timeout=120)
@@ -71,8 +74,8 @@ def _mirino():
         MODO_FORZA = True               # sfondo: elenco completo
         return None
     if windows.protetto(w.get("pid") or 0):
-        _avvisa("«%s» fa parte del desktop e non si termina da qui."
-                % (w.get("class") or w.get("title") or "Questa finestra"))
+        _avvisa(tr("“{name}” is part of the desktop and can't be ended from here.").format(
+            name=w.get("class") or w.get("title") or tr("This window")))
         return 0
     SCELTA = w
     return None
@@ -84,15 +87,17 @@ def _chiudi_attiva():
     ad aprirsi."""
     w = windows.active()
     if not w or not w.get("pid"):
-        _avvisa("Nessuna finestra attiva da chiudere.")
+        _avvisa(tr("No active window to close."))
         return 1
-    nome = (w.get("title") or w.get("class") or "il programma")[:60]
+    nome = (w.get("title") or w.get("class") or tr("the program"))[:60]
     if windows.protetto(w["pid"]):
-        _avvisa("«%s» fa parte del desktop e non si termina da qui." % nome)
+        _avvisa(tr("“{name}” is part of the desktop and can't be ended from here.").format(
+            name=nome))
         return 1
-    _avvisa("Chiudo «%s»…" % nome)
+    _avvisa(tr("Closing “{name}”…").format(name=nome))
     ok, msg = windows.force_quit(w["pid"], attesa=2.0)
-    _avvisa(("«%s»: %s" % (nome, msg)) if ok else ("«%s» non chiuso. %s" % (nome, msg)),
+    _avvisa(tr("“{name}”: {message}").format(name=nome, message=msg) if ok
+            else tr("“{name}” was not closed. {message}").format(name=nome, message=msg),
             attesa=True)
     return 0 if ok else 1
 
@@ -104,6 +109,10 @@ def cli():
         return _mirino()
     if cmd in ("attiva", "active"):
         return _chiudi_attiva()
+    if cmd in ("recupera", "recover"):
+        # il guardiano delle finestre vive in Hyprland (hyprland.lua)
+        return subprocess.call(["hyprctl", "eval", "zeta_recupera()"],
+                               stdout=subprocess.DEVNULL)
     if cmd in ("minimizza", "minimize"):
         # con un indirizzo si riduce quella finestra, senza la finestra attiva;
         # zeta-riduci fa la foto per la barra e l'animazione (e, se il suo
@@ -130,9 +139,9 @@ def cli():
         if not os.path.exists(mini):
             print(vuoto)
         else:
-            titolo = (info.get("title") or info.get("class") or "Finestra").replace("\n", " ")
+            titolo = (info.get("title") or info.get("class") or tr("Window")).replace("\n", " ")
             print(mini)
-            print("%s (clic per riaprire)" % titolo[:60])
+            print(tr("{title} (click to reopen)").format(title=titolo[:60]))
         return 0
     if cmd in ("ripristina-n", "chiudi-n", "menu-n") and len(sys.argv) > 2:
         try:
@@ -148,13 +157,27 @@ def cli():
     if cmd in ("conta", "count"):
         n = len(windows.minimized())
         if n:
-            print("%d ridotta" % n if n == 1 else "%d ridotte" % n)
+            print(ntr("{n} minimized", "{n} minimized", n).format(n=n))
         return 0
     if cmd in ("forza", "force"):
         MODO_FORZA = True
         return None          # apre l'interfaccia, in modalità uscita forzata
     if cmd:
-        print(__doc__)
+        print(tr("""ZETA RAYS — open and minimized windows.
+
+  zeta-finestre              open the list (bar button, Super+W)
+  zeta-finestre scegli       crosshair: click the frozen window to close it,
+                             with all its processes (Ctrl+Alt+Esc).
+                             Click the background for the full list.
+  zeta-finestre forza        list for ending a frozen program, even one
+                             without a window, like “Force Quit” on macOS
+  zeta-finestre attiva       emergency: close the active window right away,
+                             with no interface (Ctrl+Shift+Esc)
+  zeta-finestre minimizza [address]
+                             minimize the active window (or the given one)
+  zeta-finestre ripristina <address>
+  zeta-finestre conta        text for the bar (empty if nothing is minimized)
+"""))
         return 1
     return None
 
@@ -230,7 +253,7 @@ button.forza-uscita:disabled { opacity: 0.6; }
 class Finestre(Gtk.ApplicationWindow):
     def __init__(self, app, forza=False):
         super().__init__(application=app,
-                         title="Uscita forzata" if forza else "Finestre",
+                         title=tr("Force Quit Applications") if forza else tr("Windows"),
                          decorated=False)
         popup.make_overlay(self, "zeta-finestre")
         self.add_css_class("finestre")
@@ -239,29 +262,29 @@ class Finestre(Gtk.ApplicationWindow):
         self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                             css_classes=["zeta-card", "fin-card"],
                             halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
-        self.card.append(Gtk.Label(label="Uscita forzata" if forza else "Finestre",
+        self.card.append(Gtk.Label(label=tr("Force Quit Applications") if forza else tr("Windows"),
                                    css_classes=["fin-title"], halign=Gtk.Align.START))
 
         if forza:
             self.card.append(Gtk.Label(
-                label="Scegli il programma che non risponde. Il lavoro non salvato va perso.",
+                label=tr("Choose the program that isn't responding. Unsaved work will be lost."),
                 css_classes=["fin-sub"], halign=Gtk.Align.START, wrap=True,
                 max_width_chars=44))
-            mirino = Gtk.Button(label="Scegli col mouse la finestra da chiudere",
+            mirino = Gtk.Button(label=tr("Pick the window to close with the mouse"),
                                 halign=Gtk.Align.START, css_classes=["zeta-row"])
             mirino.connect("clicked", self._apri_mirino)
             self.card.append(mirino)
-            self._section("Programmi aperti", windows.open_windows(), restore=False,
-                          empty="Nessun programma aperto.")
+            self._section(tr("Open Programs"), windows.open_windows(), restore=False,
+                          empty=tr("No open programs."))
             self._sezione_senza_finestra()
         else:
             mini = windows.minimized()
-            self._section("Ridotte a icona", mini, restore=True,
-                          empty="Nessuna finestra ridotta a icona.")
-            self._section("Aperte", windows.open_windows(), restore=False,
-                          empty="Nessuna finestra aperta.")
+            self._section(tr("Minimized Windows"), mini, restore=True,
+                          empty=tr("No minimized windows."))
+            self._section(tr("Open Windows"), windows.open_windows(), restore=False,
+                          empty=tr("No open windows."))
 
-        self.card.append(Gtk.Label(label="Esc per chiudere", css_classes=["zeta-caption"],
+        self.card.append(Gtk.Label(label=tr("Press Esc to close"), css_classes=["zeta-caption"],
                                    halign=Gtk.Align.START, margin_top=4))
         self.set_child(self.card)
         popup.close_on_outside(self, self.card, self.close_app)
@@ -286,17 +309,17 @@ class Finestre(Gtk.ApplicationWindow):
         riga = Gtk.Box(spacing=4)
 
         principale = Gtk.Button(css_classes=["zeta-row"], hexpand=True,
-                                tooltip_text="Ripristina" if restore else "Porta in primo piano")
+                                tooltip_text=tr("Restore") if restore else tr("Bring to Front"))
         dentro = Gtk.Box(spacing=10)
         dentro.append(Gtk.Image(icon_name=icon_for(w["class"]), pixel_size=24,
                                 css_classes=["fin-icon"]))
         txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True,
                       halign=Gtk.Align.START)
-        title = (w["title"] or "Finestra")[:60]
+        title = (w["title"] or tr("Window"))[:60]
         txt.append(Gtk.Label(label=title, css_classes=["fin-name"], halign=Gtk.Align.START))
         sub = w["class"] or ""
         if not restore and w.get("workspace"):
-            sub = ("%s · scrivania %s" % (sub, w["workspace"])).strip(" ·")
+            sub = tr("{app} · workspace {n}").format(app=sub, n=w["workspace"]).strip(" ·")
         if sub:
             txt.append(Gtk.Label(label=sub, css_classes=["fin-sub"], halign=Gtk.Align.START))
         dentro.append(txt)
@@ -313,23 +336,23 @@ class Finestre(Gtk.ApplicationWindow):
                 mb = windows.memoria_mb(pid)
                 nota = "%s · %.0f MB" % (w["class"] or "", mb) if mb else (w["class"] or "")
                 if windows.bloccato_su_disco(pid):
-                    nota += " · bloccato in attesa del disco"
+                    nota = tr("{note} · stuck waiting for the disk").format(note=nota)
                 if txt.get_last_child() is not None and sub:
                     txt.get_last_child().set_text(nota)
-            k = Gtk.Button(label="Forza uscita", css_classes=["forza-uscita"],
+            k = Gtk.Button(label=tr("Force Quit"), css_classes=["forza-uscita"],
                            valign=Gtk.Align.CENTER,
-                           tooltip_text="Termina il programma senza salvare")
+                           tooltip_text=tr("End the program without saving"))
             k.connect("clicked", lambda _b, ww=w: self.termina(ww))
             riga.append(k)
             return riga
 
         if not restore:
-            m = Gtk.Button(css_classes=["zeta-flat"], tooltip_text="Riduci a icona",
+            m = Gtk.Button(css_classes=["zeta-flat"], tooltip_text=tr("Minimize"),
                            valign=Gtk.Align.CENTER)
             m.set_child(Gtk.Image(icon_name="list-remove-symbolic", pixel_size=14))
             m.connect("clicked", lambda _b, a=w["address"]: self.act(windows.minimize, a))
             riga.append(m)
-        c = Gtk.Button(css_classes=["zeta-flat"], tooltip_text="Chiudi",
+        c = Gtk.Button(css_classes=["zeta-flat"], tooltip_text=tr("Close"),
                        valign=Gtk.Align.CENTER)
         c.set_child(Gtk.Image(icon_name="window-close-symbolic", pixel_size=14))
         c.connect("clicked", lambda _b, a=w["address"]: self.act(windows.close, a))
@@ -346,15 +369,16 @@ class Finestre(Gtk.ApplicationWindow):
         di Ollama: anche loro possono bloccare il computer."""
         righe = []
         for pr in windows.processi_pesanti():
-            righe.append((pr["nome"], "%.0f MB · senza finestra" % pr["mb"],
-                          "Forza uscita", lambda _b, p=pr: self.termina(
+            righe.append((pr["nome"], tr("{mb} MB · no window").format(mb="%.0f" % pr["mb"]),
+                          tr("Force Quit"), lambda _b, p=pr: self.termina(
                               {"pid": p["pid"], "class": p["nome"], "title": p["nome"]})))
         for nome, mb in _modelli_ollama():
-            righe.append(("Modello AI %s" % nome, "%.0f MB · Ollama" % mb, "Libera memoria",
+            righe.append((tr("AI model {name}").format(name=nome), "%.0f MB · Ollama" % mb,
+                          tr("Free Memory"),
                           lambda _b, n=nome: self._libera_modello(n)))
         if not righe:
             return
-        self.card.append(Gtk.Label(label="Senza finestra", css_classes=["zeta-caption"],
+        self.card.append(Gtk.Label(label=tr("Without a Window"), css_classes=["zeta-caption"],
                                    halign=Gtk.Align.START, margin_top=6))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                       css_classes=["zeta-section"])
@@ -379,8 +403,8 @@ class Finestre(Gtk.ApplicationWindow):
         amministratori, e alla prossima domanda Ollama lo ricarica."""
         def lavora():
             ok = _ollama_post("/api/generate", {"model": nome, "keep_alive": 0})
-            GLib.idle_add(self._esito, ("Memoria del modello %s liberata." % nome) if ok
-                          else "Ollama non ha risposto: il modello resta in memoria.")
+            GLib.idle_add(self._esito, tr("Memory used by model {name} freed.").format(name=nome)
+                          if ok else tr("Ollama didn't respond: the model stays in memory."))
         threading.Thread(target=lavora, daemon=True).start()
 
     def termina(self, w):
@@ -393,25 +417,25 @@ class Finestre(Gtk.ApplicationWindow):
         proprio mentre serve a sbloccare il computer.
         """
         pid = w.get("pid") or 0
-        nome = (w.get("title") or w.get("class") or "il programma")[:60]
+        nome = (w.get("title") or w.get("class") or tr("the program"))[:60]
         if not pid:
-            self._esito("Non riesco a risalire al processo di «%s»." % nome)
+            self._esito(tr("Can't find the process behind “{name}”.").format(name=nome))
             return
-        d = Gtk.Window(transient_for=self, modal=True, title="Forza uscita",
+        d = Gtk.Window(transient_for=self, modal=True, title=tr("Force Quit"),
                        default_width=380, resizable=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=18,
                       margin_bottom=18, margin_start=18, margin_end=18)
         d.set_child(box)
-        box.append(Gtk.Label(label="Vuoi forzare l'uscita di «%s»?" % nome,
+        box.append(Gtk.Label(label=tr("Force “{name}” to quit?").format(name=nome),
                              xalign=0, wrap=True))
         mb = sum(windows.memoria_mb(p) for p in windows.albero(pid))
         box.append(Gtk.Label(
-            label="Il lavoro non salvato andrà perso. Occupa %.0f MB; si chiudono "
-                  "anche i processi che ha avviato." % mb,
+            label=tr("Unsaved work will be lost. It uses {mb} MB; the processes it "
+                     "started will close too.").format(mb="%.0f" % mb),
             xalign=0, wrap=True, css_classes=["fin-sub"]))
         righe = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        annulla = Gtk.Button(label="Annulla")
-        ok = Gtk.Button(label="Forza uscita", css_classes=["forza-uscita"])
+        annulla = Gtk.Button(label=tr("Cancel"))
+        ok = Gtk.Button(label=tr("Force Quit"), css_classes=["forza-uscita"])
         def _annulla(*_):
             d.destroy()
             if getattr(self, "solo_conferma", False):
@@ -422,7 +446,7 @@ class Finestre(Gtk.ApplicationWindow):
 
         def conferma(_b):
             ok.set_sensitive(False)
-            ok.set_label("Attendo…")
+            ok.set_label(tr("Waiting…"))
 
             def lavora():
                 riuscito, messaggio = windows.force_quit(pid)
@@ -430,8 +454,8 @@ class Finestre(Gtk.ApplicationWindow):
 
             def fine(riuscito, messaggio):
                 d.destroy()
-                self._esito(("«%s»: %s" % (nome, messaggio)) if riuscito
-                            else ("Non riuscito. %s" % messaggio))
+                self._esito(tr("“{name}”: {message}").format(name=nome, message=messaggio)
+                            if riuscito else tr("Failed. {message}").format(message=messaggio))
                 return False
             threading.Thread(target=lavora, daemon=True).start()
 
@@ -443,7 +467,7 @@ class Finestre(Gtk.ApplicationWindow):
 
     def _esito(self, testo):
         """Mostra com'e' andata e chiude il pannello."""
-        subprocess.run(["notify-send", "-a", "ZETA RAYS", "Uscita forzata", testo],
+        subprocess.run(["notify-send", "-a", "ZETA RAYS", tr("Force Quit Applications"), testo],
                        capture_output=True)
         self.close_app()
 

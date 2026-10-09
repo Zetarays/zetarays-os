@@ -21,6 +21,7 @@ import sys
 import threading
 
 sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 from ui import tema  # noqa: E402
 
 import gi  # noqa: E402
@@ -45,55 +46,55 @@ GUI, CLI = "gui", "cli"
 #   (comando_da_verificare, "Nome", "descrizione", tipo, pacchetto_apt, comando_di_avvio)
 # comando_di_avvio None = usa il comando_da_verificare.
 TOOLKIT = {
-    "Ricognizione": [
-        ("nmap", "Nmap", "Scansione di rete e delle porte", CLI, "nmap", None),
-        ("masscan", "Masscan", "Scanner di porte ad altissima velocità", CLI, "masscan", None),
-        ("whois", "WHOIS", "Informazioni sui domini e sugli IP", CLI, "whois", None),
-        ("dig", "DNS (dig)", "Interrogazione dei record DNS", CLI, "bind9-dnsutils", None),
-        ("dnsrecon", "DNSRecon", "Enumerazione DNS", CLI, "dnsrecon", None),
+    tr("Reconnaissance"): [
+        ("nmap", "Nmap", tr("Network and port scanning"), CLI, "nmap", None),
+        ("masscan", "Masscan", tr("Very high-speed port scanner"), CLI, "masscan", None),
+        ("whois", "WHOIS", tr("Information about domains and IPs"), CLI, "whois", None),
+        ("dig", "DNS (dig)", tr("DNS record lookup"), CLI, "bind9-dnsutils", None),
+        ("dnsrecon", "DNSRecon", tr("DNS enumeration"), CLI, "dnsrecon", None),
     ],
-    "Analisi di rete": [
-        ("wireshark", "Wireshark", "Analizzatore di pacchetti (grafico)", GUI, "wireshark", None),
-        ("tshark", "tshark", "Wireshark da riga di comando", CLI, "tshark", None),
-        ("tcpdump", "tcpdump", "Cattura pacchetti nel terminale", CLI, "tcpdump", None),
-        ("ncat", "Ncat", "Connessioni e ascolto TCP/UDP", CLI, "ncat", None),
+    tr("Network analysis"): [
+        ("wireshark", "Wireshark", tr("Packet analyzer (graphical)"), GUI, "wireshark", None),
+        ("tshark", "tshark", tr("Command-line Wireshark"), CLI, "tshark", None),
+        ("tcpdump", "tcpdump", tr("Packet capture in the terminal"), CLI, "tcpdump", None),
+        ("ncat", "Ncat", tr("TCP/UDP connections and listening"), CLI, "ncat", None),
     ],
-    "Sicurezza web": [
-        ("nikto", "Nikto", "Scanner di vulnerabilità dei server web", CLI, "nikto", None),
-        ("sqlmap", "sqlmap", "Test di SQL injection", CLI, "sqlmap", None),
-        ("ffuf", "ffuf", "Fuzzing di percorsi e parametri web", CLI, "ffuf", None),
-        ("gobuster", "gobuster", "Brute force di directory e DNS", CLI, "gobuster", None),
-        ("whatweb", "WhatWeb", "Identifica le tecnologie di un sito", CLI, "whatweb", None),
-        ("wfuzz", "wfuzz", "Fuzzer per applicazioni web", CLI, "wfuzz", None),
+    tr("Web security"): [
+        ("nikto", "Nikto", tr("Web server vulnerability scanner"), CLI, "nikto", None),
+        ("sqlmap", "sqlmap", tr("SQL injection testing"), CLI, "sqlmap", None),
+        ("ffuf", "ffuf", tr("Fuzzing of web paths and parameters"), CLI, "ffuf", None),
+        ("gobuster", "gobuster", tr("Directory and DNS brute forcing"), CLI, "gobuster", None),
+        ("whatweb", "WhatWeb", tr("Identifies the technologies behind a website"), CLI, "whatweb", None),
+        ("wfuzz", "wfuzz", tr("Web application fuzzer"), CLI, "wfuzz", None),
     ],
-    "Password e autenticazione": [
-        ("john", "John the Ripper", "Recupero di password (offline)", CLI, "john", None),
-        ("hashcat", "hashcat", "Cracking di hash su GPU/CPU", CLI, "hashcat", None),
-        ("hydra", "Hydra", "Test di credenziali sui servizi di rete", CLI, "hydra", None),
-        ("medusa", "Medusa", "Brute force parallelo dei login", CLI, "medusa", None),
+    tr("Passwords and authentication"): [
+        ("john", "John the Ripper", tr("Password recovery (offline)"), CLI, "john", None),
+        ("hashcat", "hashcat", tr("Hash cracking on GPU/CPU"), CLI, "hashcat", None),
+        ("hydra", "Hydra", tr("Credential testing against network services"), CLI, "hydra", None),
+        ("medusa", "Medusa", tr("Parallel login brute forcing"), CLI, "medusa", None),
     ],
-    "Wireless": [
-        ("aircrack-ng", "Aircrack-ng", "Analisi e test delle reti Wi-Fi", CLI, "aircrack-ng", None),
-        ("reaver", "Reaver", "Test del WPS sui router", CLI, "reaver", None),
+    tr("Wireless"): [
+        ("aircrack-ng", "Aircrack-ng", tr("Wi-Fi network analysis and testing"), CLI, "aircrack-ng", None),
+        ("reaver", "Reaver", tr("WPS testing on routers"), CLI, "reaver", None),
     ],
-    "Sniffing e spoofing": [
-        ("bettercap", "bettercap", "Attacchi e analisi di rete (MITM)", CLI, "bettercap", None),
-        ("ettercap", "Ettercap", "Sniffing e MITM (grafico)", GUI, "ettercap-graphical", "ettercap -G"),
+    tr("Sniffing and spoofing"): [
+        ("bettercap", "bettercap", tr("Network attacks and analysis (MITM)"), CLI, "bettercap", None),
+        ("ettercap", "Ettercap", tr("Sniffing and MITM (graphical)"), GUI, "ettercap-graphical", "ettercap -G"),
     ],
-    "Forense": [
-        ("sleuthkit", "Sleuth Kit", "Analisi forense dei filesystem", CLI, "sleuthkit", "fls -V"),
-        ("foremost", "foremost", "Recupero di file (carving)", CLI, "foremost", None),
-        ("binwalk", "binwalk", "Analisi di firmware e immagini", CLI, "binwalk", None),
-        ("exiftool", "ExifTool", "Metadati di foto e documenti", CLI, "libimage-exiftool-perl", None),
+    tr("Forensics"): [
+        ("sleuthkit", "Sleuth Kit", tr("Forensic analysis of file systems"), CLI, "sleuthkit", "fls -V"),
+        ("foremost", "foremost", tr("File recovery (carving)"), CLI, "foremost", None),
+        ("binwalk", "binwalk", tr("Firmware and image analysis"), CLI, "binwalk", None),
+        ("exiftool", "ExifTool", tr("Photo and document metadata"), CLI, "libimage-exiftool-perl", None),
     ],
-    "Reverse engineering": [
-        ("gdb", "GDB", "Debugger", CLI, "gdb", None),
-        ("ltrace", "ltrace", "Traccia le chiamate di libreria", CLI, "ltrace", None),
+    tr("Reverse engineering"): [
+        ("gdb", "GDB", tr("Debugger"), CLI, "gdb", None),
+        ("ltrace", "ltrace", tr("Traces library calls"), CLI, "ltrace", None),
     ],
-    "Difesa": [
-        ("lynis", "Lynis", "Audit di sicurezza del sistema", CLI, "lynis", "lynis audit system"),
-        ("rkhunter", "rkhunter", "Ricerca di rootkit", CLI, "rkhunter", "rkhunter --check"),
-        ("clamscan", "ClamAV", "Antivirus a riga di comando", CLI, "clamav", "clamscan --version"),
+    tr("Defense"): [
+        ("lynis", "Lynis", tr("System security audit"), CLI, "lynis", "lynis audit system"),
+        ("rkhunter", "rkhunter", tr("Rootkit detection"), CLI, "rkhunter", "rkhunter --check"),
+        ("clamscan", "ClamAV", tr("Command-line antivirus"), CLI, "clamav", "clamscan --version"),
     ],
 }
 
@@ -143,11 +144,12 @@ def _launch_tool(entry):
     base = cmd.split()[0]
     # mostra intestazione + aiuto, poi lascia una shell pronta per l'uso
     script = (
-        'clear; printf "\\033[1;34mZETA RAYS Security — %s\\033[0m\\n\\n" %s; '
+        'clear; printf "\\033[1;34mZETA RAYS Security — %%s\\033[0m\\n\\n" %s; '
         '%s --help 2>&1 | head -n 40 || %s -h 2>&1 | head -n 40 || true; '
-        'printf "\\n\\033[2mScrivi il comando con i tuoi argomenti. Digita exit per chiudere.\\033[0m\\n\\n"; '
+        'printf "\\n\\033[2m%%s\\033[0m\\n\\n" %s; '
         'exec "${SHELL:-/bin/bash}"'
-    ) % (label, __import__("shlex").quote(label), base, base)
+    ) % (shlex.quote(label), base, base,
+         shlex.quote(tr("Type the command with your arguments. Type exit to close.")))
     subprocess.Popen([term, "-e", "sh", "-c", script], start_new_session=True)
 
 
@@ -158,10 +160,11 @@ def _apt_nel_terminale(titolo, argomenti, alla_fine):
     term = _terminal()
     if not term:
         return False
-    script = ('printf "\\033[1;34mZETA RAYS — %s\\033[0m\\n\\n"; '
+    script = ('printf "\\033[1;34mZETA RAYS — %%s\\033[0m\\n\\n" %s; '
               'pkexec apt-get %s; '
-              'printf "\\n\\033[2mPremi Invio per chiudere.\\033[0m"; read _') % (
-                  titolo, " ".join(shlex.quote(a) for a in argomenti))
+              'printf "\\n\\033[2m%%s\\033[0m" %s; read _') % (
+                  shlex.quote(titolo), " ".join(shlex.quote(a) for a in argomenti),
+                  shlex.quote(tr("Press Enter to close.")))
     try:
         proc = subprocess.Popen([term, "-e", "sh", "-c", script], start_new_session=True)
     except OSError:
@@ -176,11 +179,11 @@ class Window(Adw.ApplicationWindow):
                          default_width=1000, default_height=730)
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        self.search = Gtk.SearchEntry(placeholder_text="Cerca uno strumento…")
+        self.search = Gtk.SearchEntry(placeholder_text=tr("Search for a tool…"))
         self.search.set_size_request(260, -1)
         self.search.connect("search-changed", lambda *_: self._refresh_tools())
         header.set_title_widget(self.search)
-        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Aggiorna")
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=tr("Refresh"))
         refresh.connect("clicked", lambda *_: self.reload())
         header.pack_start(refresh)
         view.add_top_bar(header)
@@ -227,15 +230,15 @@ class Window(Adw.ApplicationWindow):
         return False
 
     def _aggiorna_elenco(self, *_):
-        _apt_nel_terminale("aggiornamento dell'elenco dei pacchetti", ["update"],
+        _apt_nel_terminale(tr("updating the package list"), ["update"],
                            self._verifica_pacchetti)
 
     def _build_status(self):
-        group = Adw.PreferencesGroup(title="Stato del sistema")
+        group = Adw.PreferencesGroup(title=tr("System status"))
         for c in self._checks:
             row = Adw.ActionRow(title=c.label, subtitle=c.detail)
             _color, style = STATE_STYLE.get(c.state, ("#8A8A8E", "dim"))
-            lbl = Gtk.Label(label=c.state, valign=Gtk.Align.CENTER,
+            lbl = Gtk.Label(label=audit.state_label(c.state), valign=Gtk.Align.CENTER,
                             css_classes=["sec-state", style])
             row.add_suffix(lbl)
             group.add(row)
@@ -243,15 +246,15 @@ class Window(Adw.ApplicationWindow):
         self._status_groups.append(group)
 
     def _build_recommendations(self):
-        group = Adw.PreferencesGroup(title="Raccomandazioni")
+        group = Adw.PreferencesGroup(title=tr("Recommendations"))
         recs = []
         for c in self._checks:
             if c.state == audit.WARNING:
-                recs.append("Risolvi: %s (%s)" % (c.label, c.detail))
+                recs.append(tr("Fix: {item} ({detail})").format(item=c.label, detail=c.detail))
             elif c.state == audit.NOT_CONFIGURED and c.key in ("firewall", "audit"):
-                recs.append("Valuta di attivare: %s" % c.label)
+                recs.append(tr("Consider turning on: {item}").format(item=c.label))
         if not recs:
-            recs = ["Nessuna azione urgente. Mantieni il sistema aggiornato."]
+            recs = [tr("Nothing urgent. Keep your system up to date.")]
         for r in recs:
             group.add(Adw.ActionRow(title=r))
         self.page.add(group)
@@ -265,18 +268,18 @@ class Window(Adw.ApplicationWindow):
 
     def _build_tools(self):
         if self._disp is None:
-            group = Adw.PreferencesGroup(title="Strumenti")
-            group.add(Adw.ActionRow(title="Controllo quali strumenti si possono installare…"))
+            group = Adw.PreferencesGroup(title=tr("Tools"))
+            group.add(Adw.ActionRow(title=tr("Checking which tools can be installed…")))
             self.page.add(group)
             self._tool_groups.append(group)
             return
-        elenco = Adw.PreferencesGroup(title="Elenco dei pacchetti")
+        elenco = Adw.PreferencesGroup(title=tr("Package list"))
         vecchio = self._eta is None or self._eta > pacchetti.VECCHIO
         riga = Adw.ActionRow(
-            title="Elenco dei pacchetti di Debian: %s" % pacchetti.descrivi_eta(self._eta),
-            subtitle=("Aggiornalo per vedere le ultime versioni e installare senza errori."
-                      if vecchio else "Gli strumenti qui sotto sono verificati su questo elenco."))
-        b = Gtk.Button(label="Aggiorna l'elenco", valign=Gtk.Align.CENTER,
+            title=tr("Package list: {age}").format(age=pacchetti.descrivi_eta(self._eta)),
+            subtitle=(tr("Update it to see the latest versions and install without errors.")
+                      if vecchio else tr("The tools below are checked against this list.")))
+        b = Gtk.Button(label=tr("Update List"), valign=Gtk.Align.CENTER,
                        css_classes=["suggested-action"] if vecchio else [])
         b.connect("clicked", self._aggiorna_elenco)
         riga.add_suffix(b)
@@ -302,35 +305,36 @@ class Window(Adw.ApplicationWindow):
         cand = (self._disp.get(pkg) or {}).get("candidato")
         row = Adw.ActionRow(title=label, subtitle=desc, activatable=installed)
 
-        kind_lbl = Gtk.Label(label="finestra" if kind == GUI else "terminale",
+        kind_lbl = Gtk.Label(label=tr("window") if kind == GUI else tr("terminal"),
                              valign=Gtk.Align.CENTER, css_classes=["tool-kind"])
         row.add_prefix(kind_lbl)
 
         if installed:
-            row.add_suffix(Gtk.Label(label="Installato", valign=Gtk.Align.CENTER,
+            row.add_suffix(Gtk.Label(label=tr("Installed"), valign=Gtk.Align.CENTER,
                                      css_classes=["pill-ok"]))
-            btn = Gtk.Button(label="Apri", valign=Gtk.Align.CENTER,
+            btn = Gtk.Button(label=tr("Open"), valign=Gtk.Align.CENTER,
                              css_classes=["suggested-action"])
             btn.connect("clicked", lambda *_e, en=entry: _launch_tool(en))
             row.add_suffix(btn)
             row.connect("activated", lambda *_e, en=entry: _launch_tool(en))
         elif cand:
-            row.add_suffix(Gtk.Label(label="Non installato", valign=Gtk.Align.CENTER,
+            row.add_suffix(Gtk.Label(label=tr("Not installed"), valign=Gtk.Align.CENTER,
                                      css_classes=["pill-no"]))
-            btn = Gtk.Button(label="Installa", valign=Gtk.Align.CENTER)
-            btn.set_tooltip_text("Installa il pacchetto %s %s con apt" % (pkg, cand))
+            btn = Gtk.Button(label=tr("Install"), valign=Gtk.Align.CENTER)
+            btn.set_tooltip_text(tr("Install the {package} {version} package with apt").format(
+                package=pkg, version=cand))
             btn.connect("clicked", lambda *_e, en=entry: self._installa(en))
             row.add_suffix(btn)
         else:
             # nessun pulsante: apt non saprebbe installarlo
             row.set_subtitle("%s\n%s" % (desc, pacchetti.perche_manca(pkg)))
             row.set_subtitle_lines(4)
-            row.add_suffix(Gtk.Label(label="Non disponibile", valign=Gtk.Align.CENTER,
+            row.add_suffix(Gtk.Label(label=tr("Not available"), valign=Gtk.Align.CENTER,
                                      css_classes=["pill-na"]))
         return row
 
     def _installa(self, entry):
-        _apt_nel_terminale("installazione di %s" % entry[4], ["install", "-y", entry[4]],
+        _apt_nel_terminale(tr("installing {package}").format(package=entry[4]), ["install", "-y", entry[4]],
                            self._verifica_pacchetti)
 
 

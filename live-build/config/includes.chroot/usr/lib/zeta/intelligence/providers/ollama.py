@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
+from i18n import tr
+
 from .base import Message, Provider, Reply, ToolSpec
 from .. import risorse
 
@@ -50,19 +52,20 @@ class OllamaProvider(Provider):
         """
         modelli = self.list_models()
         if not modelli:
-            return False, ("Ollama non risponde su %s. Controlla che il servizio "
-                           "sia avviato: systemctl status ollama" % self._base())
+            return False, tr("Ollama isn't responding at {address}. Check that the service "
+                             "is running: systemctl status ollama").format(address=self._base())
         voluto = self._model()
         if voluto and voluto not in modelli:
-            return False, ("Il modello «%s» non è installato. Presenti: %s."
-                           % (voluto, ", ".join(modelli)))
+            return False, tr("The model “{model}” isn't installed. Available: {models}.").format(
+                model=voluto, models=", ".join(modelli))
         if self._gia_caricato():
-            return True, "Collegato, modello %s già in memoria (risposte immediate)." % voluto
+            return True, tr("Connected, model {model} already in memory (instant replies).").format(
+                model=voluto)
         if not risorse.memoria_per_il_modello():
-            return False, ("Ollama risponde, ma la memoria libera non basta per "
-                           "caricare il modello: le domande si bloccherebbero.")
-        return True, ("Collegato, modello %s pronto. La prima risposta richiede "
-                      "il caricamento in memoria." % voluto)
+            return False, tr("Ollama is responding, but there isn't enough free memory to "
+                             "load the model: questions would hang.")
+        return True, tr("Connected, model {model} ready. The first reply needs to "
+                        "load it into memory.").format(model=voluto)
 
     def _gia_caricato(self) -> bool:
         """Il modello è già in memoria: usarlo non costa altra memoria."""

@@ -61,7 +61,7 @@ class Memory:
         """«connettiti a Casa con password abc123» -> «... password ***»:
         una password detta a ZETA non resta scritta nella cronologia."""
         import re
-        return re.sub(r"(?i)\b(password|passwd|pass|chiave|psk|pin|token)\b(\s*[:=]?\s*)\S+", r"\1\2***", testo)
+        return re.sub(r"(?i)\b(password|passwd|pass|chiave|psk|pin|token|passphrase|passcode|key)\b(\s*[:=]?\s*)\S+", r"\1\2***", testo)
 
     def save_turn(self, user_text: str, assistant_text: str, azione: bool = False) -> None:
         if not self.enabled:

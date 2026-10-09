@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""README.txt della consegna dal modello docs/README-1.7.txt.in.
+"""README.txt della consegna dal modello docs/README-2.0.txt.in.
 
 Dimensioni e SHA-256 si leggono dalle immagini e dai file .sha256 nella
 cartella di consegna, la versione del kernel dal registro della costruzione:
@@ -17,9 +17,9 @@ IMMAGINI = ["amd64.iso", "arm64.iso", "amd64.ova", "arm64.ova"]
 
 
 def main(dest):
-    testo = open(os.path.join(ROOT, "docs", "README-1.7.txt.in"), encoding="ascii").read()
+    testo = open(os.path.join(ROOT, "docs", "README-2.0.txt.in"), encoding="ascii").read()
     for nome in IMMAGINI:
-        f = os.path.join(dest, "zetarays-1.7-%s" % nome)
+        f = os.path.join(dest, "zetarays-2.0-%s" % nome)
         n = os.path.getsize(f)
         testo = testo.replace("{SIZE_%s}" % nome, "{:,} bytes ({:.2f} GB)".format(n, n / 1e9))
         sha = open(f + ".sha256").read().split()[0]
@@ -42,4 +42,4 @@ def main(dest):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Desktop/ZETA RAYS 1.7"))
+    main(sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Desktop/ZETA RAYS 2.0"))

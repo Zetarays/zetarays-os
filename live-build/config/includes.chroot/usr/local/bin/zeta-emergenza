@@ -52,6 +52,7 @@ if "ZETA_EMERGENZA_PRELOADED" not in os.environ:
         os.execve(SE_STESSO, [SE_STESSO] + sys.argv[1:], env)
 
 sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 from ui import popup  # noqa: E402
 import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
@@ -109,55 +110,56 @@ def stato():
             except (psutil.Error, AttributeError, TypeError):
                 pass
         top = max(pesi.items(), key=lambda kv: kv[1]) if pesi else ("?", 0)
-        return ("Memoria usata %d%% · carico %.1f su %d core · pesa di più: %s (%.1f GB)"
-                % (vm.percent, car, psutil.cpu_count() or 1, top[0], top[1] / 1e9))
+        return tr("Memory used {mem}% · load {load} on {cores} cores · heaviest: {name} ({size} GB)").format(
+            mem="%d" % vm.percent, load="%.1f" % car, cores=psutil.cpu_count() or 1,
+            name=top[0], size="%.1f" % (top[1] / 1e9))
     except Exception:  # noqa: BLE001 - informazione accessoria
         return ""
 
 
 class Pannello(Gtk.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Emergenza", decorated=False)
+        super().__init__(application=app, title=tr("Emergency"), decorated=False)
         popup.make_overlay(self, "zeta-emergenza")
         self.add_css_class("emergenza")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                       halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
-        box.append(Gtk.Label(label="Cosa vuoi fare?", css_classes=["em-titolo"]))
+        box.append(Gtk.Label(label=tr("What do you want to do?"), css_classes=["em-titolo"]))
         self.info = Gtk.Label(css_classes=["em-sotto"])
         box.append(self.info)
 
         from system import power
+        # (icona, etichetta, azione, pericolosa: chiede conferma)
         self.azioni = [
-            [("utilities-system-monitor", "Gestione attività", lambda: _lancia(["zeta-monitor", "processes"])),
-             ("window-close-symbolic", "Chiudi un programma\nbloccato", lambda: _lancia(["zeta-finestre", "scegli"])),
-             ("view-list-symbolic", "Uscita forzata:\nelenco completo", lambda: _lancia(["zeta-finestre", "forza"])),
-             ("utilities-terminal", "Terminale", lambda: _lancia(["foot"])),
-             ("zeta-monitor", "Monitor\ndi sistema", lambda: _lancia(["zeta-monitor"])),
-             ("view-refresh-symbolic", "Ripristina\nil desktop", ripristina_desktop)],
-            [("zeta-lock", "Blocca", power.lock),
-             ("zeta-logout", "Esci", power.logout),
-             ("zeta-restart", "Riavvia", power.reboot),
-             ("zeta-power", "Spegni", power.poweroff)],
+            [("utilities-system-monitor", tr("Task Manager"), lambda: _lancia(["zeta-monitor", "processes"]), False),
+             ("window-close-symbolic", tr("Close a\nfrozen app"), lambda: _lancia(["zeta-finestre", "scegli"]), False),
+             ("view-list-symbolic", tr("Force Quit:\nfull list"), lambda: _lancia(["zeta-finestre", "forza"]), False),
+             ("utilities-terminal", tr("Terminal"), lambda: _lancia(["foot"]), False),
+             ("zeta-monitor", tr("System\nMonitor"), lambda: _lancia(["zeta-monitor"]), False),
+             ("view-refresh-symbolic", tr("Restore\nDesktop"), ripristina_desktop, False)],
+            [("zeta-lock", tr("Lock"), power.lock, False),
+             ("zeta-logout", tr("Log Out"), power.logout, True),
+             ("zeta-restart", tr("Restart"), power.reboot, True),
+             ("zeta-power", tr("Shut Down"), power.poweroff, True)],
         ]
-        pericolose = {"Esci", "Riavvia", "Spegni"}
         self.bottoni = []
         for fila in self.azioni:
             r = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, margin_top=18)
-            for icona, testo, fn in fila:
-                b = Gtk.Button(css_classes=["em-tile"] + (["pericolo"] if testo in pericolose else []))
+            for icona, testo, fn, pericolosa in fila:
+                b = Gtk.Button(css_classes=["em-tile"] + (["pericolo"] if pericolosa else []))
                 v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
                 v.append(Gtk.Image(icon_name=icona, pixel_size=28))
                 lab = Gtk.Label(label=testo, justify=Gtk.Justification.CENTER)
                 v.append(lab)
                 b.set_child(v)
-                b.connect("clicked", self._premuto, testo, fn, testo in pericolose, lab)
+                b.connect("clicked", self._premuto, testo, fn, pericolosa, lab)
                 r.append(b)
                 self.bottoni.append(b)
             box.append(r)
         box.append(Gtk.Label(
-            label="Esc per tornare indietro · Se anche questo pannello non risponde: "
-                  "Ctrl+Alt+F3 apre una console di testo (poi: zeta processes), "
-                  "Ctrl+Alt+Maiusc+Esc riporta alla schermata di accesso.",
+            label=tr("Esc to go back · If this panel doesn't respond either: "
+                     "Ctrl+Alt+F3 opens a text console (then: zeta processes), "
+                     "Ctrl+Alt+Shift+Esc returns to the login screen."),
             css_classes=["em-nota"], wrap=True, max_width_chars=90,
             justify=Gtk.Justification.CENTER, margin_top=26))
         self.set_child(box)
@@ -171,7 +173,7 @@ class Pannello(Gtk.ApplicationWindow):
             self._annulla_conferma()
             self._in_conferma = btn
             btn.add_css_class("conferma")
-            lab.set_label("Conferma:\n%s" % testo.lower())
+            lab.set_label(tr("Confirm:\n{action}").format(action=testo.lower()))
             btn._etichetta = (lab, testo)
             GLib.timeout_add(4000, self._annulla_conferma)
             return

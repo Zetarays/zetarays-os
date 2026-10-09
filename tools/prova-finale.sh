@@ -4,7 +4,7 @@
 # esegue una sequenza di controlli e salva gli screenshot in .cache/vm/finale-*.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VM="ZETA RAYS 1.7 (arm64)"
+VM="ZETA RAYS 2.0 (arm64)"
 T="$ROOT/tools/vbox-tasti.py"
 P="$ROOT/tools/vbox-prova.sh"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage

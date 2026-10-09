@@ -34,13 +34,13 @@ while dormi 3; do
     recenti=$(awk -v a="$adesso" 'a - $1 < 600' "$STORIA" 2>/dev/null | wc -l)
     if [ "$recenti" -ge 3 ]; then
         if [ "$avvisato" = 0 ]; then
-            logger -t zeta-ripresa "Hyprland e' caduto 3 volte in 10 minuti: resto in modalita' sicura"
+            logger -t zeta-ripresa "Hyprland crashed 3 times in 10 minutes: staying in safe mode"
             avvisato=1
         fi
         continue
     fi
     echo "$adesso" >> "$STORIA"
-    logger -t zeta-ripresa "Hyprland in modalita' sicura dopo un crash: lo riavvio normale"
+    logger -t zeta-ripresa "Hyprland in safe mode after a crash: restarting it normally"
     touch "$RUN/zeta-ripresa"
     FIRMA=$(ls -t "$RUN/hypr" 2>/dev/null | head -1)
     # sintassi Lua di Hyprland 0.55: «dispatch exit» (vecchia) viene rifiutata

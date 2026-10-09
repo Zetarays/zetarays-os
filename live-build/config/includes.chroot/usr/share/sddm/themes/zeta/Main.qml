@@ -8,6 +8,12 @@ Rectangle {
     color: "#000000"
 
     property color accent: config.accent || "#3A8DFF"
+    // Testi in inglese, in italiano se la lingua del sistema e' l'italiano
+    // (SDDM passa al greeter il LANG di /etc/default/locale).
+    readonly property bool italiano: Qt.locale().name.indexOf("it") === 0
+    function t(en, it) { return italiano ? it : en }
+    // password visibile mentre la si scrive (icona a occhio nel campo)
+    property bool mostraPassword: false
     // Sempre la sessione ZETA RAYS (zeta.desktop): all'accesso dopo l'installazione non
     // c'è ancora una "ultima sessione" e l'indice 0 potrebbe essere un'altra voce.
     property int zetaSession: -1
@@ -25,21 +31,24 @@ Rectangle {
     // Ultimo utente usato; al primo avvio il primo utente disponibile
     property string userName: userModel.lastUser !== "" ? userModel.lastUser
                               : (userModel.count > 0 ? userModel.data(userModel.index(0, 0), Qt.UserRole + 1) : "")
-
-    // Bagliore del colore d'accento dal basso
-    Rectangle {
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: parent.height * 0.55
-        width: parent.width * 1.2
-        height: parent.height
-        radius: width / 2
-        opacity: 0.10
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 0.5; color: root.accent }
-            GradientStop { position: 1.0; color: "transparent" }
+    // Immagine dell'utente (Impostazioni › Account): SDDM la prende da
+    // AccountsService (ruolo IconRole = UserRole + 4). Quella di serie di SDDM
+    // (/usr/share/sddm/faces) non si usa: resta la sagoma di ZETA RAYS.
+    property string userIcon: {
+        for (var i = 0; i < userModel.count; ++i) {
+            var idx = userModel.index(i, 0)
+            if (userModel.data(idx, Qt.UserRole + 1) === root.userName) {
+                var ic = String(userModel.data(idx, Qt.UserRole + 4) || "")
+                if (ic === "" || ic.indexOf("/usr/share/sddm/") >= 0) return ""
+                // SDDM puo' darlo come percorso o gia' come «file://»
+                return ic.indexOf("file:") === 0 ? ic : "file://" + ic
+            }
         }
+        return ""
     }
+
+    // Fondo nero pieno, senza bagliori ne' marchi: e' anche la schermata che
+    // compare cambiando utente, che deve restare neutra come il blocco.
 
     // Ora e data
     Column {
@@ -63,13 +72,13 @@ Rectangle {
             color: "#8A8A8E"
             font.family: "Roboto"
             font.pixelSize: 17
-            text: new Date().toLocaleDateString(Qt.locale("it_IT"), "dddd d MMMM")
+            text: new Date().toLocaleDateString(Qt.locale(), "dddd d MMMM")
         }
         Timer {
             interval: 1000; running: true; repeat: true
             onTriggered: {
                 clock.text = Qt.formatTime(new Date(), "hh:mm")
-                date.text = new Date().toLocaleDateString(Qt.locale("it_IT"), "dddd d MMMM")
+                date.text = new Date().toLocaleDateString(Qt.locale(), "dddd d MMMM")
             }
         }
     }
@@ -83,14 +92,26 @@ Rectangle {
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             width: 88; height: 88; radius: 44
-            color: "#19191C"
-            border.color: Qt.rgba(1, 1, 1, 0.1)
+            color: foto.status === Image.Ready ? "transparent" : "#19191C"
+            border.color: foto.status === Image.Ready ? "transparent" : Qt.rgba(1, 1, 1, 0.1)
+            // l'immagine e' gia' tonda (con la trasparenza): nessuna maschera
+            Image {
+                id: foto
+                anchors.fill: parent
+                source: root.userIcon
+                sourceSize: Qt.size(176, 176)
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+                visible: status === Image.Ready
+            }
             Image {
                 anchors.centerIn: parent
                 source: "icons/user.svg"
                 width: 36; height: 36
                 sourceSize: Qt.size(72, 72)
                 opacity: 0.65
+                visible: foto.status !== Image.Ready
             }
         }
 
@@ -116,13 +137,13 @@ Rectangle {
                     id: password
                     anchors.fill: parent
                     anchors.leftMargin: 16
-                    anchors.rightMargin: 16
+                    anchors.rightMargin: 44
                     verticalAlignment: TextInput.AlignVCenter
-                    echoMode: TextInput.Password
+                    echoMode: root.mostraPassword ? TextInput.Normal : TextInput.Password
                     passwordCharacter: "●"
                     color: "#EDEDEA"
                     font.pixelSize: 14
-                    font.letterSpacing: 3
+                    font.letterSpacing: root.mostraPassword ? 0.5 : 3
                     cursorDelegate: Rectangle { width: 1.5; color: root.accent }
                     focus: true
                     Keys.onReturnPressed: root.doLogin()
@@ -137,6 +158,31 @@ Rectangle {
                     font.family: "Roboto"
                     font.pixelSize: 14
                     text: "Password"
+                }
+                // Show / Hide password
+                Item {
+                    id: occhio
+                    width: 36; height: 36
+                    anchors.right: parent.right
+                    anchors.rightMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    Image {
+                        anchors.centerIn: parent
+                        source: root.mostraPassword ? "icons/eye-off.svg" : "icons/eye.svg"
+                        width: 18; height: 18
+                        sourceSize: Qt.size(36, 36)
+                        opacity: occhioArea.containsMouse ? 0.95 : 0.55
+                    }
+                    MouseArea {
+                        id: occhioArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            root.mostraPassword = !root.mostraPassword
+                            password.forceActiveFocus()
+                        }
+                    }
                 }
             }
 
@@ -159,32 +205,7 @@ Rectangle {
             color: "#6E6E73"
             font.family: "Roboto"
             font.pixelSize: 12
-            text: "Premi Invio per accedere"
-        }
-    }
-
-    // Marchio in basso a sinistra
-    Row {
-        anchors.left: parent.left
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: 36
-        anchors.bottomMargin: 34
-        spacing: 12
-        Image {
-            // La scritta ZETA RAYS è molto più larga di quanto fosse il marchio
-            // precedente: le misure seguono le proporzioni reali del file
-            // (398×40), altrimenti uscirebbe schiacciata.
-            source: "icons/wordmark.svg"
-            width: 119; height: 12
-            sourceSize: Qt.size(398, 40)
-            anchors.verticalCenter: parent.verticalCenter
-        }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            color: "#6E6E73"
-            font.family: "Roboto"
-            font.pixelSize: 12
-            text: "1.7"
+            text: root.t("Press Enter to sign in", "Premi Invio per accedere")
         }
     }
 
@@ -198,9 +219,9 @@ Rectangle {
 
         Repeater {
             model: [
-                { icon: "moon", label: "Sospendi", action: "suspend" },
-                { icon: "restart", label: "Riavvia", action: "reboot" },
-                { icon: "power", label: "Spegni", action: "powerOff" }
+                { icon: "moon", label: root.t("Suspend", "Sospendi"), action: "suspend" },
+                { icon: "restart", label: root.t("Restart", "Riavvia"), action: "reboot" },
+                { icon: "power", label: root.t("Shut Down", "Spegni"), action: "powerOff" }
             ]
             delegate: Column {
                 spacing: 8
@@ -242,7 +263,7 @@ Rectangle {
     }
 
     function doLogin() {
-        hint.text = "Accesso in corso…"
+        hint.text = root.t("Signing in…", "Accesso in corso…")
         sddm.login(root.userName, password.text, root.sessionIndex)
     }
 
@@ -251,7 +272,7 @@ Rectangle {
         function onLoginFailed() {
             password.text = ""
             hint.color = "#FF6B6B"
-            hint.text = "Password errata, riprova"
+            hint.text = root.t("Wrong password, try again", "Password errata, riprova")
         }
     }
 }

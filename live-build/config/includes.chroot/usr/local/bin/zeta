@@ -22,6 +22,7 @@ import sys
 
 sys.path.insert(0, "/usr/lib/zeta")
 
+from i18n import tr  # noqa: E402
 from intelligence.actions import ActionResult  # noqa: E402
 from intelligence.assistant import Assistant  # noqa: E402
 from intelligence.memory import Memory  # noqa: E402
@@ -34,12 +35,12 @@ R = "\033[0m"
 
 
 def _confirm(res: ActionResult) -> bool:
-    print("\n%s╭─ AZIONE RICHIESTA%s" % (ACCENT, R))
-    print("%s│%s Comando:  %s" % (ACCENT, R, res.preview))
-    print("%s│%s Impatto:  %s" % (ACCENT, R, res.impact))
+    print("\n%s╭─ %s%s" % (ACCENT, tr("ACTION REQUESTED"), R))
+    print("%s│%s %s" % (ACCENT, R, tr("Command:  {command}").format(command=res.preview)))
+    print("%s│%s %s" % (ACCENT, R, tr("Impact:   {impact}").format(impact=res.impact)))
     print("%s╰─%s" % (ACCENT, R))
     try:
-        ans = input("  Autorizzi? [s/N] ").strip().lower()
+        ans = input("  " + tr("Allow? [y/N] ")).strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
     return ans in ("s", "si", "sì", "y", "yes")
@@ -47,16 +48,18 @@ def _confirm(res: ActionResult) -> bool:
 
 def cmd_status() -> int:
     reg = Registry()
-    print("%sProvider AI di ZETA RAYS Intelligence%s\n" % (BOLD, R))
-    for row in reg.status():
+    print("%s%s%s\n" % (BOLD, tr("ZETA RAYS Intelligence AI providers"), R))
+    righe = reg.status()
+    largo = max((len(r["label"]) for r in righe), default=9)
+    for row in righe:
         mark = "%s●%s" % (ACCENT, R) if row["ready"] else "%s○%s" % (DIM, R)
         extra = ""
         if row["id"] == "ollama" and row.get("local_models"):
-            extra = "  modelli: %s" % ", ".join(row["local_models"])
-        stato = "pronto" if row["ready"] else "da configurare"
-        print("  %s %-9s %s%s%s%s" % (mark, row["label"], DIM, stato, R, extra))
-    print("\n%sLe chiavi si inseriscono in Impostazioni › AI (vengono cifrate).%s" % (DIM, R))
-    print("%sPer i dettagli: zeta ai status · zeta ai test%s" % (DIM, R))
+            extra = "  " + tr("models: {models}").format(models=", ".join(row["local_models"]))
+        stato = tr("ready") if row["ready"] else tr("not set up")
+        print("  %s %s %s%s%s%s" % (mark, row["label"].ljust(largo), DIM, stato, R, extra))
+    print("\n%s%s%s" % (DIM, tr("Enter keys in Settings › AI (they are encrypted)."), R))
+    print("%s%s%s" % (DIM, tr("For details: zeta ai status · zeta ai test"), R))
     return 0
 
 
@@ -71,7 +74,7 @@ def not_configured() -> int:
         print(textwrap.fill(par, width))
     print()
     try:
-        ans = input("%sPremi Invio per aprire Impostazioni › AI, oppure scrivi 'esci': %s" % (DIM, R))
+        ans = input("%s%s%s" % (DIM, tr("Press Enter to open Settings › AI, or type 'exit': "), R))
     except (EOFError, KeyboardInterrupt):
         return 0
     if ans.strip().lower() not in ("esci", "exit", "quit", "q"):
@@ -83,13 +86,13 @@ def not_configured() -> int:
 
 def interactive(assistant: Assistant) -> int:
     ai_ready = assistant.provider.available()
-    tag = assistant.provider_label() if ai_ready else "comandi locali"
+    tag = assistant.provider_label() if ai_ready else tr("local commands")
     print("%s%sZETA RAYS%s %s— %s%s" % (BOLD, ACCENT, R, DIM, tag, R))
     if ai_ready:
-        print("%sScrivi la tua richiesta. 'esci' per uscire.%s\n" % (DIM, R))
+        print("%s%s%s\n" % (DIM, tr("Type your request. 'exit' to quit."), R))
     else:
-        print("%sComandi di sistema attivi (es. «apri i documenti», «quanta RAM»).%s" % (DIM, R))
-        print("%sPer le domande aperte configura un modello in Impostazioni › AI. 'esci' per uscire.%s\n" % (DIM, R))
+        print("%s%s%s" % (DIM, tr("System commands available (e.g. “open documents”, “how much RAM”)."), R))
+        print("%s%s%s\n" % (DIM, tr("For open questions, set up a model in Settings › AI. 'exit' to quit."), R))
     while True:
         try:
             text = input("%s› %s" % (ACCENT, R)).strip()
@@ -110,8 +113,29 @@ SISTEMA = {"system", "sistema", "status", "stato", "memory", "memoria", "process
            "diagnose", "diagnosi"}
 
 
+def cmd_help() -> int:
+    print(tr("""Usage:
+  zeta                      start a conversation
+  zeta QUESTION             ask one question
+  zeta --provider NAME      use one AI service for this session
+                            (claude, gemini, openai, ollama...)
+  zeta --status             the AI services and their state
+  zeta --forget             clear the conversation memory
+  zeta -- QUESTION          a question that starts like a command below
+
+System commands (read only):
+  zeta system | memory | processes | repositories | diagnose
+  zeta ai status | ai test [service] | shell status
+
+ZETA performs system actions through a closed list of tools; actions that
+change the system ask for confirmation first."""))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     args = argv[1:]
+    if args and args[0] in ("-h", "--help", "--aiuto"):
+        return cmd_help()
     if args and args[0] == "--":
         args = args[1:]                  # tutto il resto e' una domanda
     elif args and args[0] in SISTEMA:
@@ -121,14 +145,14 @@ def main(argv: list[str]) -> int:
         return cmd_status()
     if args and args[0] in ("--oblio", "--forget"):
         Memory().clear()
-        print("Memoria della conversazione cancellata.")
+        print(tr("Conversation memory cleared."))
         return 0
 
     provider = None
     if args and args[0] in ("--provider", "-p") and len(args) >= 2:
         pid = args[1]
         if pid not in CATALOG:
-            print("Provider sconosciuto: %s" % pid)
+            print(tr("Unknown provider: {name}").format(name=pid))
             return 1
         provider = Registry().get(pid)
         args = args[2:]

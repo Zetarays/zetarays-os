@@ -27,10 +27,41 @@ HOME = Path(os.path.expanduser("~"))
 CACHE = HOME / ".cache" / "zeta"
 DB = CACHE / "index.db"
 
-# cartelle da indicizzare (contenuto) — solo dati dell'utente
-ROOTS = [HOME / d for d in ("Documenti", "Documents", "Scrivania", "Desktop",
-                            "Download", "Downloads", "Immagini", "Pictures",
-                            "Modelli", "Templates", "Pubblici", "Public")]
+# cartelle utente XDG da indicizzare (contenuto): i nomi veri sono quelli di
+# ~/.config/user-dirs.dirs, che cambiano con la lingua del sistema
+_XDG_KEYS = ("XDG_DOCUMENTS_DIR", "XDG_DESKTOP_DIR", "XDG_DOWNLOAD_DIR",
+             "XDG_PICTURES_DIR", "XDG_TEMPLATES_DIR", "XDG_PUBLICSHARE_DIR")
+
+
+def _xdg_user_dirs() -> list:
+    """Le cartelle utente dichiarate in user-dirs.dirs (formato di
+    xdg-user-dirs: XDG_DOCUMENTS_DIR="$HOME/Documenti")."""
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")
+    out = []
+    try:
+        with open(config / "user-dirs.dirs", encoding="utf-8", errors="replace") as f:
+            for riga in f:
+                chiave, sep, valore = riga.strip().partition("=")
+                if not sep or chiave not in _XDG_KEYS:
+                    continue
+                valore = valore.strip().strip('"')
+                if valore.startswith("$HOME"):
+                    valore = str(HOME) + valore[len("$HOME"):]
+                if valore.startswith("/"):
+                    out.append(Path(valore))
+    except OSError:
+        pass
+    return out
+
+
+# cartelle da indicizzare (contenuto) — solo dati dell'utente: quelle XDG, poi
+# i nomi inglesi predefiniti e quelli italiani (se esistono; i doppioni si
+# saltano in _iter_files)
+ROOTS = [d for d in _xdg_user_dirs() if d != HOME]
+ROOTS += [HOME / d for d in ("Documents", "Desktop", "Downloads", "Pictures",
+                             "Templates", "Public",
+                             "Documenti", "Scrivania", "Download", "Immagini",
+                             "Modelli", "Pubblici")]
 # indicizza anche i file di primo livello nella home
 ROOTS.append(HOME)
 
@@ -78,7 +109,8 @@ def _extract_text(path: Path, ext: str, ocr_left: list) -> str:
             if path.stat().st_size > MAX_IMG_BYTES:
                 return ""
             ocr_left[0] -= 1
-            out = subprocess.run(["tesseract", str(path), "-", "-l", "ita+eng", "--psm", "3"],
+            from system import ocr
+            out = subprocess.run(["tesseract", str(path), "-", "-l", ocr.lingue(), "--psm", "3"],
                                  capture_output=True, text=True, timeout=45)
             return out.stdout[:MAX_CONTENT_CHARS]
     except (OSError, subprocess.SubprocessError):
@@ -109,6 +141,7 @@ def _utf8(nome: str) -> bool:
 
 def _iter_files():
     seen_roots = set()
+    home = HOME.resolve()
     for root in ROOTS:
         root = root.resolve()
         if not root.is_dir() or root in seen_roots:
@@ -123,7 +156,7 @@ def _iter_files():
             dirnames[:] = [d for d in dirnames
                            if not d.startswith(".") and d not in EXCLUDE_NAMES and _utf8(d)]
             # la home stessa: solo i file di primo livello, non tutte le sottocartelle
-            if root == HOME and depth == 0:
+            if root == home and depth == 0:
                 dirnames[:] = []
             for name in filenames:
                 if name.startswith(".") or not _utf8(name):
@@ -162,7 +195,7 @@ def reindex(full: bool = False) -> dict:
                        (sp, st.st_mtime, st.st_size))
         except (sqlite3.Error, UnicodeError, ValueError) as e:
             # un file strano non deve fermare l'indice di tutti gli altri
-            print("indice: salto %r: %s" % (sp, e), file=sys.stderr)
+            print("index: skipping %r: %s" % (sp, e), file=sys.stderr)
             continue
         if prev:
             updated += 1

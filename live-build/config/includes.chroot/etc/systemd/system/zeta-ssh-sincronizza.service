@@ -1,0 +1,17 @@
+# ZETA RAYS — la scelta SSH salvata (/etc/nftables.d/zeta-ssh.nft) negli
+# insiemi del firewall: SSH_REMOTE_ACCESS=true <=> accesso_remoto = { 22 }.
+# Gira dopo nftables all'avvio e di nuovo a ogni «systemctl restart/reload
+# nftables» (PartOf): la scelta non si perde mai. Ripetibile, senza doppioni.
+[Unit]
+Description=ZETA RAYS: SSH choice in the firewall sets
+After=nftables.service
+PartOf=nftables.service
+ConditionPathExists=/usr/local/bin/zeta-ssh
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/zeta-ssh sincronizza
+
+[Install]
+WantedBy=multi-user.target nftables.service

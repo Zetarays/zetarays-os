@@ -1,6 +1,7 @@
 [SddmGreeterTheme]
 Name=ZETA RAYS
-Description=Schermata di accesso di ZETA RAYS
+Description=ZETA RAYS login screen
+Description[it]=Schermata di accesso di ZETA RAYS
 Type=sddm-theme
 Version=1.0
 MainScript=Main.qml

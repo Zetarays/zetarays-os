@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2059,SC1111  # formati di printf dalle traduzioni; virgolette tipografiche volute
 # SPDX-License-Identifier: GPL-3.0-or-later
 # zeta-ripara-avvio — rimette in sesto il programma di avvio (GRUB) di una
 # installazione di ZETA RAYS che non parte piu'.
@@ -25,12 +26,14 @@
 # Non tocca le partizioni, non formatta, non cancella dati, non cambia la
 # tabella delle partizioni. Monta, scrive il programma di avvio, smonta.
 set -uo pipefail
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 
 SOLO_GUARDA=0
 [ "${1:-}" = "--guarda" ] && SOLO_GUARDA=1
 
 if [ "$(id -u)" != 0 ]; then
-    echo "Serve l'amministratore. Rilancia con:  sudo zeta-ripara-avvio" >&2
+    echo "$(gettext "Administrator rights are needed. Run it again with:  sudo zeta-ripara-avvio")" >&2
     exit 1
 fi
 
@@ -51,11 +54,11 @@ no()     { printf '  \033[31m%s\033[0m\n' "$1"; }
 info()   { printf '  %s\n' "$1"; }
 
 # --------------------------------------------------------- 1. che cosa c'e'
-titolo "Dischi e partizioni"
+titolo "$(gettext "Disks and partitions")"
 lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME,LABEL,MOUNTPOINT 2>/dev/null \
     | sed 's/^/  /' || lsblk | sed 's/^/  /'
 
-titolo "Cerco i sistemi installati"
+titolo "$(gettext "Looking for installed systems")"
 mkdir -p "$MNT"
 SISTEMI=()       # "partizione|nome|uefi_o_bios"
 ESP=""
@@ -67,7 +70,7 @@ for PART in $(lsblk -lnpo NAME,TYPE 2>/dev/null | awk '$2=="part"{print $1}'); d
     # La partizione di avvio EFI: piccola, vfat, con dentro /EFI
     if [ "$FS" = "vfat" ]; then
         if mount -o ro "$PART" "$MNT" 2>/dev/null; then
-            [ -d "$MNT/EFI" ] && { ESP="$PART"; info "partizione di avvio EFI: $PART"; }
+            [ -d "$MNT/EFI" ] && { ESP="$PART"; info "$(printf "$(gettext 'EFI boot partition: %s')" "$PART")"; }
             umount "$MNT" 2>/dev/null
         fi
         continue
@@ -76,12 +79,13 @@ for PART in $(lsblk -lnpo NAME,TYPE 2>/dev/null | awk '$2=="part"{print $1}'); d
     case "$FS" in ext2|ext3|ext4|btrfs|xfs) ;; *) continue ;; esac
     mount -o ro "$PART" "$MNT" 2>/dev/null || continue
     if [ -r "$MNT/etc/os-release" ]; then
-        NOME=$(. "$MNT/etc/os-release" 2>/dev/null; echo "${PRETTY_NAME:-sconosciuto}")
+        NOME=$(. "$MNT/etc/os-release" 2>/dev/null; echo "${PRETTY_NAME:-unknown}")
         # Due installazioni dello stesso sistema avrebbero lo stesso nome:
         # il nome del computer e la dimensione aiutano a riconoscerle.
         HOST=$(head -1 "$MNT/etc/hostname" 2>/dev/null)
         DIM=$(lsblk -dno SIZE "$PART" 2>/dev/null | tr -d ' ')
-        NOME="$NOME${HOST:+ - computer «$HOST»}${DIM:+, $DIM}"
+        [ -n "$HOST" ] && NOME="$NOME - $(printf "$(gettext 'computer “%s”')" "$HOST")"
+        NOME="$NOME${DIM:+, $DIM}"
         SISTEMI+=("$PART|$NOME")
         info "$PART  ->  $NOME"
     fi
@@ -89,10 +93,10 @@ for PART in $(lsblk -lnpo NAME,TYPE 2>/dev/null | awk '$2=="part"{print $1}'); d
 done
 
 if [ "${#SISTEMI[@]}" = 0 ]; then
-    no "Nessun sistema installato trovato sui dischi."
+    no "$(gettext "No installed system found on the disks.")"
     echo
-    echo "  Se il disco e' cifrato va prima sbloccato; se e' su RAID o LVM,"
-    echo "  va prima attivato. In quel caso questo strumento non basta."
+    gettext "  If the disk is encrypted, unlock it first; if it is on RAID or LVM,
+  activate it first. In that case this tool is not enough."; echo
     exit 1
 fi
 
@@ -102,9 +106,9 @@ for s in "${SISTEMI[@]}"; do
     case "${s#*|}" in *ZETA*|*zeta*) ZETA+=("$s");; esac
 done
 
-titolo "Installazioni di ZETA RAYS trovate"
+titolo "$(gettext "ZETA RAYS installations found")"
 if [ "${#ZETA[@]}" = 0 ]; then
-    no "Nessuna. Sul disco ci sono altri sistemi, ma non ZETA RAYS."
+    no "$(gettext "None. There are other systems on the disk, but not ZETA RAYS.")"
     exit 1
 fi
 i=1
@@ -114,17 +118,17 @@ for s in "${ZETA[@]}"; do
 done
 
 if [ "$SOLO_GUARDA" = 1 ]; then
-    titolo "Modalita' sola lettura: non e' stato modificato nulla."
+    titolo "$(gettext "Read-only mode: nothing was changed.")"
     exit 0
 fi
 
 SCELTA=1
 if [ "${#ZETA[@]}" -gt 1 ]; then
     echo
-    read -r -p "  Quale vuoi riparare? [1-${#ZETA[@]}] " SCELTA
+    read -r -p "  $(printf "$(gettext 'Which one do you want to repair? [1-%s]')" "${#ZETA[@]}") " SCELTA
     case "$SCELTA" in ''|*[!0-9]*) SCELTA=0;; esac
     if [ "$SCELTA" -lt 1 ] || [ "$SCELTA" -gt "${#ZETA[@]}" ]; then
-        no "Scelta non valida."; exit 1
+        no "$(gettext "Invalid choice.")"; exit 1
     fi
 fi
 VOCE="${ZETA[$((SCELTA-1))]}"
@@ -134,38 +138,38 @@ ROOT="${VOCE%%|*}"
 UEFI=no
 [ -d /sys/firmware/efi ] && UEFI=si
 
-titolo "Sto per fare questo"
-info "sistema da riparare:   $ROOT  (${VOCE#*|})"
+titolo "$(gettext "About to do this")"
+info "$(printf "$(gettext 'system to repair:      %s  (%s)')" "$ROOT" "${VOCE#*|}")"
 if [ "$UEFI" = si ]; then
-    info "modalita' di avvio:    UEFI"
+    info "$(gettext "boot mode:             UEFI")"
     if [ -n "$ESP" ]; then
-        info "partizione EFI:        $ESP"
+        info "$(printf "$(gettext 'EFI partition:         %s')" "$ESP")"
     else
-        no "partizione EFI:        NON TROVATA"
+        no "$(gettext "EFI partition:         NOT FOUND")"
         echo
-        echo "  Senza una partizione EFI non si puo' installare un avvio UEFI."
-        echo "  Se questo computer avvia in modalita' BIOS, riavvia la chiavetta"
-        echo "  in modalita' BIOS e rilancia."
+        gettext "  Without an EFI partition, UEFI boot cannot be installed.
+  If this computer boots in BIOS mode, restart the USB stick
+  in BIOS mode and run this again."; echo
         exit 1
     fi
-    info "verra' scritto:        GRUB in EFI/zetarays e in EFI/BOOT"
+    info "$(gettext "will be written:       GRUB in EFI/zetarays and in EFI/BOOT")"
 else
     DISCO=$(lsblk -npo PKNAME "$ROOT" 2>/dev/null | head -1)
     [ -n "$DISCO" ] && DISCO="/dev/$DISCO"
-    info "modalita' di avvio:    BIOS (non UEFI)"
-    info "verra' scritto:        GRUB nel settore di avvio di $DISCO"
+    info "$(gettext "boot mode:             BIOS (not UEFI)")"
+    info "$(printf "$(gettext 'will be written:       GRUB in the boot sector of %s')" "$DISCO")"
 fi
-info "verranno poi cercati gli altri sistemi installati (os-prober)"
+info "$(gettext "then the other installed systems will be detected (os-prober)")"
 echo
-info "Non vengono toccate partizioni, dati o file personali."
+info "$(gettext "Partitions, data and personal files are not touched.")"
 echo
-read -r -p "  Procedo? [scrivi si] " RISPOSTA
-case "$RISPOSTA" in si|SI|Si|sì|s|S|y|Y|yes) ;; *) echo "  Annullato."; exit 0;; esac
+read -r -p "  $(gettext "Go ahead? [type yes]") " RISPOSTA
+case "$RISPOSTA" in si|SI|Si|sì|s|S|y|Y|yes|YES|Yes) ;; *) echo "  $(gettext "Cancelled.")"; exit 0;; esac
 
 # ------------------------------------------------------------ 4. riparazione
-titolo "Riparazione"
-mount "$ROOT" "$MNT" || { no "Non riesco a montare $ROOT"; exit 1; }
-ok "montato $ROOT"
+titolo "$(gettext "Repair")"
+mount "$ROOT" "$MNT" || { no "$(printf "$(gettext 'Cannot mount %s')" "$ROOT")"; exit 1; }
+ok "$(printf "$(gettext 'mounted %s')" "$ROOT")"
 
 # Un /boot separato va montato prima, o i moduli finirebbero nel posto sbagliato
 if [ -r "$MNT/etc/fstab" ]; then
@@ -173,7 +177,7 @@ if [ -r "$MNT/etc/fstab" ]; then
     if [ -n "$BOOTPART" ]; then
         BOOTDEV=$(blkid -t "$BOOTPART" -o device 2>/dev/null | head -1)
         [ -z "$BOOTDEV" ] && BOOTDEV="$BOOTPART"
-        if mount "$BOOTDEV" "$MNT/boot" 2>/dev/null; then ok "montato /boot separato ($BOOTDEV)"; fi
+        if mount "$BOOTDEV" "$MNT/boot" 2>/dev/null; then ok "$(printf "$(gettext 'mounted separate /boot (%s)')" "$BOOTDEV")"; fi
     fi
 fi
 
@@ -186,14 +190,14 @@ if [ "$UEFI" = si ]; then
             EFIDEV=$(blkid -t "$EFIFSTAB" -o device 2>/dev/null | head -1)
             case "$EFIFSTAB" in /dev/*) [ -z "$EFIDEV" ] && EFIDEV="$EFIFSTAB";; esac
             if [ -n "$EFIDEV" ] && [ "$EFIDEV" != "$ESP" ]; then
-                info "uso la partizione EFI indicata dal sistema: $EFIDEV (non $ESP)"
+                info "$(printf "$(gettext 'using the EFI partition named by the system: %s (not %s)')" "$EFIDEV" "$ESP")"
                 ESP="$EFIDEV"
             fi
         fi
     fi
     mkdir -p "$MNT/boot/efi"
-    mount "$ESP" "$MNT/boot/efi" || { no "Non riesco a montare la partizione EFI"; exit 1; }
-    ok "montata la partizione EFI"
+    mount "$ESP" "$MNT/boot/efi" || { no "$(gettext "Cannot mount the EFI partition")"; exit 1; }
+    ok "$(gettext "mounted the EFI partition")"
 fi
 
 # Senza efivarfs grub-install copia i file ma non registra la voce nel
@@ -201,7 +205,7 @@ fi
 # vecchio GRUB. Se manca, si monta prima di collegare /sys.
 if [ "$UEFI" = si ] && ! mountpoint -q /sys/firmware/efi/efivars 2>/dev/null; then
     mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null \
-        && ok "montate le variabili del firmware (efivarfs)"
+        && ok "$(gettext "mounted the firmware variables (efivarfs)")"
 fi
 
 for d in dev dev/pts proc sys run; do
@@ -212,7 +216,7 @@ for d in dev dev/pts proc sys run; do
     # /proc staccava anche /proc/sys/fs/binfmt_misc della chiavetta.
     mount --make-rslave "$MNT/$d" 2>/dev/null
 done
-ok "collegato il sistema per poterci entrare"
+ok "$(gettext "system bound so it can be entered")"
 
 if [ "$UEFI" = si ]; then
     CMD="grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=zetarays --recheck"
@@ -222,11 +226,11 @@ else
 fi
 
 echo
-info "eseguo: $CMD"
+info "$(printf "$(gettext 'running: %s')" "$CMD")"
 if chroot "$MNT" /bin/bash -c "$CMD" 2>&1 | sed 's/^/    /'; then
-    ok "programma di avvio installato"
+    ok "$(gettext "boot loader installed")"
 else
-    no "grub-install non e' riuscito (vedi le righe qui sopra)"
+    no "$(gettext "grub-install failed (see the lines above)")"
     exit 1
 fi
 
@@ -239,7 +243,7 @@ VECCHIO="$MNT/etc/default/grub.d/zeta.cfg"
 if [ -f "$VECCHIO" ] && grep -qE '^GRUB_TIMEOUT_STYLE=hidden|^GRUB_TIMEOUT=[0-2]$' "$VECCHIO"; then
     cp -p "$VECCHIO" "$VECCHIO.prima-della-riparazione"
     sed -i -E '/^GRUB_TIMEOUT_STYLE=hidden$/d; /^GRUB_TIMEOUT=[0-2]$/d' "$VECCHIO"
-    ok "menu di avvio reso visibile (copia: ${VECCHIO#"$MNT"}.prima-della-riparazione)"
+    ok "$(printf "$(gettext 'boot menu made visible (copy: %s)')" "${VECCHIO#"$MNT"}.prima-della-riparazione")"
 fi
 # Il tema del menu delle immagini precedenti era stretto e tagliava le voci
 # lunghe («Advanced options for Kali GNU/Linux (on /dev/...)»).
@@ -247,29 +251,29 @@ TEMA=/usr/share/grub/themes/zeta/theme.txt
 if [ -f "$MNT$TEMA" ] && [ -f "$TEMA" ] && ! cmp -s "$TEMA" "$MNT$TEMA"; then
     cp -p "$MNT$TEMA" "$MNT$TEMA.prima-della-riparazione"
     install -m 644 "$TEMA" "$MNT$TEMA"
-    ok "aggiornato il tema del menu (voci lunghe leggibili)"
+    ok "$(gettext "menu theme updated (long entries readable)")"
 fi
 # Senza zeta-avvio.cfg (sistemi installati prima che esistesse) os-prober
 # resterebbe spento e il menu non mostrerebbe gli altri sistemi.
 if [ ! -f "$MNT/etc/default/grub.d/zeta-avvio.cfg" ] && [ -f /etc/default/grub.d/zeta-avvio.cfg ]; then
     install -m 644 /etc/default/grub.d/zeta-avvio.cfg "$MNT/etc/default/grub.d/zeta-avvio.cfg"
-    ok "attivata la ricerca degli altri sistemi (os-prober)"
+    ok "$(gettext "enabled detection of other systems (os-prober)")"
 fi
 
 echo
-info "eseguo: update-grub (cerca anche gli altri sistemi)"
+info "$(gettext "running: update-grub (also looks for the other systems)")"
 if chroot "$MNT" /bin/bash -c "update-grub" 2>&1 | sed 's/^/    /'; then
-    ok "menu di avvio rigenerato"
+    ok "$(gettext "boot menu regenerated")"
 else
-    no "update-grub non e' riuscito"
+    no "$(gettext "update-grub failed")"
     exit 1
 fi
 
-titolo "Che cosa c'e' ora nel menu"
+titolo "$(gettext "What is in the menu now")"
 grep -E "^menuentry|^submenu" "$MNT/boot/grub/grub.cfg" 2>/dev/null \
     | sed -E "s/^(menuentry|submenu) '([^']*)'.*/  \2/" | head -15
 
-titolo "Fatto"
-echo "  Riavvia e togli la chiavetta. Se al riavvio il menu non compare,"
-echo "  entra nel firmware (di solito F2, F10, F12 o Canc all'accensione) e"
-echo "  metti «zetarays» come primo nell'ordine di avvio."
+titolo "$(gettext "Done")"
+gettext "  Restart and remove the USB stick. If the menu does not appear after
+  the restart, enter the firmware setup (usually F2, F10, F12 or Del at
+  power-on) and put “zetarays” first in the boot order."; echo

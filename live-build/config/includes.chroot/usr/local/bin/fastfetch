@@ -13,8 +13,10 @@
 #   più piccola               -> solo le informazioni
 #
 # Per forzare una resa:  ZETA_LOGO=intero|compatto|minuto|nessuno fastfetch
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 REALE=/usr/bin/fastfetch
-[ -x "$REALE" ] || { echo "fastfetch non installato" >&2; exit 127; }
+[ -x "$REALE" ] || { echo "$(gettext "fastfetch is not installed")" >&2; exit 127; }
 
 # Il colore del marchio segue il tema (chiaro sul nero di ZETA RAYS, scuro sul
 # chiaro): zeta-accent scrive le configurazioni nella cartella dell utente. Se

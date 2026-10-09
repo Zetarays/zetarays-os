@@ -4,7 +4,7 @@
 # senza ricostruire l'immagine: i file si spingono dentro con vm-push.sh.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISO="${ZETA_ISO:-$HOME/Desktop/ZETA RAYS 1.7/zetarays-1.7-arm64.iso}"
+ISO="${ZETA_ISO:-$HOME/Desktop/ZETA RAYS 2.0/zetarays-2.0-arm64.iso}"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
 NAME="ZETA RAYS prova"
 SHOTS="$ROOT/.cache/vm"; mkdir -p "$SHOTS"

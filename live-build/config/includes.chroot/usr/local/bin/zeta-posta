@@ -14,16 +14,34 @@ ZETA RAYS. Nessun processo resta in esecuzione: il dock chiede lo stato solo
 quando si apre o si chiude una finestra (segnale da zeta-spazi).
 """
 import os
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import time
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+USO = tr("""Usage:
+  zeta-posta            open Mail; if it is already open, bring it to the front
+                        (even if minimized) without starting a second copy
+  zeta-posta nuovo      write a new message
+  zeta-posta esci       quit Thunderbird normally (as from its menu)
+  zeta-posta menu       right-click menu of the dock icon
+  zeta-posta stato      for the dock: icon (with the dot if open) and tooltip""")
+
 ICONE = "/usr/share/icons/zeta/scalable/apps"
 ICONA = os.path.join(ICONE, "zeta-posta.svg")
 ICONA_APERTA = os.path.join(ICONE, "zeta-posta-aperta.svg")
-PACCHETTI = ["thunderbird", "thunderbird-l10n-it"]
+PACCHETTI = ["thunderbird"]
+# la traduzione di Thunderbird nella lingua del sistema (es. thunderbird-l10n-it,
+# thunderbird-l10n-pt-br): quelle che apt non conosce si scartano da sole
+_LINGUA = (os.environ.get("LANG") or "").split(".")[0].split("@")[0].lower()
+if _LINGUA and _LINGUA not in ("c", "posix", "en_us", "en"):
+    for _nome in dict.fromkeys([_LINGUA.replace("_", "-"), _LINGUA.split("_")[0]]):
+        PACCHETTI.append("thunderbird-l10n-" + _nome)
 
 
 def _exe():
@@ -42,7 +60,6 @@ def _processi():
 
 def _finestre():
     """Finestre di Thunderbird, dalla usata piu' di recente."""
-    sys.path.insert(0, "/usr/lib/zeta")
     from system import windows
     ff = [c for c in windows.clients()
           if "thunderbird" in (c.get("class") or c.get("initialClass") or "").lower()]
@@ -64,21 +81,23 @@ def _notifica(titolo, testo, azione=None):
 def _installa():
     """Thunderbird manca: si dice perche' e, se apt lo conosce, si offre di
     installarlo (nel terminale, con la password chiesta da pkexec)."""
-    sys.path.insert(0, "/usr/lib/zeta")
     from system import pacchetti
     disp = pacchetti.disponibilita(PACCHETTI)
     installabili = [p for p in PACCHETTI if disp[p]["candidato"]]
     if "thunderbird" not in installabili:
-        _notifica("Posta: Thunderbird non è installato",
+        _notifica(tr("Mail: Thunderbird is not installed"),
                   pacchetti.perche_manca("thunderbird"))
         return 1
-    if _notifica("Posta: Thunderbird non è installato",
-                 "La Posta di ZETA RAYS usa Mozilla Thunderbird. Vuoi installarlo adesso?",
-                 azione="Installa") != "installa":
+    if _notifica(tr("Mail: Thunderbird is not installed"),
+                 tr("ZETA RAYS Mail uses Mozilla Thunderbird. Do you want to install it now?"),
+                 azione=tr("Install")) != "installa":
         return 1
-    script = ('printf "\\033[1;34mZETA RAYS — installazione della Posta (Thunderbird)\\033[0m\\n\\n"; '
+    script = ('printf "\\033[1;34m%%s\\033[0m\\n\\n" %s; '
               'pkexec apt-get install -y %s && zeta-posta; '
-              'printf "\\n\\033[2mPremi Invio per chiudere.\\033[0m"; read _') % " ".join(installabili)
+              'printf "\\n\\033[2m%%s\\033[0m" %s; read _') % (
+        shlex.quote(tr("ZETA RAYS — installing Mail (Thunderbird)")),
+        " ".join(installabili),
+        shlex.quote(tr("Press Enter to close.")))
     subprocess.Popen(["foot", "-e", "sh", "-c", script], start_new_session=True)
     return 0
 
@@ -94,7 +113,6 @@ def apri():
         return _installa()
     ff = _finestre()
     if ff:
-        sys.path.insert(0, "/usr/lib/zeta")
         from system import windows
         f = ff[0]
         if str((f.get("workspace") or {}).get("name", "")).startswith("special:"):
@@ -120,7 +138,6 @@ def esci():
     """Come «Esci» dal menu di Thunderbird: si chiudono le finestre (puo'
     chiedere di salvare una bozza). Se dopo 10 secondi non e' uscito, SIGTERM:
     per Thunderbird e' comunque una chiusura ordinata. Mai SIGKILL da qui."""
-    sys.path.insert(0, "/usr/lib/zeta")
     from system import windows
     for f in _finestre():
         windows.close(f["address"])
@@ -139,43 +156,36 @@ def esci():
 def stato():
     aperta = bool(_processi())
     print(ICONA_APERTA if aperta and os.path.exists(ICONA_APERTA) else ICONA)
-    print("Posta (aperta)" if aperta else "Posta")
+    print(tr("Mail (open)") if aperta else tr("Mail"))
     return 0
 
 
 def menu():
-    sys.path.insert(0, "/usr/lib/zeta")
     from ui import popup
     popup.preload_layer_shell()
-    import json
     import gi
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gio, Gtk
 
-    try:
-        pos = subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
-                             text=True, timeout=2).stdout
-        x = int(json.loads(pos).get("x", 0))
-    except (OSError, subprocess.SubprocessError, ValueError):
-        x = 0
     in_alto = False
     try:
         in_alto = open(os.path.expanduser("~/.config/zeta/dock-posizione")).read().strip() == "top"
     except OSError:
         pass
     aperta = bool(_processi())
-    voci = [("Apri Posta", apri), ("Nuovo messaggio", nuovo)]
+    voci = [(tr("Open Mail"), apri), (tr("New Message"), nuovo)]
     if aperta:
-        voci.append(("Esci da Thunderbird", esci))
+        voci.append((tr("Quit Thunderbird"), esci))
 
     class Menu(Gtk.ApplicationWindow):
         def __init__(self, app):
-            super().__init__(application=app, title="Posta", decorated=False)
+            super().__init__(application=app, title=tr("Mail"), decorated=False)
             popup.make_overlay(self, "zeta-menu-dock")
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                            css_classes=["zeta-card"], halign=Gtk.Align.START,
                            valign=Gtk.Align.START if in_alto else Gtk.Align.END)
-            card.set_margin_start(max(8, x - 110))
+            # sotto il cursore, sul suo monitor, sempre dentro lo schermo
+            popup.menu_al_cursore(self, card, 220)
             if in_alto:
                 card.set_margin_top(84)
             else:
@@ -222,7 +232,7 @@ def main(argv):
     cmd = argv[1] if len(argv) > 1 else "apri"
     azioni = {"apri": apri, "nuovo": nuovo, "esci": esci, "stato": stato, "menu": menu}
     if cmd not in azioni:
-        print(__doc__)
+        print(USO)
         return 1
     return azioni[cmd]() or 0
 

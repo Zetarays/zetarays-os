@@ -12,6 +12,8 @@ import os
 import subprocess
 import time
 
+from i18n import ntr, tr
+
 LISTE = "/var/lib/apt/lists"
 VECCHIO = 7 * 24 * 3600          # indici piu' vecchi di una settimana: da aggiornare
 
@@ -19,10 +21,10 @@ VECCHIO = 7 * 24 * 3600          # indici piu' vecchi di una settimana: da aggio
 # per averli: Kali e Debian mescolati si rompono a vicenda al primo
 # aggiornamento (lo dice Kali stessa), e il sistema smette di aggiornarsi.
 MOTIVI = {
-    "radare2": ("Non incluso in Debian 13: i suoi autori pubblicano versioni nuove così spesso "
-                "che Debian non riusciva a garantirne le correzioni di sicurezza nella versione stabile."),
-    "theharvester": "Esiste solo nei repository di Kali Linux, non in Debian. Mescolare i due "
-                    "rompe gli aggiornamenti del sistema, quindi ZETA RAYS non lo fa.",
+    "radare2": tr("Not in the system's software sources: its authors release new versions so "
+                  "often that a stable release couldn't guarantee its security fixes."),
+    "theharvester": tr("Only available in the Kali Linux repositories. Mixing them with the system's "
+                       "software sources breaks updates, so ZETA RAYS doesn't do it."),
 }
 
 
@@ -73,12 +75,14 @@ def eta_indici():
 
 def descrivi_eta(sec):
     if sec is None:
-        return "mai scaricato"
+        return tr("never downloaded")
     giorni = int(sec // 86400)
     if giorni == 0:
         ore = int(sec // 3600)
-        return "aggiornato da %d or%s" % (ore, "a" if ore == 1 else "e") if ore else "appena aggiornato"
-    return "vecchio di %d giorn%s" % (giorni, "o" if giorni == 1 else "i")
+        if not ore:
+            return tr("just updated")
+        return ntr("updated {n} hour ago", "updated {n} hours ago", ore).format(n=ore)
+    return ntr("{n} day old", "{n} days old", giorni).format(n=giorni)
 
 
 def indici_vecchi():
@@ -91,9 +95,12 @@ def perche_manca(pacchetto):
     if pacchetto in MOTIVI:
         return MOTIVI[pacchetto]
     if indici_vecchi():
-        return ("Non trovato nell'elenco dei pacchetti, che è %s: aggiornalo e riprova."
-                % descrivi_eta(eta_indici()))
-    return "Non presente nei repository configurati (Debian 13 e backports)."
+        eta = eta_indici()
+        if eta is None:
+            return tr("Not found: the package list has never been downloaded. Update it and try again.")
+        return tr("Not found in the package list, which is {age}: update it and try again.").format(
+            age=descrivi_eta(eta))
+    return tr("Not in the configured software sources.")
 
 
 def repository():

@@ -72,7 +72,15 @@ if len(sys.argv) > 1 and sys.argv[1] in ("riduci", "ripristina", "ripristina-n",
     sys.exit(_senza_demone(sys.argv[1], arg) if sys.argv[1] != "menu" else 1)
 
 if len(sys.argv) < 2 or sys.argv[1] != "--demone":
-    print(__doc__)
+    sys.path.insert(0, "/usr/lib/zeta")
+    from i18n import tr
+    print(tr("""ZETA RAYS — minimize windows with a preview and an animation, like on macOS.
+
+  zeta-riduci riduci [ADDRESS]      minimize the active window (or the given one)
+  zeta-riduci ripristina ADDRESS    put it back where it was
+  zeta-riduci menu N                menu of thumbnail N in the bar
+  zeta-riduci --demone              resident process (started by the session)
+"""))
     sys.exit(0 if len(sys.argv) < 2 else 1)
 
 # ---------------------------------------------------------------- demone
@@ -90,6 +98,7 @@ import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, GLib, Gtk  # noqa: E402
 from system import dock, windows  # noqa: E402
+from i18n import tr  # noqa: E402
 
 DURATA = 0.30          # secondi dell'animazione
 
@@ -269,7 +278,7 @@ class App(Gtk.Application):
         try:
             windows.componi_anteprima(grande, windows._nome_file(addr, "mini"), classe)
         except Exception as e:  # noqa: BLE001
-            print("zeta-riduci: miniatura: %s" % e, file=sys.stderr)
+            print("zeta-riduci: thumbnail: %s" % e, file=sys.stderr)
         GLib.idle_add(windows._notify_bar)
 
     def _spegni(self):
@@ -311,27 +320,22 @@ class App(Gtk.Application):
             return
         if self.menu is not None:
             self.menu.destroy()
-        self.menu = Gtk.ApplicationWindow(application=self, title="Finestra ridotta", decorated=False)
+        self.menu = Gtk.ApplicationWindow(application=self, title=tr("Minimized Window"), decorated=False)
         popup.make_overlay(self.menu, "zeta-menu-dock")
         in_alto = dock.posizione() == "top"
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, css_classes=["zeta-card"],
                        halign=Gtk.Align.START, valign=Gtk.Align.START if in_alto else Gtk.Align.END)
-        try:
-            out = subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True, text=True, timeout=2).stdout
-            cx = int(json.loads(out).get("x", 0)) - _monitor()[0]
-        except (OSError, subprocess.SubprocessError, ValueError):
-            cx = 0
-        card.set_margin_start(max(8, cx - 110))
-        card.set_margin_end(8)
+        # sotto il cursore, sul suo monitor, sempre dentro lo schermo
+        popup.menu_al_cursore(self.menu, card, 220)
         if in_alto:
             card.set_margin_top(84)
         else:
             card.set_margin_bottom(84)
-        titolo = info.get("title") or info.get("class") or "Finestra"
+        titolo = info.get("title") or info.get("class") or tr("Window")
         et = Gtk.Label(label=titolo[:40], xalign=0, css_classes=["zeta-caption"], margin_start=10, margin_top=4)
         card.append(et)
-        for testo, fn in (("Ripristina", lambda: self.c_ripristina(addr)),
-                          ("Chiudi", lambda: self._chiudi(addr))):
+        for testo, fn in ((tr("Restore"), lambda: self.c_ripristina(addr)),
+                          (tr("Close"), lambda: self._chiudi(addr))):
             b = Gtk.Button(css_classes=["zeta-row"])
             b.set_child(Gtk.Label(label=testo, xalign=0))
             b.connect("clicked", lambda _b, f=fn: (self._menu_via(), f()))

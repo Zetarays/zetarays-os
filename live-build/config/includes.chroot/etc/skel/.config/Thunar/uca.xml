@@ -6,30 +6,36 @@
 <actions>
 <action>
 	<icon>utilities-terminal</icon>
-	<name>Apri un terminale qui</name>
+	<name>Open Terminal Here</name>
+	<name xml:lang="it">Apri un terminale qui</name>
 	<unique-id>zeta-terminale-qui</unique-id>
 	<command>foot --working-directory %f</command>
-	<description>Apre il terminale in questa cartella</description>
+	<description>Opens the terminal in this folder</description>
+	<description xml:lang="it">Apre il terminale in questa cartella</description>
 	<patterns>*</patterns>
 	<startup-notify/>
 	<directories/>
 </action>
 <action>
 	<icon>zeta-testo</icon>
-	<name>Copia il testo dell'immagine</name>
+	<name>Copy Text from Image</name>
+	<name xml:lang="it">Copia il testo dell'immagine</name>
 	<unique-id>zeta-testo-ocr</unique-id>
 	<command>zeta-testo %f</command>
-	<description>Riconosce il testo (OCR, sul computer) e lo copia negli appunti</description>
+	<description>Recognizes the text (OCR, on this computer) and copies it to the clipboard</description>
+	<description xml:lang="it">Riconosce il testo (OCR, sul computer) e lo copia negli appunti</description>
 	<patterns>*.png;*.PNG;*.jpg;*.JPG;*.jpeg;*.JPEG;*.webp;*.WEBP;*.tif;*.tiff;*.TIF;*.bmp;*.gif;*.pdf;*.PDF</patterns>
 	<image-files/>
 	<other-files/>
 </action>
 <action>
 	<icon>zeta-share</icon>
-	<name>Condividi con ZETA Share</name>
+	<name>Share with ZETA Share</name>
+	<name xml:lang="it">Condividi con ZETA Share</name>
 	<unique-id>zeta-share</unique-id>
 	<command>zeta-share %F</command>
-	<description>Invia a un telefono o a un computer vicino (LocalSend, in rete locale)</description>
+	<description>Send to a nearby phone or computer (LocalSend, over the local network)</description>
+	<description xml:lang="it">Invia a un telefono o a un computer vicino (LocalSend, in rete locale)</description>
 	<patterns>*</patterns>
 	<directories/>
 	<audio-files/>
@@ -40,19 +46,23 @@
 </action>
 <action>
 	<icon>edit-paste</icon>
-	<name>Incolla qui come amministratore</name>
+	<name>Paste Here as Administrator</name>
+	<name xml:lang="it">Incolla qui come amministratore</name>
 	<unique-id>zeta-incolla-amministratore</unique-id>
 	<command>zeta-incolla-amministratore incolla %f</command>
-	<description>Incolla i file copiati in una cartella di sistema (/opt, /usr/local...) chiedendo la password</description>
+	<description>Pastes the copied files into a system folder (/opt, /usr/local…), asking for your password</description>
+	<description xml:lang="it">Incolla i file copiati in una cartella di sistema (/opt, /usr/local...) chiedendo la password</description>
 	<patterns>*</patterns>
 	<directories/>
 </action>
 <action>
 	<icon>dialog-password</icon>
-	<name>Apri come amministratore</name>
+	<name>Open as Administrator</name>
+	<name xml:lang="it">Apri come amministratore</name>
 	<unique-id>zeta-apri-amministratore</unique-id>
 	<command>zeta-incolla-amministratore apri %f</command>
-	<description>Apre la cartella con i permessi di amministratore: si puo' copiare, rinominare e cancellare</description>
+	<description>Opens the folder with administrator rights, so you can copy, rename and delete</description>
+	<description xml:lang="it">Apre la cartella con i permessi di amministratore: si puo' copiare, rinominare e cancellare</description>
 	<patterns>*</patterns>
 	<directories/>
 </action>

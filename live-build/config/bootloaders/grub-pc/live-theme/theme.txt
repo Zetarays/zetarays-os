@@ -1,31 +1,47 @@
-# ZETA RAYS — tema del menu di avvio (GRUB). Posizioni relative al centro:
-# funziona da 800x600 fino a 4K. Usato dal disco di installazione e dal
-# sistema installato (/usr/share/grub/themes/zeta).
+# ZETA RAYS — tema del menu di avvio (GRUB). Usato dal disco di
+# installazione (UEFI) e dal sistema installato (/usr/share/grub/themes/zeta),
+# nello stesso stile del menu BIOS (isolinux): nero, marchio piccolo, voci in
+# colonna, la scelta segnata da una fascia appena piu' chiara con una
+# barretta blu a sinistra. Niente icone, niente riquadri, testo di misura
+# normale (Roboto Medium 16/13, generato da tools/gen-tema-grub.sh).
+# Posizioni relative al centro: va da 1024x768 a 1920x1080 (la risoluzione
+# e' quella nativa dello schermo, vedi config.cfg e hook 0100).
 title-text: ""
 desktop-color: "#000000"
 terminal-font: "Unifont Regular 16"
-message-font: "Unifont Regular 16"
+message-font: "Roboto Medium Regular 13"
 message-color: "#8A8A8E"
 
 + image {
-        left = 50%-60
-        top = 50%-240
-        width = 120
-        height = 140
+        left = 50%-41
+        top = 50%-218
+        width = 82
+        height = 86
         file = "logo.png"
 }
 
++ label {
+        top = 50%-124
+        left = 0
+        width = 100%
+        height = 16
+        align = "center"
+        color = "#5A5A60"
+        font = "Roboto Medium Regular 13"
+        text = "OS 2.0"
+}
+
 + boot_menu {
-        left = 50%-290
-        top = 50%-50
-        width = 580
-        height = 250
-        item_font = "Unifont Regular 16"
+        left = 50%-220
+        top = 50%-88
+        width = 440
+        height = 300
+        item_font = "Roboto Medium Regular 16"
         item_color = "#8A8A8E"
-        selected_item_font = "Unifont Regular 16"
+        selected_item_font = "Roboto Medium Regular 16"
         selected_item_color = "#FFFFFF"
-        item_height = 30
-        item_padding = 14
+        item_height = 32
+        item_padding = 0
         item_spacing = 4
         icon_width = 0
         icon_height = 0
@@ -36,23 +52,23 @@ message-color: "#8A8A8E"
 
 + label {
         id = "__timeout__"
-        top = 100%-84
+        top = 100%-82
         left = 0
         width = 100%
-        height = 20
+        height = 16
         align = "center"
         color = "#6E6E73"
-        font = "Unifont Regular 16"
-        text = "Starting automatically in %d seconds"
+        font = "Roboto Medium Regular 13"
+        text = "Starting automatically in %d s"
 }
 
 + label {
         top = 100%-54
         left = 0
         width = 100%
-        height = 20
+        height = 16
         align = "center"
-        color = "#48484D"
-        font = "Unifont Regular 16"
-        text = "Arrows: choose · Enter: start · E: edit"
+        color = "#4A4A50"
+        font = "Roboto Medium Regular 13"
+        text = "Up/Down  Select        Enter  Start        E  Edit        C  Command line"
 }

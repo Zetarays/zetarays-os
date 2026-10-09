@@ -11,6 +11,11 @@ else
   EXTRA="--bootloaders grub-efi,syslinux"
 fi
 
+# Safe graphics: same system and names as the normal entry, only "nomodeset"
+# (live-build's default failsafe line booted as hostname "debian", user
+# "user", with the kernel messages on screen). zstd: the live system and the
+# installer read the image several times faster than with xz, for an ISO a
+# few percent larger.
 lb config noauto \
   --mode debian \
   --distribution trixie \
@@ -23,8 +28,12 @@ lb config noauto \
   --debian-installer none \
   --iso-application "ZETA RAYS OS" \
   --iso-publisher "ZETA RAYS OS" \
-  --iso-volume "ZETA RAYS OS 1.7" \
-  --image-name "zero-1.7" \
-  --bootappend-live "boot=live components quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 locales=it_IT.UTF-8 keyboard-layouts=it timezone=Europe/Rome hostname=zetarays username=zeta" \
+  --iso-preparer "ZETA RAYS OS" \
+  --iso-volume "ZETA RAYS OS 2.0" \
+  --image-name "zetarays-2.0" \
+  --bootappend-live "boot=live components quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0 locales=en_US.UTF-8 keyboard-layouts=us timezone=Europe/Rome hostname=zetarays username=zeta" \
+  --bootappend-live-failsafe "boot=live components nomodeset quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 locales=en_US.UTF-8 keyboard-layouts=us timezone=Europe/Rome hostname=zetarays username=zeta" \
+  --chroot-squashfs-compression-type zstd \
+  --chroot-squashfs-compression-level 19 \
   $EXTRA \
   "${@}"

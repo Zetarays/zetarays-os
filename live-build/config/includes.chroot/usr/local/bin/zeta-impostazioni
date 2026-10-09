@@ -14,22 +14,30 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
 sys.path.insert(0, "/usr/lib/zeta")
+from i18n import language, tr  # noqa: E402
+from ui.pagina_font import FontsPage  # noqa: E402
+from ui.pagina_account import AccountPage  # noqa: E402
+from ui.pagina_lingua import LanguagePage  # noqa: E402
+from ui.pagina_schermi import SchermiPage  # noqa: E402
 from ui.settings_pages import AudioPage, BluetoothPage, NetworkPage, PrintersPage  # noqa: E402
 from system import dock as dockmod  # noqa: E402
 from system import sfondi  # noqa: E402
-from ui import tema  # noqa: E402
+from ui import accento, tema  # noqa: E402
 
-TITLES = {"aspetto": "Aspetto", "dock": "Dock", "schermo": "Schermo e blocco",
-          "notifiche": "Notifiche", "rete": "Wi-Fi e rete", "bluetooth": "Bluetooth",
-          "audio": "Audio", "stampanti": "Stampanti", "ai": "AI", "info": "Informazioni", "predefinite": "App predefinite"}
+TITLES = {"account": tr("Account"), "aspetto": tr("Appearance"), "dock": tr("Dock"), "schermi": tr("Displays"), "schermo": tr("Lock Screen"),
+          "notifiche": tr("Notifications"), "rete": tr("Wi-Fi & Network"), "bluetooth": "Bluetooth",
+          "audio": tr("Sound"), "stampanti": tr("Printers"), "ai": "AI", "info": tr("About"),
+          "predefinite": tr("Default Apps"), "lingua": tr("Language & Region"),
+          "font": tr("Fonts")}
 
-ACCENT_FILE = os.path.expanduser("~/.config/zeta/accent")
-SWATCHES = [("#3A8DFF", "Blu"), ("#C8102E", "Rosso"), ("#FFFFFF", "Bianco"), ("#4CC94A", "Verde")]
+# la tavolozza del sistema (ui/accento.py), la stessa dell'immagine dell'account
+SWATCHES = [(colore, accento.nome(k)) for k, colore, _n in accento.TAVOLOZZA]
 
 CSS = """
 .swatch { min-width: 32px; min-height: 32px; padding: 0; border-radius: 999px; }
 .swatch.selected { outline: 2px solid @accent_bg_color; outline-offset: 3px; }
 .swatch-custom { background: rgba(255, 255, 255, 0.06); border: 1px dashed rgba(255, 255, 255, 0.25); }
+.swatch-chiaro { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22); }
 .sfondo-mini { padding: 4px; border-radius: 10px; background: transparent; }
 .sfondo-mini picture { border-radius: 7px; }
 .sfondo-mini.selected { outline: 2px solid @accent_bg_color; outline-offset: 1px; }
@@ -38,11 +46,18 @@ CSS = """
 
 
 def read_accent():
-    try:
-        with open(ACCENT_FILE) as f:
-            return f.read().strip().upper()
-    except OSError:
-        return "#3A8DFF"
+    return accento.scelto_hex()
+
+
+def cartella_appimage():
+    """~/Applications (created if missing), or the Italian folder of earlier
+    installs when that is the one in use."""
+    nuova = os.path.expanduser("~/Applications")
+    vecchia = os.path.expanduser("~/Applicazioni")
+    if os.path.isdir(vecchia) and not os.path.isdir(nuova):
+        return vecchia
+    os.makedirs(nuova, exist_ok=True)
+    return nuova
 
 
 def launch(*cmd):
@@ -54,18 +69,22 @@ def launch(*cmd):
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Impostazioni", default_width=980, default_height=680)
+        super().__init__(application=app, title=tr("Settings"), default_width=980, default_height=680)
         self.swatch_buttons = []
 
         split = Adw.NavigationSplitView()
-        self.content = Adw.NavigationPage(title="Aspetto")
+        self.content = Adw.NavigationPage(title=TITLES["aspetto"])
         self.dock_page = Adw.PreferencesPage()
-        self.pages = {"aspetto": self.page_aspetto(), "dock": self.dock_page,
+        self.pages = {"account": AccountPage(),
+                      "aspetto": self.page_aspetto(), "dock": self.dock_page,
+                      "schermi": SchermiPage(),
                       "schermo": self.page_schermo(), "notifiche": self.page_notifiche(),
                       "rete": NetworkPage(),
                       "bluetooth": BluetoothPage(), "audio": AudioPage(),
                       "stampanti": PrintersPage(),
                       "ai": self.page_ai(), "predefinite": self.page_predefinite(),
+                      "lingua": LanguagePage(),
+                      "font": FontsPage(),
                       "info": self.page_info()}
         self.dock_entries = dockmod.load_dock()
         self._render_dock()
@@ -77,19 +96,23 @@ class Window(Adw.ApplicationWindow):
         # da qui: una lista tenuta a mano a parte si sfasava appena si
         # aggiungeva una voce, e la barra evidenziava la riga sbagliata.
         items = [
-            ("zeta-palette", "Aspetto", lambda: self.show("aspetto", "Aspetto"), "aspetto"),
-            ("zeta-dock", "Dock", lambda: self.show("dock", TITLES["dock"]), "dock"),
-            ("zeta-sun", "Schermo e blocco", lambda: self.show("schermo", TITLES["schermo"]), "schermo"),
-            ("zeta-bell-off", "Notifiche", lambda: self.show("notifiche", TITLES["notifiche"]), "notifiche"),
-            ("zeta-wifi", "Wi-Fi e rete", lambda: self.show("rete", TITLES["rete"]), "rete"),
-            ("zeta-bluetooth", "Bluetooth", lambda: self.show("bluetooth", TITLES["bluetooth"]), "bluetooth"),
-            ("zeta-volume", "Audio", lambda: self.show("audio", TITLES["audio"]), "audio"),
-            ("zeta-printer", "Stampanti", lambda: self.show("stampanti", TITLES["stampanti"]), "stampanti"),
-            ("zeta-ai", "AI", lambda: self.show("ai", "AI"), "ai"),
-            ("zeta-app", "App predefinite", lambda: self.show("predefinite", TITLES["predefinite"]), "predefinite"),
-            ("zeta-shield", "Sicurezza", lambda: launch("zeta-sicurezza"), None),
-            ("zeta-packages", "Pacchetti", lambda: launch("synaptic-pkexec"), None),
-            ("zeta-info", "Informazioni", lambda: self.show("info", "Informazioni"), "info"),
+            ("zeta-account", TITLES["account"], lambda: self.show("account", TITLES["account"]), "account"),
+            ("zeta-palette", TITLES["aspetto"], lambda: self.show("aspetto", TITLES["aspetto"]), "aspetto"),
+            ("zeta-dock", TITLES["dock"], lambda: self.show("dock", TITLES["dock"]), "dock"),
+            ("zeta-schermi", TITLES["schermi"], lambda: self.show("schermi", TITLES["schermi"]), "schermi"),
+            ("zeta-lock", TITLES["schermo"], lambda: self.show("schermo", TITLES["schermo"]), "schermo"),
+            ("zeta-bell-off", TITLES["notifiche"], lambda: self.show("notifiche", TITLES["notifiche"]), "notifiche"),
+            ("zeta-wifi", TITLES["rete"], lambda: self.show("rete", TITLES["rete"]), "rete"),
+            ("zeta-bluetooth", TITLES["bluetooth"], lambda: self.show("bluetooth", TITLES["bluetooth"]), "bluetooth"),
+            ("zeta-volume", TITLES["audio"], lambda: self.show("audio", TITLES["audio"]), "audio"),
+            ("zeta-printer", TITLES["stampanti"], lambda: self.show("stampanti", TITLES["stampanti"]), "stampanti"),
+            ("zeta-ai", TITLES["ai"], lambda: self.show("ai", TITLES["ai"]), "ai"),
+            ("zeta-app", TITLES["predefinite"], lambda: self.show("predefinite", TITLES["predefinite"]), "predefinite"),
+            ("zeta-lingua", TITLES["lingua"], lambda: self.show("lingua", TITLES["lingua"]), "lingua"),
+            ("zeta-font", TITLES["font"], lambda: self.show("font", TITLES["font"]), "font"),
+            ("zeta-shield", tr("Security"), lambda: launch("zeta-sicurezza"), None),
+            ("zeta-packages", tr("Packages"), lambda: launch("synaptic-pkexec"), None),
+            ("zeta-info", TITLES["info"], lambda: self.show("info", TITLES["info"]), "info"),
         ]
         for icon, label, action, _key in items:
             row = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6)
@@ -99,20 +122,25 @@ class Window(Adw.ApplicationWindow):
             lrow.action = action
             listbox.append(lrow)
         listbox.connect("row-activated", lambda _lb, r: r.action())
-        listbox.select_row(listbox.get_row_at_index(0))
+        # la pagina che si apre di serie e' Aspetto (non la prima riga, Account)
+        listbox.select_row(listbox.get_row_at_index([k for *_r, k in items].index("aspetto")))
         self.listbox = listbox
         self.row_keys = [chiave for *_resto, chiave in items]
 
         side_view = Adw.ToolbarView()
         side_view.add_top_bar(Adw.HeaderBar())
-        side_view.set_content(listbox)
-        split.set_sidebar(Adw.NavigationPage(title="Impostazioni", child=side_view))
+        # la lista scorre: senza, le sue voci imponevano alla finestra
+        # un'altezza minima (704 px) che non entra in uno schermo basso
+        # (1366x768, 1280x800 con la barra) e la barra del titolo finiva fuori
+        side_view.set_content(Gtk.ScrolledWindow(child=listbox,
+                                                 hscrollbar_policy=Gtk.PolicyType.NEVER))
+        split.set_sidebar(Adw.NavigationPage(title=tr("Settings"), child=side_view))
 
         self.content_view = Adw.ToolbarView()
         self.content_view.add_top_bar(Adw.HeaderBar())
         self.content.set_child(self.content_view)
         split.set_content(self.content)
-        self.show("aspetto", "Aspetto")
+        self.show("aspetto", TITLES["aspetto"])
         self.toasts = Adw.ToastOverlay(child=split)
         self.set_content(self.toasts)
 
@@ -125,10 +153,10 @@ class Window(Adw.ApplicationWindow):
         from system import predefinite as P
         page = Adw.PreferencesPage()
         g = Adw.PreferencesGroup(
-            title="App predefinite",
-            description="Le app che si aprono per i link, la posta, le cartelle e i file, e con le "
-                        "scorciatoie Super+Invio (terminale), Super+E (file) e Super+B (browser). "
-                        "Compaiono solo le app installate.")
+            title=tr("Default Apps"),
+            description=tr("The apps that open links, mail, folders and files, and those launched by the "
+                           "shortcuts Super+Enter (terminal), Super+E (files) and Super+B (browser). "
+                           "Only installed apps are listed."))
         for cat in P.ORDINE:
             cand = P.candidate(cat)
             attuale = P.attuale(cat)
@@ -138,7 +166,7 @@ class Window(Adw.ApplicationWindow):
                     cand.insert(0, (attuale, info.get_display_name(), ""))
             row = Adw.ComboRow(title=P.CATEGORIE[cat][0])
             if not cand:
-                row.set_subtitle("Nessuna app installata per questo")
+                row.set_subtitle(tr("No app installed for this"))
                 row.set_model(Gtk.StringList.new(["—"]))
                 row.set_sensitive(False)
                 g.add(row)
@@ -154,26 +182,26 @@ class Window(Adw.ApplicationWindow):
         # Gestione delle app: le tolte dal menu si rimettono da qui; AppImage
         # e Flatpak entrano nel menu da sole (registro unico, zeta-app)
         ga = Adw.PreferencesGroup(
-            title="Applicazioni",
-            description="Tasto destro su un'app nel menu o nella ricerca: aprirla, vedere dove è "
-                        "installata, metterla sulla Scrivania o nel Dock, toglierla o disinstallarla.")
-        nascoste = Adw.ActionRow(title="App tolte dal menu",
-                                 subtitle="Restano installate: rimettile nel menu quando vuoi",
+            title=tr("Applications"),
+            description=tr("Right-click an app in the menu or in search to open it, see where it is "
+                           "installed, put it on the Desktop or in the Dock, hide it or uninstall it."))
+        nascoste = Adw.ActionRow(title=tr("Apps hidden from the menu"),
+                                 subtitle=tr("They stay installed: put them back in the menu whenever you like"),
                                  activatable=True)
         nascoste.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         nascoste.connect("activated", lambda *_: launch("zeta-app", "nascoste"))
         ga.add(nascoste)
         appimage = Adw.ActionRow(
             title="AppImage",
-            subtitle="Mettile nella cartella Applicazioni (o lasciale in Scaricati): entrano nel "
-                     "menu da sole, con nome e icona.", activatable=True)
+            subtitle=tr("Put them in the Applications folder (or leave them in Downloads): they appear "
+                        "in the menu on their own, with name and icon."), activatable=True)
         appimage.add_suffix(Gtk.Image(icon_name="folder-open-symbolic"))
-        appimage.connect("activated", lambda *_: launch("thunar", os.path.expanduser("~/Applicazioni")))
+        appimage.connect("activated", lambda *_: launch("thunar", cartella_appimage()))
         ga.add(appimage)
         ga.add(Adw.ActionRow(
             title="Flatpak",
-            subtitle="Flathub è già pronto: su flathub.org il pulsante «Install» apre "
-                     "l'installazione, e l'app compare nel menu."))
+            subtitle=tr("Flathub is ready to use: on flathub.org the “Install” button starts "
+                        "the installation, and the app appears in the menu.")))
         page.add(ga)
         return page
 
@@ -228,19 +256,21 @@ class Window(Adw.ApplicationWindow):
     def page_aspetto(self):
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup(
-            title="Colore d'accento",
-            description="Cambia bordi, barra, launcher, notifiche e sfondo.")
+            title=tr("Accent color"),
+            description=tr("Changes borders, bar, launcher, notifications and wallpaper."))
 
         box = Gtk.Box(spacing=16, margin_top=8, margin_bottom=8)
         current = read_accent()
         for i, (color, name) in enumerate(SWATCHES):
             b = Gtk.Button(css_classes=["swatch", "swatch-%d" % i], tooltip_text=name)
+            if color == "#FFFFFF":
+                b.add_css_class("swatch-chiaro")       # il bianco si vede anche sul chiaro
             b.color = color
             b.connect("clicked", lambda btn: self.set_accent(btn.color))
             self.swatch_buttons.append(b)
             box.append(b)
 
-        custom = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Colore personalizzato",
+        custom = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=tr("Custom color"),
                             css_classes=["swatch", "swatch-custom"], valign=Gtk.Align.CENTER)
         custom.connect("clicked", self.on_custom)
         self.custom_button = custom
@@ -251,12 +281,12 @@ class Window(Adw.ApplicationWindow):
 
         # --- Sfondo della scrivania ---
         sfondo = Adw.PreferencesGroup(
-            title="Sfondo", description="Uno degli sfondi di ZETA RAYS, un'immagine tua, "
-                                        "o quello che segue il colore d'accento (Ripristina).")
-        self.sfondo_row = Adw.ActionRow(title="Immagine", subtitle=self._wallpaper_label())
-        scegli = Gtk.Button(label="Scegli…", valign=Gtk.Align.CENTER)
+            title=tr("Wallpaper"), description=tr("One of the ZETA RAYS wallpapers, an image of your own, "
+                                                  "or the one that follows the accent color (Reset)."))
+        self.sfondo_row = Adw.ActionRow(title=tr("Image"), subtitle=self._wallpaper_label())
+        scegli = Gtk.Button(label=tr("Choose…"), valign=Gtk.Align.CENTER)
         scegli.connect("clicked", lambda *_: self.on_pick_wallpaper())
-        ripristina = Gtk.Button(label="Ripristina", valign=Gtk.Align.CENTER)
+        ripristina = Gtk.Button(label=tr("Reset"), valign=Gtk.Align.CENTER)
         ripristina.connect("clicked", lambda *_: self.on_reset_wallpaper())
         self.sfondo_row.add_suffix(scegli)
         self.sfondo_row.add_suffix(ripristina)
@@ -286,10 +316,10 @@ class Window(Adw.ApplicationWindow):
             sfondo.add(galleria)
             self._segna_sfondo()
 
-        modes = [("fill", "Riempi"), ("fit", "Adatta"), ("center", "Centrato"),
-                 ("tile", "Affiancato"), ("stretch", "Allargato")]
+        modes = [("fill", tr("Fill")), ("fit", tr("Fit")), ("center", tr("Center")),
+                 ("tile", tr("Tile")), ("stretch", tr("Stretch"))]
         self._mode_ids = [m for m, _ in modes]
-        combo = Adw.ComboRow(title="Adattamento",
+        combo = Adw.ComboRow(title=tr("Placement"),
                              model=Gtk.StringList.new([lbl for _, lbl in modes]))
         combo.set_selected(self._mode_ids.index(self._wallpaper_mode())
                            if self._wallpaper_mode() in self._mode_ids else 0)
@@ -299,14 +329,14 @@ class Window(Adw.ApplicationWindow):
 
         # --- Tema, testo, icone, puntatore, scala ---
         tema = Adw.PreferencesGroup(
-            title="Tema e dimensioni",
-            description="Valgono per tutto il sistema: barra, pannelli, app e terminale.")
+            title=tr("Theme and sizes"),
+            description=tr("They apply to the whole system: bar, panels, apps and terminal."))
 
         self._temi = ["scuro", "chiaro"]
-        riga_tema = Adw.ComboRow(title="Tema",
-                                 subtitle="Scuro come ZETA RAYS, oppure chiaro. "
-                                          "Si alterna anche con SUPER + T.",
-                                 model=Gtk.StringList.new(["Scuro", "Chiaro"]))
+        riga_tema = Adw.ComboRow(title=tr("Theme"),
+                                 subtitle=tr("Dark like ZETA RAYS, or light. "
+                                             "SUPER + T also switches it."),
+                                 model=Gtk.StringList.new([tr("Dark"), tr("Light")]))
         riga_tema.set_selected(self._temi.index(self._asp("tema")))
         riga_tema.connect("notify::selected",
                           lambda c, _p: self.set_aspetto("tema", self._temi[c.get_selected()]))
@@ -317,29 +347,29 @@ class Window(Adw.ApplicationWindow):
         # contrario), che è il motivo per cui la scelta è separata dal tema.
         self._editor_temi = ["sistema", "chiaro", "scuro"]
         riga_editor = Adw.ComboRow(
-            title="Editor di testo",
-            subtitle="Sfondo bianco con testo nero, o nero con testo bianco",
-            model=Gtk.StringList.new(["Come il sistema",
-                                      "Chiaro (sfondo bianco, testo nero)",
-                                      "Scuro (sfondo nero, testo bianco)"]))
+            title=tr("Text Editor"),
+            subtitle=tr("White background with black text, or black with white text"),
+            model=Gtk.StringList.new([tr("Same as the system"),
+                                      tr("Light (white background, black text)"),
+                                      tr("Dark (black background, white text)")]))
         riga_editor.set_selected(self._editor_temi.index(self._asp("editor-tema")))
         riga_editor.connect("notify::selected",
                             lambda c, _p: self.set_aspetto(
                                 "editor-tema", self._editor_temi[c.get_selected()]))
         tema.add(riga_editor)
 
-        tema.add(self._spin("Dimensione del testo", "Testo di menu, pannelli e app",
+        tema.add(self._spin(tr("Text size"), tr("Text of menus, panels and apps"),
                             "font-size", 8, 16))
-        tema.add(self._spin("Dimensione delle icone", "Icone del dock in basso",
+        tema.add(self._spin(tr("Icon size"), tr("Icons of the dock at the bottom"),
                             "icon-size", 28, 64))
-        tema.add(self._spin("Dimensione del puntatore", "Freccia del mouse",
+        tema.add(self._spin(tr("Pointer size"), tr("Mouse arrow"),
                             "cursor-size", 16, 48))
 
         self._scale_ids = ["auto", "1", "1.25", "1.5", "2"]
         riga_scala = Adw.ComboRow(
-            title="Ingrandimento dell'interfaccia",
-            subtitle="Automatico dai DPI dello schermo, oppure fisso",
-            model=Gtk.StringList.new(["Automatico", "100%", "125%", "150%", "200%"]))
+            title=tr("Interface scaling"),
+            subtitle=tr("Automatic from the screen DPI, or fixed"),
+            model=Gtk.StringList.new([tr("Automatic"), "100%", "125%", "150%", "200%"]))
         corrente = self._asp("scala")
         riga_scala.set_selected(self._scale_ids.index(corrente)
                                 if corrente in self._scale_ids else 0)
@@ -347,8 +377,8 @@ class Window(Adw.ApplicationWindow):
         tema.add(riga_scala)
 
         icone = Adw.SwitchRow(
-            title="Icone sulla scrivania",
-            subtitle="Mostra file e cartelle della Scrivania sullo sfondo")
+            title=tr("Desktop icons"),
+            subtitle=tr("Show the files and folders of the Desktop on the wallpaper"))
         icone.set_active(self._asp("scrivania") == "1")
         icone.connect("notify::active",
                       lambda r, _p: self.set_aspetto("scrivania",
@@ -358,15 +388,15 @@ class Window(Adw.ApplicationWindow):
 
         # --- Effetti ---
         effetti = Adw.PreferencesGroup(
-            title="Effetti",
-            description="Spegnerli rende il desktop più scattante sui computer lenti.")
-        effetti.add(self._switch("Animazioni", "Movimenti di finestre e pannelli",
+            title=tr("Effects"),
+            description=tr("Turning them off makes the desktop snappier on slow computers."))
+        effetti.add(self._switch(tr("Animations"), tr("Movement of windows and panels"),
                                  "animazioni"))
-        effetti.add(self._switch("Trasparenza e sfocatura",
-                                 "Pannelli, terminale e ombre", "trasparenza"))
-        effetti.add(self._spin("Angoli arrotondati", "Raggio degli angoli delle finestre",
+        effetti.add(self._switch(tr("Transparency and blur"),
+                                 tr("Panels, terminal and shadows"), "trasparenza"))
+        effetti.add(self._spin(tr("Rounded corners"), tr("Radius of window corners"),
                                "angoli", 0, 24))
-        effetti.add(self._spin("Spazio fra le icone", "Distanza fra le icone sulla scrivania",
+        effetti.add(self._spin(tr("Icon spacing"), tr("Distance between icons on the desktop"),
                                "spaziatura", 0, 48))
         page.add(self._ancora("aspetto", "effetti", effetti))
 
@@ -377,56 +407,49 @@ class Window(Adw.ApplicationWindow):
     def page_schermo(self):
         page = Adw.PreferencesPage()
         g = Adw.PreferencesGroup(
-            title="Inattività",
-            description="Cosa succede quando non usi il computer per un po'.")
-        g.add(self._spin("Spegni lo schermo dopo", "minuti — 0 per non spegnerlo mai",
+            title=tr("Inactivity"),
+            description=tr("What happens when you don't use the computer for a while."))
+        g.add(self._spin(tr("Turn off the screen after"), tr("minutes — 0 to never turn it off"),
                          "schermo-spegni", 0, 120))
-        g.add(self._spin("Blocca lo schermo dopo", "minuti — 0 per non bloccarlo mai",
+        g.add(self._spin(tr("Lock the screen after"), tr("minutes — 0 to never lock it"),
                          "blocco-auto", 0, 120))
         page.add(g)
 
-        b = Adw.PreferencesGroup(title="Blocco schermo")
-        riga = Adw.ActionRow(title="Blocca adesso",
-                             subtitle="Serve la password per rientrare")
-        bott = Gtk.Button(label="Blocca", valign=Gtk.Align.CENTER)
+        b = Adw.PreferencesGroup(title=tr("Screen lock"))
+        riga = Adw.ActionRow(title=tr("Lock now"),
+                             subtitle=tr("Your password is needed to get back in"))
+        bott = Gtk.Button(label=tr("Lock"), valign=Gtk.Align.CENTER)
         bott.connect("clicked", lambda *_: launch("hyprlock"))
         riga.add_suffix(bott)
         b.add(riga)
         riga2 = Adw.ActionRow(
-            title="Sfondo del blocco",
-            subtitle="La schermata di blocco usa lo sfondo della scrivania")
+            title=tr("Lock screen"),
+            subtitle=tr("Always plain black, on every display, also when waking from sleep"))
         b.add(riga2)
         page.add(b)
 
-        s = Adw.PreferencesGroup(
-            title="Ingrandimento", description="Vale per tutto il desktop.")
-        self._scale_ids2 = ["auto", "1", "1.25", "1.5", "2"]
-        riga3 = Adw.ComboRow(title="Ingrandimento dell'interfaccia",
-                             model=Gtk.StringList.new(
-                                 ["Automatico", "100%", "125%", "150%", "200%"]))
-        corrente = self._asp("scala")
-        riga3.set_selected(self._scale_ids2.index(corrente)
-                           if corrente in self._scale_ids2 else 0)
-        riga3.connect("notify::selected",
-                      lambda c, _p: self.set_aspetto("scala",
-                                                     self._scale_ids2[c.get_selected()]))
-        s.add(riga3)
-        page.add(s)
+        d = Adw.PreferencesGroup(title=tr("Displays"))
+        vai = Adw.ActionRow(title=tr("Resolution, Scale and Arrangement"),
+                            subtitle=tr("Each display has its own settings"), activatable=True)
+        vai.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        vai.connect("activated", lambda *_: self.show("schermi", TITLES["schermi"]))
+        d.add(vai)
+        page.add(d)
         return page
 
     # --- Notifiche ---
     def page_notifiche(self):
         page = Adw.PreferencesPage()
-        g = Adw.PreferencesGroup(title="Notifiche")
-        g.add(self._switch("Non disturbare", "Silenzia tutte le notifiche",
+        g = Adw.PreferencesGroup(title=tr("Notifications"))
+        g.add(self._switch(tr("Do Not Disturb"), tr("Silence all notifications"),
                            "non-disturbare"))
         self._pos_ids = ["top-right", "top-center", "top-left",
                          "bottom-right", "bottom-left"]
-        riga = Adw.ComboRow(title="Posizione",
+        riga = Adw.ComboRow(title=tr("Position"),
                             model=Gtk.StringList.new(
-                                ["In alto a destra", "In alto al centro",
-                                 "In alto a sinistra", "In basso a destra",
-                                 "In basso a sinistra"]))
+                                [tr("Top right"), tr("Top center"),
+                                 tr("Top left"), tr("Bottom right"),
+                                 tr("Bottom left")]))
         corrente = self._asp("notifiche-posizione")
         riga.set_selected(self._pos_ids.index(corrente)
                           if corrente in self._pos_ids else 0)
@@ -434,13 +457,13 @@ class Window(Adw.ApplicationWindow):
                      lambda c, _p: self.set_aspetto("notifiche-posizione",
                                                     self._pos_ids[c.get_selected()]))
         g.add(riga)
-        g.add(self._spin("Durata", "secondi prima che la notifica sparisca",
+        g.add(self._spin(tr("Duration"), tr("seconds before the notification disappears"),
                          "notifiche-durata", 1, 60))
-        prova = Adw.ActionRow(title="Prova una notifica",
-                              subtitle="Per vedere posizione e durata")
-        b = Gtk.Button(label="Prova", valign=Gtk.Align.CENTER)
+        prova = Adw.ActionRow(title=tr("Try a notification"),
+                              subtitle=tr("To see position and duration"))
+        b = Gtk.Button(label=tr("Try"), valign=Gtk.Align.CENTER)
         b.connect("clicked", lambda *_: launch(
-            "notify-send", "ZETA RAYS", "Le notifiche funzionano."))
+            "notify-send", "ZETA RAYS", tr("Notifications are working.")))
         prova.add_suffix(b)
         g.add(prova)
         page.add(g)
@@ -474,7 +497,7 @@ class Window(Adw.ApplicationWindow):
             out = subprocess.run(["zeta-aspetto", "get"], capture_output=True,
                                  text=True, timeout=10).stdout
         except (OSError, subprocess.SubprocessError) as e:
-            print("impostazioni: zeta-aspetto non risponde: %s" % e, file=sys.stderr)
+            print("impostazioni: zeta-aspetto is not responding: %s" % e, file=sys.stderr)
             return {}
         valori = {}
         for line in out.splitlines():
@@ -525,7 +548,7 @@ class Window(Adw.ApplicationWindow):
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
                 esito = (r.returncode == 0, (r.stderr or "").strip())
             except subprocess.TimeoutExpired:
-                esito = (False, "il comando non è terminato in tempo")
+                esito = (False, "the command did not finish in time")
             except OSError as e:
                 esito = (False, str(e))
             GLib.idle_add(finito, esito)
@@ -535,7 +558,7 @@ class Window(Adw.ApplicationWindow):
             if ok:
                 self.toast(ok_msg)
             else:
-                print("impostazioni: %s (%s)" % (ko_msg, motivo or "senza dettagli"),
+                print("impostazioni: %s (%s)" % (ko_msg, motivo or "no details"),
                       file=sys.stderr)
                 self.toast(ko_msg)
             if poi:
@@ -565,7 +588,7 @@ class Window(Adw.ApplicationWindow):
                                    capture_output=True, text=True, timeout=60)
                 esito = (r.returncode == 0, (r.stderr or "").strip())
             except subprocess.TimeoutExpired:
-                esito = (False, "l'applicazione della modifica non è terminata in tempo")
+                esito = (False, "applying the change did not finish in time")
             except OSError as e:
                 esito = (False, str(e))
             GLib.idle_add(self._aspetto_finito, key, esito)
@@ -575,10 +598,10 @@ class Window(Adw.ApplicationWindow):
     def _aspetto_finito(self, key, esito):
         ok, motivo = esito
         if ok:
-            self.toast("Aspetto aggiornato")
+            self.toast(tr("Appearance updated"))
         else:
-            print("impostazioni: «%s» non applicata: %s" % (key, motivo), file=sys.stderr)
-            self.toast("Non è stato possibile applicare «%s»" % key)
+            print("impostazioni: '%s' not applied: %s" % (key, motivo), file=sys.stderr)
+            self.toast(tr("Could not apply “{setting}”").format(setting=key))
         if key == "tema":
             # Senza questa, cambiando il tema da qui tutta la scrivania cambiava
             # tranne questa finestra, che restava dei colori di prima.
@@ -604,12 +627,12 @@ class Window(Adw.ApplicationWindow):
     def _wallpaper_label(self):
         path, _ = self._wallpaper_state()
         if not path:
-            return "Sfondo di ZETA RAYS"
+            return tr("ZETA RAYS wallpaper")
         if path.endswith("wallpaper.png"):
-            return "Sfondo di ZETA RAYS (generato dal colore)"
+            return tr("ZETA RAYS wallpaper (generated from the color)")
         ufficiale = sfondi.nome_di(path)
         if ufficiale:
-            return "%s (sfondo di ZETA RAYS)" % ufficiale
+            return tr("{name} (ZETA RAYS wallpaper)").format(name=ufficiale)
         # immagine dell'utente: dentro ~/.config/zeta si chiama «sfondo.jpg»,
         # si mostra il nome che aveva quando è stata scelta
         try:
@@ -633,17 +656,17 @@ class Window(Adw.ApplicationWindow):
 
     def on_sfondo_ufficiale(self, percorso):
         self._comando_lento(["zeta-sfondo", "set", percorso, self._wallpaper_mode()],
-                            "Sfondo aggiornato",
-                            "Non è stato possibile impostare lo sfondo",
+                            tr("Wallpaper updated"),
+                            tr("Could not set the wallpaper"),
                             poi=self._dopo_sfondo)
 
     def _wallpaper_mode(self):
         return self._wallpaper_state()[1]
 
     def on_pick_wallpaper(self):
-        dialog = Gtk.FileDialog(title="Scegli un'immagine per lo sfondo")
+        dialog = Gtk.FileDialog(title=tr("Choose a wallpaper image"))
         filt = Gtk.FileFilter()
-        filt.set_name("Immagini")
+        filt.set_name(tr("Images"))
         for m in ("image/png", "image/jpeg", "image/webp", "image/bmp"):
             filt.add_mime_type(m)
         filters = Gio.ListStore.new(Gtk.FileFilter)
@@ -660,25 +683,25 @@ class Window(Adw.ApplicationWindow):
         if not path:
             return
         self._comando_lento(["zeta-sfondo", "set", path, self._wallpaper_mode()],
-                            "Sfondo aggiornato",
-                            "Non è stato possibile impostare lo sfondo",
+                            tr("Wallpaper updated"),
+                            tr("Could not set the wallpaper"),
                             poi=self._dopo_sfondo)
 
     def on_reset_wallpaper(self):
         self._comando_lento(["zeta-sfondo", "reset"],
-                            "Sfondo di ZETA RAYS ripristinato",
-                            "Non è stato possibile ripristinare lo sfondo",
+                            tr("ZETA RAYS wallpaper restored"),
+                            tr("Could not reset the wallpaper"),
                             poi=self._dopo_sfondo)
 
     def on_wallpaper_mode(self, combo, _param):
         idx = combo.get_selected()
         if 0 <= idx < len(self._mode_ids):
             self._comando_lento(["zeta-sfondo", "mode", self._mode_ids[idx]],
-                                "Adattamento dello sfondo aggiornato",
-                                "Non è stato possibile cambiare l'adattamento")
+                                tr("Wallpaper fit updated"),
+                                tr("Could not change the fit"))
 
     def on_custom(self, _button):
-        dialog = Gtk.ColorDialog(title="Colore d'accento", with_alpha=False)
+        dialog = Gtk.ColorDialog(title=tr("Accent color"), with_alpha=False)
         initial = Gdk.RGBA()
         initial.parse(read_accent())
         dialog.choose_rgba(self, initial, None, self.on_custom_chosen)
@@ -697,8 +720,8 @@ class Window(Adw.ApplicationWindow):
         # recepita mentre i colori di tutte le app vengono rigenerati.
         self.mark_selected(color.upper())
         self._comando_lento(["zeta-accent", color],
-                            "Colore d'accento aggiornato",
-                            "Non è stato possibile applicare il colore",
+                            tr("Accent color updated"),
+                            tr("Could not apply the color"),
                             poi=lambda ok: None if ok else self.mark_selected(read_accent()))
 
     def mark_selected(self, color):
@@ -722,9 +745,9 @@ class Window(Adw.ApplicationWindow):
         self._dock_groups = []
 
         group = Adw.PreferencesGroup(
-            title="Applicazioni nel dock",
-            description="Trascina un'app per cambiarne il posto. Col tasto destro su un'icona "
-                        "del dock: Apri, Rimuovi dal Dock, Opzioni, Impostazioni dell'app.")
+            title=tr("Apps in the dock"),
+            description=tr("Drag an app to move it. Right-click a dock icon for: "
+                           "Open, Remove from Dock, Options, App Settings."))
         n = len(self.dock_entries)
         for i, entry in enumerate(self.dock_entries):
             row = Adw.ActionRow(title=entry.get("name") or entry.get("cmd", ""),
@@ -736,7 +759,7 @@ class Window(Adw.ApplicationWindow):
             # add_prefix mette davanti: la maniglia, aggiunta dopo, sta a sinistra
             maniglia = Gtk.Image.new_from_icon_name("list-drag-handle-symbolic")
             maniglia.add_css_class("dim-label")
-            maniglia.set_tooltip_text("Trascina per spostare")
+            maniglia.set_tooltip_text(tr("Drag to move"))
             row.add_prefix(maniglia)
             # trascina e rilascia: la riga porta con se' la sua posizione
             src = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
@@ -748,7 +771,7 @@ class Window(Adw.ApplicationWindow):
             dst.connect("drop", lambda _t, val, _x, _y, j=i: self._dock_sposta(val, j))
             row.add_controller(dst)
             rem = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
-                             tooltip_text="Rimuovi dal Dock", css_classes=["flat"])
+                             tooltip_text=tr("Remove from Dock"), css_classes=["flat"])
             rem.set_sensitive(n > 1)
             rem.connect("clicked", lambda _b, i=i: self._dock_remove(i))
             row.add_suffix(rem)
@@ -756,10 +779,10 @@ class Window(Adw.ApplicationWindow):
         self.dock_page.add(group)
         self._dock_groups.append(group)
 
-        posizione = Adw.PreferencesGroup(title="Barra")
+        posizione = Adw.PreferencesGroup(title=tr("Bar"))
         self._dock_pos_ids = ["bottom", "top"]
-        riga = Adw.ComboRow(title="Posizione della barra",
-                            model=Gtk.StringList.new(["In basso", "In alto"]))
+        riga = Adw.ComboRow(title=tr("Bar position"),
+                            model=Gtk.StringList.new([tr("Bottom"), tr("Top")]))
         corrente = self._asp("dock-posizione")
         riga.set_selected(self._dock_pos_ids.index(corrente)
                           if corrente in self._dock_pos_ids else 0)
@@ -767,18 +790,18 @@ class Window(Adw.ApplicationWindow):
                      lambda c, _p: self.set_aspetto(
                          "dock-posizione", self._dock_pos_ids[c.get_selected()]))
         posizione.add(riga)
-        posizione.add(self._spin("Dimensione delle icone", "Icone del dock",
+        posizione.add(self._spin(tr("Icon size"), tr("Dock icons"),
                                  "icon-size", 28, 64))
         self.dock_page.add(posizione)
         self._dock_groups.append(posizione)
 
         actions = Adw.PreferencesGroup()
-        add = Adw.ActionRow(title="Aggiungi un'applicazione", activatable=True)
+        add = Adw.ActionRow(title=tr("Add an app"), activatable=True)
         add.add_prefix(Gtk.Image.new_from_icon_name("list-add-symbolic"))
         add.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         add.connect("activated", lambda *_: self._dock_add_dialog())
         actions.add(add)
-        reset = Adw.ActionRow(title="Ripristina il dock predefinito", activatable=True)
+        reset = Adw.ActionRow(title=tr("Restore the default dock"), activatable=True)
         reset.add_prefix(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
         reset.connect("activated", lambda *_: self._dock_reset())
         actions.add(reset)
@@ -809,19 +832,19 @@ class Window(Adw.ApplicationWindow):
         if len(self.dock_entries) > 1:
             del self.dock_entries[i]
             self._dock_save()
-            self.toast("App rimossa dal dock")
+            self.toast(tr("App removed from the dock"))
 
     def _dock_reset(self):
         self.dock_entries = list(dockmod.DEFAULT)
         self._dock_save()
-        self.toast("Dock ripristinato")
+        self.toast(tr("Dock restored"))
 
     def _dock_add_dialog(self):
-        dlg = Adw.Window(transient_for=self, modal=True, title="Aggiungi al dock",
+        dlg = Adw.Window(transient_for=self, modal=True, title=tr("Add to Dock"),
                          default_width=420, default_height=560)
         view = Adw.ToolbarView()
         view.add_top_bar(Adw.HeaderBar())
-        search = Gtk.SearchEntry(placeholder_text="Cerca…", margin_start=10, margin_end=10, margin_top=8)
+        search = Gtk.SearchEntry(placeholder_text=tr("Search…"), margin_start=10, margin_end=10, margin_top=8)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.append(search)
         listbox = Gtk.ListBox(css_classes=["boxed-list"], margin_start=10, margin_end=10,
@@ -858,7 +881,7 @@ class Window(Adw.ApplicationWindow):
     def _dock_add(self, app, dlg):
         self.dock_entries.append(dockmod.entry_from_desktop(app))
         self._dock_save()
-        self.toast("%s aggiunta al dock" % app["name"])
+        self.toast(tr("{name} added to the dock").format(name=app["name"]))
         dlg.close()
 
     # --- AI (ZETA RAYS Intelligence) ---
@@ -868,10 +891,10 @@ class Window(Adw.ApplicationWindow):
             from ui import pagina_ai
             page, pg = pagina_ai.costruisci(self)
         except Exception as e:  # noqa: BLE001 - la pagina non deve far cadere le Impostazioni
-            print("impostazioni: pagina AI: %s" % e, file=sys.stderr)
+            print("impostazioni: AI page: %s" % e, file=sys.stderr)
             page = Adw.PreferencesPage()
             g = Adw.PreferencesGroup(title="AI")
-            g.add(Adw.ActionRow(title="ZETA RAYS Intelligence non disponibile", subtitle=str(e)))
+            g.add(Adw.ActionRow(title=tr("ZETA RAYS Intelligence is not available"), subtitle=str(e)))
             page.add(g)
             return page
 
@@ -883,13 +906,15 @@ class Window(Adw.ApplicationWindow):
         # soltanto, senza ripetere la soglia (prima era copiata a mano).
         from intelligence import risorse
         gb = risorse.memoria_nominale_gb()
-        auto_fa = ("tiene il modello pronto" if risorse.precarico_consentito()
-                   else "lo carica quando apri ZETA")
+        if risorse.precarico_consentito():
+            sotto = tr("Automatic on this computer ({gb} GB): keeps the model ready")
+        else:
+            sotto = tr("Automatic on this computer ({gb} GB): loads it when you open ZETA")
         riga_pre = Adw.ComboRow(
-            title="Modello AI sempre pronto",
-            subtitle="Automatico su questo computer (%.0f GB): %s" % (gb, auto_fa),
-            model=Gtk.StringList.new(["Automatico", "Sempre pronto (~1,8 GB occupati)",
-                                      "Solo quando serve"]))
+            title=tr("AI model always ready"),
+            subtitle=sotto.format(gb="%.0f" % gb),
+            model=Gtk.StringList.new([tr("Automatic"), tr("Always ready (~1.8 GB in use)"),
+                                      tr("Only when needed")]))
         try:
             riga_pre.set_selected(self._precarico.index(self._asp("ai-precarica")))
         except ValueError:
@@ -914,16 +939,16 @@ class Window(Adw.ApplicationWindow):
         info = os_release()
         group = Adw.PreferencesGroup()
         rows = [
-            ("Sistema", info.get("PRETTY_NAME", "ZETA RAYS OS")),
-            ("Versione", info.get("VERSION_ID", "1.7")),
-            ("Architettura", platform.machine()),
+            (tr("System"), info.get("PRETTY_NAME", "ZETA RAYS OS")),
+            (tr("Version"), info.get("VERSION_ID", "2.0")),
+            (tr("Architecture"), platform.machine()),
             ("Kernel", "Linux %s" % platform.release().split("+")[0].split("-")[0]),
-            ("Ambiente", "ZETA RAYS Shell"),
-            ("Intelligenza", "ZETA RAYS Intelligence · Built with Llama"),
-            ("Sicurezza", "ZETA RAYS Security"),
-            ("Licenza", "Software libero · GPL-3.0"),
-            ("Processore", cpu_name()),
-            ("Memoria", mem_total()),
+            (tr("Environment"), "ZETA RAYS Shell"),
+            (tr("Intelligence"), "ZETA RAYS Intelligence · Built with Llama"),
+            (tr("Security"), "ZETA RAYS Security"),
+            (tr("License"), tr("Free software · GPL-3.0")),
+            (tr("Processor"), cpu_name()),
+            (tr("Memory"), mem_total()),
         ]
         for title, value in rows:
             row = Adw.ActionRow(title=title)
@@ -935,19 +960,19 @@ class Window(Adw.ApplicationWindow):
         # li troverebbe, ed è proprio quello che non deve succedere a un
         # documento che dice che cosa esce dal computer.
         legale = Adw.PreferencesGroup(
-            title="Licenze e condizioni",
-            description="Che cosa c'è dentro il sistema, con quali licenze, e che cosa esce dal computer.")
+            title=tr("Licenses and terms"),
+            description=tr("What is inside the system, under which licenses, and what leaves the computer."))
         for titolo, sotto, file in (
-                ("Software di terze parti e licenze",
-                 "I componenti inclusi, con licenza e provenienza", "LICENZE.md"),
-                ("Privacy", "Quali dati lasciano il computer, verso chi, e come fermarli",
+                (tr("Third-party software and licenses"),
+                 tr("The included components, with license and origin"), "LICENZE.md"),
+                (tr("Privacy"), tr("Which data leaves the computer, to whom, and how to stop it"),
                  "PRIVACY.md"),
-                ("Condizioni d'uso", "Licenze, garanzia, marchi", "CONDIZIONI.md"),
-                ("Elenco completo dei componenti",
-                 "Tutti i pacchetti con versione e licenza (foglio di calcolo)",
+                (tr("Terms of use"), tr("Licenses, warranty, trademarks"), "CONDIZIONI.md"),
+                (tr("Full list of components"),
+                 tr("All packages with version and license (spreadsheet)"),
                  "COMPONENTI.csv"),
-                ("Modello AI: Llama 3.2",
-                 "Built with Llama — licenza Llama 3.2 Community License di Meta",
+                (tr("AI model: Llama 3.2"),
+                 tr("Built with Llama — Meta's Llama 3.2 Community License"),
                  "llama-3.2/LICENSE.txt")):
             r = Adw.ActionRow(title=titolo, subtitle=sotto, activatable=True)
             r.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
@@ -959,14 +984,18 @@ class Window(Adw.ApplicationWindow):
     @staticmethod
     def _apri_legale(nome):
         percorso = "/usr/share/zeta/legale/%s" % nome
+        # the translated document when there is one (PRIVACY.it.md)
+        tradotto = "%s.%s%s" % (os.path.splitext(percorso)[0], language(), os.path.splitext(percorso)[1])
+        if language() != "en" and os.path.exists(tradotto):
+            percorso = tradotto
         if not os.path.exists(percorso):
-            print("impostazioni: documento mancante: %s" % percorso, file=sys.stderr)
+            print("impostazioni: missing document: %s" % percorso, file=sys.stderr)
             return
         try:
             subprocess.Popen(["gio", "open", percorso], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
-            print("impostazioni: non riesco ad aprire %s: %s" % (percorso, e),
+            print("impostazioni: cannot open %s: %s" % (percorso, e),
                   file=sys.stderr)
 
 

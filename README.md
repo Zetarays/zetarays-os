@@ -8,7 +8,7 @@ internet required.
 
 - Website: <https://zetarays.org>
 - Download (ISO and VirtualBox OVA, amd64 and arm64): <https://zetarays.org/#download>
-- Full user guide: [`docs/README-1.7.txt.in`](docs/README-1.7.txt.in) (the `README.txt` shipped with the images)
+- Full user guide: [`docs/README-2.0.txt.in`](docs/README-2.0.txt.in) (the `README.txt` shipped with the images)
 
 > This repository contains the **source** used to build ZETA RAYS OS, not the
 > images themselves (3.4–3.9 GB each, too large for GitHub). Every release

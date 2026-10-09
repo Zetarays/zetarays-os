@@ -12,6 +12,11 @@ OUT="$ROOT/out"
 mkdir -p "$OUT"
 
 python3 "$ROOT/tools/gen-assets.py"
+# ZETA translations: every string shown by ZETA must have its translation,
+# then po/*.po become the .mo files the system reads (never stale ones)
+python3 "$ROOT/tools/i18n.py" check >/dev/null || { python3 "$ROOT/tools/i18n.py" check | tail -20; echo "ZETA RAYS: translations incomplete" >&2; exit 1; }
+rm -f "$ROOT"/live-build/config/includes.chroot/usr/share/locale/*/LC_MESSAGES/zetarays.mo
+python3 "$ROOT/tools/i18n.py" compile
 
 
 # --- Modello AI locale (llama3.2:1b): non sta nel repository (1,3 GB) ---
@@ -37,6 +42,24 @@ if [ ! -s "$OLLAMA_CACHE" ]; then
 fi
 mkdir -p "$(dirname "$OLLAMA_DEST")"
 cp -f "$OLLAMA_CACHE" "$OLLAMA_DEST"
+
+# --- Voce: Piper (sintesi naturale) e Vosk (riconoscimento), dalla cache ---
+# Come per Ollama: scaricati una volta in cache/ e da li' nell'immagine. Il 7
+# ottobre un errore DNS passeggero durante il download aveva lasciato amd64
+# senza voce: la costruzione non deve dipendere dalla rete.
+case "$ARCH" in arm64) VOCE_A=aarch64 ;; *) VOCE_A=x86_64 ;; esac
+PIPER_DEST="$ROOT/live-build/config/includes.chroot/usr/share/zeta/piper-cache"
+VOSK_DEST="$ROOT/live-build/config/includes.chroot/usr/share/zeta/vosk-cache"
+for f in "$ROOT/cache/piper/piper_linux_$VOCE_A.tar.gz" "$ROOT/cache/vosk/$VOCE_A" "$ROOT/cache/vosk/modelli"; do
+  [ -e "$f" ] || { echo "ERRORE: manca $f (voce di ZETA): esegui tools/scarica-voce.sh" >&2; exit 1; }
+done
+ls "$ROOT"/cache/piper/voci/*.onnx >/dev/null 2>&1 || { echo "ERRORE: mancano le voci di Piper in cache/piper/voci" >&2; exit 1; }
+rm -rf "$PIPER_DEST" "$VOSK_DEST"
+mkdir -p "$PIPER_DEST/voci" "$VOSK_DEST"
+# -X: senza gli attributi estesi del Mac (finirebbero nell'immagine)
+cp -X "$ROOT/cache/piper/piper_linux_$VOCE_A.tar.gz" "$PIPER_DEST/"
+cp -X "$ROOT"/cache/piper/voci/*.onnx "$ROOT"/cache/piper/voci/*.onnx.json "$PIPER_DEST/voci/"
+cp -RX "$ROOT/cache/vosk/$VOCE_A" "$ROOT/cache/vosk/modelli" "$VOSK_DEST/"
 
 # --- Hyprland con la correzione del crash dei menu a comparsa ---
 # Compilato da tools/build-hyprland-zeta.sh (sorgente Debian ufficiale +
@@ -98,6 +121,7 @@ cp -f "$LS_CACHE" "$LS_DEST/"
 RIPRISTINA_BINFMT=0
 pulizia() {
   rm -f "$OLLAMA_DEST"
+  rm -rf "$PIPER_DEST" "$VOSK_DEST"
   rm -rf "$HYPR_DEST"
   rm -rf "$LS_DEST"
   if [ "$RIPRISTINA_BINFMT" = 1 ]; then
@@ -118,18 +142,17 @@ python3 "$ROOT/tools/genera-pagina-firefox.py" "$SITO_LIBERO" \
     || { echo "pagina iniziale di Firefox non generata"; exit 1; }
 
 # Stesso tema di avvio per il disco di installazione e per il sistema installato,
-# ma con le scritte in lingua diversa: la chiavetta parla inglese (la lingua si
-# sceglie poi nell'installer), il sistema installato resta in italiano.
+# con le scritte in inglese in entrambi: GRUB non traduce i testi del tema, e
+# l'inglese e' la lingua di partenza di ZETA RAYS (le traduzioni stanno nelle app).
+# da zero ogni volta: file di un tema precedente (icone, font di altre
+# misure) non devono restare nell'immagine
+rm -rf "${ROOT:?}/live-build/config/includes.chroot/usr/share/grub/themes/zeta"
 mkdir -p "$ROOT/live-build/config/includes.chroot/usr/share/grub/themes/zeta"
-cp -f "$ROOT"/live-build/config/bootloaders/grub-pc/live-theme/* \
+# tutta la cartella: font (.pf2), fascia della voce scelta e marchio
+cp -Rf "$ROOT"/live-build/config/bootloaders/grub-pc/live-theme/. \
       "$ROOT/live-build/config/includes.chroot/usr/share/grub/themes/zeta/"
-sed -i.bak \
-    -e 's/text = "Starting automatically in %d seconds"/text = "Avvio automatico tra %d secondi"/' \
-    -e 's/text = "Arrows: choose · Enter: start · E: edit"/text = "Frecce: scegli · Invio: avvia · E: modifica"/' \
-    "$ROOT/live-build/config/includes.chroot/usr/share/grub/themes/zeta/theme.txt"
-rm -f "$ROOT/live-build/config/includes.chroot/usr/share/grub/themes/zeta/theme.txt.bak"
-grep -q 'Avvio automatico tra' "$ROOT/live-build/config/includes.chroot/usr/share/grub/themes/zeta/theme.txt" \
-    || { echo "tema GRUB del sistema installato non in italiano"; exit 1; }
+grep -q 'Starting automatically in' "$ROOT/live-build/config/includes.chroot/usr/share/grub/themes/zeta/theme.txt" \
+    || { echo "GRUB theme of the installed system is not the expected one"; exit 1; }
 
 # Sul Mac con chip Apple, per amd64 usa l'emulatore QEMU al posto di Rosetta:
 # Rosetta non funziona nel chroot di debootstrap (manca /proc).
@@ -180,7 +203,7 @@ docker run --rm --privileged \
         [ "$tentativo" = 3 ] && { echo "=== ZETA RAYS: costruzione fallita dopo 3 riprese ==="; exit 1; }
       done
     fi
-    cp -v *.iso /out/zetarays-1.7-$ZETA_ARCH.iso
+    cp -v *.iso /out/zetarays-2.0-$ZETA_ARCH.iso
   '
 
 # --- Controllo finale: l'installer deve poter partire ---
@@ -215,10 +238,19 @@ if ! grep -q "ZETA RAYS: runtime Ollama installato" "$OUT/build-$ARCH.log" 2>/de
   exit 1
 fi
 
+# --- Controllo finale: la voce di ZETA (sintesi naturale e riconoscimento) ---
+for riga in "ZETA RAYS: voce naturale (Piper) installata" "ZETA RAYS: vosk (python) installato" \
+            "ZETA RAYS: modello vocale model-it installato" "ZETA RAYS: modello vocale model-en installato"; do
+  if ! grep -q "$riga" "$OUT/build-$ARCH.log" 2>/dev/null; then
+    echo "ERRORE: «$riga» non risulta nel registro di $ARCH: ZETA non parlerebbe o non ascolterebbe." >&2
+    exit 1
+  fi
+done
+
 # --- Controllo finale: nessun pacchetto da aggiornare (apt update + upgrade) ---
 if ! grep -q "ZETA RAYS: pacchetti aggiornati, ne restano da aggiornare: 0" "$OUT/build-$ARCH.log" 2>/dev/null; then
   echo "ERRORE: l'aggiornamento dei pacchetti (hook 9990) non risulta completato in $ARCH." >&2
   exit 1
 fi
 
-echo "ISO pronta: $OUT/zetarays-1.7-$ARCH.iso"
+echo "ISO pronta: $OUT/zetarays-2.0-$ARCH.iso"

@@ -20,6 +20,9 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr, trc  # noqa: E402
+
 try:
     import psutil
 except ImportError:  # degrada senza crashare
@@ -28,9 +31,11 @@ except ImportError:  # degrada senza crashare
 NA = "N/A"
 
 
-def _run(cmd, timeout=4.0):
+def _run(cmd, timeout=4.0, c_locale=False):
+    # c_locale: the output is parsed, so it must not depend on the user's language
+    env = dict(os.environ, LC_ALL="C") if c_locale else None
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         return p.stdout
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return ""
@@ -49,6 +54,13 @@ def _fmt_bytes(n):
 
 def fmt_rate(n):
     return _fmt_bytes(n) + "/s" if n != NA else NA
+
+
+def short_datetime(ts):
+    """Day, month and time, in the order the user's language expects."""
+    t = time.localtime(ts)
+    return tr("{month}/{day} {time}").format(month="%02d" % t.tm_mon, day="%02d" % t.tm_mday,
+                                            time=time.strftime("%H:%M", t))
 
 
 class Collectors:
@@ -128,8 +140,8 @@ class Collectors:
 
     # ---------------- GPU ----------------
     _VENDOR = {"0x8086": "Intel", "0x1002": "AMD", "0x10de": "NVIDIA",
-               "0x15ad": "VMware (virtuale)", "0x1af4": "Virtio (virtuale)",
-               "0x80ee": "VirtualBox (virtuale)", "0x1234": "QEMU (virtuale)"}
+               "0x15ad": tr("VMware (virtual)"), "0x1af4": tr("Virtio (virtual)"),
+               "0x80ee": tr("VirtualBox (virtual)"), "0x1234": tr("QEMU (virtual)")}
 
     def gpu(self):
         """Uso della GPU, dove il driver lo rende misurabile senza privilegi.
@@ -386,11 +398,11 @@ class Collectors:
             try:
                 d["open_files"] = len(p.open_files())
             except (psutil.AccessDenied, Exception):  # noqa: BLE001
-                d["open_files"] = "PERMESSO RICHIESTO"
+                d["open_files"] = tr("permission required")
             try:
                 d["connections"] = len(p.net_connections())
             except (psutil.AccessDenied, Exception):  # noqa: BLE001
-                d["connections"] = "PERMESSO RICHIESTO"
+                d["connections"] = tr("permission required")
             return d
         except Exception:  # noqa: BLE001
             return None
@@ -403,7 +415,7 @@ class Collectors:
         sys.path.insert(0, "/usr/lib/zeta")
         from system import windows
         if windows.protetto(pid):
-            return False, "Fa parte del desktop di ZETA RAYS: non si chiude da qui."
+            return False, tr("This is part of the ZETA RAYS desktop and can't be closed from here.")
         return windows.force_quit(pid)
 
     def riavvia(self, pid):
@@ -414,14 +426,14 @@ class Collectors:
         try:
             p = psutil.Process(pid)
             if p.uids().real != os.getuid():
-                return False, "Si possono riavviare solo i tuoi programmi."
+                return False, tr("You can only restart your own programs.")
             cmd, cwd = p.cmdline(), p.cwd()
         except psutil.NoSuchProcess:
-            return False, "Il processo non c'è più."
+            return False, tr("The process no longer exists.")
         except (psutil.AccessDenied, Exception):  # noqa: BLE001
-            return False, "Non riesco a leggere come era stato avviato."
+            return False, tr("Couldn't read how it was started.")
         if not cmd:
-            return False, "Processo del kernel: non si riavvia."
+            return False, tr("Kernel process: it can't be restarted.")
         ok, msg = self.chiudi_albero(pid)
         if not ok:
             return False, msg
@@ -429,8 +441,8 @@ class Collectors:
             subprocess.Popen(cmd, cwd=cwd, start_new_session=True, stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
-            return False, "Chiuso, ma non riaperto: %s" % e
-        return True, "%s riavviato." % os.path.basename(cmd[0])
+            return False, tr("Closed, but not reopened: {error}").format(error=e)
+        return True, tr("{name} restarted.").format(name=os.path.basename(cmd[0]))
 
     def terminate(self, pid, force=False, attesa=3.0):
         """Chiude un processo e dice com'e andata davvero: (riuscito, messaggio).
@@ -442,26 +454,26 @@ class Collectors:
         fuori dal thread dell'interfaccia.
         """
         if not psutil:
-            return False, "Chiusura dei processi non disponibile."
-        nome = "Il processo %s" % pid
+            return False, tr("Closing processes is not available.")
+        nome = tr("Process {pid}").format(pid=pid)
         try:
             p = psutil.Process(pid)
             nome = p.name()
             p.kill() if force else p.terminate()
         except psutil.NoSuchProcess:
-            return True, "Il processo era già chiuso."
+            return True, tr("The process was already closed.")
         except psutil.AccessDenied:
-            return False, ("%s appartiene al sistema o a un altro utente: "
-                           "per sicurezza il Monitor non lo chiude." % nome)
+            return False, tr("{name} belongs to the system or to another user: "
+                             "for safety, the Monitor won't close it.").format(name=nome)
         except Exception as e:  # noqa: BLE001
-            return False, "Impossibile chiudere il processo: %s" % e
+            return False, tr("Couldn't close the process: {error}").format(error=e)
         _chiusi, vivi = psutil.wait_procs([p], timeout=attesa)
         if not vivi:
-            return True, "%s chiuso." % nome
+            return True, tr("{name} closed.").format(name=nome)
         if not force:
-            return False, "%s non ha risposto. Se è bloccato, usa Forza chiusura." % nome
-        return False, ("%s non si chiude nemmeno forzando: è fermo in attesa del disco "
-                       "o del sistema. Riprova tra poco." % nome)
+            return False, tr("{name} didn't respond. If it's frozen, use Force Quit.").format(name=nome)
+        return False, tr("{name} won't close even when forced: it's waiting on the disk "
+                         "or the system. Try again shortly.").format(name=nome)
 
     # ---------------- firewall ----------------
     def firewall(self):
@@ -480,7 +492,7 @@ class Collectors:
             out["system"] = "nftables"
             out["status"] = "INACTIVE"
         if shutil.which("ufw"):
-            r = _run(["ufw", "status"])
+            r = _run(["ufw", "status"], c_locale=True)
             if "Status: active" in r:
                 out["system"] = "ufw"; out["status"] = "ACTIVE"; out["text"] = r
                 return out
@@ -500,7 +512,7 @@ class Collectors:
             try:
                 for u in psutil.users():
                     rows.append({"user": u.name, "tty": u.terminal or "—",
-                                 "host": u.host or "locale",
+                                 "host": u.host or tr("local"),
                                  "since": time.strftime("%H:%M", time.localtime(u.started))})
             except Exception:  # noqa: BLE001
                 pass
@@ -548,7 +560,7 @@ class Collectors:
         if "session closed" in low:
             return (t, user, ip or "—", "SESSION", "CLOSE", "INFO")
         if "sudo:" in low and "command=" in low:
-            return (t, user, "locale", "SUDO", "AUTH", "SUCCESS")
+            return (t, user, tr("local"), "SUDO", "AUTH", "SUCCESS")
         return None
 
     # ---------------- servizi ----------------
@@ -571,7 +583,7 @@ class Collectors:
 
     def service_action(self, name, action):
         if action not in ("start", "stop", "restart"):
-            return False, "azione non valida"
+            return False, tr("invalid action")
         p = subprocess.run(["pkexec", "systemctl", action, name + ".service"],
                            capture_output=True, text=True)
         return p.returncode == 0, (p.stderr or "").strip()
@@ -584,12 +596,12 @@ class Collectors:
         for t, user, ip, svc, ev, status in auth.get("events", []):
             sev = "ALERT" if status == "FAILED" else ("NOTICE" if svc == "SUDO" else "INFO")
             events.append((t, "%s %s %s" % (svc, ev, status),
-                           "%s%s" % (user, " da " + ip if ip and ip != "—" else ""), sev))
+                           tr("{user} from {ip}").format(user=user, ip=ip) if ip and ip != "—" else user, sev))
         failed = _run(["systemctl", "--failed", "--no-legend", "--plain", "--no-pager"])
         for line in failed.splitlines():
             unit = line.split(None, 1)[0] if line.strip() else ""
             if unit:
-                events.append((time.strftime("%H:%M:%S"), "SERVIZIO IN ERRORE", unit, "WARNING"))
+                events.append((time.strftime("%H:%M:%S"), tr("FAILED SERVICE"), unit, "WARNING"))
         return events
 
 
@@ -660,10 +672,10 @@ def sockets_all():
     return rows
 
 
-STATE_IT = {"ESTAB": "Stabilita", "LISTEN": "In ascolto", "UNCONN": "In ascolto (UDP)",
-            "TIME-WAIT": "In chiusura", "CLOSE-WAIT": "In chiusura", "SYN-SENT": "In apertura",
-            "SYN-RECV": "In apertura", "FIN-WAIT-1": "In chiusura", "FIN-WAIT-2": "In chiusura",
-            "LAST-ACK": "In chiusura", "CLOSING": "In chiusura"}
+STATE_IT = {"ESTAB": tr("Established"), "LISTEN": tr("Listening"), "UNCONN": tr("Listening (UDP)"),
+            "TIME-WAIT": tr("Closing"), "CLOSE-WAIT": tr("Closing"), "SYN-SENT": tr("Opening"),
+            "SYN-RECV": tr("Opening"), "FIN-WAIT-1": tr("Closing"), "FIN-WAIT-2": tr("Closing"),
+            "LAST-ACK": tr("Closing"), "CLOSING": tr("Closing")}
 
 
 def logind_sessions():
@@ -683,13 +695,17 @@ def logind_sessions():
             props[k] = v
         if props.get("Class") not in ("user",):
             continue
-        kind = {"wayland": "Desktop", "x11": "Desktop (X11)", "tty": "Terminale"}.get(props.get("Type"), "")
-        if props.get("Remote") == "yes" or props.get("Service") == "sshd":
-            kind = "Remota (SSH)"
+        kind = {"wayland": trc("session type", "Desktop"), "x11": tr("Desktop (X11)"),
+                "tty": tr("Terminal")}.get(props.get("Type"), "")
+        remote = props.get("Remote") == "yes" or props.get("Service") == "sshd"
+        if remote:
+            kind = tr("Remote (SSH)")
         rows.append({"id": sid, "user": props.get("Name", ""), "kind": kind or props.get("Type", ""),
-                     "where": props.get("RemoteHost") or props.get("TTY") or "locale",
-                     "since": props.get("Timestamp", ""), "state": {"active": "attiva", "online": "in background",
-                                                                    "closing": "in chiusura"}.get(props.get("State"), props.get("State", ""))})
+                     "where": props.get("RemoteHost") or props.get("TTY") or tr("local"),
+                     "since": props.get("Timestamp", ""), "remote": remote,
+                     "active": props.get("State") == "active",
+                     "state": {"active": tr("in foreground"), "online": tr("in background"),
+                               "closing": tr("closing")}.get(props.get("State"), props.get("State", ""))})
     return rows
 
 
@@ -706,8 +722,10 @@ def accounts():
         if not (u.pw_uid == 0 or 1000 <= u.pw_uid < 60000):
             continue
         locked = False
+        admin = u.pw_uid != 0 and u.pw_name in admins
         rows.append({"user": u.pw_name, "name": u.pw_gecos.split(",")[0], "uid": u.pw_uid,
-                     "role": "Sistema" if u.pw_uid == 0 else ("Amministratore" if u.pw_name in admins else "Standard"),
+                     "admin": admin,
+                     "role": tr("System") if u.pw_uid == 0 else (tr("Administrator") if admin else tr("Standard")),
                      "shell": os.path.basename(u.pw_shell), "home": u.pw_dir,
                      "login": u.pw_shell not in ("/usr/sbin/nologin", "/bin/false"), "locked": locked})
     last = {}
@@ -740,21 +758,28 @@ def login_history(limit=25):
         cur = db.execute("SELECT User, TTY, RemoteHost, Service, Login, Logout FROM wtmp "
                          "WHERE Type = 3 AND User != 'sddm' ORDER BY Login DESC LIMIT ?", (limit,))
         for user, tty, host, svc, login, logout in cur:
-            when = time.strftime("%d/%m %H:%M", time.localtime((login or 0) / 1e6))
+            when = short_datetime((login or 0) / 1e6)
+            # state: stable key for other programs ("closed", "interrupted", "open")
             if logout:
                 dur = int(((logout or 0) - (login or 0)) / 6e7)
-                end = "fino alle %s (%d min)" % (time.strftime("%H:%M", time.localtime(logout / 1e6)), dur)
+                state = "closed"
+                end = tr("until {time} ({minutes} min)").format(
+                    time=time.strftime("%H:%M", time.localtime(logout / 1e6)), minutes=dur)
             elif avvio_us and (login or 0) < avvio_us:
-                end = "interrotta (spegnimento improvviso)"
+                state = "interrupted"
+                end = tr("interrupted (sudden shutdown)")
             else:
-                end = "ancora collegato"
-            src = host or {"sddm": "desktop", "sshd": "SSH", "login": "console"}.get(svc or "", svc or "")
-            rows.append({"user": user or "—", "tty": tty or "—", "text": "%s · %s · %s" % (when, src, end)})
+                state = "open"
+                end = tr("still logged in")
+            src = host or {"sddm": tr("desktop"), "sshd": "SSH",
+                           "login": tr("console")}.get(svc or "", svc or "")
+            rows.append({"user": user or "—", "tty": tty or "—", "state": state,
+                         "text": "%s · %s · %s" % (when, src, end)})
         db.close()
     except sqlite3.Error as e:
-        print("monitor: registro accessi non leggibile: %s" % e, file=sys.stderr)
+        print("monitor: login history not readable: %s" % e, file=sys.stderr)
     except OSError as e:
-        print("monitor: registro accessi non raggiungibile: %s" % e, file=sys.stderr)
+        print("monitor: login history not reachable: %s" % e, file=sys.stderr)
     return rows
 
 
@@ -774,7 +799,8 @@ def vpn_tunnels():
 
 # ---- ping (bloccante: eseguire in un thread) ----
 def ping(host, timeout=1.0):
-    out = _run(["ping", "-c", "1", "-W", str(int(max(1, timeout))), host], timeout=timeout + 1.5)
+    out = _run(["ping", "-c", "1", "-W", str(int(max(1, timeout))), host], timeout=timeout + 1.5,
+               c_locale=True)
     if not out:
         return None
     m = re.search(r"time=([\d.]+) ms", out)

@@ -1,9 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=Ricerca
-Comment=Ricerca universale: app, file, documenti, impostazioni
+Name=Search
+Name[it]=Ricerca
+Comment=Universal search: apps, files, documents, settings
+Comment[it]=Ricerca universale: app, file, documenti, impostazioni
 Exec=zeta-cerca
 Icon=zeta-cerca
 Categories=System;Utility;
-Keywords=cerca;search;spotlight;trova;file;
+Keywords=search;find;spotlight;files;documents;settings;
+Keywords[it]=cerca;search;spotlight;trova;file;
 Terminal=false

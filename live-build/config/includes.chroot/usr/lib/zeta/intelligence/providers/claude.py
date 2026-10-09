@@ -2,8 +2,11 @@
 """Provider Claude (Anthropic) per ZETA RAYS Intelligence.
 
 Usa direttamente l'endpoint Messages via urllib: nessun SDK da installare.
-Modello predefinito: claude-haiku-4-5 (il piu' veloce: ZETA deve rispondere
-subito; un altro si sceglie in Impostazioni › AI).
+Modello predefinito: claude-haiku-5-5 (il piu' veloce: ZETA deve rispondere
+subito; un altro si sceglie in Impostazioni › AI). Verificato il 7 ottobre
+2026: claude-haiku-4-5 e' «legacy» e va in pensione dal 15 ottobre 2026.
+Nessuna temperatura nella richiesta: i modelli 5.5 rifiutano valori diversi
+da quello di fabbrica.
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ from .base import Message, Provider, Reply, ToolCall, ToolSpec
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-haiku-4-5"
+DEFAULT_MODEL = "claude-haiku-5-5"
 
 
 class ClaudeProvider(Provider):

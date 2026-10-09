@@ -1,38 +1,39 @@
-# ZETA RAYS OS — che cosa esce dal tuo computer
+# ZETA RAYS OS — what leaves your computer
 
-Questo documento dice, senza giri di parole, quali dati lasciano il computer
-quando usi ZETA RAYS OS, verso chi vanno e come fermarli.
+This document states plainly which data leaves your computer when you use
+ZETA RAYS OS, where it goes and how to stop it.
 
-## La regola
+*(Versione italiana: `PRIVACY.it.md`, in this same folder.)*
 
-**ZETA RAYS non raccoglie nulla.** Non c'è telemetria, non c'è un server di
-ZETA RAYS a cui il sistema manda statistiche, segnalazioni di errore o
-abitudini d'uso. Il sistema non ha un account e non chiede di registrarsi.
+## The rule
 
-Ciò che esce dal computer esce solo per fare una cosa che hai chiesto tu, e
-qui sotto c'è l'elenco completo.
+**ZETA RAYS collects nothing.** There is no telemetry and no ZETA RAYS server
+that the system sends statistics, error reports or usage habits to. The
+system has no account and never asks you to sign up.
 
-## 1. Aggiornamenti del sistema
+Anything that leaves the computer does so only to do something you asked
+for, and the complete list is below.
 
-**Dove**: `deb.debian.org` e i suoi mirror.
-**Quando**: quando aggiorni o installi programmi (Pacchetti, oppure `apt`).
-**Che cosa**: quali pacchetti chiedi. Il tuo indirizzo IP è visibile al
-server, come per qualunque scaricamento.
-**Si può evitare**: sì, non aggiornando — ma è sconsigliato: gli aggiornamenti
-portano le correzioni di sicurezza.
+## 1. System updates
 
-## 2. Assistente ZETA
+**Where**: `deb.debian.org` and its mirrors.
+**When**: when you update or install apps (Packages, or `apt`).
+**What**: which packages you request. Your IP address is visible to the
+server, as with any download.
+**Can it be avoided**: yes, by not updating — but that is not recommended:
+updates bring security fixes.
 
-ZETA funziona in due modi, e la differenza conta.
+## 2. The ZETA assistant
 
-**Modello locale (predefinito).** Il modello Llama 3.2 gira **sul tuo
-computer**. Le domande, le risposte e la cronologia non escono mai. Funziona
-anche senza rete.
+ZETA works in two ways, and the difference matters.
 
-**Provider cloud (solo se lo configuri tu).** Se in *Impostazioni › AI*
-inserisci una chiave API, le tue domande vengono inviate al provider scelto:
+**Local model (default).** The Llama 3.2 model runs **on your computer**.
+Questions, answers and history never leave it. It also works offline.
 
-| Provider | Dove vanno i dati |
+**Cloud providers (only if you set one up).** If you enter an API key in
+*Settings › AI*, your questions are sent to the provider you chose:
+
+| Provider | Where the data goes |
 |---|---|
 | Claude (Anthropic) | `api.anthropic.com` |
 | Gemini (Google) | `generativelanguage.googleapis.com` |
@@ -43,76 +44,76 @@ inserisci una chiave API, le tue domande vengono inviate al provider scelto:
 | Mistral | `api.mistral.ai` |
 | Groq | `api.groq.com` |
 | xAI Grok | `api.x.ai` |
-| OpenRouter | `openrouter.ai` (che a sua volta inoltra al modello scelto) |
-| Personalizzato | l'indirizzo che scrivi tu (se è `localhost`, resta sul computer) |
+| OpenRouter | `openrouter.ai` (which in turn forwards to the chosen model) |
+| Custom | the address you enter (if it is `localhost`, it stays on the computer) |
 
-Da quel momento valgono le condizioni e l'informativa **di quel provider**,
-non queste. ZETA RAYS non vede e non conserva nulla di quel traffico.
-**Senza chiave API, nessuna di queste connessioni avviene.**
+From then on, **that provider's** terms and privacy policy apply, not these.
+ZETA RAYS neither sees nor keeps any of that traffic.
+**Without an API key, none of these connections take place.**
 
-Le chiavi API sono conservate nel portachiavi del sistema, se ce n'è uno
-attivo; altrimenti in un file leggibile solo da te,
-`~/.config/zeta/chiavi.json` (permessi 600, cartella 700), come fanno ssh e
-gli strumenti a riga di comando dei servizi cloud. Non compaiono nei registri,
-nei rapporti di diagnosi né negli argomenti dei processi.
+API keys are stored in the system keyring, if one is running; otherwise in
+a file only you can read, `~/.config/zeta/chiavi.json` (permissions 600,
+folder 700), as ssh and the command-line tools of cloud services do. They
+never appear in logs, in diagnostic reports or in process arguments.
 
-## 3. Riconoscimento vocale
+## 3. Speech recognition
 
-Avviene **sul tuo computer** con il motore Vosk e il modello italiano
-installato nell'immagine. L'audio del microfono non esce dal computer e non
-viene registrato su disco: viene trascritto e scartato.
+It happens **on your computer**, with the Vosk engine and the speech models
+included in the image. Microphone audio never leaves the computer and is
+not recorded to disk: it is transcribed and discarded.
 
-## 4. Ricerca nei file e riconoscimento del testo
+## 4. File search and text recognition
 
-L'indice dei documenti e il riconoscimento del testo nelle immagini (OCR)
-funzionano **solo in locale**, con Tesseract. L'indice sta in
-`~/.cache/zeta/` e non esce dal computer.
+The document index and text recognition in images (OCR) work **locally
+only**, with Tesseract. The index is kept in `~/.cache/zeta/` and never
+leaves the computer.
 
-## 5. Monitor di sistema — posizione di rete
+## 5. System Monitor — network location
 
-Questa è l'unica richiesta esterna che può sorprendere, quindi vale la pena
-leggerla.
+This is the only outgoing request that might surprise you, so it is worth
+reading.
 
-La pagina *Mappa* del Monitor mostra da dove risulta collegato il computer.
-Per farlo interroga **`ipwho.is`**, un servizio esterno, che dal tuo indirizzo
-IP pubblico ricava città, paese e operatore.
+The Monitor's *Map* page shows where the computer appears to be connected
+from. To do so it queries **`ipwho.is`**, an external service, which derives
+city, country and provider from your public IP address.
 
-- **Che cosa viene inviato**: il tuo indirizzo IP pubblico (implicitamente,
-  come in ogni connessione) o un indirizzo che chiedi tu esplicitamente.
-- **Che cosa non viene inviato**: nessun dato del computer, nessun nome
-  utente, nessun contenuto.
-- **Quando**: solo quando apri il Monitor con quella funzione attiva.
-- **Memoria**: il risultato resta in `~/.cache/zeta/geo.json` per non ripetere
-  la richiesta.
-- **Come fermarla**: la geolocalizzazione si disattiva dal Monitor stesso. Con
-  quella spenta, nessuna richiesta parte.
+- **What is sent**: your public IP address (implicitly, as with any
+  connection) or an address you explicitly ask about.
+- **What is not sent**: no data about the computer, no user name, no
+  content.
+- **When**: only when you open the Monitor with that feature turned on.
+- **Caching**: the result is kept in `~/.cache/zeta/geo.json` so the request
+  is not repeated.
+- **How to stop it**: geolocation can be turned off in the Monitor itself.
+  With it off, no request is made.
 
-Un `ping` verso un host che scrivi tu, sempre nel Monitor, contatta
-ovviamente quell'host: è il senso del comando.
+A `ping` to a host you type, also in the Monitor, obviously contacts that
+host: that is the point of the command.
 
-## 6. Navigatore web
+## 6. Web browser
 
-Firefox ESR ha una propria informativa e propri collegamenti a Mozilla
-(aggiornamenti, protezione dal tracciamento). ZETA RAYS non li modifica e non
-li intercetta: vale l'informativa di Mozilla.
+Firefox ESR has its own privacy policy and its own connections to Mozilla
+(updates, tracking protection). ZETA RAYS does not change or intercept them:
+Mozilla's privacy policy applies.
 
-## Dove stanno i tuoi dati, sul computer
+## Where your data lives on the computer
 
-| Che cosa | Dove |
+| What | Where |
 |---|---|
-| Impostazioni della scrivania | `~/.config/zeta/` |
-| Conversazioni con ZETA | `~/.local/share/zeta/` |
-| Indice della ricerca, cache | `~/.cache/zeta/` |
-| Chiavi API dei provider cloud | portachiavi del sistema |
-| Registro degli accessi | `/var/lib/wtmpdb/` |
+| Desktop settings | `~/.config/zeta/` |
+| Conversations with ZETA | `~/.local/share/zeta/` |
+| Search index, cache | `~/.cache/zeta/` |
+| Cloud provider API keys | system keyring |
+| Login records | `/var/lib/wtmpdb/` |
 
-Sono file tuoi, sul tuo disco. Si cancellano cancellandoli.
+They are your files, on your disk. Deleting them deletes the data.
 
-## Sistema live
+## Live system
 
-Avviando da chiavetta o da immagine senza installare, **nulla viene scritto
-sul disco del computer**: tutto sta in memoria e sparisce allo spegnimento.
+When you start from a USB stick or an image without installing, **nothing is
+written to the computer's disk**: everything stays in memory and disappears
+when you shut down.
 
 ---
 
-*Ultimo aggiornamento: con ZETA RAYS OS 1.7.*
+*Last updated: with ZETA RAYS OS 2.0.*

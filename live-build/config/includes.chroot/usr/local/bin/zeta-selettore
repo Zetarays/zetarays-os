@@ -50,7 +50,16 @@ if len(sys.argv) > 1 and sys.argv[1] in COMANDI:
     os.execv("/usr/bin/python3", ["/usr/bin/python3", os.path.abspath(__file__), "--demone", sys.argv[1]])
 
 if len(sys.argv) < 2 or sys.argv[1] != "--demone":
-    print(__doc__)
+    sys.path.insert(0, "/usr/lib/zeta")
+    from i18n import tr
+    print(tr("""ZETA RAYS app switcher (Ctrl+Tab), like Cmd+Tab on macOS.
+
+  Ctrl+Tab              opens the switcher on the app used before the current one
+  Tab (Ctrl held)       next          Shift+Tab    previous
+  release Ctrl          brings the selected app to the front
+  Esc                   closes without changing anything
+  Ctrl+Q                quits the selected app (normal close, not killed)
+  click on an icon      brings it to the front;  scroll wheel: next/previous"""))
     sys.exit(0 if len(sys.argv) < 2 else 1)
 
 # ---------------------------------------------------------------- demone
@@ -78,6 +87,7 @@ try:
 except (ValueError, ImportError):
     LayerShell = None
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
 from ui import tema  # noqa: E402
 from ui.nomi_app import NOMI  # noqa: E402
 from system import windows  # noqa: E402
@@ -226,7 +236,7 @@ def app_aperte(catalogo):
         chiave = classe.lower() or ("finestra-%s" % c["address"])
         if chiave not in app:
             nome, icona = catalogo.trova(classe)
-            app[chiave] = {"nome": nome or classe or c.get("title") or "Finestra",
+            app[chiave] = {"nome": nome or classe or c.get("title") or tr("Window"),
                            "icona": icona, "finestre": []}
             ordine.append(chiave)
         app[chiave]["finestre"].append({
@@ -239,7 +249,7 @@ def app_aperte(catalogo):
 # ----------------------------------------------------------- la finestra
 class Selettore(Gtk.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Selettore delle app")
+        super().__init__(application=app, title=tr("App Switcher"))
         self.set_decorated(False)
         self.set_resizable(False)
         self.add_css_class("zeta-selettore")
@@ -329,9 +339,10 @@ class Selettore(Gtk.ApplicationWindow):
             f = v["finestre"][0]
             testo = f["title"] or v["nome"]
             if f["ridotta"]:
-                testo += "  (ridotta a icona)"
-            if len(v["finestre"]) > 1:
-                testo += "  -  %d finestre" % len(v["finestre"])
+                testo += "  " + tr("(minimized)")
+            n = len(v["finestre"])
+            if n > 1:
+                testo += "  -  " + ntr("{n} window", "{n} windows", n).format(n=n)
             self.titolo.set_text(testo)
 
     def sposta(self, passo):
@@ -344,7 +355,7 @@ class Selettore(Gtk.ApplicationWindow):
         mosso davvero: se il selettore compare sotto il puntatore fermo, la
         scelta fatta con la tastiera non deve cambiare."""
         if DEBUG:
-            print("mouse su %d (%.0f,%.0f)" % (idx, x, y), file=sys.stderr, flush=True)
+            print("mouse over %d (%.0f,%.0f)" % (idx, x, y), file=sys.stderr, flush=True)
         if time.monotonic() - self.mostrato_a < 0.25:
             return
         self.sposta_a(idx)
@@ -356,7 +367,7 @@ class Selettore(Gtk.ApplicationWindow):
 
     def _clic(self, idx):
         if DEBUG:
-            print("clic su %d" % idx, file=sys.stderr, flush=True)
+            print("click on %d" % idx, file=sys.stderr, flush=True)
         self.get_application().attiva_voce(idx)
 
     def _rotella(self, _c, _dx, dy):
@@ -422,7 +433,7 @@ class App(Gtk.Application):
 
     def comando(self, cmd):
         if DEBUG:
-            print("%.3f comando %s" % (time.monotonic(), cmd), file=sys.stderr, flush=True)
+            print("%.3f command %s" % (time.monotonic(), cmd), file=sys.stderr, flush=True)
         try:
             getattr(self, "c_" + cmd)()
         except AttributeError:
@@ -528,7 +539,7 @@ class App(Gtk.Application):
     def attiva_voce(self, idx):
         voci = self.finestra.voci if self.finestra else []
         if DEBUG and 0 <= idx < len(voci):
-            print("attivo %d = %s (elenco: %s)" % (idx, voci[idx]["nome"],
+            print("activating %d = %s (list: %s)" % (idx, voci[idx]["nome"],
                   ", ".join(v["nome"] for v in voci)), file=sys.stderr, flush=True)
         self.finestra.set_visible(False)
         self._reset_tasti()

@@ -19,15 +19,16 @@ popup.preload_layer_shell()
 import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from system import power  # noqa: E402
+from system import avatar, power, spawn  # noqa: E402
+from i18n import tr  # noqa: E402
 
 CSS = """
 window.zeta-overlay.energia { background: @scrim_strong; }
-.en-avatar { min-width: 72px; min-height: 72px; border-radius: 999px;
-             background: @hover_2; border: 1px solid @hover_2; }
-.en-avatar label { font-size: 30px; font-weight: 300; }
+button.en-avatar { padding: 0; border-radius: 999px; background: none;
+                   border: none; box-shadow: none; }
+button.en-avatar:hover, button.en-avatar:focus-visible { outline: 2px solid @accent; outline-offset: 3px; }
 .en-name { font-size: 16px; font-weight: 500; }
 .en-host { font-size: 12px; color: @ink_dim; }
 button.en-btn { min-width: 64px; min-height: 64px; padding: 0; border-radius: 999px;
@@ -41,18 +42,18 @@ button.en-btn.danger:hover image, button.en-btn.danger:focus-visible image { col
 """
 
 ACTIONS = [
-    ("zeta-lock", "Blocca", "lock", False),
-    ("zeta-moon", "Sospendi", "suspend", False),
-    ("zeta-switch-user", "Cambia utente", "switch", False),
-    ("zeta-logout", "Esci", "logout", False),
-    ("zeta-restart", "Riavvia", "reboot", True),
-    ("zeta-power", "Spegni", "poweroff", True),
+    ("zeta-lock", tr("Lock"), "lock", False),
+    ("zeta-moon", tr("Suspend"), "suspend", False),
+    ("zeta-switch-user", tr("Switch User"), "switch", False),
+    ("zeta-logout", tr("Log Out"), "logout", False),
+    ("zeta-restart", tr("Restart"), "reboot", True),
+    ("zeta-power", tr("Shut Down"), "poweroff", True),
 ]
 
 
 class Energia(Gtk.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Energia", decorated=False)
+        super().__init__(application=app, title=tr("Power"), decorated=False)
         popup.make_overlay(self, "zeta-energia")
         self.add_css_class("energia")
 
@@ -61,9 +62,17 @@ class Energia(Gtk.ApplicationWindow):
 
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                            halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
-        av = Gtk.Box(css_classes=["en-avatar"], halign=Gtk.Align.CENTER)
-        av.append(Gtk.Label(label=full[:1].upper(), hexpand=True, halign=Gtk.Align.CENTER))
+        # l'immagine dell'utente (tonda, ~/.face); un clic apre Impostazioni › Account
+        # Gtk.Image con pixel_size: misura fissa (un Gtk.Picture si allargava
+        # alla misura vera dell'immagine, 512 px)
+        self.foto = Gtk.Image(pixel_size=80)
+        av = Gtk.Button(css_classes=["en-avatar"], halign=Gtk.Align.CENTER,
+                        tooltip_text=tr("Account settings"))
+        av.set_child(self.foto)
+        av.connect("clicked", lambda *_: (self.set_visible(False),
+                                          spawn(["zeta-impostazioni", "account"])))
         self.box.append(av)
+        self._foto()
         self.box.append(Gtk.Label(label=full, css_classes=["en-name"]))
         self.box.append(Gtk.Label(label=os.uname().nodename, css_classes=["en-host"]))
 
@@ -80,12 +89,20 @@ class Energia(Gtk.ApplicationWindow):
             row.append(col)
             self.buttons.append(b)
         self.box.append(row)
-        self.box.append(Gtk.Label(label="Esc per annullare", css_classes=["en-hint"], margin_top=30))
+        self.box.append(Gtk.Label(label=tr("Press Esc to cancel"), css_classes=["en-hint"], margin_top=30))
         self.set_child(self.box)
         popup.close_on_outside(self, row, self.close_app)
 
+    def _foto(self):
+        try:
+            self.foto.set_from_paintable(Gdk.Texture.new_from_filename(avatar.percorso()))
+        except GLib.Error:
+            self.foto.set_from_icon_name("zeta-account")
+
     def prepara(self):
-        """Ogni volta che compare: il fuoco sul primo pulsante (Blocca)."""
+        """Ogni volta che compare: l'immagine aggiornata (puo' essere appena
+        cambiata) e il fuoco sul primo pulsante (Blocca)."""
+        self._foto()
         GLib.idle_add(lambda: self.buttons[0].grab_focus() and False)
 
     def do(self, action):

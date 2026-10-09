@@ -57,29 +57,30 @@ def norm(l):
 
 # --- elenco completo, leggibile da una macchina ---
 with open("%s/COMPONENTI.csv" % DEST, "w") as f:
-    f.write("pacchetto;versione;licenze;descrizione\n")
+    f.write("package;version;licenses;description\n")
     for nome in sorted(pacchetti):
         lic = " | ".join(sorted(set(norm(x) for x in licenze.get(nome, ["-"]))))
         f.write("%s;%s;%s;%s\n" % (nome, pacchetti[nome]["versione"], lic,
                                    pacchetti[nome]["descrizione"].replace(";", ",")))
 
 # --- famiglie: si contano i PACCHETTI, non le righe «License:» ---
-FAMIGLIE = [("GPL", "GNU General Public License", "/usr/share/common-licenses/GPL-3"),
-            ("LGPL", "GNU Lesser General Public License", "/usr/share/common-licenses/LGPL-3"),
-            ("Apache", "Apache License 2.0", "/usr/share/common-licenses/Apache-2.0"),
-            ("BSD", "Licenza BSD", "/usr/share/common-licenses/BSD"),
-            ("MIT", "Licenza MIT (Expat)", "—"),
-            ("Expat", "Licenza MIT (Expat)", "—"),
-            ("MPL", "Mozilla Public License", "/usr/share/common-licenses/MPL-2.0"),
-            ("CC0", "Creative Commons Zero", "—"),
-            ("ISC", "Licenza ISC", "—")]
+# (chiave, nome in inglese, nome in italiano, testo integrale)
+FAMIGLIE = [("GPL", "GNU General Public License", "GNU General Public License", "/usr/share/common-licenses/GPL-3"),
+            ("LGPL", "GNU Lesser General Public License", "GNU Lesser General Public License", "/usr/share/common-licenses/LGPL-3"),
+            ("Apache", "Apache License 2.0", "Apache License 2.0", "/usr/share/common-licenses/Apache-2.0"),
+            ("BSD", "BSD License", "Licenza BSD", "/usr/share/common-licenses/BSD"),
+            ("MIT", "MIT License (Expat)", "Licenza MIT (Expat)", "—"),
+            ("Expat", "MIT License (Expat)", "Licenza MIT (Expat)", "—"),
+            ("MPL", "Mozilla Public License", "Mozilla Public License", "/usr/share/common-licenses/MPL-2.0"),
+            ("CC0", "Creative Commons Zero", "Creative Commons Zero", "—"),
+            ("ISC", "ISC License", "Licenza ISC", "—")]
 
 
 def famiglia_di(l):
     u = l.upper()
-    for chiave, nome, dove in FAMIGLIE:
+    for chiave, nome_en, nome_it, dove in FAMIGLIE:
         if u.startswith(chiave.upper()):
-            return nome, dove
+            return (nome_en, nome_it), dove
     return None, None
 
 
@@ -94,38 +95,39 @@ for nome, v in licenze.items():
 famiglie = sorted(((f, len(s), dove_fam[f]) for f, s in per_fam.items()),
                   key=lambda r: -r[1])
 
+# (componente, a che serve in inglese, in italiano, licenza, sito)
 CHIAVE = [
-    ("ZETA RAYS", "ZETA, ZETA Core, Monitor, Impostazioni, scrivania, script e temi", "GPL-3.0-or-later", "zetarays.org"),
-    ("Linux", "kernel del sistema", "GPL-2", "kernel.org"),
-    ("systemd", "avvio e gestione dei servizi", "LGPL-2.1+", "systemd.io"),
-    ("Hyprland", "compositore grafico (ZETA RAYS Shell)", "BSD-3-clause", "hypr.land"),
-    ("hyprbars", "barre del titolo delle finestre", "BSD-3-clause", "github.com/hyprwm/hyprland-plugins"),
-    ("Waybar", "barra e dock", "MIT", "github.com/Alexays/Waybar"),
-    ("mako", "notifiche", "MIT", "github.com/emersion/mako"),
-    ("foot", "terminale", "MIT", "codeberg.org/dnkl/foot"),
-    ("Thunar", "gestore file", "GPL-2+", "docs.xfce.org/xfce/thunar"),
-    ("GTK / libadwaita", "interfaccia delle applicazioni", "LGPL-2.1+", "gtk.org"),
-    ("SDDM", "schermata di accesso", "GPL-2+", "github.com/sddm/sddm"),
-    ("Calamares", "installatore di sistema", "GPL-3+", "calamares.io"),
-    ("Plymouth", "schermata di avvio", "GPL-2+", "freedesktop.org"),
-    ("GRUB", "avviatore", "GPL-3+", "gnu.org/software/grub"),
-    ("PipeWire / WirePlumber", "audio", "MIT", "pipewire.org"),
-    ("NetworkManager", "rete", "GPL-2+", "networkmanager.dev"),
-    ("nftables", "firewall", "GPL-2", "netfilter.org"),
-    ("Firefox ESR", "navigatore web", "MPL-2.0", "mozilla.org"),
-    ("mpv", "riproduttore audio e video", "GPL-2+ / LGPL-2.1+", "mpv.io"),
-    ("FFmpeg", "codec audio e video", "LGPL-2.1+ / GPL-2+", "ffmpeg.org"),
-    ("Evince", "lettore di documenti", "GPL-2+", "wiki.gnome.org/Apps/Evince"),
-    ("Eye of GNOME", "visualizzatore di immagini", "GPL-2+", "wiki.gnome.org/Apps/EyeOfGnome"),
-    ("File Roller, p7zip, unar", "archivi", "GPL-2+ / LGPL", "—"),
-    ("GNOME Text Editor", "editor di testo", "GPL-3+", "gitlab.gnome.org/GNOME/gnome-text-editor"),
-    ("fastfetch", "riepilogo di sistema nel terminale", "MIT", "github.com/fastfetch-cli/fastfetch"),
-    ("Ollama", "esecuzione del modello AI in locale", "MIT", "ollama.com"),
-    ("Llama 3.2 (1B)", "modello linguistico incluso", "Llama 3.2 Community License", "llama.com"),
-    ("Vosk", "riconoscimento vocale offline", "Apache-2.0", "alphacephei.com/vosk"),
-    ("eSpeak NG", "sintesi vocale", "GPL-3+", "github.com/espeak-ng/espeak-ng"),
-    ("Tesseract", "riconoscimento del testo nelle immagini", "Apache-2.0", "github.com/tesseract-ocr"),
-    ("Roboto", "carattere dell'interfaccia", "Apache-2.0", "fonts.google.com"),
+    ("ZETA RAYS", "ZETA, ZETA Core, Monitor, Settings, desktop, scripts and themes", "ZETA, ZETA Core, Monitor, Impostazioni, scrivania, script e temi", "GPL-3.0-or-later", "zetarays.org"),
+    ("Linux", "system kernel", "kernel del sistema", "GPL-2", "kernel.org"),
+    ("systemd", "startup and service management", "avvio e gestione dei servizi", "LGPL-2.1+", "systemd.io"),
+    ("Hyprland", "graphical compositor (ZETA RAYS Shell)", "compositore grafico (ZETA RAYS Shell)", "BSD-3-clause", "hypr.land"),
+    ("hyprbars", "window title bars", "barre del titolo delle finestre", "BSD-3-clause", "github.com/hyprwm/hyprland-plugins"),
+    ("Waybar", "bar and dock", "barra e dock", "MIT", "github.com/Alexays/Waybar"),
+    ("mako", "notifications", "notifiche", "MIT", "github.com/emersion/mako"),
+    ("foot", "terminal", "terminale", "MIT", "codeberg.org/dnkl/foot"),
+    ("Thunar", "file manager", "gestore file", "GPL-2+", "docs.xfce.org/xfce/thunar"),
+    ("GTK / libadwaita", "application interface", "interfaccia delle applicazioni", "LGPL-2.1+", "gtk.org"),
+    ("SDDM", "login screen", "schermata di accesso", "GPL-2+", "github.com/sddm/sddm"),
+    ("Calamares", "system installer", "installatore di sistema", "GPL-3+", "calamares.io"),
+    ("Plymouth", "boot screen", "schermata di avvio", "GPL-2+", "freedesktop.org"),
+    ("GRUB", "boot loader", "avviatore", "GPL-3+", "gnu.org/software/grub"),
+    ("PipeWire / WirePlumber", "audio", "audio", "MIT", "pipewire.org"),
+    ("NetworkManager", "networking", "rete", "GPL-2+", "networkmanager.dev"),
+    ("nftables", "firewall", "firewall", "GPL-2", "netfilter.org"),
+    ("Firefox ESR", "web browser", "navigatore web", "MPL-2.0", "mozilla.org"),
+    ("mpv", "audio and video player", "riproduttore audio e video", "GPL-2+ / LGPL-2.1+", "mpv.io"),
+    ("FFmpeg", "audio and video codecs", "codec audio e video", "LGPL-2.1+ / GPL-2+", "ffmpeg.org"),
+    ("Evince", "document viewer", "lettore di documenti", "GPL-2+", "wiki.gnome.org/Apps/Evince"),
+    ("Eye of GNOME", "image viewer", "visualizzatore di immagini", "GPL-2+", "wiki.gnome.org/Apps/EyeOfGnome"),
+    ("File Roller, p7zip, unar", "archives", "archivi", "GPL-2+ / LGPL", "—"),
+    ("GNOME Text Editor", "text editor", "editor di testo", "GPL-3+", "gitlab.gnome.org/GNOME/gnome-text-editor"),
+    ("fastfetch", "system summary in the terminal", "riepilogo di sistema nel terminale", "MIT", "github.com/fastfetch-cli/fastfetch"),
+    ("Ollama", "runs the AI model locally", "esecuzione del modello AI in locale", "MIT", "ollama.com"),
+    ("Llama 3.2 (1B)", "included language model", "modello linguistico incluso", "Llama 3.2 Community License", "llama.com"),
+    ("Vosk", "offline speech recognition", "riconoscimento vocale offline", "Apache-2.0", "alphacephei.com/vosk"),
+    ("eSpeak NG", "speech synthesis", "sintesi vocale", "GPL-3+", "github.com/espeak-ng/espeak-ng"),
+    ("Tesseract", "text recognition in images", "riconoscimento del testo nelle immagini", "Apache-2.0", "github.com/tesseract-ocr"),
+    ("Roboto", "interface font", "carattere dell'interfaccia", "Apache-2.0", "fonts.google.com"),
 ]
 
 
@@ -136,9 +138,98 @@ def tabella(righe, testate):
     return "\n".join(out)
 
 
-TESTO = """# ZETA RAYS OS — software di terze parti e licenze
+# Il documento si genera in inglese (LICENZE.md, quello che le app aprono di
+# serie) e in italiano (LICENZE.it.md): stessi dati, due lingue.
+TESTO_EN = """# ZETA RAYS OS — third-party software and licenses
 
-*Generato automaticamente dall'immagine di ZETA RAYS OS 1.7 il {oggi}.*
+*Generated automatically from the ZETA RAYS OS 2.0 image on {oggi}.*
+
+*(Versione italiana: `LICENZE.it.md`, in this same folder.)*
+
+ZETA RAYS OS is made up overwhelmingly of **free and open source software**
+written by others. This document lists what is inside, under which licenses,
+and where to find their full text.
+
+## In short
+
+The image contains **{n} installed packages**. For each one, the full license
+text and the list of authors are on the system itself, in
+`/usr/share/doc/<package-name>/copyright`.
+
+The complete list, package by package with version and license, is in the
+file `COMPONENTI.csv` next to this document.
+
+## License families present
+
+A package can appear in more than one family: many projects use different
+licenses for different parts of their code.
+
+{famiglie}
+
+The texts of the most common licenses are in `/usr/share/common-licenses/`.
+
+## Main components
+
+These are the programs that shape ZETA RAYS. Each one remains the property of
+its authors and keeps its own license.
+
+{chiave}
+
+## System base
+
+ZETA RAYS OS is built on the **Debian GNU/Linux 13 (trixie)** distribution and
+uses its package archives (`deb.debian.org`, sections `main`, `contrib`,
+`non-free`, `non-free-firmware` and `trixie-backports`).
+
+Debian is a trademark of SPI Inc. ZETA RAYS OS is not produced, endorsed or
+approved by Debian or by SPI Inc.: it is an independent system that uses its
+technical base, as the free software licenses allow.
+
+## Components written for ZETA RAYS
+
+The desktop and the system applications (the `zeta-*` commands), the themes,
+the icons, the brand and the interface texts and their translations belong to
+ZETA RAYS.
+
+**The ZETA RAYS trademark, name, symbol and logotype are not free
+software**: they remain the property of the project owner. Free software
+licenses cover the code, not trademarks (GPL-3 §7e, Apache-2.0 §6).
+
+## Included language model
+
+The image includes **Llama 3.2 (1B)**, distributed by Meta under the *Llama 3.2
+Community License*: a license of its own, not an approved open source license.
+It allows use, copying and modification under certain conditions, including
+the limit of 700 million monthly active users and the requirement to display
+«Built with Llama». The text is at llama.com/llama3_2/license.
+
+## Non-free firmware
+
+The image includes the `firmware-*` packages from Debian's `non-free-firmware`
+section, needed for network cards, graphics cards and wireless adapters to
+work on real hardware. They are distributed by their manufacturers under
+redistribution-only licenses, whose text is in the corresponding `copyright`
+files.
+
+## How to get the source code
+
+For every included package, the corresponding source code can be obtained
+from the Debian archives with:
+
+    apt-get source <package-name>
+
+This meets the obligation to make the source available under the GPL and
+similar licenses.
+""".format(oggi=time.strftime("%Y-%m-%d"), n=len(pacchetti),
+           famiglie=tabella([(f[0], "%d of %d" % (c, len(pacchetti)), d)
+                             for f, c, d in famiglie],
+                            ["License family", "Packages", "Full text"]),
+           chiave=tabella([(c, en, lic, sito) for c, en, _it, lic, sito in CHIAVE],
+                          ["Component", "What it does", "License", "Home"]))
+
+TESTO_IT = """# ZETA RAYS OS — software di terze parti e licenze
+
+*Generato automaticamente dall'immagine di ZETA RAYS OS 2.0 il {oggi}.*
 
 ZETA RAYS OS è composto in larghissima parte da **software libero e open
 source** scritto da altri. Questo documento elenca che cosa c'è dentro, con
@@ -182,7 +273,8 @@ base tecnica, come le licenze del software libero consentono.
 ## Componenti scritti per ZETA RAYS
 
 Sono di ZETA RAYS la scrivania e le applicazioni di sistema (i comandi
-`zeta-*`), i temi, le icone, il marchio e i testi in italiano.
+`zeta-*`), i temi, le icone, il marchio e i testi dell'interfaccia con le
+loro traduzioni.
 
 **Il marchio ZETA RAYS, il nome, il simbolo e il logotipo non sono software
 libero**: restano di proprietà del titolare del progetto. Le licenze del
@@ -214,12 +306,14 @@ archivi Debian con:
 Questo soddisfa l'obbligo di messa a disposizione del sorgente previsto dalla
 GPL e dalle licenze analoghe.
 """.format(oggi=OGGI, n=len(pacchetti),
-           famiglie=tabella([(f, "%d su %d" % (c, len(pacchetti)), d)
+           famiglie=tabella([(f[1], "%d su %d" % (c, len(pacchetti)), d)
                              for f, c, d in famiglie],
                             ["Famiglia di licenza", "Pacchetti", "Testo integrale"]),
-           chiave=tabella(CHIAVE, ["Componente", "A che serve", "Licenza", "Dove sta di casa"]))
+           chiave=tabella([(c, it, lic, sito) for c, _en, it, lic, sito in CHIAVE],
+                          ["Componente", "A che serve", "Licenza", "Dove sta di casa"]))
 
-open("%s/LICENZE.md" % DEST, "w").write(TESTO)
+open("%s/LICENZE.md" % DEST, "w").write(TESTO_EN)
+open("%s/LICENZE.it.md" % DEST, "w").write(TESTO_IT)
 print("ZETA RAYS: documenti legali generati (%d pacchetti, %d famiglie di licenza)"
       % (len(pacchetti), len(famiglie)))
 
@@ -252,8 +346,8 @@ open(LLAMA + "/NOTICE.txt", "w").write(
     "Llama 3.2 is licensed under the Llama 3.2 Community License, "
     "Copyright \u00a9 Meta Platforms, Inc. All Rights Reserved.\n\n"
     "Built with Llama.\n\n"
-    "ZETA RAYS OS include il modello Llama 3.2 (1B) per l'intelligenza locale di ZETA.\n"
-    "Licenza: LICENSE.txt. Policy d'uso: USE_POLICY.md (anche su https://www.llama.com/llama3_2/use-policy).\n")
+    "ZETA RAYS OS includes the Llama 3.2 (1B) model for ZETA's local AI.\n"
+    "License: LICENSE.txt. Acceptable use policy: USE_POLICY.md (also at https://www.llama.com/llama3_2/use-policy).\n")
 print("ZETA RAYS: licenza, policy e notice di Llama 3.2 in %s" % LLAMA)
 PYFINE
 exit 0

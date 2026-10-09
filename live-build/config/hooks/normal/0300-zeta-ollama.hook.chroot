@@ -62,8 +62,10 @@ chown -R ollama:ollama /usr/share/ollama
 cat > /etc/systemd/system/ollama.service <<'UNIT'
 [Unit]
 Description=Ollama — modello AI locale di ZETA RAYS
-After=network-online.target
-Wants=network-online.target
+# solo network.target: Ollama ascolta su 127.0.0.1 e non ha bisogno della
+# rete; con network-online l'avvio aspettava la connessione (fino a 60 s
+# senza Wi-Fi)
+After=network.target
 
 [Service]
 Type=simple
@@ -101,6 +103,11 @@ Environment="OLLAMA_MAX_LOADED_MODELS=1"
 # e una coda corta, e cio che serve a un computer con un utente solo.
 Environment="OLLAMA_NUM_PARALLEL=1"
 Environment="OLLAMA_MAX_QUEUE=64"
+# Memoria del contesto compressa (8 bit invece di 16): misurato in VM,
+# stessa velocita' (81 token/s) e circa 60 MB in meno; richiede la flash
+# attention, che qui si chiede esplicitamente invece di lasciarla «auto».
+Environment="OLLAMA_FLASH_ATTENTION=1"
+Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 
 [Install]
 WantedBy=multi-user.target

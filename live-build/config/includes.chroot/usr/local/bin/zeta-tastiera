@@ -1,0 +1,43 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-tastiera — la tastiera in uso nella barra (IT, US, GB...).
+#
+#   zeta-tastiera stato      la sigla per Waybar (vuota con un solo layout:
+#                            allora l'indicatore non compare)
+#   zeta-tastiera prossima   passa alla tastiera successiva (come Alt+Shift)
+#
+# Si aggiorna con il segnale SIGRTMIN+14, che zeta-spazi manda quando
+# Hyprland cambia tastiera (evento activelayout): niente controlli continui.
+set -u
+LUA="$HOME/.config/hypr/zeta_tastiera.lua"
+EVDEV=/usr/share/X11/xkb/rules/evdev.lst
+
+layout() {   # i layout della sessione: quelli del file letto all'accesso
+    sed -n 's/.*layout = "\([^"]*\)".*/\1/p' "$LUA" 2>/dev/null | head -1
+}
+
+case "${1:-}" in
+    stato)
+        lay=$(layout); lay=${lay:-us}
+        case "$lay" in *,*) ;; *) echo '{"text": ""}'; exit 0 ;; esac
+        nome=$(hyprctl -j devices 2>/dev/null \
+               | jq -r '([.keyboards[] | select(.main)] + .keyboards)[0].active_keymap // empty' 2>/dev/null)
+        codice=""
+        IFS=, read -ra codici <<<"$lay"
+        for c in "${codici[@]}"; do
+            n=$(awk -v c="$c" '/^! layout/{s=1;next} /^!/{s=0} s && $1==c {sub(/^ *[^ ]+ +/,""); print; exit}' "$EVDEV")
+            [ -n "$n" ] && [ "$n" = "$nome" ] && { codice=$c; break; }
+        done
+        [ -n "$codice" ] || codice=${codici[0]}
+        printf '{"text": "%s", "tooltip": "%s"}\n' \
+            "$(printf '%s' "$codice" | tr '[:lower:]' '[:upper:]')" "${nome:-$codice}"
+        ;;
+    prossima)
+        hyprctl switchxkblayout all next >/dev/null 2>&1
+        pkill -RTMIN+14 -x waybar 2>/dev/null
+        ;;
+    *)
+        echo "usage: zeta-tastiera stato | prossima" >&2
+        exit 2
+        ;;
+esac

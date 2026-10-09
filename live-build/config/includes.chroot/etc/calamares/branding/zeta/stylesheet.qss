@@ -5,8 +5,12 @@ QLabel { color: #EDEDEA; font-size: 14px; font-family: "Roboto"; }
    Allineato a sinistra, in colonna con il logo. */
 QLabel#mainText { font-size: 16px; font-weight: 500; color: #EDEDEA;
                   qproperty-alignment: 'AlignLeft | AlignVCenter'; }
+/* Menu a tendina ed elenchi: senza una misura usavano il font di base di
+   Qt, piu' piccolo del resto e faticoso da leggere (lingue, tastiere, dischi). */
 QComboBox { background: #19191C; color: #EDEDEA; border: 1px solid rgba(255,255,255,0.10);
-            border-radius: 6px; padding: 4px 8px; }
+            border-radius: 6px; padding: 5px 10px; font-family: "Roboto"; font-size: 14px; }
+QComboBox QAbstractItemView { background: #19191C; color: #EDEDEA; font-family: "Roboto";
+            font-size: 14px; selection-background-color: #3A8DFF; selection-color: #06070A; }
 QPushButton { background-color: #19191C; color: #EDEDEA; border: 1px solid rgba(255,255,255,0.10);
               border-radius: 8px; padding: 8px 20px; font-family: "Roboto"; font-size: 14px; }
 QPushButton:hover { background-color: #24242A; }
@@ -16,8 +20,8 @@ QPushButton:default { background-color: #3A8DFF; color: #06070A; border: none; }
 /* Righe alternate: senza un colore esplicito Qt le disegna bianche, e nel
    dialogo delle partizioni i nomi dei flag (esp, boot, bios-grub) sparivano,
    testo chiaro su fondo bianco. */
-QTreeView, QListView { background: #0E0E10; color: #EDEDEA;
-                       alternate-background-color: #151518; }
+QTreeView, QListView { background: #0E0E10; color: #EDEDEA; font-family: "Roboto";
+                       font-size: 14px; alternate-background-color: #151518; }
 QTreeView::item, QListView::item { color: #EDEDEA; }
 QListView::indicator { width: 14px; height: 14px; background: #19191C;
             border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; }

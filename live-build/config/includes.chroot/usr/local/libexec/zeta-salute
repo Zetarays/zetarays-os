@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2059  # i formati di printf vengono dalle traduzioni (gettext)
 # SPDX-License-Identifier: GPL-3.0-or-later
 # zeta-salute — controllo leggero della salute del sistema, ogni due minuti.
 #
@@ -17,6 +18,9 @@
 # registro (journalctl -t zeta-salute) e in /run/zeta-salute.txt, che
 # zeta-diagnosi allega al suo rapporto.
 set -u
+# Avvisi nella lingua del sistema (gettext, dominio zetarays)
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 STATO=/var/lib/zeta-salute
 mkdir -p "$STATO/avvisati"
 ULTIMO=$(cat "$STATO/ultimo" 2>/dev/null || echo 0)
@@ -26,6 +30,8 @@ SINCE="@$ULTIMO"
 RAPPORTO=()
 
 registra() { RAPPORTO+=("$1: $2"); logger -t zeta-salute -- "$1: $2"; }
+# testo sicuro come sostituzione di sed (separatore «|»)
+sed_testo() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
 
 # Avvisa ogni sessione grafica aperta, al massimo una volta l'ora per chiave.
 avvisa() {
@@ -55,37 +61,37 @@ DISP=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
 if [ -n "$TOT" ] && [ "$TOT" -gt 0 ]; then
     PERC=$((DISP * 100 / TOT))
     if [ "$PERC" -lt 10 ]; then
-        avvisa memoria "Memoria quasi finita" \
-            "Resta il ${PERC}% della RAM. Usano di piu': $(piu_pesante_ram). Chiudi qualcosa per evitare rallentamenti."
+        avvisa memoria "$(gettext "Memory almost full")" \
+            "$(printf "$(gettext 'Only %s%% of RAM is left. Using the most: %s. Close something to avoid slowdowns.')" "$PERC" "$(piu_pesante_ram)")"
     fi
 fi
 if [ -r /proc/pressure/memory ]; then
     FULL=$(awk '/^full/{split($3,a,"="); print int(a[2])}' /proc/pressure/memory)
     if [ "${FULL:-0}" -ge 15 ]; then
-        avvisa pressione "Il sistema rallenta per mancanza di memoria" \
-            "Nell'ultimo minuto i programmi hanno aspettato la memoria il ${FULL}% del tempo. Usano di piu': $(piu_pesante_ram)."
+        avvisa pressione "$(gettext "The system is slowing down for lack of memory")" \
+            "$(printf "$(gettext 'In the last minute, apps spent %s%% of the time waiting for memory. Using the most: %s.')" "$FULL" "$(piu_pesante_ram)")"
     fi
 fi
 
 # --- programmi chiusi da earlyoom per evitare il blocco ---
 CHIUSI=$(journalctl -u earlyoom --since "$SINCE" --no-pager -o cat 2>/dev/null \
          | sed -n 's/.*sending SIG[A-Z]* to process [0-9]* uid [0-9]* "\([^"]*\)".*/\1/p' | sort -u \
-         | sed -e 's/^llama-server$/il modello AI locale (si ricarica da solo alla prossima domanda)/' \
-               -e 's/^ollama$/il modello AI locale (si ricarica da solo alla prossima domanda)/' \
-               -e 's/^firefox-esr$/Firefox/' -e 's/^Isolated Web Co$/una scheda di Firefox/' \
-               -e 's/^Web Content$/una scheda di Firefox/' -e 's/^tesseract$/il riconoscimento del testo/' \
+         | sed -e "s|^llama-server\$|$(sed_testo "$(gettext "the local AI model (it reloads by itself at the next question)")")|" \
+               -e "s|^ollama\$|$(sed_testo "$(gettext "the local AI model (it reloads by itself at the next question)")")|" \
+               -e 's/^firefox-esr$/Firefox/' -e "s|^Isolated Web Co\$|$(sed_testo "$(gettext "a Firefox tab")")|" \
+               -e "s|^Web Content\$|$(sed_testo "$(gettext "a Firefox tab")")|" -e "s|^tesseract\$|$(sed_testo "$(gettext "text recognition")")|" \
          | sort -u | paste -sd, - | sed 's/,/, /g')
 if [ -n "$CHIUSI" ]; then
-    avvisa earlyoom-"$ADESSO" "Programma chiuso per salvare il sistema" \
-        "La memoria stava finendo: per evitare il blocco del computer e' stato chiuso: $CHIUSI."
+    avvisa earlyoom-"$ADESSO" "$(gettext "App closed to protect the system")" \
+        "$(printf "$(gettext 'Memory was running out: to keep the computer from freezing, this was closed: %s.')" "$CHIUSI")"
 fi
 
 # --- CPU: carico alto e prolungato ---
 NCPU=$(nproc)
 CAR5=$(awk '{print int($2)}' /proc/loadavg)
 if [ "$CAR5" -ge $((NCPU * 2)) ]; then
-    avvisa cpu "Processore molto carico" \
-        "Da alcuni minuti il carico e' $CAR5 su $NCPU core. Usa di piu': $(piu_pesante_cpu)."
+    avvisa cpu "$(gettext "Processor under heavy load")" \
+        "$(printf "$(gettext 'For a few minutes the load has been %s on %s cores. Using the most: %s.')" "$CAR5" "$NCPU" "$(piu_pesante_cpu)")"
 fi
 
 # --- disco ---
@@ -95,15 +101,15 @@ while read -r uso libero mp; do
     case ",$(findmnt -no OPTIONS --target "$mp" 2>/dev/null)," in *,ro,*) continue ;; esac
     uso=${uso%%%}
     if [ "$uso" -ge 95 ] || [ "$libero" -lt 1500000 ]; then
-        avvisa "disco-$(echo "$mp" | tr / _)" "Disco quasi pieno" \
-            "In $mp resta $((libero / 1024)) MB ($((100 - uso))% libero). Con il disco pieno i programmi si bloccano."
+        avvisa "disco-$(echo "$mp" | tr / _)" "$(gettext "Disk almost full")" \
+            "$(printf "$(gettext 'On %s, only %s MB is left (%s%% free). When the disk is full, apps freeze.')" "$mp" "$((libero / 1024))" "$((100 - uso))")"
     fi
 done < <(df -k --output=pcent,avail,target -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs -x vfat -x iso9660 -x udf 2>/dev/null | tail -n +2)
 
 # --- servizi falliti ---
 FALLITI=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | paste -sd, -)
 if [ -n "$FALLITI" ]; then
-    avvisa servizi "Servizi in errore" "Non funzionano: $FALLITI. Dettagli: journalctl -u <nome>."
+    avvisa servizi "$(gettext "Failed services")" "$(printf "$(gettext 'Not working: %s. Details: journalctl -u <name>.')" "$FALLITI")"
 fi
 
 # --- scheda grafica ---
@@ -111,16 +117,16 @@ GPU=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null \
       | grep -iE "GPU HANG|gpu hang|ring [a-z0-9_.]+ timeout|\*ERROR\* .*(reset|hang|timed out)|amdgpu.*(timeout|reset)|i915.*(reset|hang)|xe .*(reset|timeout)|nouveau.*(fault|timeout)" \
       | grep -viE "vmw_(msg|host)" | tail -2 | cut -c1-160)
 if [ -n "$GPU" ]; then
-    avvisa gpu "La scheda grafica ha avuto un errore" \
-        "Il kernel ha segnalato un problema della GPU: puo' spiegare finestre bloccate. Per il rapporto completo: zeta-diagnosi. ($GPU)"
+    avvisa gpu "$(gettext "The graphics card had an error")" \
+        "$(printf "$(gettext 'The kernel reported a GPU problem: it may explain frozen windows. For the full report: zeta-diagnosi. (%s)')" "$GPU")"
 fi
 
 # --- crash del gestore delle finestre (Hyprland) ---
 while IFS= read -r rap; do
     SEGN=$(grep -m1 -o "signal [0-9]*([A-Z]*)" "$rap" 2>/dev/null)
     DOVE=$(grep -m1 -oE "Desktop::View::[A-Za-z:]+|C[A-Z][A-Za-z]+::[A-Za-z]+" "$rap" 2>/dev/null | sed -n 3p)
-    avvisa "hyprland-$(basename "$rap")" "Il desktop si e' ripreso da un errore" \
-        "Il gestore delle finestre e' andato in crash ($SEGN${DOVE:+, $DOVE}) ed e' ripartito. Rapporto: $rap"
+    avvisa "hyprland-$(basename "$rap")" "$(gettext "The desktop recovered from an error")" \
+        "$(printf "$(gettext 'The window manager crashed (%s) and restarted. Report: %s')" "$SEGN${DOVE:+, $DOVE}" "$rap")"
 done < <(find /home/*/.cache/hyprland -maxdepth 1 -name 'hyprlandCrashReport*.txt' -newermt "@$ULTIMO" 2>/dev/null)
 
 # --- processi fermi sul disco (stato D) per piu' di un controllo ---
@@ -129,13 +135,13 @@ PRIMA_D=$(cat "$STATO/stato-d" 2>/dev/null)
 echo "$ORA_D" > "$STATO/stato-d"
 FERMI=$(comm -12 <(echo "$PRIMA_D") <(echo "$ORA_D") | grep . | cut -d: -f2 | sort -u | paste -sd, -)
 if [ -n "$FERMI" ]; then
-    avvisa disco-bloccato "Programmi fermi in attesa del disco" \
-        "Da piu' di due minuti non rispondono: $FERMI. Il disco potrebbe essere lento o guasto."
+    avvisa disco-bloccato "$(gettext "Apps stuck waiting for the disk")" \
+        "$(printf "$(gettext 'Not responding for more than two minutes: %s. The disk may be slow or failing.')" "$FERMI")"
 fi
 BLOCCATI=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null | grep -c "blocked for more than")
 if [ "${BLOCCATI:-0}" -gt 0 ]; then
-    avvisa hung "Il sistema e' rimasto bloccato" \
-        "Il kernel ha visto $BLOCCATI processi fermi per piu' di due minuti. Per il rapporto: zeta-diagnosi."
+    avvisa hung "$(gettext "The system froze")" \
+        "$(printf "$(gettext 'The kernel saw %s processes stuck for more than two minutes. For the report: zeta-diagnosi.')" "$BLOCCATI")"
 fi
 
 # --- intelligenza locale ---
@@ -143,17 +149,17 @@ if systemctl is-enabled --quiet ollama 2>/dev/null && ! systemctl is-active --qu
     STATO_O=$(systemctl show ollama -p Result --value 2>/dev/null)
     systemctl reset-failed ollama >/dev/null 2>&1
     if systemctl start ollama >/dev/null 2>&1; then
-        registra "Ollama" "era fermo ($STATO_O): riavviato"
+        registra "Ollama" "was stopped ($STATO_O): restarted"
     else
-        avvisa ollama "L'intelligenza locale non parte" \
-            "Il servizio Ollama e' fermo ($STATO_O) e non riparte. ZETA puo' usare un servizio in rete (Impostazioni > AI)."
+        avvisa ollama "$(gettext "The local AI won't start")" \
+            "$(printf "$(gettext 'The Ollama service is stopped (%s) and will not restart. ZETA can use an online service (Settings > AI).')" "$STATO_O")"
     fi
 fi
 
 echo "$ADESSO" > "$STATO/ultimo"
 {
-    echo "ultimo controllo: $(date '+%F %T')"
-    echo "memoria disponibile: ${PERC:-?}%  pressione memoria (full avg60): ${FULL:-?}%  carico: $(cut -d' ' -f1-3 /proc/loadavg)"
-    if [ ${#RAPPORTO[@]} -eq 0 ]; then echo "nessun problema"; else printf '%s\n' "${RAPPORTO[@]}"; fi
+    echo "last check: $(date '+%F %T')"
+    echo "memory available: ${PERC:-?}%  memory pressure (full avg60): ${FULL:-?}%  load: $(cut -d' ' -f1-3 /proc/loadavg)"
+    if [ ${#RAPPORTO[@]} -eq 0 ]; then echo "no problems"; else printf '%s\n' "${RAPPORTO[@]}"; fi
 } > /run/zeta-salute.txt
 exit 0

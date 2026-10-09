@@ -1,109 +1,112 @@
-# ZETA RAYS OS — condizioni d'uso
+# ZETA RAYS OS — terms of use
 
-## Che cos'è
+*(Versione italiana: `CONDIZIONI.it.md`, in this same folder.)*
 
-ZETA RAYS OS è un sistema operativo costruito sulla base di Debian GNU/Linux e
-composto in larga parte da software libero di terze parti, con in più una
-scrivania, applicazioni di sistema, un tema e dei testi scritti per ZETA RAYS.
+## What it is
 
-L'elenco completo dei componenti e delle loro licenze è in `LICENZE.md`,
-accanto a questo file. Che cosa esce dal computer è scritto in `PRIVACY.md`.
+ZETA RAYS OS is an operating system built on Debian GNU/Linux and made up
+largely of third-party free software, plus a desktop, system applications,
+a theme and texts written for ZETA RAYS.
 
-## Licenze
+The complete list of components and their licenses is in `LICENZE.md`, next
+to this file. What leaves the computer is described in `PRIVACY.md`.
 
-Ogni componente di terze parti resta dei suoi autori e si usa secondo la
-**propria** licenza: GPL, LGPL, MIT, BSD, Apache e le altre elencate in
-`LICENZE.md`. Niente in questo documento restringe i diritti che quelle
-licenze ti danno — e dove ci fosse contrasto, **vale la licenza del
-componente**.
+## Licenses
 
-**Le parti scritte per ZETA RAYS sono software libero**, distribuito con la
-**GNU General Public License versione 3 o successive** (GPL-3.0-or-later):
-ZETA e ZETA Core, il Monitor, le Impostazioni, la scrivania, la barra, il
-launcher, la ricerca, gli script di sistema, i temi e le configurazioni. Puoi
-usarle per qualsiasi scopo, studiarle, modificarle e ridistribuirle, anche
-modificate, a condizione che chi le riceve abbia gli stessi diritti: il
-codice resta aperto. Ogni file porta l'indicazione
-`SPDX-License-Identifier: GPL-3.0-or-later`; il testo integrale della licenza
-è in `/usr/share/common-licenses/GPL-3`. Il codice è già tutto nel sistema,
-in forma leggibile: in `/usr/lib/zeta` e `/usr/local/bin`.
+Every third-party component remains the property of its authors and is used
+under **its own** license: GPL, LGPL, MIT, BSD, Apache and the others listed
+in `LICENZE.md`. Nothing in this document restricts the rights those
+licenses give you — and in case of conflict, **the component's license
+prevails**.
 
-**Il marchio è un'altra cosa.** Il nome «ZETA RAYS», il simbolo e il logotipo
-non sono coperti dalle licenze del software: restano del titolare del
-progetto. Puoi usare, modificare e ridistribuire il sistema; se lo modifichi e
-lo ridistribuisci, **toglici il marchio** e dagli un altro nome. È la stessa
-regola che Debian e Firefox applicano ai propri, ed è espressamente prevista
-dalle licenze libere (GPL-3 §7e, Apache-2.0 §6).
+**The parts written for ZETA RAYS are free software**, distributed under the
+**GNU General Public License version 3 or later** (GPL-3.0-or-later): ZETA and
+ZETA Core, the Monitor, Settings, the desktop, the bar, the launcher, search,
+the system scripts, the themes and the configuration. You may use them for
+any purpose, study them, modify them and redistribute them, modified or not,
+provided that whoever receives them gets the same rights: the code stays
+open. Every file carries the notice `SPDX-License-Identifier: GPL-3.0-or-later`;
+the full text of the license is in `/usr/share/common-licenses/GPL-3`. All the
+code is already on the system, in readable form: in `/usr/lib/zeta` and
+`/usr/local/bin`.
 
-## Nessuna garanzia
+**The trademark is a different matter.** The name «ZETA RAYS», the symbol and
+the logotype are not covered by the software licenses: they remain the
+property of the project owner. You may use, modify and redistribute the
+system; if you modify and redistribute it, **remove the trademark** and give
+it another name. It is the same rule Debian and Firefox apply to their own
+marks, and the free licenses expressly allow it (GPL-3 §7e, Apache-2.0 §6).
 
-Questo è il punto che conta di più, ed è quello standard del software libero.
+## No warranty
 
-**Il sistema è fornito "così com'è", senza garanzia di alcun tipo**, esplicita
-o implicita, comprese — a titolo di esempio — le garanzie di commerciabilità,
-di idoneità a uno scopo particolare e di assenza di violazioni.
+This is the most important point, and it is the standard one for free
+software.
 
-**Il rischio dell'uso è tuo.** Chi ha realizzato o distribuito ZETA RAYS OS non
-risponde di danni diretti, indiretti, incidentali o consequenziali — fra cui
-perdita di dati, perdita di profitti, interruzione dell'attività — derivanti
-dall'uso o dall'impossibilità di usare il sistema, anche se informato della
-possibilità di tali danni.
+**The system is provided "as is", without warranty of any kind**, express or
+implied, including — by way of example — the warranties of merchantability,
+fitness for a particular purpose and non-infringement.
 
-Questa clausola non esclude le responsabilità che la legge applicabile non
-consente di escludere.
+**You use it at your own risk.** Those who created or distributed ZETA RAYS OS
+are not liable for any direct, indirect, incidental or consequential
+damages — including loss of data, loss of profits or business
+interruption — arising from the use of, or the inability to use, the system,
+even if advised of the possibility of such damages.
 
-## Installazione: attenzione ai dati
+This clause does not exclude any liability that the applicable law does not
+allow to be excluded.
 
-L'installatore **scrive sul disco e può cancellare quello che c'è**. Prima di
-installare, fai una copia di sicurezza dei tuoi dati e assicurati di aver
-capito quale disco stai per usare. Una partizione riscritta non si recupera.
+## Installation: mind your data
 
-## Credenziali predefinite
+The installer **writes to the disk and can erase what is on it**. Before
+installing, back up your data and make sure you understand which disk you
+are about to use. An overwritten partition cannot be recovered.
 
-Le immagini pronte all'uso hanno l'utente `zeta` con password `zeta`, e nelle
-macchine virtuali l'accesso è automatico. **Sono credenziali pubbliche, scritte
-in questo documento: vanno bene per provare, non per un computer vero.** Se
-installi il sistema per usarlo davvero, cambia la password e disattiva
-l'accesso automatico.
+## Default credentials
 
-## Sicurezza
+The ready-to-use images have the user `zeta` with password `zeta`, and in
+virtual machines sign-in is automatic. **These are public credentials,
+written in this document: they are fine for trying the system, not for a
+real computer.** If you install the system to actually use it, change the
+password and turn off automatic sign-in.
 
-Il sistema include un firewall attivo, strumenti di verifica e aggiornamenti
-dagli archivi Debian. Nessuno di questi rende un computer inviolabile. Tieni
-il sistema aggiornato: è la cosa che conta di più.
+## Security
 
-## Uso degli strumenti di rete e sicurezza
+The system includes an active firewall, auditing tools and updates from the
+Debian archives. None of these makes a computer invulnerable. Keep the system
+up to date: that is what matters most.
 
-ZETA RAYS include strumenti che analizzano reti e sistemi. Usali **solo su
-sistemi tuoi o per cui hai un'autorizzazione esplicita**. Usarli contro
-sistemi altrui senza permesso è illegale in Italia e nella maggior parte dei
-paesi, e la responsabilità è interamente di chi lo fa.
+## Use of the network and security tools
 
-## Assistente e modelli linguistici
+ZETA RAYS includes tools that analyze networks and systems. Use them **only on
+systems you own or are explicitly authorized to test**. Using them against
+other people's systems without permission is illegal in Italy and in most
+countries, and the responsibility lies entirely with whoever does it.
 
-ZETA può sbagliare: i modelli linguistici inventano, anche quando
-sembrano sicuri. **Non fidarti di una risposta per decisioni che contano**
-senza verificarla — a maggior ragione per questioni mediche, legali o
-finanziarie.
+## Assistant and language models
 
-Il modello locale Llama 3.2 è distribuito da Meta con la *Llama 3.2 Community
-License*, che ha condizioni proprie: il testo, la policy d'uso e l'avviso di
-attribuzione sono in `llama-3.2/`, accanto a questo file. Built with Llama.
+ZETA can be wrong: language models make things up, even when they sound
+confident. **Do not rely on an answer for decisions that matter** without
+checking it — all the more so for medical, legal or financial matters.
 
-Se colleghi un provider cloud, valgono anche le condizioni di quel provider.
+The local Llama 3.2 model is distributed by Meta under the *Llama 3.2
+Community License*, which has its own conditions: the license text, the
+acceptable use policy and the attribution notice are in `llama-3.2/`, next to
+this file. Built with Llama.
 
-## Marchi di terzi
+If you connect a cloud provider, that provider's terms also apply.
 
-Debian è un marchio di SPI Inc. Firefox è un marchio di Mozilla Foundation.
-Llama è un marchio di Meta Platforms. GNOME, Linux e gli altri nomi citati
-appartengono ai rispettivi titolari. ZETA RAYS OS **non è prodotto, sostenuto
-né approvato** da nessuno di loro.
+## Third-party trademarks
 
-## Legge applicabile
+Debian is a trademark of SPI Inc. Firefox is a trademark of the Mozilla
+Foundation. Llama is a trademark of Meta Platforms. GNOME, Linux and the other
+names mentioned belong to their respective owners. ZETA RAYS OS **is not
+produced, endorsed or approved** by any of them.
 
-Si applica la legge italiana. Le licenze dei singoli componenti restano
-regolate dai propri termini.
+## Governing law
+
+Italian law applies. The licenses of the individual components remain
+governed by their own terms.
 
 ---
 
-*ZETA RAYS OS 1.7*
+*ZETA RAYS OS 2.0*

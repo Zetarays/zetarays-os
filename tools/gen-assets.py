@@ -61,6 +61,12 @@ write("usr/share/zeta/brand/zeta-simbolo.svg.in", simbolo_in)
 for name, color in (("bianco", "#FFFFFF"), ("nero", "#000000")):
     write("usr/share/zeta/brand/zeta-logo-%s.svg" % name, logo_in.replace("ACCENT", color))
 
+# Icona «pacchetto supportato» di Synaptic e degli strumenti APT: in Debian e'
+# la spirale di Debian; qui il simbolo di ZETA RAYS, nel blu del sistema.
+write("usr/share/icons/zeta/scalable/apps/package-supported.svg",
+      simbolo_in.replace("ACCENT", "#3A8DFF").replace('width="256"', 'width="64"')
+      .replace('height="%d"' % round(256 * _sh / _sw), 'height="%d"' % round(64 * _sh / _sw)))
+
 # --- Sfondo 3840x2160: marchio al centro, nelle proporzioni dell'originale.
 # Il colore del fondo è il segnaposto SFONDO: zeta-accent lo sostituisce con
 # nero o chiaro secondo il tema scelto. ---
@@ -122,7 +128,29 @@ ICONS["trash-full"] = ('<path d="M4.3 7.9l14.9-2.1"/>'
                        '<path d="M6.8 7.6l1.7 11.8A1.7 1.7 0 0 0 10.2 21h5.4a1.7 1.7 0 0 0 1.7-1.5l.9-11.9"/>'
                        '<path d="M10.5 11.3l.6 5.6M14 10.9l-.3 5.7"/>')
 
+# Luoghi del gestore file (barra laterale di Thunar, dischi, rete, recenti):
+# senza queste arrivavano quelle di Adwaita, colorate e in stili diversi
+# (la «Recenti» scura era quasi invisibile sul tema scuro).
+ICONS["computer"] = '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>'
+ICONS["disk"] = ('<rect x="3.5" y="13" width="17" height="6.5" rx="2"/>'
+                 '<path d="M5 13l2.2-7.2A1.8 1.8 0 0 1 9 4.5h6a1.8 1.8 0 0 1 1.8 1.3L19 13"/>'
+                 '<path d="M16.5 16.25h.01"/>')
+ICONS["network"] = ('<rect x="9" y="3.5" width="6" height="5" rx="1.2"/><rect x="3.5" y="15.5" width="6" height="5" rx="1.2"/>'
+                    '<rect x="14.5" y="15.5" width="6" height="5" rx="1.2"/><path d="M12 8.5V12M6.5 15.5V12h11v3.5"/>')
+ICONS["recent"] = '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'
+ICONS["usb"] = ('<path d="M8.5 3.5h7v5h-7z"/><rect x="6" y="8.5" width="12" height="12" rx="2.5"/>'
+                '<path d="M10.5 6h.01M13.5 6h.01"/>')
+ICONS["optical"] = '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.2"/><path d="M12 6a6 6 0 0 0-6 6"/>'
+
 APP_ICONS = {
+    "computer": ["computer", "user-desktop-computer"],
+    # non «user-desktop»: e' anche l'icona della cartella Desktop, che deve
+    # restare una cartella come Documenti e Scaricati
+    "disk": ["drive-harddisk", "drive-harddisk-system", "drive-harddisk-root", "drive-multidisk"],
+    "network": ["network-workgroup", "folder-remote", "network-server"],
+    "recent": ["document-open-recent"],
+    "usb": ["drive-removable-media", "drive-removable-media-usb", "media-removable", "media-flash"],
+    "optical": ["drive-optical", "media-optical"],
     "app": ["zeta-app", "application-x-executable"],
     "cerca": ["zeta-cerca"],
     "home": ["user-home", "folder-home", "go-home"],
@@ -226,6 +254,12 @@ UI_ICONS = {
     "ai": '<path d="M12 4l1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
     "printer": ICONS["printer"],
     "server-rete": ICONS["server"],
+    "lingua": '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5s1.2-6.2 3.6-8.5z"/>',
+    "tastiera": '<rect x="3" y="6.5" width="18" height="11" rx="2"/><path d="M7 10h0M10 10h0M13 10h0M16 10h0M8 14h8"/>',
+    "account": ICONS["user"],
+    "schermi": '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/>',
+    # libreria dei font: «Aa»
+    "font": '<path d="M3.5 18.5L8.5 5.5l5 13M5.3 14h6.4"/><path d="M15.2 11.6a2.6 2.6 0 0 1 5.3.9v6M20.5 15c-.8-.4-1.7-.6-2.6-.6-1.6 0-2.7.9-2.7 2.1s1 2 2.3 2c1.4 0 2.6-.9 3-2.2"/>',
 }
 for name, glyph in UI_ICONS.items():
     write("usr/share/icons/zeta/scalable/apps/zeta-%s.svg" % name,
@@ -233,7 +267,11 @@ for name, glyph in UI_ICONS.items():
           'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">%s</svg>\n' % (XMLNS, glyph))
 
 # --- Icone per la schermata di accesso (SDDM) ---
-for g in ("power", "restart", "moon", "user", "arrow"):
+# occhio: mostra / nasconde la password mentre la si scrive
+ICONS["eye"] = ('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>'
+                '<circle cx="12" cy="12" r="3"/>')
+ICONS["eye-off"] = ICONS["eye"] + '<path d="M4 4l16 16"/>'
+for g in ("power", "restart", "moon", "user", "arrow", "eye", "eye-off"):
     write("usr/share/sddm/themes/zeta/icons/%s.svg" % g,
           '<svg %s width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.5" '
           'stroke-linecap="round" stroke-linejoin="round">%s</svg>\n' % (XMLNS, ICONS[g]))

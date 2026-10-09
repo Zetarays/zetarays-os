@@ -12,12 +12,14 @@
 # Uso: zeta-volume su [passo] | giu [passo] | muto | imposta <0-100>
 #      (passo in punti percentuali, predefinito 5: quello dei tasti del volume)
 set -u
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 
 SEGNALE=11   # SIGRTMIN+11 (8 launcher, 9 finestre, 10 spazi)
 SINK="@DEFAULT_AUDIO_SINK@"
 
 if ! command -v wpctl >/dev/null 2>&1; then
-    echo "Controllo del volume non disponibile (wpctl assente)." >&2
+    echo "$(gettext "Volume control is not available (wpctl is missing).")" >&2
     exit 1
 fi
 
@@ -32,13 +34,13 @@ case "${1:-}" in
     imposta)
         liv="${2:-}"
         case "$liv" in
-            ''|*[!0-9]*) echo "Livello non valido: serve un numero da 0 a 100." >&2; exit 1 ;;
+            ''|*[!0-9]*) echo "$(gettext "Invalid level: enter a number from 0 to 100.")" >&2; exit 1 ;;
         esac
         [ "$liv" -gt 100 ] && liv=100
         wpctl set-volume -l 1 "$SINK" "${liv}%"
         ;;
     *)
-        echo "Uso: zeta-volume su [passo] | giu [passo] | muto | imposta <0-100>" >&2
+        echo "$(gettext "Usage: zeta-volume su [step] | giu [step] | muto | imposta <0-100>")" >&2
         exit 1
         ;;
 esac

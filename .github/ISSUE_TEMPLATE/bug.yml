@@ -7,10 +7,10 @@ body:
     attributes:
       label: Immagine usata
       options:
-        - zetarays-1.7-amd64.iso
-        - zetarays-1.7-arm64.iso
-        - zetarays-1.7-amd64.ova
-        - zetarays-1.7-arm64.ova
+        - zetarays-2.0-amd64.iso
+        - zetarays-2.0-arm64.iso
+        - zetarays-2.0-amd64.ova
+        - zetarays-2.0-arm64.ova
     validations:
       required: true
   - type: dropdown

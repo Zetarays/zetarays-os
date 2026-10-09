@@ -34,13 +34,26 @@ HYPRCFG="$HOME/.config/hypr"
 mkdir -p "$LOGDIR" "$HYPRCFG"
 
 # --- accelerazione 3D disponibile? -----------------------------------------
+# La sonda inizializza il driver della scheda grafica (0,1-0,5 s a ogni
+# accesso): un esito positivo si ricorda finche' non cambiano kernel, scheda
+# o driver. Un esito negativo non si ricorda mai: si riprova sempre.
+STAMPO_3D="$HOME/.cache/zeta/3d-ok"
+firma_3d() {
+    printf '%s|' "$(uname -r)"
+    cat /sys/class/drm/card*/device/vendor /sys/class/drm/card*/device/device 2>/dev/null | tr '\n' ' '
+    stat -c '%Y' /usr/lib/*/libEGL_mesa.so.0 /usr/lib/*/dri/*_dri.so 2>/dev/null | sort | tail -1
+}
 has_3d() {
-    local probe out
+    local probe out firma
+    firma=$(firma_3d)
+    [ -n "$firma" ] && [ "$(cat "$STAMPO_3D" 2>/dev/null)" = "$firma" ] && return 0
     probe=$(ls /usr/bin/eglinfo.* 2>/dev/null | head -1)
     [ -n "$probe" ] || return 0                  # sonda assente: si prova
     out=$(timeout 10 "$probe" -B -p gbm 2>/dev/null) || return 1
     grep -q "OpenGL ES profile renderer" <<<"$out" || return 1
-    ! grep -qiE "OpenGL ES profile renderer:.*(llvmpipe|softpipe)" <<<"$out"
+    grep -qiE "OpenGL ES profile renderer:.*(llvmpipe|softpipe)" <<<"$out" && return 1
+    mkdir -p "${STAMPO_3D%/*}" && printf '%s' "$firma" > "$STAMPO_3D"
+    return 0
 }
 
 if ! has_3d; then
@@ -68,6 +81,23 @@ case "$SCALA" in
 esac
 printf 'return { scale = %s }\n' "$SCALA" > "$HYPRCFG/zeta_monitor.lua"
 
+# --- keyboard: the layout chosen in the installer or in Settings -------------
+# /etc/default/keyboard is the system's choice (login screen, console); the
+# desktop reads it from here. Only XKB characters reach the Lua file.
+xkb() { sed -n "s/^$1=[\"']\{0,1\}\([^\"']*\)[\"']\{0,1\}\$/\1/p" /etc/default/keyboard 2>/dev/null | head -1; }
+xkb_safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9_,:()+-'; }
+KB_LAYOUT=$(xkb_safe "$(xkb XKBLAYOUT)")
+printf 'return { layout = "%s", variant = "%s", options = "%s" }\n' \
+    "${KB_LAYOUT:-us}" "$(xkb_safe "$(xkb XKBVARIANT)")" "$(xkb_safe "$(xkb XKBOPTIONS)")" \
+    > "$HYPRCFG/zeta_tastiera.lua"
+
+# --- input method (Chinese, Japanese, Korean), when turned on in Settings ----
+# GTK apps talk to Fcitx 5 through the Wayland text-input protocol; Qt, SDL
+# and X11 apps need these variables. zeta-session starts fcitx5 itself.
+if [ -s "$HOME/.config/zeta/metodo-input" ] && command -v fcitx5 >/dev/null; then
+    export XMODIFIERS=@im=fcitx QT_IM_MODULE=fcitx SDL_IM_MODULE=fcitx
+fi
+
 if $is_vm; then
     export ZETA_VM=1                 # letto dai wrapper (es. mpv)
     export GSK_RENDERER=cairo        # GTK4: rendering su wl_shm
@@ -92,7 +122,7 @@ while true; do
     rc=$?
     [ -f "$SEGNO" ] || exit "$rc"
     rm -f "$SEGNO"
-    echo "zeta-desktop-session: ripresa dopo un crash di Hyprland ($(date '+%F %T'))" >> "$LOGDIR/hyprland.log"
+    echo "zeta-desktop-session: recovering after a Hyprland crash ($(date '+%F %T'))" >> "$LOGDIR/hyprland.log"
     # I pezzi della sessione caduta (partiti da Hyprland) restano orfani e si
     # ricollegherebbero al nuovo Hyprland accanto a quelli nuovi: prima i
     # sorveglianti, poi cio' che sorvegliavano.

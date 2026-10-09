@@ -18,11 +18,15 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
 CFG = os.path.expanduser("~/.config/zeta")
 CONF = os.path.join(CFG, "wallpaper.json")
 GENERATED = os.path.join(CFG, "wallpaper.png")     # generato da zeta-accent
-# la schermata di blocco (hyprlock) legge sempre questo collegamento: punta
-# allo sfondo attuale, così il blocco mostra lo stesso sfondo della scrivania
+# Fino alla 2.0 del 9 ottobre la schermata di blocco mostrava lo sfondo da
+# questo collegamento. Ora il blocco e' nero pieno (hyprlock.conf): il
+# collegamento rimasto da prima si toglie.
 BLOCCO = os.path.join(CFG, "sfondo-blocco")
 UFFICIALI = "/usr/share/zeta/wallpapers/"
 MODES = ("fill", "fit", "center", "tile", "stretch")
@@ -59,16 +63,10 @@ def current():
     return GENERATED, mode
 
 
-def collega_blocco(path):
-    """Aggiorna il collegamento letto da hyprlock (senza mai lasciarlo a metà)."""
+def togli_vecchio_blocco():
     try:
-        if os.path.realpath(BLOCCO) == os.path.realpath(path) and os.path.exists(BLOCCO):
-            return
-        tmp = BLOCCO + ".tmp"
-        if os.path.lexists(tmp):
-            os.remove(tmp)
-        os.symlink(path, tmp)
-        os.replace(tmp, BLOCCO)
+        if os.path.islink(BLOCCO):
+            os.remove(BLOCCO)
     except OSError:
         pass
 
@@ -77,7 +75,7 @@ def apply():
     path, mode = current()
     if not os.path.isfile(path):
         return 1
-    collega_blocco(path)
+    togli_vecchio_blocco()
     if not shutil.which("swaybg"):
         return 1
     subprocess.run(["pkill", "-x", "swaybg"], check=False)
@@ -99,7 +97,7 @@ def main(argv):
     if cmd == "set" and len(argv) > 2:
         src = os.path.abspath(os.path.expanduser(argv[2]))
         if not os.path.isfile(src):
-            print("File non trovato: %s" % src, file=sys.stderr)
+            print(tr("File not found: {path}").format(path=src), file=sys.stderr)
             return 1
         os.makedirs(CFG, exist_ok=True)
         if src.startswith(UFFICIALI):
@@ -112,7 +110,7 @@ def main(argv):
                 if os.path.abspath(src) != os.path.abspath(dest):
                     shutil.copyfile(src, dest)
             except OSError as e:
-                print("Impossibile copiare l'immagine: %s" % e, file=sys.stderr)
+                print(tr("Could not copy the image: {error}").format(error=e), file=sys.stderr)
                 return 1
         d["path"] = dest
         d["nome"] = os.path.basename(src)
@@ -122,7 +120,7 @@ def main(argv):
         return apply()
     if cmd == "mode" and len(argv) > 2:
         if argv[2] not in MODES:
-            print("Modo non valido. Usa: %s" % ", ".join(MODES), file=sys.stderr)
+            print(tr("Invalid mode. Use: {modes}").format(modes=", ".join(MODES)), file=sys.stderr)
             return 1
         d["mode"] = argv[2]
         save(d)
@@ -132,7 +130,17 @@ def main(argv):
         d.pop("nome", None)
         save(d)
         return apply()
-    print(__doc__)
+    print(tr("""zeta-sfondo — ZETA RAYS desktop wallpaper.
+
+  zeta-sfondo apply                apply the saved wallpaper (at session start)
+  zeta-sfondo set <file> [mode]    use an image chosen by the user
+  zeta-sfondo mode <mode>          change only how the image is fitted
+  zeta-sfondo reset                go back to the ZETA RAYS wallpaper generated from the accent color
+  zeta-sfondo get                  print the current choice (path and mode)
+
+Modes (as in swaybg): fill, fit, center, tile, stretch.
+The choice is saved in ~/.config/zeta/wallpaper.json and survives a restart.
+"""))
     return 1
 
 

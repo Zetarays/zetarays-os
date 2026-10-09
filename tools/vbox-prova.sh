@@ -10,9 +10,9 @@
 set -uo pipefail
 ARCH="${ZETA_ARCH:-arm64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OVA="${ZETA_OVA:-$ROOT/out/zetarays-1.7-$ARCH.ova}"
+OVA="${ZETA_OVA:-$ROOT/out/zetarays-2.0-$ARCH.ova}"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
-NAME="ZETA RAYS 1.7 ($ARCH)"
+NAME="ZETA RAYS 2.0 ($ARCH)"
 SHOTS="$ROOT/.cache/vm"
 mkdir -p "$SHOTS"
 

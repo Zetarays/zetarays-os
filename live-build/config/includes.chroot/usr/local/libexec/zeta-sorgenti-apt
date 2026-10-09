@@ -32,4 +32,4 @@ cat > /etc/apt/sources.list <<'FINE'
 # (debian.sources e backports.list).
 FINE
 chmod 0644 /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources
-echo "sorgenti dei pacchetti: main contrib non-free non-free-firmware"
+echo "package sources: main contrib non-free non-free-firmware"

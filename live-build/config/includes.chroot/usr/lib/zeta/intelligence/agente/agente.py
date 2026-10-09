@@ -16,6 +16,8 @@ import os
 import time
 from dataclasses import dataclass
 
+from i18n import tr
+
 from . import capacita as C
 from . import stato as S
 
@@ -51,11 +53,12 @@ def _registra(nome, args, esito, origine):
 def esegui(nome, args, conferma=None, origine="locale", autorizzato=False) -> C.Esito:
     cap = C.REGISTRO.get(nome)
     if cap is None:
-        return C.Esito(False, "Non so fare «%s»." % nome)
+        return C.Esito(False, tr("I don't know how to do “{action}”.").format(action=nome))
     args = {k: v for k, v in (args or {}).items() if v is not None and v != ""}
     manca = [p for p in cap.obbligatori if not args.get(p)]
     if manca:
-        return C.Esito(False, "Mi manca un'informazione: %s." % ", ".join(cap.parametri.get(p, p) for p in manca))
+        return C.Esito(False, tr("I'm missing some information: {what}.").format(
+            what=", ".join(C.etichetta(p) for p in manca)))
     if cap.controlla:
         es = cap.controlla(args)
         if es is not None:
@@ -63,15 +66,15 @@ def esegui(nome, args, conferma=None, origine="locale", autorizzato=False) -> C.
             return es
     if cap.rischio == "conferma" and not autorizzato:
         testo = cap.anteprima(args) if cap.anteprima else cap.descrizione
-        r = Richiesta(preview=testo, impact="Serve la tua conferma.")
+        r = Richiesta(preview=testo, impact=tr("Your confirmation is needed."))
         if not (conferma and conferma(r)):
-            es = C.Esito(False, "Annullato: non ho fatto nulla.")
+            es = C.Esito(False, tr("Canceled: nothing was done."))
             _registra(nome, args, es, origine)
             return es
     try:
         es = cap.esegui(args)
     except Exception as e:  # noqa: BLE001 - un'azione non deve mai far cadere ZETA
-        es = C.Esito(False, "Errore durante «%s»: %s" % (nome, e))
+        es = C.Esito(False, tr("Error during “{action}”: {error}").format(action=nome, error=e))
     _registra(nome, args, es, origine)
     return es
 
@@ -82,7 +85,7 @@ def esegui_tutte(azioni, conferma=None, origine="locale") -> str:
         es = esegui(nome, args, conferma, origine)
         risposte.append(es.messaggio)
         if not es.ok and len(azioni) > 1:
-            risposte.append("Mi fermo qui: le azioni successive non le ho fatte.")
+            risposte.append(tr("Stopping here: I didn't do the remaining actions."))
             break
     return "\n".join(risposte)
 
@@ -99,61 +102,67 @@ def _catalogo(nomi=None):
 
 
 ISTRUZIONI = (
-    "Sei il motore di comandi di un sistema operativo. Leggi la richiesta dell'utente e scegli "
-    "UNA azione dall'elenco, con i suoi argomenti presi dalle parole dell'utente. Se la richiesta "
-    "non chiede di fare qualcosa sul computer (una domanda, una conversazione, un testo da scrivere), "
-    "scegli \"nessuna\". Non inventare nomi di file, app o reti che l'utente non ha detto.\n"
-    "Rispondi solo con JSON: {\"azione\": \"nome\", \"argomenti\": {...}}\n\nAzioni:\n")
+    "You are the command engine of an operating system. Read the user's request (it may be in any "
+    "language) and choose ONE action from the list, with its arguments taken from the user's words. "
+    "Copy argument values exactly as the user wrote them, in the user's language: do not translate them. "
+    "If the request does not ask to do something on the computer (a question, a conversation, a text "
+    "to write), choose \"nessuna\". Never invent file, app or network names the user did not say.\n"
+    "Answer only with JSON: {\"azione\": \"name\", \"argomenti\": {...}}\n\nActions:\n")
 
 
 # Parole che devono comparire nella richiesta perche' il modello possa
 # scegliere quell'azione. Il modello locale e' piccolo: da solo sceglieva
 # «screenshot» per qualunque frase (provato). Un'azione senza parole qui non
 # puo' essere scelta dal modello: la fa solo la comprensione locale.
+# Italiano e inglese: la richiesta puo' arrivare in tutte e due le lingue.
 PAROLE = {
-    "open_application": r"apr|avvi|lanc|usa|ascolt|guard",
-    "close_application": r"chiud|esc|termin|basta|smetti",
-    "restart_application": r"riavvi|riapr|ripart",
-    "focus_application": r"pass|torn|vai|mostr|primo piano",
-    "minimize_window": r"ridu|minimizz|nascond|togli di mezzo",
-    "maximize_window": r"ingrand|massimizz|grande|allarg",
-    "fullscreen_window": r"schermo intero|tutto schermo",
-    "open_folder": r"apr|mostr|vedere|vedi|cartell|download|scaricat|document|immagin|foto|music|video|scrivania",
-    "open_file": r"apr|mostr|vedere|legg|guard",
-    "search_files": r"cerc|trov|dove|dov'",
-    "show_location": r"dove|dov'|posizione",
-    "create_folder": r"cre[ai]|nuov",
-    "create_file": r"cre[ai]|nuov",
-    "rename_item": r"rinomin|nome",
-    "copy_item": r"copi|duplic",
-    "move_item": r"spost|metti|trasfer",
-    "delete_item": r"elimin|cancell|butt|cestin|rimuov",
-    "open_settings": r"impostazion|preferenz|configur|settings",
-    "set_volume": r"volum|audio|suono|muto|silenz|forte|piano|alza|abbass",
-    "set_brightness": r"luminos|luce|scuro|chiaro|brightness",
-    "set_theme": r"tema|scuro|chiaro|modalita",
-    "lock_screen": r"blocc",
-    "suspend_system": r"sospen|standby|dormi",
-    "wifi_on": r"wi.?fi|wireless|rete",
-    "wifi_off": r"wi.?fi|wireless|rete",
-    "wifi_connect": r"connett|colleg|rete|wi.?fi",
-    "wifi_disconnect": r"disconnett|scolleg|stacc",
-    "wifi_list": r"reti|wi.?fi",
-    "network_status": r"rete|internet|connes|colleg|ip",
-    "bluetooth_on": r"bluetooth", "bluetooth_off": r"bluetooth", "bluetooth_devices": r"bluetooth|dispositiv",
-    "bluetooth_connect": r"bluetooth|cuffi|auricolar|mouse|tastier|cass",
-    "bluetooth_disconnect": r"bluetooth|cuffi|auricolar|mouse|tastier|cass",
-    "system_status": r"ram|memoria|cpu|processore|disco|spazio|batteria|stato del|come sta il|come va il|lent",
-    "list_processes": r"process|consum|rallent|lent|pesant|usa|occupa",
-    "list_running_applications": r"apert|aperti|in esecuzione|finestre",
-    "list_installed_applications": r"installat",
-    "is_installed": r"installat|c'e|ce l",
-    "current_time": r"ore|ora|giorno|data",
-    "screenshot": r"screenshot|schermata|cattura",
+    "open_application": r"apr|avvi|lanc|usa|ascolt|guard|open|launch|start|run|use|listen|watch|play",
+    "close_application": r"chiud|esc|termin|basta|smetti|close|quit|exit|stop",
+    "restart_application": r"riavvi|riapr|ripart|restart|reopen|relaunch",
+    "focus_application": r"pass|torn|vai|mostr|primo piano|switch|go to|go back|bring|show|focus",
+    "minimize_window": r"ridu|minimizz|nascond|togli di mezzo|minimi[sz]|hide|out of the way",
+    "maximize_window": r"ingrand|massimizz|grande|allarg|maximi[sz]|enlarge|bigger",
+    "fullscreen_window": r"schermo intero|tutto schermo|full ?screen",
+    "open_folder": r"apr|mostr|vedere|vedi|cartell|download|scaricat|document|immagin|foto|music|video|scrivania|"
+                   r"open|show|see|folder|picture|photo|desktop",
+    "open_file": r"apr|mostr|vedere|legg|guard|open|show|see|read|view",
+    "search_files": r"cerc|trov|dove|dov'|search|find|look for|where|locate",
+    "show_location": r"dove|dov'|posizione|where|location",
+    "create_folder": r"cre[ai]|nuov|create|make|new",
+    "create_file": r"cre[ai]|nuov|create|make|new",
+    "rename_item": r"rinomin|nome|rename|name",
+    "copy_item": r"copi|duplic|copy|duplicat",
+    "move_item": r"spost|metti|trasfer|move|put|transfer",
+    "delete_item": r"elimin|cancell|butt|cestin|rimuov|delet|remov|trash|erase|throw",
+    "open_settings": r"impostazion|preferenz|configur|settings|preferenc",
+    "set_volume": r"volum|audio|suono|muto|silenz|forte|piano|alza|abbass|sound|mute|unmute|silen|loud|quiet|"
+                  r"turn up|turn down",
+    "set_brightness": r"luminos|luce|scuro|chiaro|brightness|bright|dim|dark|light",
+    "set_theme": r"tema|scuro|chiaro|modalita|theme|dark|light|mode",
+    "lock_screen": r"blocc|lock",
+    "suspend_system": r"sospen|standby|dormi|suspend|sleep",
+    "wifi_on": r"wi.?fi|wireless|rete|network",
+    "wifi_off": r"wi.?fi|wireless|rete|network",
+    "wifi_connect": r"connett|colleg|rete|wi.?fi|connect|join|network",
+    "wifi_disconnect": r"disconnett|scolleg|stacc|disconnect",
+    "wifi_list": r"reti|wi.?fi|networks",
+    "network_status": r"rete|internet|connes|colleg|ip|network|connect|online",
+    "bluetooth_on": r"bluetooth", "bluetooth_off": r"bluetooth",
+    "bluetooth_devices": r"bluetooth|dispositiv|device",
+    "bluetooth_connect": r"bluetooth|cuffi|auricolar|mouse|tastier|cass|headphone|earbud|headset|keyboard|speaker",
+    "bluetooth_disconnect": r"bluetooth|cuffi|auricolar|mouse|tastier|cass|headphone|earbud|headset|keyboard|speaker",
+    "system_status": r"ram|memoria|cpu|processore|disco|spazio|batteria|stato del|come sta il|come va il|lent|"
+                     r"memory|processor|disk|space|storage|battery|status|slow",
+    "list_processes": r"process|consum|rallent|lent|pesant|usa|occupa|slow|heavy|using|hog",
+    "list_running_applications": r"apert|aperti|in esecuzione|finestre|running|windows",
+    "list_installed_applications": r"installat|installed",
+    "is_installed": r"installat|c'e|ce l|installed|do i have",
+    "current_time": r"ore|ora|giorno|data|time|day|date|clock",
+    "screenshot": r"screenshot|schermata|cattura|screen ?shot|capture",
     "dock_add": r"dock", "dock_remove": r"dock",
-    "set_wallpaper": r"sfondo",
-    "set_default_app": r"predefinit", "list_default_apps": r"predefinit",
-    "open_url": r"sito|www|http|pagina|internet",
+    "set_wallpaper": r"sfondo|wallpaper|background",
+    "set_default_app": r"predefinit|default", "list_default_apps": r"predefinit|default",
+    "open_url": r"sito|www|http|pagina|internet|site|web|page",
     "download_file": r"scaric|download",
 }
 
@@ -237,7 +246,7 @@ class MotoreAgente:
         from ..actions import ActionResult
         cap = C.REGISTRO.get(name)
         if cap is None:
-            return ActionResult(False, "Azione sconosciuta: %s" % name)
+            return ActionResult(False, tr("Unknown action: {name}").format(name=name))
         args = {k: v for k, v in (args or {}).items() if v is not None and v != ""}
         if cap.controlla and not authorized:
             es = cap.controlla(args)
@@ -245,6 +254,7 @@ class MotoreAgente:
                 return ActionResult(es.ok, es.messaggio)
         if cap.rischio == "conferma" and not authorized:
             testo = cap.anteprima(args) if cap.anteprima else cap.descrizione
-            return ActionResult(True, "", needs_confirmation=True, preview=testo, impact="Serve la tua conferma.")
+            return ActionResult(True, "", needs_confirmation=True, preview=testo,
+                                impact=tr("Your confirmation is needed."))
         es = esegui(name, args, None, origine="strumenti", autorizzato=True)
         return ActionResult(es.ok, es.messaggio)

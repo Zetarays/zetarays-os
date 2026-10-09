@@ -1,11 +1,15 @@
 [Desktop Entry]
 Type=Application
-Name=Connetti a un server
-GenericName=Server e condivisioni
-Comment=Cartelle di PC Windows, Mac e NAS, server SSH, FTP, WebDAV e NFS
+Name=Connect to Server
+Name[it]=Connetti a un server
+GenericName=Servers and shares
+GenericName[it]=Server e condivisioni
+Comment=Folders on Windows PCs, Macs and NAS drives; SSH, FTP, WebDAV and NFS servers
+Comment[it]=Cartelle di PC Windows, Mac e NAS, server SSH, FTP, WebDAV e NFS
 Exec=zeta-server %u
 Icon=zeta-server
 Terminal=false
 Categories=Network;FileTransfer;System;
-Keywords=server;samba;smb;ssh;sftp;ftp;webdav;nfs;nas;condivisione;rete;windows;mac;
+Keywords=server;samba;smb;ssh;sftp;ftp;webdav;nfs;nas;share;network;windows;mac;
+Keywords[it]=server;samba;smb;ssh;sftp;ftp;webdav;nfs;nas;condivisione;rete;windows;mac;
 StartupNotify=true

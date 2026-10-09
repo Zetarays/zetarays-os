@@ -24,18 +24,20 @@ except (ValueError, ImportError):
     LayerShell = None
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
 CATEGORIES = [
-    ("Tutte", None),
-    ("Sistema", {"System", "Settings", "Monitor", "PackageManager", "TerminalEmulator", "FileManager"}),
-    ("Internet", {"Network", "WebBrowser", "Email", "Chat"}),
-    ("Ufficio", {"Office", "TextEditor", "Viewer", "Calculator", "Utility", "Archiving", "Development"}),
-    ("Multimedia", {"AudioVideo", "Audio", "Video", "Graphics", "Player", "Photography"}),
+    (tr("All"), None),
+    (tr("System"), {"System", "Settings", "Monitor", "PackageManager", "TerminalEmulator", "FileManager"}),
+    (tr("Internet"), {"Network", "WebBrowser", "Email", "Chat"}),
+    (tr("Office"), {"Office", "TextEditor", "Viewer", "Calculator", "Utility", "Archiving", "Development"}),
+    (tr("Multimedia"), {"AudioVideo", "Audio", "Video", "Graphics", "Player", "Photography"}),
 ]
 
 # Le app vengono dal registro unico (system/applicazioni): stessi nomi,
 # icone e regole (voci di servizio, app tolte dal menu) di Dock, ricerca e
 # Scrivania.
-sys.path.insert(0, "/usr/lib/zeta")
 from system import applicazioni as reg  # noqa: E402
 from ui import menu_app  # noqa: E402
 
@@ -54,6 +56,10 @@ window.zeta-launcher { background: @scrim_strong; }
   box-shadow: none; color: @ink_2;
 }
 .zeta-chip:hover { background: @hover_2; }
+.zeta-altre { min-width: 40px; min-height: 28px; padding: 0; border-radius: 14px;
+  background: @hover; border: 1px solid @line; box-shadow: none; }
+.zeta-altre:hover { background: @hover_2; }
+.zeta-altre image { color: @ink_2; -gtk-icon-size: 18px; }
 .zeta-chip.active { background: @accent; border-color: @accent; }
 .zeta-chip.active label { color: @accent_ink; font-weight: 500; }
 .zeta-app { padding: 14px 6px 12px; border-radius: 20px; background: none; border: none; box-shadow: none; }
@@ -101,10 +107,10 @@ class Launcher(Gtk.ApplicationWindow):
         else:
             self.fullscreen()
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=28, margin_top=96, margin_bottom=110)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24, margin_top=80, margin_bottom=104)
 
         # Ricerca
-        self.search = Gtk.SearchEntry(placeholder_text="Cerca app", halign=Gtk.Align.CENTER)
+        self.search = Gtk.SearchEntry(placeholder_text=tr("Search apps"), halign=Gtk.Align.CENTER)
         self.search.add_css_class("zeta-search")
         self.search.connect("search-changed", lambda *_: self.refilter())
         self.search.connect("activate", lambda *_: self.launch_first())
@@ -146,13 +152,29 @@ class Launcher(Gtk.ApplicationWindow):
         self.scroller = scroller
         scroller.set_child(self.flow)
         root.append(scroller)
+        self._root = root
+        # solo righe intere: l'ultima riga visibile usciva tagliata a meta'
+        # (icone senza nome) quando l'altezza dello schermo non era un multiplo
+        # esatto della riga; le altre si raggiungono scorrendo
+        self.connect("map", lambda *_: GLib.idle_add(self._righe_intere))
 
-        self.empty = Gtk.Label(label="Nessuna app trovata", visible=False)
+        self.empty = Gtk.Label(label=tr("No apps found"), visible=False)
         self.empty.add_css_class("zeta-empty")
         root.append(self.empty)
 
         # il menu del tasto destro sulle app si disegna sopra la griglia
         overlay = Gtk.Overlay(child=root)
+        # altre app sotto quelle visibili: una freccia discreta nello spazio
+        # vuoto in basso (un clic scorre di una pagina)
+        self.altre = Gtk.Button(icon_name="zeta-chevron-down", halign=Gtk.Align.CENTER,
+                                valign=Gtk.Align.END, margin_bottom=62, visible=False,
+                                tooltip_text=tr("More apps"))
+        self.altre.add_css_class("zeta-altre")
+        self.altre.connect("clicked", lambda *_: self._pagina_giu())
+        overlay.add_overlay(self.altre)
+        adj = scroller.get_vadjustment()
+        for segnale in ("changed", "value-changed"):
+            adj.connect(segnale, lambda *_: self._aggiorna_altre())
         self.menu = menu_app.MenuInterno(overlay)
         self.set_child(overlay)
 
@@ -188,8 +210,8 @@ class Launcher(Gtk.ApplicationWindow):
         # app tolte anche da fuori (Synaptic, terminale): via i collegamenti
         # di ZETA rimasti senza app; icone del Dock allineate
         for nome in reg.manutenzione():
-            menu_app.avviso("«%s» non è più installata" % nome,
-                            "Tolti i suoi collegamenti dal Dock e dalla Scrivania.")
+            menu_app.avviso(tr("“{name}” is no longer installed").format(name=nome),
+                            tr("Its shortcuts were removed from the Dock and the Desktop."))
         # un'app mancante si toglie solo se manca ancora dopo un po' (apt
         # puo' toglierla e rimetterla): si ricontrolla da soli
         if reg.orfane_in_attesa() and not self._ricontrollo:
@@ -201,11 +223,12 @@ class Launcher(Gtk.ApplicationWindow):
             if a.servizio or a.nascosta:
                 continue
             if a.avviabile:
-                menu_app.avviso("«%s» è nel menu delle app" % a.nome,
+                menu_app.avviso(tr("“{name}” is now in the app menu").format(name=a.nome),
                                 "%s · %s" % (reg.FONTI.get(a.fonte, a.fonte), a.eseguibile))
             else:
-                menu_app.avviso("«%s» installata, ma non si avvia" % a.nome,
-                                "Il programma indicato non esiste: %s" % (a.comando or "?"))
+                menu_app.avviso(tr("“{name}” was installed but cannot start").format(name=a.nome),
+                                tr("The program it points to does not exist: {command}").format(
+                                    command=a.comando or "?"))
         self._note = {a.id for a in ora}
         return False
 
@@ -227,6 +250,32 @@ class Launcher(Gtk.ApplicationWindow):
         self.refilter()
         self.scroller.get_vadjustment().set_value(0)
         self.search.grab_focus()
+
+    def _aggiorna_altre(self):
+        adj = self.scroller.get_vadjustment()
+        self.altre.set_visible(adj.get_value() + adj.get_page_size() < adj.get_upper() - 2)
+
+    def _pagina_giu(self):
+        adj = self.scroller.get_vadjustment()
+        adj.set_value(min(adj.get_value() + adj.get_page_size() + self.flow.get_row_spacing(),
+                          adj.get_upper() - adj.get_page_size()))
+
+    def _righe_intere(self):
+        primo = self.flow.get_child_at_index(0)
+        h = self.get_height()
+        if primo is None or primo.get_height() <= 0 or h <= 0:
+            return False
+        spazio = self.flow.get_row_spacing()
+        passo = primo.get_height() + spazio
+        sopra = (self._root.get_margin_top() + self._root.get_margin_bottom()
+                 + self.search.get_height() + self.chip_buttons[0].get_parent().get_height()
+                 + 2 * self._root.get_spacing())
+        righe = max(1, (h - sopra + spazio) // passo)
+        alto = righe * passo - spazio
+        if self.scroller.get_min_content_height() != alto:
+            self.scroller.set_vexpand(False)
+            self.scroller.set_min_content_height(alto)
+        return False
 
     def nascondi(self):
         # resta in memoria, nascosto: la prossima apertura e' immediata
@@ -337,7 +386,7 @@ class Launcher(Gtk.ApplicationWindow):
     def launch(self, app):
         ctx = Gdk.Display.get_default().get_app_launch_context()
         if not reg.avvia(app, ctx):
-            print("Impossibile avviare %s" % app.nome, file=sys.stderr)
+            print("Cannot launch %s" % app.nome, file=sys.stderr)
         self.nascondi()
 
     def on_key(self, _ctrl, keyval, _code, _state):

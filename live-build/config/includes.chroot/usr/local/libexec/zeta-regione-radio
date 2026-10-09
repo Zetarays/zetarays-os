@@ -16,7 +16,7 @@ TZ_NOME=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
 [ -n "$TZ_NOME" ] || exit 0
 PAESE=$(awk -v z="$TZ_NOME" '$1 !~ /^#/ && $3 == z {print $1; exit}' /usr/share/zoneinfo/zone.tab 2>/dev/null)
 case "$PAESE" in
-  [A-Z][A-Z]) /usr/sbin/iw reg set "$PAESE" 2>/dev/null && echo "regione radio: $PAESE ($TZ_NOME)" ;;
-  *) echo "regione radio: nessun paese per $TZ_NOME, resta quella della scheda" ;;
+  [A-Z][A-Z]) /usr/sbin/iw reg set "$PAESE" 2>/dev/null && echo "Wi-Fi regulatory domain: $PAESE ($TZ_NOME)" ;;
+  *) echo "Wi-Fi regulatory domain: no country for $TZ_NOME, keeping the adapter's own" ;;
 esac
 exit 0

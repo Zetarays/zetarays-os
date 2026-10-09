@@ -1,7 +1,9 @@
 [Desktop Entry]
 Name=ZETA
-GenericName=Intelligenza di ZETA RAYS OS
-Comment=Parla con ZETA: apre, cerca e sistema le cose per te
+GenericName=ZETA RAYS OS assistant
+GenericName[it]=Intelligenza di ZETA RAYS OS
+Comment=Talk to ZETA: it opens, finds and fixes things for you
+Comment[it]=Parla con ZETA: apre, cerca e sistema le cose per te
 Exec=zeta-core
 Icon=zeta-core
 Terminal=false

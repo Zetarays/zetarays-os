@@ -15,6 +15,8 @@ import subprocess
 import urllib.error
 import urllib.request
 
+from i18n import tr
+
 BASE = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 if not BASE.startswith("http"):
     BASE = "http://" + BASE
@@ -106,11 +108,12 @@ def libera_memoria() -> int:
 def rimuovi(nome: str) -> tuple[bool, str]:
     try:
         _richiesta("DELETE", "/api/delete", {"model": nome}, 60).read()
-        return True, "Modello %s rimosso." % nome
+        return True, tr("Model {name} removed.").format(name=nome)
     except urllib.error.HTTPError as e:
-        return False, "Ollama ha rifiutato: %s" % e.read().decode("utf-8", "replace")[:200]
+        return False, tr("Ollama refused: {reason}").format(
+            reason=e.read().decode("utf-8", "replace")[:200])
     except OSError as e:
-        return False, "Ollama non risponde (%s)." % e
+        return False, tr("Ollama isn't responding ({error}).").format(error=e)
 
 
 def scarica(nome: str, avanzamento=None, fermo=None) -> tuple[bool, str]:
@@ -122,52 +125,54 @@ def scarica(nome: str, avanzamento=None, fermo=None) -> tuple[bool, str]:
     """
     nome = nome.strip()
     if not nome or any(c.isspace() for c in nome):
-        return False, "Nome del modello non valido (esempio: llama3.2:3b)."
+        return False, tr("Invalid model name (example: llama3.2:3b).")
     try:
         resp = _richiesta("POST", "/api/pull", {"model": nome, "stream": True}, 3600)
     except urllib.error.HTTPError as e:
-        return False, "Ollama ha rifiutato: %s" % e.read().decode("utf-8", "replace")[:200]
+        return False, tr("Ollama refused: {reason}").format(
+            reason=e.read().decode("utf-8", "replace")[:200])
     except OSError as e:
-        return False, "Ollama non risponde (%s)." % e
+        return False, tr("Ollama isn't responding ({error}).").format(error=e)
     try:
         for riga in resp:
             if fermo and fermo():
                 resp.close()
-                return False, "Download interrotto: riprendendolo riparte da dove era arrivato."
+                return False, tr("Download stopped: resuming it picks up where it left off.")
             try:
                 d = json.loads(riga.decode("utf-8"))
             except ValueError:
                 continue
             if d.get("error"):
-                return False, "Errore: %s" % d["error"]
+                return False, tr("Error: {error}").format(error=d["error"])
             tot, fatto = d.get("total"), d.get("completed")
             frazione = (fatto / tot) if tot and fatto is not None else None
             if avanzamento:
                 testo = d.get("status", "")
                 if frazione is not None:
-                    testo = "%s  %.0f%% di %.1f GB" % (testo, frazione * 100, tot / 1e9)
+                    testo = tr("{status}  {percent} of {size} GB").format(
+                        status=testo, percent="%.0f%%" % (frazione * 100), size="%.1f" % (tot / 1e9))
                 avanzamento(testo, frazione)
             if d.get("status") == "success":
-                return True, "Modello %s scaricato." % nome
+                return True, tr("Model {name} downloaded.").format(name=nome)
     except OSError as e:
-        return False, "Download interrotto (%s)." % e
+        return False, tr("Download interrupted ({error}).").format(error=e)
     finally:
         resp.close()
-    return False, "Download non completato."
+    return False, tr("Download not completed.")
 
 
 def servizio(azione: str) -> tuple[bool, str]:
     """Avvia, ferma o riavvia il servizio (chiede la password: pkexec)."""
     if azione not in ("start", "stop", "restart"):
-        return False, "Azione sconosciuta."
+        return False, tr("Unknown action.")
     try:
         p = subprocess.run(["pkexec", "systemctl", azione, "ollama"],
                            capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
     if p.returncode == 0:
-        return True, {"start": "Ollama avviato.", "stop": "Ollama fermato.",
-                      "restart": "Ollama riavviato."}[azione]
+        return True, {"start": tr("Ollama started."), "stop": tr("Ollama stopped."),
+                      "restart": tr("Ollama restarted.")}[azione]
     if p.returncode in (126, 127):
-        return False, "Operazione annullata."
-    return False, (p.stderr or "Errore").strip()[:200]
+        return False, tr("Operation canceled.")
+    return False, (p.stderr or tr("Error")).strip()[:200]

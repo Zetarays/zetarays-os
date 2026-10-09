@@ -1,10 +1,13 @@
 #!/bin/bash
+# shellcheck disable=SC2059  # i formati di printf vengono dalle traduzioni (gettext)
 # SPDX-License-Identifier: GPL-3.0-or-later
 # zeta-accent [#RRGGBB]
 # Imposta il colore d'accento di ZETA RAYS e lo applica a tutta l'interfaccia:
 # bordi delle finestre, barra, launcher, notifiche, terminale, app GTK e sfondo.
 # Il launcher (zeta-launcher) legge ~/.config/zeta/colors.css a ogni apertura.
 set -e
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 
 CFG="$HOME/.config/zeta"
 SHARE=/usr/share/zeta
@@ -12,11 +15,17 @@ mkdir -p "$CFG"
 
 if [ -n "$1" ]; then
   if [[ ! "$1" =~ ^#?[0-9A-Fa-f]{6}$ ]]; then
-    echo "Colore non valido: $1 (usa il formato #RRGGBB)" >&2
+    printf "$(gettext 'Invalid color: %s (use the #RRGGBB format)')\n" "$1" >&2
     exit 1
   fi
   hex="${1#\#}"
   echo "#${hex^^}" > "$CFG/accent"
+fi
+
+# L'immagine dell'account che segue l'accento (il cerchio di serie) cambia
+# colore con lui; una foto o un colore scelto apposta restano (avatar.py).
+if [ -n "$1" ]; then
+  ( /usr/bin/python3 -c 'import sys; sys.path.insert(0, "/usr/lib/zeta"); from system import avatar; avatar.segui_accento()' >/dev/null 2>&1 & )
 fi
 
 SCELTO=$(cat "$CFG/accent" 2>/dev/null || echo "#3A8DFF")
@@ -107,6 +116,10 @@ done
 # Ridefinendo solo gli sfondi, se libadwaita restava in chiaro il testo
 # rimaneva nero sopra un fondo scuro: la calcolatrice e le altre app GTK4
 # diventavano illeggibili. Sfondo e testo vanno sempre in coppia.
+# Una tavolozza sola, quella del tema della scrivania: GTK 4.18 non applica
+# «@media (prefers-color-scheme)» nel gtk.css dell'utente (provato), quindi
+# nessuna app deve forzare un modo diverso (l'editor di testo cambia solo lo
+# schema dei colori del testo, vedi zeta-aspetto apply_editor).
 cat > ~/.config/gtk-4.0/gtk.css <<EOF
 /* Generato da zeta-accent */
 @define-color accent_color $ACCENT;
@@ -185,8 +198,19 @@ echo "return { accent = \"rgb($H)\" }" > ~/.config/hypr/zeta_colors.lua
 # --- Icone della barra ricolorate per il tema ---
 # Sono file SVG: Waybar non le ricolora, quindi ne teniamo una copia con il
 # colore giusto. Senza questo, nel tema chiaro sparirebbero sul fondo chiaro.
+# Si rifanno solo se cambia qualcosa (colori, tema o icone del sistema dopo
+# un aggiornamento): prima si riscrivevano tutte a ogni accesso, oltre 170
+# processi prima che comparisse la barra.
+UTEMA="$HOME/.local/share/icons/zeta"
+UICONE="$UTEMA/scalable/tema"
+STAMPO="$BAR_INK $INKC $INKDIM $(stat -c %Y "$SHARE/status" /usr/share/icons/zeta/scalable/apps 2>/dev/null | tr '\n' ' ')"
+ICONE_PRONTE=0
+if [ "$(cat "$CFG/.icone-stampo" 2>/dev/null)" = "$STAMPO" ] && [ -f "$UTEMA/index.theme" ] \
+   && ls "$CFG/barra/"*.svg >/dev/null 2>&1; then
+  ICONE_PRONTE=1
+fi
 mkdir -p "$CFG/barra"
-for f in "$SHARE"/status/*.svg; do
+[ "$ICONE_PRONTE" = 1 ] || for f in "$SHARE"/status/*.svg; do
   [ -f "$f" ] || continue
   sed -e "s/#A1A1A6/$BAR_INK/g" -e "s/#EDEDEA/$BAR_INK/g" "$f" > "$CFG/barra/$(basename "$f")"
 done
@@ -200,8 +224,7 @@ done
 # Le copie stanno in una cartella loro, «scalable/tema», elencata PRIMA di
 # «scalable/apps»: con lo stesso nome di cartella GTK preferiva comunque la
 # copia di sistema e la ricolorazione non si vedeva.
-UTEMA="$HOME/.local/share/icons/zeta"
-UICONE="$UTEMA/scalable/tema"
+if [ "$ICONE_PRONTE" != 1 ]; then
 mkdir -p "$UICONE"
 rm -f "$UICONE"/*.svg
 cat > "$UTEMA/index.theme" <<'EOF'
@@ -228,8 +251,12 @@ EOF
 for f in /usr/share/icons/zeta/scalable/apps/*.svg; do
   [ -f "$f" ] || continue
   grep -q "#19191C" "$f" && continue      # ha già la piastrella scura: va bene così
+  # a colori fissi (il simbolo ZETA di Synaptic): niente inchiostro da cambiare
+  grep -q -e "#EDEDEA" -e "#A1A1A6" "$f" || continue
   sed -e "s/#EDEDEA/$INKC/g" -e "s/#A1A1A6/$INKDIM/g" "$f" > "$UICONE/$(basename "$f")"
 done
+echo "$STAMPO" > "$CFG/.icone-stampo"
+fi
 
 # --- Simbolo del launcher e sfondo ---
 sed "s/ACCENT/$ACCENT/g" "$SHARE/brand/zeta-simbolo.svg.in" > "$CFG/launcher.svg" 2>/dev/null || true
@@ -269,10 +296,26 @@ fi
 # Etichette e titolo seguono invece il colore d accento, come tutto il resto.
 ACCENTCOLOR="38;2;$r;$g;$b"
 mkdir -p ~/.config/fastfetch
+# Etichette nella lingua dell'utente, allineate alla piu' lunga (i modelli
+# hanno segnaposti @K_...@; /etc/fastfetch resta in inglese).
+FF_NOMI=(OS KERNEL UPTIME PACKAGES SHELL TERMINAL WM CPU GPU MEMORY DISK IP LOCALE)
+FF_TESTI=("$(gettext "System")" "Kernel" "$(gettext "Uptime")" "$(gettext "Packages")" "Shell"
+          "$(gettext "Terminal")" "$(gettext "Environment")" "CPU" "GPU" "$(gettext "Memory")"
+          "$(gettext "Disk")" "IP" "$(gettext "Language")")
+FF_LARGO=9
+for t in "${FF_TESTI[@]}"; do if [ "${#t}" -gt "$FF_LARGO" ]; then FF_LARGO=${#t}; fi; done
+FF_SED=()
+for i in "${!FF_NOMI[@]}"; do
+  t=${FF_TESTI[$i]}
+  while [ "${#t}" -lt "$FF_LARGO" ]; do t="$t "; done
+  t=${t//\\/\\\\}; t=${t//\"/\\\"}           # JSON
+  t=${t//\\/\\\\}; t=${t//&/\\&}; t=${t//|/\\|}    # sed
+  FF_SED+=(-e "s|@K_${FF_NOMI[$i]}@|$t|")
+done
 for n in config compatto minuto; do
   MOD="$SHARE/fastfetch/$n.jsonc.in"
   [ -f "$MOD" ] || continue
-  sed -e "s/LOGOCOLOR/$LOGOCOLOR/" -e "s/ACCENTCOLOR/$ACCENTCOLOR/g" "$MOD" \
+  sed -e "s/LOGOCOLOR/$LOGOCOLOR/" -e "s/ACCENTCOLOR/$ACCENTCOLOR/g" "${FF_SED[@]}" "$MOD" \
       > ~/.config/fastfetch/$n.jsonc.new &&
     mv ~/.config/fastfetch/$n.jsonc.new ~/.config/fastfetch/$n.jsonc
 done
@@ -311,7 +354,11 @@ if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
   # reinizializza il modulo degli spazi di lavoro quando Hyprland ricarica, e
   # una seconda ricarica in quel momento la fa cadere.
   # Con ZETA_NO_BAR_RELOAD=1 la ricarica la fa chi ci ha chiamato (zeta-aspetto).
-  sleep 1
+  # All'accesso la barra non c'e' ancora: niente attesa (un secondo in meno
+  # prima che compaia il desktop).
+  if [ -z "${ZETA_NO_BAR_RELOAD:-}" ] || pgrep -x -u "$(id -u)" waybar >/dev/null 2>&1; then
+    sleep 1
+  fi
   # la barra si ricarica solo da zeta-barra: una alla volta, e poi si controlla
 # che sia rimasta una sola (le ricariche ravvicinate la duplicavano)
 [ -n "${ZETA_NO_BAR_RELOAD:-}" ] || { setsid zeta-barra ricarica >/dev/null 2>&1 </dev/null & } 

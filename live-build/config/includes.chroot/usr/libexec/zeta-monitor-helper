@@ -57,6 +57,6 @@ ACTIONS = {"firewall": firewall, "sockets": sockets, "auth": auth,
            "firewall-on": lambda: firewall_set(True), "firewall-off": lambda: firewall_set(False)}
 
 if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
-    sys.stderr.write("uso: zeta-monitor-helper firewall|sockets|auth|firewall-on|firewall-off\n")
+    sys.stderr.write("usage: zeta-monitor-helper firewall|sockets|auth|firewall-on|firewall-off\n")
     sys.exit(2)
 ACTIONS[sys.argv[1]]()

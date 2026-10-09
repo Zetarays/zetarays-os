@@ -11,6 +11,17 @@ Rectangle {
     color: "#000000"
     anchors.fill: parent
 
+    // I nomi dei passi li traduce l'installer, ma il modello non avvisa la
+    // barra quando cambia la lingua: restavano in inglese con l'installer in
+    // italiano. Si rileggono di continuo (otto testi, nessun costo visibile).
+    property int giro: 0
+    Timer { interval: 500; running: true; repeat: true; onTriggered: sideBar.giro++ }
+    function nome(i, ripiego) {
+        void(sideBar.giro)
+        var v = ViewManager.data(ViewManager.index(i, 0))
+        return v ? v : ripiego
+    }
+
     ColumnLayout {
         anchors.fill: parent
         // Su schermi piccoli (800x600) Calamares stringe la barra a 100 px
@@ -57,7 +68,7 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     elide: Text.ElideRight
-                    text: display
+                    text: sideBar.nome(index, display)
                     font.family: "Roboto"
                     font.pixelSize: sideBar.width < 150 ? 12 : 13
                     font.weight: index == ViewManager.currentStepIndex ? Font.Medium : Font.Normal

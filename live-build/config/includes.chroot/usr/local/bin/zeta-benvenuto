@@ -15,6 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
 sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 from ui import tema  # noqa: E402
 
 LOGO = "/usr/share/zeta/brand/zeta-logo-bianco.svg"
@@ -29,32 +30,39 @@ button.bv { min-height: 38px; padding: 0 22px; border-radius: 10px; font-size: 1
 
 class Benvenuto(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Welcome to ZETA RAYS OS", default_width=560,
+        super().__init__(application=app, title=tr("Welcome to ZETA RAYS OS"), default_width=560,
                          default_height=380, resizable=False)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER,
                       margin_top=36, margin_bottom=32, margin_start=40, margin_end=40)
         logo = Gtk.Image.new_from_file(LOGO)
         logo.set_pixel_size(72)
         box.append(logo)
-        box.append(Gtk.Label(label="Welcome to ZETA RAYS OS", css_classes=["bv-title"], margin_top=10))
-        # in inglese, come il menu di avvio della chiavetta: la lingua del
-        # sistema si sceglie nella prima schermata dell'installer
-        box.append(Gtk.Label(label="You can try ZETA RAYS as it is, without changing anything on "
-                                   "this computer, or install it on the disk.",
+        box.append(Gtk.Label(label=tr("Welcome to ZETA RAYS OS"), css_classes=["bv-title"], margin_top=10))
+        # nella lingua della sessione (inglese sulla chiavetta, come il menu
+        # di avvio): la lingua del sistema si sceglie nell'installer
+        box.append(Gtk.Label(label=tr("You can try ZETA RAYS as it is, without changing anything on "
+                                      "this computer, or install it on the disk."),
                              wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=48,
                              css_classes=["bv-text"]))
         row = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, margin_top=18)
-        prova = Gtk.Button(label="Keep trying", css_classes=["bv"])
+        prova = Gtk.Button(label=tr("Keep trying"), css_classes=["bv"])
         prova.connect("clicked", lambda *_: self.close())
-        inst = Gtk.Button(label="Install ZETA RAYS OS", css_classes=["bv", "suggested-action"])
+        inst = Gtk.Button(label=tr("Install ZETA RAYS OS"), css_classes=["bv", "suggested-action"])
         inst.connect("clicked", lambda *_: self.install())
         row.append(prova)
         row.append(inst)
         box.append(row)
-        box.append(Gtk.Label(label="You can install it later at any time from the app menu: «Installa ZETA RAYS». "
-                                   "The installer lets you choose your language.",
+        box.append(Gtk.Label(label=tr("You can install it later at any time from the app menu: "
+                                      "“Install ZETA RAYS”. The installer lets you choose your language."),
                              wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=52,
                              css_classes=["bv-hint"], margin_top=10))
+        # language and keyboard of this session, before trying or installing
+        lingua = Gtk.Button(label=tr("Language & Keyboard…"), css_classes=["flat"],
+                            halign=Gtk.Align.CENTER)
+        lingua.connect("clicked", lambda *_: subprocess.Popen(
+            ["zeta-impostazioni", "lingua"], start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        box.append(lingua)
         # barra del titolo (trascinabile, con la X per chiudere)
         view = Adw.ToolbarView()
         header = Adw.HeaderBar(show_title=False)

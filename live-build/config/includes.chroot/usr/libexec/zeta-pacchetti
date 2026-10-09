@@ -9,6 +9,9 @@ amministratore). Due operazioni, nient'altro:
   zeta-pacchetti installa FILE.deb      apt-get install ./file.deb (con le
                                         dipendenze dai repository)
 
+Primo argomento facoltativo: --lang=CODICE (la lingua di chi chiama, per i
+messaggi d'errore: pkexec azzera l'ambiente).
+
 Prima di agire si simula: se apt volesse togliere un componente del sistema
 (anche solo come effetto collaterale: togliere una libreria toglie chi la
 usa) ci si ferma e non si tocca niente. Se un'operazione precedente era
@@ -24,12 +27,32 @@ import subprocess
 import sys
 import tempfile
 
+LINGUA = re.compile(r"^[a-z]{2,3}(_[A-Z]{2})?$")
+
+
+def _lingua(argv):
+    """--lang=CODICE come primo argomento (da zeta-app): pkexec azzera
+    l'ambiente, quindi la lingua dei messaggi arriva cosi'. Va letta PRIMA di
+    importare i18n (il catalogo si sceglie all'importazione). Un codice non
+    valido si scarta: i messaggi restano in inglese."""
+    if argv and argv[0].startswith("--lang="):
+        codice = argv.pop(0)[len("--lang="):]
+        if LINGUA.fullmatch(codice):
+            os.environ["LANGUAGE"] = codice
+    return argv
+
+
+ARGV = _lingua(sys.argv[1:])
+
 sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 from system.applicazioni import pacchetto_di_sistema as di_sistema, simula_apt as simula  # noqa: E402
 
 # niente «+» o «-» finale: per apt «pacchetto+» in una rimozione vuol dire installarlo
 NOME = re.compile(r"^[a-z0-9][a-z0-9+.-]*[a-z0-9](:[a-z0-9]+)?$")
-ENV = dict(os.environ, DEBIAN_FRONTEND="noninteractive", LANG="C.UTF-8", LC_ALL="C.UTF-8",
+# apt sempre in inglese (LANGUAGE tolto: vale piu' di LC_ALL per gettext)
+ENV = dict({k: v for k, v in os.environ.items() if k != "LANGUAGE"},
+           DEBIAN_FRONTEND="noninteractive", LANG="C.UTF-8", LC_ALL="C.UTF-8",
            APT_LISTCHANGES_FRONTEND="none")
 
 
@@ -61,46 +84,50 @@ def ripara():
     subprocess.run(["dpkg", "--configure", "-a"], env=ENV, stdout=sys.stderr, stderr=sys.stderr)
     rc, via, _su, msg = simula(["-f", "install"])
     if rc != 0:
-        esci(1, errore="il sistema dei pacchetti va riparato a mano (sudo apt -f install): " + msg)
+        esci(1, errore=tr("The package system needs to be repaired manually "
+                          "(sudo apt -f install): {details}").format(details=msg))
     bloccati = protetti(via)
     if bloccati:
-        esci(1, errore="la riparazione toglierebbe componenti del sistema (%s): fermato. "
-                       "Ripara a mano con sudo apt -f install." % ", ".join(bloccati[:8]))
+        esci(1, errore=tr("The repair would remove system components ({names}): stopped. "
+                          "Repair it manually with sudo apt -f install.").format(
+                              names=", ".join(bloccati[:8])))
     apt(["-f", "install"])
 
 
 def rimuovi(pacchetti):
     if not pacchetti or not all(NOME.match(p) for p in pacchetti):
-        esci(2, errore="nome di pacchetto non valido")
+        esci(2, errore=tr("Invalid package name."))
     ripara()
     rc, via, su, msg = simula(["remove"] + pacchetti)
     if rc != 0:
-        esci(1, errore="apt non può togliere il pacchetto: " + msg)
+        esci(1, errore=tr("apt can't remove the package: {details}").format(details=msg))
     if su:
-        esci(1, errore="una rimozione non deve installare nulla (%s)" % ", ".join(su[:5]))
+        esci(1, errore=tr("A removal must not install anything ({names}).").format(
+            names=", ".join(su[:5])))
     bloccati = protetti(via)
     if bloccati:
-        esci(1, errore="toglierebbe componenti del sistema: " + ", ".join(bloccati[:8]), tolti=via)
+        esci(1, errore=tr("It would remove system components: {names}").format(
+            names=", ".join(bloccati[:8])), tolti=via)
     rc = apt(["remove"] + pacchetti)
     if rc != 0:
-        esci(1, tolti=via, errore="apt-get remove: codice %d" % rc)
+        esci(1, tolti=via, errore=tr("apt-get remove failed (code {code}).").format(code=rc))
     esci(0, tolti=via)
 
 
 def installa(origine):
     origine = os.path.realpath(origine)
     if not origine.endswith(".deb"):
-        esci(2, errore="non è un pacchetto .deb")
+        esci(2, errore=tr("It isn't a .deb package."))
     # si apre il file una volta sola, senza seguire collegamenti, e si copia da
     # li': tra il controllo e la copia nessuno puo' scambiarlo con un
     # collegamento a un file di sistema (/etc/shadow...)
     try:
         fd = os.open(origine, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
-        esci(2, errore="non riesco ad aprire il pacchetto")
+        esci(2, errore=tr("Can't open the package."))
     with os.fdopen(fd, "rb") as sorgente:
         if not stat.S_ISREG(os.fstat(sorgente.fileno()).st_mode):
-            esci(2, errore="non è un pacchetto .deb")
+            esci(2, errore=tr("It isn't a .deb package."))
         # copia in una cartella di root: il file controllato e' quello installato
         cartella = tempfile.mkdtemp(prefix="zeta-pacchetti-", dir="/var/tmp")
         deb = os.path.join(cartella, "pacchetto.deb")
@@ -109,11 +136,11 @@ def installa(origine):
                 shutil.copyfileobj(sorgente, copia)
         except OSError as e:
             shutil.rmtree(cartella, ignore_errors=True)
-            esci(1, errore="non riesco a copiare il pacchetto: %s" % e.strerror)
+            esci(1, errore=tr("Can't copy the package: {error}").format(error=e.strerror))
     try:
         r = subprocess.run(["dpkg-deb", "-f", deb, "Package", "Architecture"], capture_output=True, text=True)
         if r.returncode != 0:
-            esci(1, errore="il file non è un pacchetto Debian valido")
+            esci(1, errore=tr("The file is not a valid .deb package."))
         # solo un pacchetto vero diventa leggibile da _apt (che scarica le dipendenze)
         os.chmod(cartella, 0o755)
         os.chmod(deb, 0o644)
@@ -122,18 +149,21 @@ def installa(origine):
         arch = arch.split(":", 1)[-1].strip()
         mia = subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True).stdout.strip()
         if arch not in ("all", mia):
-            esci(1, errore="il pacchetto è per %s, questo computer è %s" % (arch, mia))
+            esci(1, errore=tr("The package is for {arch}, this computer is {mine}.").format(
+                arch=arch, mine=mia))
         ripara()
         rc, via, su, msg = simula(["install", deb])
         if rc != 0:
-            esci(1, errore="dipendenze non soddisfatte: " + msg)
+            esci(1, errore=tr("Unmet dependencies: {details}").format(details=msg))
         bloccati = protetti(via)
         if bloccati:
-            esci(1, errore="toglierebbe componenti del sistema: " + ", ".join(bloccati[:8]))
+            esci(1, errore=tr("It would remove system components: {names}").format(
+                names=", ".join(bloccati[:8])))
         rc = apt(["install", deb])
         if rc != 0:
             ripara()
-            esci(1, errore="installazione non riuscita (codice %d): il sistema è stato rimesso in ordine" % rc)
+            esci(1, errore=tr("Installation failed (code {code}): the system has been "
+                              "put back in order.").format(code=rc))
         esci(0, installato=nome, aggiunti=su)
     finally:
         shutil.rmtree(cartella, ignore_errors=True)
@@ -141,13 +171,13 @@ def installa(origine):
 
 def main(argv):
     if os.geteuid() != 0:
-        esci(2, errore="serve pkexec")
+        esci(2, errore=tr("Requires pkexec."))
     if len(argv) >= 2 and argv[0] == "rimuovi":
         rimuovi(argv[1:])
     if len(argv) == 2 and argv[0] == "installa":
         installa(argv[1])
-    esci(2, errore="uso: rimuovi PACCHETTO... | installa FILE.deb")
+    esci(2, errore=tr("usage: [--lang=CODE] rimuovi PACKAGE... | installa FILE.deb"))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main(ARGV)

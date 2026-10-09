@@ -29,6 +29,8 @@ import subprocess
 import threading
 import time
 
+from i18n import language, tr
+
 # Un modello per lingua. Vosk ne carica uno solo e non riconosce da se' quale
 # lingua stia sentendo: la scelta la fa il sistema (vedi lingua_scelta), non
 # l'indovinello.
@@ -53,6 +55,7 @@ DURATA_MASSIMA = 15.0        # limite assoluto: non si registra all'infinito
 SILENZIO_FINE = 1.1          # silenzio dopo la voce = frase finita
 
 _modello = None
+_lingua_modello = None       # lingua del modello caricato (per la seconda lettura)
 _lock = threading.Lock()
 
 
@@ -71,7 +74,9 @@ def lingua_scelta() -> str:
 
     Chi usa il sistema in inglese si aspetta che il microfono capisca
     l'inglese, senza doverlo dire. Chi vuole il contrario lo scrive una volta
-    in ~/.config/zeta/voce-lingua.
+    in ~/.config/zeta/voce-lingua. La lingua del sistema e' quella in cui
+    ZETA e' mostrato (i18n.language()); senza un modello per quella, si
+    preferisce l'inglese.
     """
     try:
         with open(LINGUA_FILE) as f:
@@ -80,11 +85,13 @@ def lingua_scelta() -> str:
             return scelta
     except OSError:
         pass
-    sistema = (os.environ.get("LANG") or os.environ.get("LC_ALL") or "it")[:2].lower()
+    sistema = language()
     if sistema in MODELLI and any(_valido(d) for d in MODELLI[sistema]):
         return sistema
     disponibili = lingue_disponibili()
-    return disponibili[0] if disponibili else "it"
+    if "en" in disponibili:
+        return "en"
+    return disponibili[0] if disponibili else sistema
 
 
 def _model_path() -> str | None:
@@ -95,6 +102,14 @@ def _model_path() -> str | None:
         if _valido(d):
             return d
     return None
+
+
+def _lingua_di(percorso: str | None) -> str:
+    """La lingua di un modello, dalla sua cartella."""
+    for lang, dirs in MODELLI.items():
+        if percorso in dirs:
+            return lang
+    return lingua_scelta()
 
 
 def _has_vosk() -> bool:
@@ -122,8 +137,9 @@ def _recorder() -> list | None:
 def _microfono_presente() -> bool:
     """Vero se il sistema audio espone almeno una sorgente."""
     try:
+        # LC_ALL=C: si cercano le intestazioni «Sources:», «Sinks»...
         out = subprocess.run(["wpctl", "status"], capture_output=True, text=True,
-                             timeout=4).stdout
+                             timeout=4, env=dict(os.environ, LC_ALL="C")).stdout
     except (OSError, subprocess.SubprocessError):
         return True          # senza wpctl non possiamo dirlo: non blocchiamo
     dentro = False
@@ -160,23 +176,23 @@ def available() -> bool:
 def why_unavailable() -> str:
     s = status()
     if not s["mic"]:
-        return "Nessuno strumento di registrazione disponibile sul sistema."
+        return tr("No audio recording tool is available on the system.")
     if not s["vosk"]:
-        return ("Il motore vocale offline (Vosk) non è installato. "
-                "Il comando scritto funziona già; per la voce installa Vosk e "
-                "un modello italiano.")
+        return tr("The offline speech engine (Vosk) isn't installed. "
+                  "Typed commands already work; for voice, install Vosk and "
+                  "a model for your language.")
     if not s["model"]:
-        return ("Manca il modello vocale italiano. Copialo in "
-                "~/.local/share/zeta/vosk/ per attivare i comandi a voce.")
+        return tr("The speech model for your language is missing. Copy it to "
+                  "~/.local/share/zeta/vosk/ to enable voice commands.")
     if not s["sorgente"]:
-        return "Nessun microfono collegato."
-    return "Riconoscimento vocale non disponibile."
+        return tr("No microphone connected.")
+    return tr("Speech recognition isn't available.")
 
 
 # ------------------------------------------------------------------- modello
 def preload() -> bool:
     """Carica il modello in memoria. Si può chiamare da un thread di sfondo."""
-    global _modello
+    global _modello, _lingua_modello
     if _modello is not None:
         return True
     if not available():
@@ -187,7 +203,9 @@ def preload() -> bool:
         try:
             import vosk
             vosk.SetLogLevel(-1)          # niente rumore sul terminale
-            _modello = vosk.Model(_model_path())
+            percorso = _model_path()
+            _modello = vosk.Model(percorso)
+            _lingua_modello = _lingua_di(percorso)
         except Exception:  # noqa: BLE001
             _modello = None
             return False
@@ -224,7 +242,8 @@ class ErroreMicrofono(Exception):
 # volume»: provato). Quando la prima trascrizione non e' un comando, lo stesso
 # audio si rilegge con un vocabolario ridotto alle parole dei comandi e ai
 # nomi delle app installate. Si usa solo se ne esce un comando valido.
-_PAROLE_COMANDI = """
+# Un vocabolario per lingua: si usa quello del modello caricato.
+_PAROLE_IT = """
 apri aprimi avvia lancia chiudi esci riavvia riapri passa vai torna mostrami mostra fammi vedere
 crea nuova nuovo cerca trova dove elimina cancella sposta copia rinomina metti togli aggiungi
 accendi spegni attiva disattiva alza abbassa aumenta diminuisci blocca sospendi riduci icona
@@ -239,10 +258,25 @@ sito pagina posta email browser editor testo calcolatrice
 zero uno due tre quattro cinque sei sette otto nove dieci venti trenta quaranta cinquanta
 sessanta settanta ottanta novanta cento percento
 """.split()
+_PAROLE_EN = """
+open launch start run close quit exit restart reopen switch go back show me let see
+create new make search find where delete remove move copy rename put take add
+turn on off enable disable raise lower increase decrease up down lock suspend sleep minimize
+maximize full screen fullscreen connect disconnect install uninstall download
+the a an of to in on at for with from into and then after called named name folder file window
+volume audio sound mute unmute wifi network internet bluetooth computer system
+settings terminal documents downloads pictures images photos music videos video desktop trash
+memory ram cpu processor processes disk space storage battery status what time is it day date
+how much many am i using slow dock wallpaper background theme light dark screenshot louder
+quieter brightness site page mail email browser editor text calculator
+zero one two three four five six seven eight nine ten twenty thirty forty fifty
+sixty seventy eighty ninety hundred percent
+""".split()
+_PAROLE_COMANDI = {"it": _PAROLE_IT, "en": _PAROLE_EN}
 
 
 def _vocabolario() -> list:
-    parole = set(_PAROLE_COMANDI)
+    parole = set(_PAROLE_COMANDI.get(_lingua_modello or lingua_scelta(), _PAROLE_EN))
     try:
         from .agente import stato
         for a in stato.app_installate():
@@ -366,7 +400,7 @@ class Recognizer:
             proc = subprocess.Popen(comando, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL)
         except OSError as e:
-            raise ErroreMicrofono("Non riesco ad aprire il microfono: %s" % e) from e
+            raise ErroreMicrofono(tr("Can't open the microphone: {error}").format(error=e)) from e
 
         kaldi = vosk.KaldiRecognizer(_modello, RATE)
         kaldi.SetWords(True)        # serve per sapere quanto è sicuro il risultato

@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — system language and keyboard (run through pkexec only).
+
+    zeta-lingua [--lang=CODE] language LOCALE [FORMATS]
+        LANG=LOCALE for the whole system (/etc/default/locale), LANGUAGE with
+        the fallback chain (pt_BR -> pt_BR:pt), and the regional formats
+        (dates, numbers, currency, paper, units) from FORMATS when given.
+        The locale is generated first if it is missing.
+    zeta-lingua [--lang=CODE] keyboard LAYOUTS [VARIANTS]
+        keyboard layouts for the login screen, the console and the desktop
+        (/etc/default/keyboard; through systemd-localed when it runs).
+        Two layouts ("us,ru") switch with Alt+Shift.
+
+Every value is checked against what the system really has (supported
+locales, XKB layouts): nothing else is ever written or run. The result is
+one JSON line on standard output.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+# the caller's language for the messages (pkexec resets the environment)
+if len(sys.argv) > 1 and sys.argv[1].startswith("--lang="):
+    _code = sys.argv.pop(1)[len("--lang="):]
+    if re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?", _code):
+        os.environ["LANGUAGE"] = _code
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+C = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
+LOCALE_RE = re.compile(r"^[a-z]{2,3}(_[A-Z]{2})?(\.UTF-8)?(@[a-z]+)?$")
+LAYOUT_RE = re.compile(r"^[a-z]{2,10}(,[a-z]{2,10}){0,3}$")
+VARIANT_RE = re.compile(r"^[a-z0-9_-]{0,30}(,[a-z0-9_-]{0,30}){0,3}$")
+XKB_SYMBOLS = "/usr/share/X11/xkb/symbols"
+
+
+def out(code, **data):
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+    sys.exit(code)
+
+
+def supported_locales():
+    """Locales glibc can build on this system ("it_IT.UTF-8", "hi_IN")."""
+    names = set()
+    try:
+        with open("/usr/share/i18n/SUPPORTED", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == "UTF-8":
+                    names.add(parts[0])
+    except OSError:
+        pass
+    return names
+
+
+def generated():
+    r = subprocess.run(["locale", "-a"], capture_output=True, text=True, env=C)
+    return set(r.stdout.split())
+
+
+def ensure_locale(loc):
+    if loc.replace(".UTF-8", ".utf8") in generated():
+        return
+    lines = open("/etc/locale.gen", encoding="utf-8").read().splitlines()
+    want = "%s UTF-8" % loc
+    found = False
+    for i, line in enumerate(lines):
+        if re.match(r"^#?\s*%s\s+UTF-8\s*$" % re.escape(loc), line):
+            lines[i] = want
+            found = True
+    if not found:
+        lines.append(want)
+    with open("/etc/locale.gen.tmp", "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.replace("/etc/locale.gen.tmp", "/etc/locale.gen")
+    r = subprocess.run(["locale-gen"], capture_output=True, text=True, env=C, timeout=600)
+    if loc.replace(".UTF-8", ".utf8") not in generated():
+        out(1, error=tr("The language {name} could not be prepared.").format(name=loc),
+            detail=r.stdout[-500:] + r.stderr[-500:])
+
+
+def language(loc, formats=None):
+    ok = supported_locales()
+    for value in [loc] + ([formats] if formats else []):
+        if not LOCALE_RE.match(value) or value not in ok:
+            out(2, error=tr("Unknown language: {name}").format(name=value))
+    ensure_locale(loc)
+    if formats and formats != loc:
+        ensure_locale(formats)
+    base = loc.split(".")[0]
+    args = ["update-locale", "--reset", "LANG=" + loc]
+    if not base.startswith("en_US"):
+        # fallback chain: Brazilian Portuguese, then any Portuguese, then English
+        args.append("LANGUAGE=%s:%s" % (base, base.split("_")[0]))
+    if formats and formats != loc:
+        for k in ("LC_NUMERIC", "LC_TIME", "LC_MONETARY", "LC_PAPER", "LC_MEASUREMENT"):
+            args.append("%s=%s" % (k, formats))
+    r = subprocess.run(args, capture_output=True, text=True, env=C)
+    if r.returncode != 0:
+        out(1, error=tr("The language could not be saved."), detail=r.stderr[-500:])
+    # systemd keeps the language it read at boot and hands it to every user
+    # session's service manager: without a reload, services started at the
+    # next login would still get the old LANGUAGE (and speak the old language)
+    subprocess.run(["systemctl", "daemon-reload"], capture_output=True, env=C, timeout=60)
+    out(0, language=loc, formats=formats or loc)
+
+
+def keyboard(layouts, variants=""):
+    if not LAYOUT_RE.match(layouts) or not VARIANT_RE.match(variants):
+        out(2, error=tr("Unknown keyboard layout: {name}").format(name=layouts))
+    for lay in layouts.split(","):
+        if not os.path.isfile(os.path.join(XKB_SYMBOLS, lay)):
+            out(2, error=tr("Unknown keyboard layout: {name}").format(name=lay))
+    options = "grp:alt_shift_toggle" if "," in layouts else ""
+    # systemd-localed (console keymap; on Debian 13 it writes /etc/vconsole.conf)
+    subprocess.run(["localectl", "set-x11-keymap", layouts, "pc105", variants, options],
+                   capture_output=True, text=True, env=C, timeout=30)
+    # /etc/default/keyboard is the file Debian, the installer, the login screen
+    # and the ZETA desktop read: always written here, whatever localed did
+    values = {"XKBMODEL": "pc105", "XKBLAYOUT": layouts, "XKBVARIANT": variants,
+              "XKBOPTIONS": options, "BACKSPACE": "guess"}
+    with open("/etc/default/keyboard.tmp", "w", encoding="utf-8") as f:
+        f.write("# KEYBOARD CONFIGURATION FILE (written by ZETA RAYS Settings)\n\n")
+        for k, v in values.items():
+            f.write('%s="%s"\n' % (k, v))
+    os.chmod("/etc/default/keyboard.tmp", 0o644)
+    os.replace("/etc/default/keyboard.tmp", "/etc/default/keyboard")
+    out(0, keyboard=layouts, variant=variants)
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        out(2, error="must run through pkexec")
+    if len(argv) in (2, 3) and argv[0] == "language":
+        language(argv[1], argv[2] if len(argv) == 3 else None)
+    if len(argv) in (2, 3) and argv[0] == "keyboard":
+        keyboard(argv[1], argv[2] if len(argv) == 3 else "")
+    out(2, error="usage: zeta-lingua [--lang=CODE] language LOCALE [FORMATS] | keyboard LAYOUTS [VARIANTS]")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

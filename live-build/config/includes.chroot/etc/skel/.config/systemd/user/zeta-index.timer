@@ -1,10 +1,9 @@
 [Unit]
-Description=ZETA RAYS — aggiornamento periodico dell'indice di ricerca
+Description=ZETA RAYS — periodic search index update
 
 [Timer]
 OnStartupSec=90
-OnUnitActiveSec=30min
-Persistent=true
+OnUnitActiveSec=60min
 
 [Install]
 WantedBy=timers.target

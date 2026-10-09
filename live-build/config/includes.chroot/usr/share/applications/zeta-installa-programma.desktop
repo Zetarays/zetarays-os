@@ -1,7 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Installa programma
-Comment=Installa un pacchetto .deb o un'app Flatpak con un doppio clic
+Name=Install App
+Name[it]=Installa programma
+Comment=Install a .deb package or a Flatpak app with a double-click
+Comment[it]=Installa un pacchetto .deb o un'app Flatpak con un doppio clic
 Exec=zeta-app installa %f
 Icon=system-software-install
 NoDisplay=true

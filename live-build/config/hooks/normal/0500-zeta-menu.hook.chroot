@@ -33,6 +33,7 @@ lxpolkit.desktop debian-xterm.desktop debian-uxterm.desktop
 org.gnome.Evince-previewer.desktop org.freedesktop.IBus.Setup.desktop
 org.gnome.font-viewer.desktop
 xfce4-about.desktop qv4l2.desktop qvidcap.desktop
+org.fcitx.*.desktop fcitx5-configtool.desktop fcitx5-wayland-launcher.desktop kbd-layout-viewer5.desktop
 "
 
 nascosti=0

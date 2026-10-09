@@ -11,26 +11,30 @@ from __future__ import annotations
 
 import os
 
+from i18n import tr
+
 CARTELLA = "/usr/share/zeta/wallpapers"
 MINIATURE = os.path.join(CARTELLA, "miniature")
 
-# file: nome mostrato. L'ordine è quello della galleria.
+# file: nome mostrato, e i nomi con cui lo si cerca (in inglese e in
+# italiano: «metti lo sfondo onde rosse» e «red waves» vanno bene tutti e
+# due, qualunque sia la lingua del sistema). L'ordine è quello della galleria.
 CATALOGO = [
-    ("zeta-onde-blu.jpg", "Onde blu"),
-    ("zeta-circuiti-verdi.jpg", "Circuiti verdi"),
-    ("zeta-onde-rosse.jpg", "Onde rosse"),
-    ("zeta-terminale.jpg", "Terminale"),
-    ("zeta-blu.jpg", "Logo blu"),
-    ("zeta-verde.jpg", "Logo verde"),
-    ("zeta-rosso.jpg", "Logo rosso"),
-    ("zeta-bianco.jpg", "Logo bianco"),
+    ("zeta-onde-blu.jpg", tr("Blue waves"), ("blue waves", "onde blu")),
+    ("zeta-circuiti-verdi.jpg", tr("Green circuits"), ("green circuits", "circuiti verdi")),
+    ("zeta-onde-rosse.jpg", tr("Red waves"), ("red waves", "onde rosse")),
+    ("zeta-terminale.jpg", tr("Terminal"), ("terminal", "terminale")),
+    ("zeta-blu.jpg", tr("Blue logo"), ("blue logo", "logo blu")),
+    ("zeta-verde.jpg", tr("Green logo"), ("green logo", "logo verde")),
+    ("zeta-rosso.jpg", tr("Red logo"), ("red logo", "logo rosso")),
+    ("zeta-bianco.jpg", tr("White logo"), ("white logo", "logo bianco")),
 ]
 
 
 def elenco() -> list:
     """[(percorso, nome, miniatura)] degli sfondi davvero presenti sul disco."""
     out = []
-    for f, nome in CATALOGO:
+    for f, nome, _cerca in CATALOGO:
         p = os.path.join(CARTELLA, f)
         if os.path.isfile(p):
             m = os.path.join(MINIATURE, f)
@@ -50,18 +54,27 @@ def _semplice(t: str) -> str:
     return " ".join(t.lower().replace("-", " ").replace("_", " ").split())
 
 
+def _nomi(percorso: str, nome: str) -> list:
+    """Tutti i nomi di uno sfondo: quello mostrato e quelli fissi di ricerca."""
+    f = os.path.basename(percorso)
+    fissi = next((c for file, _n, c in CATALOGO if file == f), ())
+    return [_semplice(nome)] + [_semplice(c) for c in fissi]
+
+
 def cerca(testo: str) -> str | None:
     """Il percorso dello sfondo ufficiale che si chiama così (anche solo in
     parte: «onde rosse», «circuiti», «terminale»), None se nessuno o se il
     nome ne indica più d'uno."""
     t = _semplice(testo)
-    if t.startswith("sfondo "):
-        t = t[7:]
+    for prefisso in ("sfondo ", "wallpaper ", "background "):
+        if t.startswith(prefisso):
+            t = t[len(prefisso):]
+            break
     if not t:
         return None
     voci = elenco()
     for p, nome, _m in voci:
-        if t in (_semplice(nome), _semplice(os.path.basename(p)[:-4]), _semplice(os.path.basename(p))):
+        if t in _nomi(p, nome) + [_semplice(os.path.basename(p)[:-4]), _semplice(os.path.basename(p))]:
             return p
-    trovati = [p for p, nome, _m in voci if t in _semplice(nome)]
+    trovati = [p for p, nome, _m in voci if any(t in n for n in _nomi(p, nome))]
     return trovati[0] if len(trovati) == 1 else None

@@ -22,7 +22,7 @@ format = "[$path]($style)[$read_only]($read_only_style) "
 style = "#8A8A8E"
 truncation_length = 4
 truncate_to_repo = false
-read_only = " (sola lettura)"
+read_only = " (read-only)"
 
 [git_branch]
 format = "[$symbol$branch]($style) "

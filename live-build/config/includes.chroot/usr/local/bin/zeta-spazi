@@ -25,6 +25,9 @@ import subprocess
 import threading
 import sys
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
 N_SPAZI = 3
 
 
@@ -54,7 +57,7 @@ def stato(n):
         pass
     classe = "active" if corrente == n else ("occupied" if popolato else "empty")
     return {"text": str(n), "class": classe, "alt": classe,
-            "tooltip": "Spazio di lavoro %d" % n}
+            "tooltip": tr("Workspace {n}").format(n=n)}
 
 
 def vai(n):
@@ -155,6 +158,10 @@ def segnala():
                                    capture_output=True, check=False)
                 if testo.startswith("closewindow>>"):
                     _ridotta_chiusa("0x" + testo.split(">>", 1)[1].strip())
+                # tastiera cambiata (Alt+Shift o l'indicatore): la sigla nella barra
+                if testo.startswith("activelayout>>"):
+                    subprocess.run(["pkill", "-RTMIN+14", "-x", "waybar"],
+                                   capture_output=True, check=False)
                 # uno schermo compare o sparisce (anche quando si riaccende):
                 # Waybar a volte duplica la barra, si controlla poco dopo
                 if testo.startswith(("monitoradded", "monitorremoved")):
@@ -171,7 +178,12 @@ def main(argv):
     if cmd == "segnala":
         return segnala()
     if len(argv) < 3:
-        print(__doc__.strip(), file=sys.stderr)
+        print(tr("""zeta-spazi — workspaces in the bar.
+
+  zeta-spazi stato N   print the state of workspace N (called by Waybar)
+  zeta-spazi vai N     take the user to workspace N
+  zeta-spazi segnala   listen to Hyprland events and notify the bar
+                       when something changes (a single process)"""), file=sys.stderr)
         return 2
     try:
         n = int(argv[2])

@@ -203,6 +203,65 @@ def make_overlay(window, namespace, keyboard=True):
         window.fullscreen()
 
 
+def _monitor_del_cursore():
+    """(x del cursore rispetto al suo monitor, larghezza logica del monitor,
+    nome del monitor). Con piu' monitor «hyprctl cursorpos» da' coordinate
+    globali: senza togliere la posizione del monitor un menu finiva fuori."""
+    import json
+    import subprocess
+    try:
+        cur = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
+                                        text=True, timeout=2).stdout)
+        mons = json.loads(subprocess.run(["hyprctl", "-j", "monitors"], capture_output=True,
+                                         text=True, timeout=2).stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0, None, None
+    cx, cy = cur.get("x", 0), cur.get("y", 0)
+    scelto = None
+    for m in mons:
+        scala = m.get("scale") or 1
+        w, h = m.get("width", 0) / scala, m.get("height", 0) / scala
+        if m.get("transform", 0) % 2:
+            w, h = h, w
+        if m.get("x", 0) <= cx < m.get("x", 0) + w and m.get("y", 0) <= cy < m.get("y", 0) + h:
+            scelto = (m, w)
+            break
+        if scelto is None and m.get("focused"):
+            scelto = (m, w)
+    if scelto is None:
+        return cx, None, None
+    m, w = scelto
+    return cx - m.get("x", 0), w, m.get("name")
+
+
+def menu_al_cursore(window, card, larghezza=220):
+    """Un menu della barra (Dock, finestre ridotte, Posta) sotto il cursore,
+    sul monitor del cursore e SEMPRE intero dentro lo schermo: vicino al
+    bordo destro si sposta a sinistra invece di uscire. Va chiamato dopo
+    make_overlay."""
+    x, larg_mon, nome = _monitor_del_cursore()
+    card.set_size_request(larghezza, -1)
+    if larg_mon:
+        inizio = min(x - larghezza / 2, larg_mon - larghezza - 8)
+    else:
+        inizio = x - larghezza / 2
+    card.set_margin_start(int(max(8, inizio)))
+    card.set_margin_end(8)
+    if nome:
+        try:
+            import gi
+            gi.require_version("Gtk4LayerShell", "1.0")
+            from gi.repository import Gdk, Gtk4LayerShell as LS
+            monitori = Gdk.Display.get_default().get_monitors()
+            for i in range(monitori.get_n_items()):
+                gm = monitori.get_item(i)
+                if gm.get_connector() == nome:
+                    LS.set_monitor(window, gm)
+                    break
+        except (ValueError, ImportError, AttributeError):
+            pass
+
+
 def close_on_outside(window, card, on_close):
     """Esc o un clic fuori dal riquadro chiudono il pannello."""
     from gi.repository import Gdk, Gtk

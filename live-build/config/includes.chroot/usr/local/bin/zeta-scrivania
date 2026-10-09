@@ -10,7 +10,8 @@ incolla, cestino, e un menù del tasto destro con tutto ciò che serve.
   zeta-scrivania --stato    stampa lo stato in forma leggibile (per le prove)
 
 La cartella mostrata è quella di sistema (xdg-user-dir DESKTOP), di norma
-~/Scrivania. Le icone «Home» e «Cestino» sono sempre presenti.
+~/Scrivania. Le icone «Home» e «Cestino» sono sempre presenti e si spostano
+come le altre.
 
 Nota sulla tastiera: questa è una superficie a tutto schermo del compositore.
 Se chiedesse il fuoco della tastiera, nessuna finestra potrebbe più ricevere i
@@ -29,6 +30,7 @@ import urllib.parse
 sys.path.insert(0, "/usr/lib/zeta")
 from ui import popup  # noqa: E402
 from system import scarica  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
 
 
 # formati del trascinamento che la scrivania sa usare, oltre ai file
@@ -78,11 +80,15 @@ window.zeta-scrivania { background: transparent; }
 .sc-name { font-size: 11.5px; color: @ink; text-shadow: 0 1px 3px @scrim_strong; }
 .sc-item.selected .sc-name { text-shadow: none; }
 .sc-item.tagliato { opacity: 0.45; }
+.sc-item.in-movimento { opacity: 0.8; background: @hover_2; }
 .sc-banda { background: @accent_soft; border: 1px solid @accent; border-radius: 4px; }
 """
 
-SORT_MODES = [("nome", "Nome"), ("tipo", "Tipo"), ("data", "Data di modifica"),
-              ("dimensione", "Dimensione")]
+SORT_MODES = [("nome", tr("Name")), ("tipo", tr("Type")), ("data", tr("Date Modified")),
+              ("dimensione", tr("Size"))]
+# desktop icon size (View menu); None follows Settings › Appearance
+ICON_SIZES = [(None, tr("Default Icon Size")), (32, tr("Small Icons")),
+              (48, tr("Medium Icons")), (64, tr("Large Icons"))]
 
 
 # --------------------------------------------------------------- preferenze
@@ -116,13 +122,13 @@ def icon_size():
 
 
 def desktop_dir():
-    try:
-        out = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True,
-                             text=True, timeout=5).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        out = ""
-    if not out or out == os.path.expanduser("~"):
-        out = os.path.expanduser("~/Scrivania")
+    # La cartella della scrivania nella lingua dell'utente (XDG_DESKTOP_DIR
+    # in ~/.config/user-dirs.dirs: ~/Desktop, ~/Scrivania...), mai un nome
+    # scritto qui. Se non e' configurata, quella standard: ~/Desktop.
+    casa = os.path.expanduser("~")
+    out = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DESKTOP) or ""
+    if not out or os.path.abspath(out) == os.path.abspath(casa):
+        out = os.path.join(casa, "Desktop")
     try:
         os.makedirs(out, exist_ok=True)
     except OSError:
@@ -313,14 +319,29 @@ def _comando_del_collegamento(percorso):
         return None
     if not ok or not argv:
         return None
+    risolto = _comando_trovato(argv, reale, cartella)
+    if risolto is None:
+        return None
+    argv, cartella = risolto
+    # Blender from blender.org: started like the packaged one (see
+    # applicazioni.SENZA_WAYLAND), also from a «Send to Desktop» link
+    prog = argv[0] if os.path.isabs(argv[0]) else (GLib.find_program_in_path(argv[0]) or "")
+    if os.path.basename(prog) in _registro().SENZA_WAYLAND and not prog.startswith("/usr/"):
+        argv = ["env", "-u", "WAYLAND_DISPLAY"] + argv
+    return argv, cartella
+
+
+def _comando_trovato(argv, reale, cartella):
     prog = argv[0]
     if os.path.isabs(prog):
         return (argv, cartella) if os.access(prog, os.X_OK) else None
-    if GLib.find_program_in_path(prog):
-        return argv, cartella
+    # the program next to the real .desktop first (Blender 5.2 in /opt with
+    # «Exec=blender», while /usr/bin/blender is the packaged one)
     vicino = os.path.join(os.path.dirname(reale), prog)
     if os.path.isfile(vicino) and os.access(vicino, os.X_OK):
         return [vicino] + argv[1:], cartella or os.path.dirname(reale)
+    if GLib.find_program_in_path(prog):
+        return argv, cartella
     return None
 
 
@@ -358,6 +379,36 @@ def _icona_vicina(percorso, nome_icona):
     return None
 
 
+_RIPARATI = {}
+
+
+def _ripara_una_volta(percorso):
+    """A launcher that can't find its program (copied by the file manager
+    with «Exec=blender», or made before 2.0): rewritten with full paths if
+    its program is found next to its original entry. Tried once per file
+    version, not at every redraw."""
+    try:
+        chiave = (percorso, os.lstat(percorso).st_mtime_ns)
+    except OSError:
+        return False
+    if chiave in _RIPARATI:
+        return False
+    _RIPARATI[chiave] = True
+    try:
+        return _registro().ripara_collegamento(percorso)
+    except (OSError, GLib.Error) as e:
+        print("zeta-scrivania: repair %s: %s" % (percorso, e), file=sys.stderr, flush=True)
+        return False
+
+
+def _e_elf(percorso):
+    try:
+        with open(os.path.realpath(percorso), "rb") as f:
+            return f.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
 def _nome_e_icona_collegamento(percorso, display, gicon):
     """Nome e icona dell'applicazione di un .desktop (anche se e' un
     collegamento simbolico a un .desktop in /opt). Un'icona che il tema non
@@ -373,8 +424,15 @@ def _nome_e_icona_collegamento(percorso, display, gicon):
             gicon = Gio.FileIcon.new(Gio.File.new_for_path(icona_kf))
         elif icona_kf:
             gicon = Gio.ThemedIcon.new(icona_kf)
+    elif _ripara_una_volta(percorso):
+        return _nome_e_icona_collegamento(percorso, display, gicon)
     else:
-        return display, gicon
+        # broken link (the program is gone): say so with the app's own name,
+        # never with the technical file name
+        nome_kf, _icona = _voce_collegamento(percorso)
+        if nome_kf:
+            display = tr("{name} (missing)").format(name=nome_kf)
+        return display, Gio.ThemedIcon.new("application-x-executable")
     nome_ic = gicon.get_names()[0] if isinstance(gicon, Gio.ThemedIcon) else None
     tema = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
     if nome_ic and not tema.has_icon(nome_ic):
@@ -382,6 +440,18 @@ def _nome_e_icona_collegamento(percorso, display, gicon):
         if vicino:
             gicon = Gio.FileIcon.new(Gio.File.new_for_path(vicino))
     return display, gicon
+
+
+def _nome_e_icona_appimage(percorso, display):
+    """An AppImage on the Desktop shows its app (name and icon), the one the
+    menu shows, not a generic program icon."""
+    reale = os.path.realpath(percorso)
+    for app in _registro().tutte():
+        if app.appimage and os.path.realpath(app.appimage) == reale:
+            if os.path.isabs(app.icona) and os.path.isfile(app.icona):
+                return app.nome, Gio.FileIcon.new(Gio.File.new_for_path(app.icona))
+            return app.nome, Gio.ThemedIcon.new(app.icona or "application-x-executable")
+    return display, _icona_programma(percorso)
 
 
 def _icona_programma(percorso):
@@ -397,6 +467,13 @@ def _desktop_proprio(percorso):
     romperebbe un Exec relativo. Per quello l'icona va nei metadati, come
     per i file normali."""
     return percorso.endswith(".desktop") and not os.path.islink(percorso)
+
+
+def _registro_ocr():
+    if "/usr/lib/zeta" not in sys.path:
+        sys.path.insert(0, "/usr/lib/zeta")
+    from system import ocr
+    return ocr
 
 
 def _registro():
@@ -424,8 +501,8 @@ def _human(n):
 # -------------------------------------------------------------------- voci
 class Item:
     """Una icona sulla scrivania: un file, una cartella, oppure Home/Cestino."""
-    __slots__ = ("name", "path", "is_dir", "widget", "col", "row", "gicon", "mime", "custom",
-                 "display", "kind", "size", "mtime")
+    __slots__ = ("name", "path", "is_dir", "widget", "col", "row", "x", "y", "gicon", "mime",
+                 "custom", "display", "kind", "size", "mtime")
 
     def __init__(self, name, path, is_dir, gicon, display, kind="file",
                  size=0, mtime=0, mime="", custom=False):
@@ -441,6 +518,7 @@ class Item:
         self.custom = custom      # icona scelta a mano: batte qualunque anteprima
         self.widget = None
         self.col = self.row = 0
+        self.x = self.y = 0       # where it is drawn (a grid cell, or anywhere)
 
     @property
     def speciale(self):
@@ -449,13 +527,13 @@ class Item:
 
 class Scrivania(Gtk.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Scrivania", decorated=False)
+        super().__init__(application=app, title=tr("Desktop"), decorated=False)
         self.dir = desktop_dir()
         self.state = load_state()
         self.items = []
         self.selection = []          # elenco di Item selezionati
         self.tagliati = set()        # percorsi in attesa di «incolla» dopo un taglio
-        self.isize = icon_size()
+        self.isize = self._dimensione_icone()
         self.gap = spaziatura()
         # Anteprime gia' calcolate, per percorso e data di modifica: cambiando
         # cartella o rinfrescando non si rilegge due volte la stessa immagine.
@@ -465,6 +543,8 @@ class Scrivania(Gtk.ApplicationWindow):
         self.banda = None
         self._ref_timer = 0
         self._dragging = []
+        self._spostando = None
+        self._presa, self._presa_nome = (0, 0), None
 
         self._make_background()
         self.fixed = Gtk.Fixed(hexpand=True, vexpand=True)
@@ -500,8 +580,13 @@ class Scrivania(Gtk.ApplicationWindow):
 
     # ---------------------------------------- sorveglianza della cartella
     def _watch(self):
+        # the user's app entries too: when an AppImage moves, an app gets a new
+        # icon or is removed, its Desktop icon must follow without waiting
+        # for the next change in the Desktop folder
+        apps = os.path.join(GLib.get_user_data_dir(), "applications")
         for path, attr in ((self.dir, "monitor"),
-                           (os.path.join(trash_dir(), "files"), "trash_monitor")):
+                           (os.path.join(trash_dir(), "files"), "trash_monitor"),
+                           (apps, "apps_monitor")):
             try:
                 os.makedirs(path, exist_ok=True)
                 m = Gio.File.new_for_path(path).monitor_directory(
@@ -526,11 +611,11 @@ class Scrivania(Gtk.ApplicationWindow):
         """Home, Cestino e poi il contenuto della cartella Scrivania."""
         theme_home = "user-home"
         out = [Item("::home", os.path.expanduser("~"), True,
-                    Gio.ThemedIcon.new(theme_home), "Home", kind="home"),
+                    Gio.ThemedIcon.new(theme_home), tr("Home"), kind="home"),
                Item("::trash", "trash:///", True,
                     Gio.ThemedIcon.new("user-trash-full" if trash_count()
                                        else "user-trash"),
-                    "Cestino", kind="trash")]
+                    tr("Trash"), kind="trash")]
 
         gdir = Gio.File.new_for_path(self.dir)
         attrs = ("standard::name,standard::display-name,standard::type,"
@@ -558,6 +643,8 @@ class Scrivania(Gtk.ApplicationWindow):
             # il nome del file: è quello che l'utente si aspetta di vedere.
             if name.endswith(".desktop") or os.path.realpath(percorso).endswith(".desktop"):
                 display, gicon = _nome_e_icona_collegamento(percorso, display, gicon)
+            elif name.lower().endswith(".appimage"):
+                display, gicon = _nome_e_icona_appimage(percorso, display)
             elif _e_programma(percorso):
                 gicon = _icona_programma(percorso)
             # Icona scelta dall'utente (Cambia icona…). Per i collegamenti sta
@@ -643,31 +730,74 @@ class Scrivania(Gtk.ApplicationWindow):
         rows = max(1, (h - 2 * MARGIN) // (self.cell_h + self.gap))
         return cols, rows
 
+    def _scarto(self):
+        """Arranged from the right, the grid touches the right edge (the space
+        left over by the last column goes on the left)."""
+        if self.state.get("lato") != "destra":
+            return 0
+        cols, _rows = self._grid_size()
+        w = self.get_width() or 1280
+        return max(0, (w - 2 * MARGIN) - (cols * (self.cell_w + self.gap) - self.gap))
+
     def _slot_xy(self, col, row):
-        return (MARGIN + col * (self.cell_w + self.gap),
+        return (MARGIN + self._scarto() + col * (self.cell_w + self.gap),
                 MARGIN + row * (self.cell_h + self.gap))
 
     def _xy_slot(self, x, y):
         cols, rows = self._grid_size()
-        col = int(round((x - MARGIN) / (self.cell_w + self.gap)))
+        col = int(round((x - MARGIN - self._scarto()) / (self.cell_w + self.gap)))
         row = int(round((y - MARGIN) / (self.cell_h + self.gap)))
         return max(0, min(cols - 1, col)), max(0, min(rows - 1, row))
 
-    def _assign_slots(self, items):
+    # Layout, as on Windows and macOS: icons sit on a grid ("Align to Grid")
+    # or exactly where they are dropped; new icons fill the free cells from
+    # the left (Windows) or from the right (macOS). Cells are kept in
+    # "posizioni", free positions in pixels in "libere".
+    def _griglia(self):
+        return self.state.get("griglia", True) is not False
+
+    def _celle_libere(self, cols, rows):
+        colonne = range(cols - 1, -1, -1) if self.state.get("lato") == "destra" else range(cols)
+        return ((c, r) for c in colonne for r in range(rows))
+
+    def _dentro(self, x, y):
+        # never glued to the edge of the screen, never off it
+        bordo = 6
+        w = (self.get_width() or 1280) - self.cell_w - bordo
+        h = (self.get_height() or 800) - self.cell_h - bordo
+        return (max(bordo, min(int(x), max(bordo, w))),
+                max(bordo, min(int(y), max(bordo, h))))
+
+    def _assign_slots(self, items, prima=()):
         cols, rows = self._grid_size()
         pos = self.state.setdefault("posizioni", {})
+        libere = self.state.setdefault("libere", {})
+        griglia = self._griglia()
+        # the icons just moved by hand win the cell they were dropped on
+        ordinati = ([i for i in items if i.name in prima]
+                    + [i for i in items if i.name not in prima])
         taken, pending = set(), []
-        for it in items:
+        for it in ordinati:
+            q = libere.get(it.name)
+            if (not griglia and isinstance(q, list) and len(q) == 2
+                    and all(isinstance(v, (int, float)) for v in q)):
+                it.x, it.y = self._dentro(*q)
+                it.col, it.row = self._xy_slot(it.x, it.y)
+                taken.add((it.col, it.row))
+                continue
             p = pos.get(it.name)
             if (isinstance(p, list) and len(p) == 2 and 0 <= p[0] < cols
                     and 0 <= p[1] < rows and tuple(p) not in taken):
                 it.col, it.row = int(p[0]), int(p[1])
                 taken.add((it.col, it.row))
+                it.x, it.y = self._slot_xy(it.col, it.row)
+                if not griglia:
+                    libere[it.name] = [it.x, it.y]
             else:
                 pending.append(it)
-        libere = ((c, r) for c in range(cols) for r in range(rows))
+        celle = self._celle_libere(cols, rows)
         for it in pending:
-            for slot in libere:
+            for slot in celle:
                 if slot not in taken:
                     it.col, it.row = slot
                     taken.add(slot)
@@ -675,30 +805,45 @@ class Scrivania(Gtk.ApplicationWindow):
                     break
             else:
                 it.col, it.row = 0, 0
+            it.x, it.y = self._slot_xy(it.col, it.row)
+            if not griglia:
+                libere[it.name] = [it.x, it.y]
+
+    def _metti(self, nomi_xy):
+        """Icons dropped at (x, y) by hand: in a cell, or right there."""
+        pos = self.state.setdefault("posizioni", {})
+        libere = self.state.setdefault("libere", {})
+        for nome, (x, y) in nomi_xy:
+            if self._griglia():
+                pos[nome] = list(self._xy_slot(x, y))
+            else:
+                libere[nome] = list(self._dentro(x, y))
+        save_state(self.state)
+        self.refresh(prima={n for n, _xy in nomi_xy})
 
     # ---------------------------------------- disegno
-    def refresh(self):
+    def refresh(self, prima=()):
         _registro().icone_gtk()          # icone delle app Flatpak appena installate
         selezionati = {i.name for i in self.selection}
         for it in self.items:
             if it.widget is not None:
                 self.fixed.remove(it.widget)
         self.items = self._ordina(self.read_dir())
-        self._assign_slots(self.items)
+        self._assign_slots(self.items, prima)
         self.selection = []
         for it in self.items:
             it.widget = self._make_item(it)
-            x, y = self._slot_xy(it.col, it.row)
-            self.fixed.put(it.widget, x, y)
+            self.fixed.put(it.widget, it.x, it.y)
             if it.name in selezionati:
                 self.selection.append(it)
                 it.widget.add_css_class("selected")
             if it.path in self.tagliati:
                 it.widget.add_css_class("tagliato")
         nomi = {i.name for i in self.items}
-        pos = self.state.get("posizioni", {})
-        for sparito in [n for n in pos if n not in nomi]:
-            pos.pop(sparito)
+        for chiave in ("posizioni", "libere"):
+            pos = self.state.get(chiave, {})
+            for sparito in [n for n in pos if n not in nomi]:
+                pos.pop(sparito)
         save_state(self.state)
 
     def _make_item(self, it):
@@ -802,7 +947,11 @@ class Scrivania(Gtk.ApplicationWindow):
         elif it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
             comando = _comando_del_collegamento(it.path)
             app = _app_del_collegamento(it.path)
+            # GIO only when it would start the same program: with «Exec=blender»
+            # next to Blender 5.2 in /opt it would start /usr/bin/blender
             if comando is not None and app is not None and \
+                    GLib.find_program_in_path(app.get_executable() or "") and \
+                    GLib.find_program_in_path(comando[0][0]) == \
                     GLib.find_program_in_path(app.get_executable() or ""):
                 try:
                     app.launch([], None)   # programma installato nel sistema
@@ -816,11 +965,11 @@ class Scrivania(Gtk.ApplicationWindow):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     return
                 except OSError as e:
-                    self._error("Non è stato possibile avviare «%s»: %s"
-                                % (it.display, e.strerror))
+                    self._error(tr("Couldn't start “{name}”: {error}").format(
+                        name=it.display, error=e.strerror))
                     return
-            self._error("«%s» non è un collegamento valido: il programma "
-                        "che indica non si trova." % it.display)
+            self._error(tr("“{name}” is not a valid shortcut: the program it points "
+                           "to can't be found.").format(name=it.display))
             return
         elif _e_programma(it.path):
             # un programma (o un collegamento a un programma): si avvia dalla
@@ -830,8 +979,8 @@ class Scrivania(Gtk.ApplicationWindow):
                 _avvia([reale], cwd=os.path.dirname(reale), start_new_session=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except OSError as e:
-                self._error("Non è stato possibile avviare «%s»: %s"
-                            % (it.display, e.strerror))
+                self._error(tr("Couldn't start “{name}”: {error}").format(
+                    name=it.display, error=e.strerror))
             return
         for cmd in (["gio", "open", target], ["xdg-open", target],
                     ["thunar", target]):
@@ -841,14 +990,23 @@ class Scrivania(Gtk.ApplicationWindow):
                 return
             except OSError:
                 continue
-        self._error("Nessun programma disponibile per aprire «%s»." % it.display)
+        self._error(tr("No app available to open “{name}”.").format(name=it.display))
 
     # ---------------------------------------- trascinamento
-    def _drag_prepare(self, _source, _x, _y, it):
+    def _drag_prepare(self, _source, x, y, it):
         if it not in self.selection:
             self._set_selection([it])
-        value = GObject.Value(Gio.File, Gio.File.new_for_path(it.path))
-        return Gdk.ContentProvider.new_for_value(value)
+        # where the icon was grabbed: it lands with that point under the pointer
+        self._presa, self._presa_nome = (x, y), it.path
+        # The paths on the Desktop as plain text/uri-list. A Gio.File value
+        # went through the file-transfer portal, which hands over the real
+        # file behind a symbolic link: moving a «Send to Desktop» link of
+        # Blender arrived as /opt/blender/blender.desktop, was taken for a
+        # file from outside and copied («Blender (missing)»), and dropping
+        # it on the Trash or in a folder acted on the program's own file.
+        percorsi = [i.path for i in self.selection if not i.speciale] or [it.path]
+        uri = "".join(Gio.File.new_for_path(q).get_uri() + "\r\n" for q in percorsi)
+        return Gdk.ContentProvider.new_for_bytes("text/uri-list", GLib.Bytes.new(uri.encode()))
 
     def _drag_begin(self, _source, _drag, it):
         self._dragging = [i.path for i in self.selection] or [it.path]
@@ -906,17 +1064,30 @@ class Scrivania(Gtk.ApplicationWindow):
 
     # ---------------------------------------- banda di selezione
     def _punto_su_icona(self, x, y):
+        return self._icona_in(x, y) is not None
+
+    def _icona_in(self, x, y):
         w = self.fixed.pick(x, y, Gtk.PickFlags.DEFAULT)
         while w is not None and w is not self.fixed:
             if w.has_css_class("sc-item"):
-                return True
+                return next((i for i in self.items if i.widget is w), None)
             w = w.get_parent()
-        return False
+        return None
 
     def _banda_inizio(self, gesture, x, y):
+        self._spostando = None
+        it = self._icona_in(x, y)
+        if it is not None and it.speciale:
+            # Home and Trash are not files: they move on the desktop only and
+            # are never handed to other apps (dropping Home on the file
+            # manager would copy the whole home folder)
+            self.banda = None
+            self._spostando = {"it": it, "origine": (it.x, it.y),
+                               "mosso": False, "ultimo": None}
+            return
         # La banda vale solo sul vuoto: partendo da un'icona si sta
         # trascinando quella, e le due cose si darebbero fastidio.
-        if self._punto_su_icona(x, y):
+        if it is not None:
             gesture.set_state(Gtk.EventSequenceState.DENIED)
             self.banda = None
             return
@@ -925,6 +1096,9 @@ class Scrivania(Gtk.ApplicationWindow):
         self.fixed.put(self.banda, x, y)
 
     def _banda_aggiorna(self, _gesture, dx, dy):
+        if self._spostando is not None:
+            self._sposta_icona(dx, dy)
+            return
         if self.banda is None:
             return
         x0, y0 = self._banda0
@@ -934,13 +1108,43 @@ class Scrivania(Gtk.ApplicationWindow):
         self.banda.set_size_request(int(w), int(h))
         dentro = []
         for it in self.items:
-            ix, iy = self._slot_xy(it.col, it.row)
+            ix, iy = it.x, it.y
             if (ix + self.cell_w > x and ix < x + w
                     and iy + self.cell_h > y and iy < y + h):
                 dentro.append(it)
         self._set_selection(dentro)
 
+    def _sposta_icona(self, dx, dy):
+        st = self._spostando
+        if not st["mosso"]:
+            if abs(dx) < 6 and abs(dy) < 6:
+                return
+            st["mosso"] = True
+            st["it"].widget.add_css_class("in-movimento")
+        ox, oy = st["origine"]
+        st["ultimo"] = (max(0, ox + dx), max(0, oy + dy))
+        self.fixed.move(st["it"].widget, *st["ultimo"])
+
+    def _sposta_fine(self):
+        """Home or Trash dropped: into the nearest cell (swapping places with
+        the icon that was there), or right there without the grid."""
+        st, self._spostando = self._spostando, None
+        if not st["mosso"] or st["ultimo"] is None:
+            return
+        it = st["it"]
+        if self._griglia():
+            col, row = self._xy_slot(*st["ultimo"])
+            altro = next((i for i in self.items
+                          if i is not it and (i.col, i.row) == (col, row)), None)
+            if altro is not None:
+                # swap places with the icon that was there
+                self.state.setdefault("posizioni", {})[altro.name] = [it.col, it.row]
+        self._metti([(it.name, st["ultimo"])])
+
     def _banda_fine(self, *_a):
+        if self._spostando is not None:
+            self._sposta_fine()
+            return
         if self.banda is not None:
             self.fixed.remove(self.banda)
             self.banda = None
@@ -953,10 +1157,15 @@ class Scrivania(Gtk.ApplicationWindow):
         return Gdk.DragAction.MOVE if drop.get_drag() is not None else Gdk.DragAction.COPY
 
     def _dnd_rilascio(self, _t, drop, x, y):
+        if drop.get_drag() is not None and self._dragging:
+            # icons of this Desktop: they only move, whatever the data says
+            self._sposta_interni(list(self._dragging), x, y)
+            drop.finish(Gdk.DragAction.MOVE)
+            return True
         fmt = drop.get_formats()
         debug = bool(os.environ.get("ZETA_DEBUG_DND"))
         if debug:
-            print("rilascio, formati:", fmt.to_string(), file=sys.stderr, flush=True)
+            print("drop, formats:", fmt.to_string(), file=sys.stderr, flush=True)
         azione = Gdk.DragAction.MOVE if drop.get_drag() is not None else Gdk.DragAction.COPY
         immagine = next((m for m in MIME_IMMAGINI if fmt.contain_mime_type(m)), None)
         nome_file = None
@@ -979,10 +1188,10 @@ class Scrivania(Gtk.ApplicationWindow):
             try:
                 ok = self._dnd_applica(stato)
             except Exception as e:  # noqa: BLE001 - un rilascio non deve far cadere la scrivania
-                print("zeta-scrivania: rilascio: %s" % e, file=sys.stderr, flush=True)
+                print("zeta-scrivania: drop: %s" % e, file=sys.stderr, flush=True)
                 ok = False
             if debug:
-                print("rilascio applicato:", ok, type(stato["valore"]).__name__,
+                print("drop applied:", ok, type(stato["valore"]).__name__,
                       len(stato["dati"] or b""), file=sys.stderr, flush=True)
             drop.finish(azione if ok else 0)
             return False
@@ -1028,7 +1237,7 @@ class Scrivania(Gtk.ApplicationWindow):
                 v = None
             stato["valore"] = v
             if debug:
-                print("letto:", type(stato["valore"]).__name__, file=sys.stderr, flush=True)
+                print("read:", type(stato["valore"]).__name__, file=sys.stderr, flush=True)
             leggi_immagine()
 
         for gt in (Gdk.FileList, Gio.File, GObject.TYPE_STRING):
@@ -1066,7 +1275,7 @@ class Scrivania(Gtk.ApplicationWindow):
             return True
         # 3) solo l'immagine (blob:, generata dalla pagina): si salvano i byte
         if dati:
-            nome = nome_dato or "Immagine trascinata"
+            nome = nome_dato or tr("Dropped image")
             self._fatto_in_sottofondo(lambda: scarica.dati(self.dir, nome, dati, tipo), col, row)
             return True
         # 4) un indirizzo che vale solo dentro il browser (blob:, immagini
@@ -1076,8 +1285,8 @@ class Scrivania(Gtk.ApplicationWindow):
         interni = [u for u in uri if u.startswith(("blob:", "about:", "javascript:", "moz-extension:",
                                                   "chrome:", "chrome-extension:"))]
         if interni and len(interni) >= len([u for u in uri if "://" in u or u.startswith("blob:")]):
-            self._error("Questa immagine esiste solo dentro la pagina web e il browser non la consegna "
-                        "trascinandola. Per salvarla: tasto destro sull'immagine › «Salva immagine con nome».")
+            self._error(tr("This image exists only inside the web page, and the browser doesn't hand it "
+                           "over when you drag it. To save it, right-click the image › “Save Image As…”."))
             return False
         # 5) testo
         if isinstance(valore, str):
@@ -1091,9 +1300,9 @@ class Scrivania(Gtk.ApplicationWindow):
         files = self._files_from(value)
         if not files:
             return False
-        cols, _rows = self._grid_size()
         interno = False
         remoti = []
+        arrivati = []          # icons that came from outside: where they were dropped
         for gfile in files:
             path = gfile.get_path()
             if not path:
@@ -1105,20 +1314,111 @@ class Scrivania(Gtk.ApplicationWindow):
             name = os.path.basename(path)
             if os.path.dirname(os.path.abspath(path)) == os.path.abspath(self.dir):
                 interno = True
-            else:
-                self._copy_here(gfile, name)
+                continue
+            if self._dragging and any(os.path.realpath(d) == os.path.realpath(path)
+                                      for d in self._dragging):
+                interno = True       # a link of the Desktop, given as its target
+                continue
+            # A program dropped on the Desktop becomes a shortcut, as on
+            # Windows: an AppImage (often a gigabyte or more) is never
+            # copied, and a menu entry becomes the app's Desktop icon
+            nuovo = self._collegamento_app(path)
+            if nuovo is None:
+                nuovo = self._copy_here(gfile, name)
+            if nuovo:
+                arrivati.append(nuovo)
         if interno:
-            # sposta tutte le icone selezionate a partire dalla cella di arrivo
-            pos = self.state.setdefault("posizioni", {})
-            for i, path in enumerate(self._dragging or [f.get_path() for f in files]):
-                c = (col + i) % cols
-                r = row + (col + i) // cols
-                pos[os.path.basename(path)] = [c, r]
-            save_state(self.state)
-            self.refresh()
+            self._sposta_interni(self._dragging or [f.get_path() for f in files], x, y)
+        if arrivati:
+            cx, cy = x - self.cell_w / 2, y - self.isize / 2
+            passo = self.cell_h + self.gap
+            self._metti([(n, (cx, cy + i * passo)) for i, n in enumerate(arrivati)])
         for uri in remoti:
             self._scarica(uri, col, row)
         return True
+
+    def _sposta_interni(self, spostati, x, y):
+        """Icons of this Desktop dropped on it: they keep their arrangement,
+        each moving by the same amount as the one grabbed (which lands under
+        the pointer)."""
+        col, row = self._xy_slot(x, y)
+        cols, _rows = self._grid_size()
+        per_nome = {i.name: i for i in self.items}
+        presa = per_nome.get(os.path.basename(self._presa_nome or ""))
+        px, py = self._presa
+        if presa is not None:
+            dx, dy = x - px - presa.x, y - py - presa.y
+        else:
+            dx = dy = None
+        mosse = []
+        for i, path in enumerate(spostati):
+            nome = os.path.basename(path)
+            it = per_nome.get(nome)
+            if it is not None and dx is not None:
+                mosse.append((nome, (it.x + dx, it.y + dy)))
+            else:
+                c = (col + i) % cols
+                r = row + (col + i) // cols
+                mosse.append((nome, self._slot_xy(c, r)))
+        self._metti(mosse)
+
+    def _collegamento_app(self, path):
+        """The Desktop icon of the app in this file (an AppImage, a menu
+        entry, the desktop entry or the program file of an app unpacked by
+        hand): its name, or None when the file is not an app (then it is
+        copied like any other file, web links included)."""
+        reg = _registro()
+        app = None
+        reale = os.path.realpath(path)
+        if reale.endswith(".desktop") and "/applications/" in reale:
+            app = reg.trova(reale)
+        elif reale.endswith(".desktop") and reg.voce_risolta(reale) is not None:
+            # a program unpacked by hand (Blender in /opt or in Downloads):
+            # its menu entry if it has one, otherwise a shortcut with full
+            # paths. A plain copy kept «Exec=blender», valid only next to
+            # the program, and showed «Blender (missing)».
+            app = next((a for a in reg.tutte() if a.desktop and a.id.startswith(reg.PREFISSO_OPT)
+                        and self._origine_opt(a) == reale), None)
+            if app is None:
+                nuovo, errore = reg.collegamento_esterno(path, self.dir)
+                if errore:
+                    self._error(errore)
+                return os.path.basename(nuovo)
+        elif os.path.isfile(reale) and reg.e_appimage(reale):
+            def cerca():
+                return next((a for a in reg.tutte() if a.appimage
+                             and os.path.realpath(a.appimage) == reale), None)
+            app = cerca()
+            if app is None:
+                reg.integra_appimage()       # just downloaded: not seen yet
+                app = cerca()
+        elif _e_programma(reale) and (_e_elf(reale) or reg.voce_accanto(reale)):
+            # a program file (blender, or a script with its own desktop entry
+            # next to it): a shortcut to it, never a copy (Blender needs its
+            # libraries next to it)
+            nuovo, errore = reg.collegamento_programma(path, self.dir)
+            if errore:
+                self._error(errore)
+            return os.path.basename(nuovo)
+        if app is None:
+            return None
+        ok, msg = reg.aggiungi_scrivania(app)
+        if not ok:
+            gia = reg.sulla_scrivania(app) or reg.appimage_sulla_scrivania(app)
+            if gia:
+                return os.path.basename(gia)     # already there: it moves here
+            self._error(msg)
+            return ""
+        return app.id
+
+    @staticmethod
+    def _origine_opt(app):
+        kf = GLib.KeyFile()
+        try:
+            kf.load_from_file(app.desktop, GLib.KeyFileFlags.NONE)
+            return kf.get_string("Desktop Entry", "X-ZETA-Opt")
+        except GLib.Error:
+            return ""
 
     def _rilascio_testo(self, testo, col, row):
         """Testo trascinato: indirizzi da scaricare, oppure un file di testo."""
@@ -1136,7 +1436,7 @@ class Scrivania(Gtk.ApplicationWindow):
     def _scarica(self, url, col, row, titolo=None, riserva=None):
         breve = url if len(url) < 60 else url[:57] + "…"
         if not url.startswith("data:"):
-            self._avviso("Salvo sulla Scrivania: %s" % breve)
+            self._avviso(tr("Saving to the Desktop: {url}").format(url=breve))
 
         def lavoro():
             esito = scarica.da_url(url, self.dir, titolo)
@@ -1153,15 +1453,13 @@ class Scrivania(Gtk.ApplicationWindow):
             try:
                 ok, msg, percorso = lavoro()
             except Exception as e:  # noqa: BLE001 - un rilascio non deve far cadere la scrivania
-                ok, msg, percorso = False, "Operazione non riuscita: %s" % e, None
+                ok, msg, percorso = False, tr("Operation failed: {error}").format(error=e), None
             GLib.idle_add(self._scaricato, ok, msg, percorso, col, row)
         threading.Thread(target=filo, daemon=True).start()
 
     def _scaricato(self, ok, msg, percorso, col, row):
         if ok and percorso:
-            self.state.setdefault("posizioni", {})[os.path.basename(percorso)] = [col, row]
-            save_state(self.state)
-            self.refresh()
+            self._metti([(os.path.basename(percorso), self._slot_xy(col, row))])
             self._avviso(msg)
         else:
             self._error(msg)
@@ -1169,23 +1467,27 @@ class Scrivania(Gtk.ApplicationWindow):
 
     def _avviso(self, testo):
         try:
-            _avvia(["notify-send", "-a", "Scrivania", "-i", "user-desktop", "Scrivania", testo],
+            _avvia(["notify-send", "-a", tr("Desktop"), "-i", "user-desktop", tr("Desktop"), testo],
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True)
         except OSError:
             pass
 
     def _copy_here(self, gfile, name):
+        """Copy onto the Desktop; the new file's name, or "" on error."""
         dest_path = self._nome_libero(name)
         try:
             gfile.copy(Gio.File.new_for_path(dest_path), Gio.FileCopyFlags.NONE,
                        None, None, None)
         except GLib.Error as e:
-            self._error("Non è stato possibile copiare «%s»: %s" % (name, e.message))
+            self._error(tr("Couldn't copy “{name}”: {error}").format(name=name, error=e.message))
+            return ""
+        return os.path.basename(dest_path)
 
     def _nome_libero(self, name):
         dest = os.path.join(self.dir, name)
         base, ext = os.path.splitext(name)
+        base = re.sub(r" \(\d+\)$", "", base)      # «blender (3)», not «blender (2) (2)»
         n = 2
         while os.path.exists(dest):
             dest = os.path.join(self.dir, "%s (%d)%s" % (base, n, ext))
@@ -1257,7 +1559,18 @@ class Scrivania(Gtk.ApplicationWindow):
                 continue      # tagliato e reincollato dov'era già: nulla da fare
             riga_dest = self._nome_libero(os.path.basename(riga))
             try:
-                if taglia:
+                if not taglia and os.path.realpath(riga).endswith(".desktop") \
+                        and _registro().voce_risolta(riga) is not None:
+                    # a copy of a launcher: full paths, so it starts from here too
+                    _nuovo, errore = _registro().collegamento_esterno(riga, self.dir, unico=False)
+                    if errore:
+                        errori.append("%s: %s" % (os.path.basename(riga), errore))
+                    continue
+                if taglia and os.path.islink(riga) and not os.path.isabs(os.readlink(riga)):
+                    # a relative link would point elsewhere from here
+                    os.symlink(os.path.realpath(riga), riga_dest)
+                    os.unlink(riga)
+                elif taglia:
                     shutil.move(riga, riga_dest)
                 elif os.path.isdir(riga):
                     shutil.copytree(riga, riga_dest)
@@ -1273,7 +1586,8 @@ class Scrivania(Gtk.ApplicationWindow):
     # ---------------------------------------- menù
     def _popover(self, parent, x, y, voci):
         """voci: elenco di (etichetta, funzione) — None crea un separatore,
-        ('sub', etichetta, [voci]) crea un sottomenù."""
+        ('sub', etichetta, [voci]) crea un sottomenù, ('check', etichetta,
+        attiva, funzione) una scelta con il segno di spunta."""
         menu = Gio.Menu()
         actions = Gio.SimpleActionGroup()
         contatore = [0]
@@ -1284,6 +1598,16 @@ class Scrivania(Gtk.ApplicationWindow):
                 if voce is None:
                     target.append_section(None, sezione)
                     sezione = Gio.Menu()
+                    continue
+                if isinstance(voce, tuple) and len(voce) == 4 and voce[0] == "check":
+                    # a choice that is on or off: the menu shows a check mark
+                    _t, etichetta, attiva, fn = voce
+                    nome = "v%d" % contatore[0]
+                    contatore[0] += 1
+                    act = Gio.SimpleAction.new_stateful(nome, None, GLib.Variant("b", bool(attiva)))
+                    act.connect("activate", lambda _a, _p, f=fn: f())
+                    actions.add_action(act)
+                    sezione.append(etichetta, "sc.%s" % nome)
                     continue
                 if isinstance(voce, tuple) and len(voce) == 3 and voce[0] == "sub":
                     sub = Gio.Menu()
@@ -1316,79 +1640,133 @@ class Scrivania(Gtk.ApplicationWindow):
         n = len(self.selection)
         molti = n > 1
         if it.kind == "home":
-            voci = [("Apri la cartella Home", lambda: self.open(it)),
-                    ("Apri nel terminale", lambda: self._launch("zeta-predefinita", "terminale",
+            voci = [(tr("Open Home Folder"), lambda: self.open(it)),
+                    (tr("Open in Terminal"), lambda: self._launch("zeta-predefinita", "terminale",
                                                                 cwd=os.path.expanduser("~")))]
         elif it.kind == "trash":
-            voci = [("Apri il cestino", lambda: self.open(it)),
+            voci = [(tr("Open Trash"), lambda: self.open(it)),
                     None,
-                    ("Svuota il cestino…", self.svuota_cestino)]
+                    (tr("Empty Trash…"), self.svuota_cestino)]
         else:
             voci = [
-                ("Apri" if not molti else "Apri i %d elementi" % n,
+                (tr("Open") if not molti
+                 else ntr("Open {n} Item", "Open {n} Items", n).format(n=n),
                  lambda: [self.open(i) for i in list(self.selection)]),
                 None,
-                ("Copia", lambda: self.copia(False)),
-                ("Taglia", lambda: self.copia(True)),
+                (tr("Copy"), lambda: self.copia(False)),
+                (tr("Cut"), lambda: self.copia(True)),
                 None,
             ]
             if not molti:
-                voci.append(("Rinomina…", lambda: self.rename(it)))
+                voci.append((tr("Rename…"), lambda: self.rename(it)))
             voci += [
-                ("Sposta nel cestino", self.trash_selection),
-                ("Elimina definitivamente…", self.delete_selection),
+                (tr("Move to Trash"), self.trash_selection),
+                (tr("Delete Permanently…"), self.delete_selection),
                 None,
             ]
             if not molti:
                 if it.mime.startswith("image/"):
-                    voci += [("Copia il testo dell'immagine…", lambda: self.ocr(it))]
-                voci += [("Cambia icona…", lambda: self.cambia_icona(it))]
+                    voci += [(tr("Copy Text from Image…"), lambda: self.ocr(it))]
+                voci += [(tr("Change Icon…"), lambda: self.cambia_icona(it))]
                 if _ha_icona_personale(it.path):
-                    voci.append(("Ripristina l'icona predefinita",
+                    voci.append((tr("Restore Default Icon"),
                                  lambda: self.ripristina_icona(it)))
-                voci += [("Copia percorso", lambda: self.copy_path(it)),
-                         ("Proprietà", lambda: self.properties(it))]
+                voci += [(tr("Copy Path"), lambda: self.copy_path(it)),
+                         (tr("Properties"), lambda: self.properties(it))]
         self._popover(widget, x, y, voci)
 
     def _on_desktop_right(self, gesture, _n, x, y):
         self._set_selection([])
-        ordine = [(etichetta, lambda m=modo: self.set_ordine(m))
+        attuale = self.state.get("ordine", "nome")
+        ordine = [("check", etichetta, modo == attuale, lambda m=modo: self.set_ordine(m))
                   for modo, etichetta in SORT_MODES]
+        destra = self.state.get("lato") == "destra"
+        misura = self.state.get("dimensione")
+        vista = [
+            ("check", tr("Align to Grid"), self._griglia(),
+             lambda: self.set_griglia(not self._griglia())),
+            None,
+            ("check", tr("Arrange from Left"), not destra, lambda: self.set_lato("sinistra")),
+            ("check", tr("Arrange from Right"), destra, lambda: self.set_lato("destra")),
+            None,
+        ] + [("check", etichetta, misura == valore, lambda v=valore: self.set_dimensione(v))
+             for valore, etichetta in ICON_SIZES]
         # Ogni voce porta sulla sezione che promette: aprivano tutte la stessa
         # pagina in cima, e tre etichette diverse per lo stesso risultato
         # sembrano — giustamente — tre comandi rotti.
+        # short, like the desktop menus of macOS and Windows: a long menu
+        # opened in the middle of the screen does not fit above or below
         personalizza = [
-            ("Sfondo…", lambda: self._impostazioni("aspetto:sfondo")),
-            ("Tema e colori…", lambda: self._impostazioni("aspetto:accento")),
-            ("Icone e testo…", lambda: self._impostazioni("aspetto:tema")),
-            ("Animazioni e trasparenza…", lambda: self._impostazioni("aspetto:effetti")),
-            ("Barra e dock…", lambda: self._impostazioni("dock")),
-            ("Blocco schermo…", lambda: self._impostazioni("schermo")),
+            (tr("Theme and Colors…"), lambda: self._impostazioni("aspetto:accento")),
+            (tr("Icons and Text…"), lambda: self._impostazioni("aspetto:tema")),
+            (tr("Animations and Transparency…"), lambda: self._impostazioni("aspetto:effetti")),
+            (tr("Bar and Dock…"), lambda: self._impostazioni("dock")),
+            (tr("Lock Screen…"), lambda: self._impostazioni("schermo")),
+            None,
+            (tr("Display Settings…"), lambda: self._impostazioni("schermo")),
+            (tr("System Settings…"), lambda: self._impostazioni(None)),
+        ]
+        nuovo = [
+            (tr("Text Document…"), self.new_file),
+            (tr("App Shortcut…"), self.new_launcher),
         ]
         voci = [
-            ("Nuova cartella…", self.new_folder),
-            ("Nuovo documento di testo…", self.new_file),
-            ("Nuovo collegamento a un'applicazione…", self.new_launcher),
-            ("Incolla", self.incolla),
+            (tr("New Folder…"), self.new_folder),
+            ("sub", tr("New"), nuovo),
+            (tr("Paste"), self.incolla),
             None,
-            ("sub", "Ordina per", ordine),
-            ("Riordina le icone", self.tidy),
-            ("Aggiorna", self.refresh),
+            ("sub", tr("View"), vista),
+            ("sub", tr("Sort By"), ordine),
+            (tr("Clean Up Icons"), self.tidy),
             None,
-            ("sub", "Personalizza", personalizza),
-            ("Impostazioni schermo…", lambda: self._impostazioni("schermo")),
-            ("Impostazioni di sistema…", lambda: self._impostazioni(None)),
+            (tr("Change Wallpaper…"), lambda: self._impostazioni("aspetto:sfondo")),
+            ("sub", tr("Customize"), personalizza),
             None,
-            ("Apri il terminale", lambda: self._launch("zeta-predefinita", "terminale", cwd=self.dir)),
-            ("Apri il gestore file", self.open_folder),
+            (tr("Open in Terminal"), lambda: self._launch("zeta-predefinita", "terminale", cwd=self.dir)),
+            (tr("Show in File Manager"), self.open_folder),
         ]
         self._popover(self.fixed, x, y, voci)
 
     def set_ordine(self, modo):
+        """Sort By: every icon is placed again, in that order."""
         self.state["ordine"] = modo
-        self.state["posizioni"] = {}      # riparte dalla griglia
+        self.state["posizioni"] = {}
+        self.state["libere"] = {}
         save_state(self.state)
         self.refresh()
+
+    def set_griglia(self, griglia):
+        self.state["griglia"] = bool(griglia)
+        if griglia:
+            self.tidy()            # every icon into the nearest free cell
+            return
+        # without the grid every icon stays where it is, and can then be
+        # dropped anywhere
+        self.state["libere"] = {it.name: [it.x, it.y] for it in self.items}
+        save_state(self.state)
+        self.refresh()
+
+    def set_lato(self, lato):
+        """New icons, and Sort By, fill the desktop from this side."""
+        if (self.state.get("lato") == "destra") == (lato == "destra"):
+            return
+        self.state["lato"] = lato
+        self.set_ordine(self.state.get("ordine", "nome"))
+
+    def _dimensione_icone(self):
+        v = self.state.get("dimensione")
+        return v if isinstance(v, int) and 28 <= v <= 72 else icon_size()
+
+    def set_dimensione(self, valore):
+        """Icon size of the desktop only (the Dock keeps its own); None
+        follows the size chosen in Settings."""
+        self.state["dimensione"] = valore
+        self.isize = self._dimensione_icone()
+        self.cell_w = self.isize + 54
+        self.cell_h = self.isize + 46
+        self._anteprime = {}
+        save_state(self.state)
+        self.tidy()
 
     def _impostazioni(self, pagina):
         self._launch("zeta-impostazioni", *( [pagina] if pagina else [] ))
@@ -1398,7 +1776,7 @@ class Scrivania(Gtk.ApplicationWindow):
             _avvia(list(cmd), start_new_session=True, cwd=cwd,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
-            self._error("Non è stato possibile avviare %s: %s" % (cmd[0], e))
+            self._error(tr("Couldn't start {name}: {error}").format(name=cmd[0], error=e))
 
     def open_folder(self):
         # il gestore file scelto in Impostazioni › App predefinite
@@ -1417,11 +1795,11 @@ class Scrivania(Gtk.ApplicationWindow):
         di un documento fotografato.
         """
         if not shutil.which("tesseract"):
-            self._error("Il riconoscimento del testo non è disponibile.")
+            self._error(tr("Text recognition is not available."))
             return
-        d, box = self._dialog("Testo nell'immagine")
+        d, box = self._dialog(tr("Text in Image"))
         box.append(Gtk.Label(label=it.display, xalign=0, css_classes=["title-4"]))
-        attesa = Gtk.Label(label="Sto leggendo l'immagine…", xalign=0,
+        attesa = Gtk.Label(label=tr("Reading the image…"), xalign=0,
                            css_classes=["dim-label"])
         box.append(attesa)
         vista = Gtk.TextView(editable=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
@@ -1432,9 +1810,9 @@ class Scrivania(Gtk.ApplicationWindow):
         box.append(scorri)
 
         righe = Gtk.Box(spacing=8)
-        copia = Gtk.Button(label="Copia tutto", sensitive=False)
-        salva = Gtk.Button(label="Salva come file di testo…", sensitive=False)
-        chiudi = Gtk.Button(label="Chiudi", css_classes=["zeta-primary"],
+        copia = Gtk.Button(label=tr("Copy All"), sensitive=False)
+        salva = Gtk.Button(label=tr("Save as Text File…"), sensitive=False)
+        chiudi = Gtk.Button(label=tr("Close"), css_classes=["zeta-primary"],
                             halign=Gtk.Align.END, hexpand=True)
         chiudi.connect("clicked", lambda *_: d.destroy())
         righe.append(copia)
@@ -1448,30 +1826,30 @@ class Scrivania(Gtk.ApplicationWindow):
                 attesa.set_text(errore)
                 return False
             if not testo.strip():
-                attesa.set_text("Non ho trovato testo leggibile in questa immagine.")
+                attesa.set_text(tr("No readable text found in this image."))
                 return False
-            attesa.set_text("Seleziona quello che ti serve, oppure copia tutto.")
+            attesa.set_text(tr("Select what you need, or copy it all."))
             vista.get_buffer().set_text(testo)
             scorri.set_visible(True)
             copia.set_sensitive(True)
             salva.set_sensitive(True)
             copia.connect("clicked", lambda *_: (self._clipboard().set(testo),
-                                                 copia.set_label("Copiato ✓")))
+                                                 copia.set_label(tr("Copied ✓"))))
             salva.connect("clicked", lambda *_: self._salva_testo(it, testo))
             return False
 
         def lavora():
             try:
-                r = subprocess.run(["tesseract", it.path, "stdout", "-l", "ita+eng"],
+                r = subprocess.run(["tesseract", it.path, "stdout", "-l", _registro_ocr().lingue()],
                                    capture_output=True, text=True, timeout=120)
                 if r.returncode != 0:
-                    GLib.idle_add(fine, "", "Non sono riuscito a leggere l'immagine.")
+                    GLib.idle_add(fine, "", tr("Couldn't read the image."))
                     return
                 GLib.idle_add(fine, r.stdout, "")
             except subprocess.TimeoutExpired:
-                GLib.idle_add(fine, "", "L'immagine è troppo grande: lettura interrotta.")
+                GLib.idle_add(fine, "", tr("The image is too large: reading stopped."))
             except (OSError, subprocess.SubprocessError) as e:
-                GLib.idle_add(fine, "", "Non riuscito: %s" % e)
+                GLib.idle_add(fine, "", tr("Failed: {error}").format(error=e))
 
         threading.Thread(target=lavora, daemon=True).start()
 
@@ -1483,11 +1861,11 @@ class Scrivania(Gtk.ApplicationWindow):
             with open(dest, "w", encoding="utf-8") as f:
                 f.write(testo)
         except OSError as e:
-            self._error("Non è stato possibile salvare: %s" % e)
+            self._error(tr("Couldn't save: {error}").format(error=e))
             return
         self.refresh()
-        self._info("Salvato", "Il testo è in «%s», accanto all'immagine."
-                   % os.path.basename(dest))
+        self._info(tr("Saved"), tr("The text is in “{name}”, next to the image.").format(
+            name=os.path.basename(dest)))
 
     # ------------------------------------------- icona scelta dall'utente
     def cambia_icona(self, it, poi=None):
@@ -1496,10 +1874,10 @@ class Scrivania(Gtk.ApplicationWindow):
         «poi» viene chiamato con il percorso dell'icona: serve alla finestra
         delle Proprietà per aggiornare l'anteprima senza richiudersi.
         """
-        dialog = Gtk.FileDialog(title="Scegli l'immagine per l'icona di %s"
-                                      % it.display)
+        dialog = Gtk.FileDialog(title=tr("Choose an image for the icon of {name}").format(
+            name=it.display))
         filt = Gtk.FileFilter()
-        filt.set_name("Immagini")
+        filt.set_name(tr("Images"))
         for m in ("image/png", "image/svg+xml", "image/jpeg", "image/webp",
                   "image/bmp", "image/x-icon", "image/tiff"):
             filt.add_mime_type(m)
@@ -1520,18 +1898,18 @@ class Scrivania(Gtk.ApplicationWindow):
             return                      # l'utente ha annullato
         sorgente = gfile.get_path()
         if not sorgente:
-            self._error("Quell'immagine non è un file sul computer.")
+            self._error(tr("That image is not a file on this computer."))
             return
         try:
             icona = _icona_personale(sorgente, it.name)
         except (OSError, GLib.Error, shutil.Error) as e:
-            self._error("Non è stato possibile usare quell'immagine: %s" % e)
+            self._error(tr("Couldn't use that image: {error}").format(error=e))
             return
         if _desktop_proprio(it.path):
             try:
                 _desktop_scrivi_icona(it.path, icona)
             except OSError as e:
-                self._error("Non è stato possibile scrivere il collegamento: %s" % e)
+                self._error(tr("Couldn't write the shortcut: {error}").format(error=e))
                 return
         else:
             try:
@@ -1540,7 +1918,7 @@ class Scrivania(Gtk.ApplicationWindow):
                     Gio.File.new_for_path(icona).get_uri(),
                     Gio.FileQueryInfoFlags.NONE, None)
             except GLib.Error as e:
-                self._error("Non è stato possibile ricordare l'icona: %s" % e.message)
+                self._error(tr("Couldn't save the icon choice: {error}").format(error=e.message))
                 return
         self.refresh()
         if poi is not None:
@@ -1551,14 +1929,14 @@ class Scrivania(Gtk.ApplicationWindow):
         try:
             if _desktop_proprio(it.path):
                 if not _desktop_scrivi_icona(it.path, None):
-                    self._error("Questo collegamento non ha un'icona da ripristinare.")
+                    self._error(tr("This shortcut has no icon to restore."))
                     return
             else:
                 Gio.File.new_for_path(it.path).set_attribute_string(
                     "metadata::custom-icon", "",
                     Gio.FileQueryInfoFlags.NONE, None)
         except (OSError, GLib.Error) as e:
-            self._error("Non è stato possibile ripristinare l'icona: %s" % e)
+            self._error(tr("Couldn't restore the icon: {error}").format(error=e))
             return
         self.refresh()
         if poi is not None:
@@ -1595,12 +1973,12 @@ class Scrivania(Gtk.ApplicationWindow):
         except OSError as e:
             self._error(str(e))
             return
-        kind = "Cartella" if it.is_dir else (
-            "Collegamento a un programma"
+        kind = tr("Folder") if it.is_dir else (
+            tr("Program shortcut")
             if os.path.realpath(it.path).endswith(".desktop") or _e_programma(it.path)
-            else "File")
+            else tr("File"))
         size = "—" if it.is_dir else _human(st.st_size)
-        d, box = self._dialog("Proprietà")
+        d, box = self._dialog(tr("Properties"))
 
         testa = Gtk.Box(spacing=14)
         img = Gtk.Image.new_from_gicon(it.gicon)
@@ -1620,7 +1998,7 @@ class Scrivania(Gtk.ApplicationWindow):
                              focusable=False, css_classes=["dim-label"])
         box.append(percorso)
 
-        ripristina = Gtk.Button(label="Ripristina l'icona predefinita")
+        ripristina = Gtk.Button(label=tr("Restore Default Icon"))
         ripristina.set_visible(_ha_icona_personale(it.path))
 
         def aggiornata(_icona=None):
@@ -1629,14 +2007,14 @@ class Scrivania(Gtk.ApplicationWindow):
             img.set_pixel_size(64)
             ripristina.set_visible(_ha_icona_personale(it.path))
 
-        cambia = Gtk.Button(label="Cambia icona…")
+        cambia = Gtk.Button(label=tr("Change Icon…"))
         cambia.connect("clicked", lambda *_: self.cambia_icona(it, aggiornata))
         ripristina.connect("clicked", lambda *_: self.ripristina_icona(it, aggiornata))
 
         righe = Gtk.Box(spacing=8)
         righe.append(cambia)
         righe.append(ripristina)
-        chiudi = Gtk.Button(label="Chiudi", css_classes=["zeta-primary"],
+        chiudi = Gtk.Button(label=tr("Close"), css_classes=["zeta-primary"],
                             halign=Gtk.Align.END, hexpand=True)
         chiudi.connect("clicked", lambda *_: d.destroy())
         righe.append(chiudi)
@@ -1646,27 +2024,27 @@ class Scrivania(Gtk.ApplicationWindow):
 
     # ---------------------------------------- operazioni sui file
     def new_folder(self):
-        self._ask("Nuova cartella", "Nome della cartella:", "Nuova cartella",
+        self._ask(tr("New Folder"), tr("Folder name:"), tr("New Folder"),
                   lambda name: self._create(name, folder=True))
 
     def new_file(self):
-        self._ask("Nuovo documento", "Nome del documento:", "Nuovo documento.txt",
+        self._ask(tr("New Document"), tr("Document name:"), tr("New Document.txt"),
                   lambda name: self._create(name, folder=False))
 
     def new_launcher(self):
         """Crea sulla scrivania un collegamento a un'applicazione installata."""
         apps = _registro().menu()      # le stesse app (nomi, icone) del menu
         if not apps:
-            self._error("Nessuna applicazione installata da collegare.")
+            self._error(tr("No installed apps to link."))
             return
         self._scegli_app(apps)
 
     def _scegli_app(self, apps):
-        win = Gtk.Window(title="Nuovo collegamento", modal=True, default_width=420,
+        win = Gtk.Window(title=tr("New Shortcut"), modal=True, default_width=420,
                          default_height=520, css_classes=["zeta-dialog"])
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=14,
                       margin_bottom=14, margin_start=14, margin_end=14)
-        filtro = Gtk.SearchEntry(placeholder_text="Cerca un'applicazione…")
+        filtro = Gtk.SearchEntry(placeholder_text=tr("Search for an app…"))
         lista = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE,
                             css_classes=["boxed-list"])
         scroll = Gtk.ScrolledWindow(vexpand=True, child=lista)
@@ -1706,9 +2084,9 @@ class Scrivania(Gtk.ApplicationWindow):
 
         lista.connect("row-activated", crea)
         pulsanti = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        annulla = Gtk.Button(label="Annulla")
+        annulla = Gtk.Button(label=tr("Cancel"))
         annulla.connect("clicked", lambda *_: win.close())
-        ok = Gtk.Button(label="Crea", css_classes=["suggested-action"])
+        ok = Gtk.Button(label=tr("Create"), css_classes=["suggested-action"])
         ok.connect("clicked", crea)
         pulsanti.append(annulla)
         pulsanti.append(ok)
@@ -1733,7 +2111,7 @@ class Scrivania(Gtk.ApplicationWindow):
             return
         path = os.path.join(self.dir, name)
         if os.path.exists(path):
-            self._error("«%s» esiste già." % name)
+            self._error(tr("“{name}” already exists.").format(name=name))
             return
         try:
             if folder:
@@ -1741,12 +2119,12 @@ class Scrivania(Gtk.ApplicationWindow):
             else:
                 open(path, "x").close()
         except OSError as e:
-            self._error("Non è stato possibile creare «%s»: %s" % (name, e.strerror))
+            self._error(tr("Couldn't create “{name}”: {error}").format(name=name, error=e.strerror))
             return
         self.refresh()
 
     def rename(self, it):
-        self._ask("Rinomina", "Nuovo nome per «%s»:" % it.display, it.name,
+        self._ask(tr("Rename"), tr("New name for “{name}”:").format(name=it.display), it.name,
                   lambda name: self._do_rename(it, name))
 
     def _do_rename(self, it, name):
@@ -1755,17 +2133,18 @@ class Scrivania(Gtk.ApplicationWindow):
             return
         dest = os.path.join(self.dir, name)
         if os.path.exists(dest):
-            self._error("«%s» esiste già." % name)
+            self._error(tr("“{name}” already exists.").format(name=name))
             return
         try:
             os.rename(it.path, dest)
         except OSError as e:
-            self._error("Non è stato possibile rinominare: %s" % e.strerror)
+            self._error(tr("Couldn't rename: {error}").format(error=e.strerror))
             return
-        pos = self.state.setdefault("posizioni", {})
-        if it.name in pos:
-            pos[name] = pos.pop(it.name)
-            save_state(self.state)
+        for chiave in ("posizioni", "libere"):
+            pos = self.state.setdefault(chiave, {})
+            if it.name in pos:
+                pos[name] = pos.pop(it.name)
+        save_state(self.state)
         self.refresh()
 
     def _trash_path(self, path):
@@ -1775,8 +2154,8 @@ class Scrivania(Gtk.ApplicationWindow):
             Gio.File.new_for_path(path).trash(None)
             return True
         except GLib.Error as e:
-            self._error("Non è stato possibile cestinare «%s»: %s"
-                        % (os.path.basename(path), e.message))
+            self._error(tr("Couldn't move “{name}” to the Trash: {error}").format(
+                name=os.path.basename(path), error=e.message))
             return False
 
     def trash_selection(self):
@@ -1790,9 +2169,9 @@ class Scrivania(Gtk.ApplicationWindow):
         if not elementi:
             return
         quali = (elementi[0].display if len(elementi) == 1
-                 else "%d elementi" % len(elementi))
-        self._confirm("Eliminare definitivamente %s?" % quali,
-                      "Non finiranno nel cestino: non si potranno recuperare.",
+                 else ntr("{n} item", "{n} items", len(elementi)).format(n=len(elementi)))
+        self._confirm(tr("Permanently delete {what}?").format(what=quali),
+                      tr("They won't go to the Trash and can't be recovered."),
                       lambda: self._do_delete(elementi))
 
     def _do_delete(self, elementi):
@@ -1803,20 +2182,19 @@ class Scrivania(Gtk.ApplicationWindow):
                 else:
                     os.remove(it.path)
             except OSError as e:
-                self._error("Non è stato possibile eliminare «%s»: %s"
-                            % (it.display, e.strerror))
+                self._error(tr("Couldn't delete “{name}”: {error}").format(
+                    name=it.display, error=e.strerror))
         self._set_selection([])
         self.refresh()
 
     def svuota_cestino(self):
         n = trash_count()
         if not n:
-            self._info("Cestino", "Il cestino è già vuoto.")
+            self._info(tr("Trash"), tr("The Trash is already empty."))
             return
-        self._confirm("Svuotare il cestino?",
-                      "%d element%s verrann%s eliminat%s definitivamente."
-                      % (n, "o" if n == 1 else "i", "o" if n == 1 else "i",
-                         "o" if n == 1 else "i"),
+        self._confirm(tr("Empty the Trash?"),
+                      ntr("{n} item will be permanently deleted.",
+                          "{n} items will be permanently deleted.", n).format(n=n),
                       self._do_svuota)
 
     def _do_svuota(self):
@@ -1835,7 +2213,27 @@ class Scrivania(Gtk.ApplicationWindow):
         self.refresh()
 
     def tidy(self):
-        self.state["posizioni"] = {}
+        """Clean Up Icons: each icon into the nearest free cell, keeping the
+        arrangement (macOS "Clean Up"); Sort By puts them in order instead."""
+        cols, rows = self._grid_size()
+        passo_x, passo_y = self.cell_w + self.gap, self.cell_h + self.gap
+        pos, taken = {}, set()
+        for it in sorted(self.items, key=lambda i: (i.y, i.x)):
+            migliore = None
+            for c in range(cols):
+                for r in range(rows):
+                    if (c, r) in taken:
+                        continue
+                    x, y = self._slot_xy(c, r)
+                    d = ((x - it.x) / passo_x) ** 2 + ((y - it.y) / passo_y) ** 2
+                    if migliore is None or d < migliore[0]:
+                        migliore = (d, c, r)
+            if migliore is None:
+                break
+            taken.add(migliore[1:])
+            pos[it.name] = list(migliore[1:])
+        self.state["posizioni"] = pos
+        self.state["libere"] = {n: list(self._slot_xy(*cr)) for n, cr in pos.items()}
         save_state(self.state)
         self.refresh()
 
@@ -1854,8 +2252,8 @@ class Scrivania(Gtk.ApplicationWindow):
         entry = Gtk.Entry(text=preset, css_classes=["zeta-entry"], activates_default=True)
         box.append(entry)
         row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        annulla = Gtk.Button(label="Annulla")
-        ok = Gtk.Button(label="Conferma", css_classes=["zeta-primary"])
+        annulla = Gtk.Button(label=tr("Cancel"))
+        ok = Gtk.Button(label=tr("Confirm"), css_classes=["zeta-primary"])
         annulla.connect("clicked", lambda *_: d.destroy())
         ok.connect("clicked", lambda *_: (on_ok(entry.get_text()), d.destroy()))
         entry.connect("activate", lambda *_: (on_ok(entry.get_text()), d.destroy()))
@@ -1870,8 +2268,8 @@ class Scrivania(Gtk.ApplicationWindow):
         box.append(Gtk.Label(label=title, xalign=0, wrap=True, css_classes=["zeta-title"]))
         box.append(Gtk.Label(label=testo, xalign=0, wrap=True, css_classes=["zeta-dim"]))
         row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        annulla = Gtk.Button(label="Annulla")
-        ok = Gtk.Button(label="Elimina", css_classes=["destructive-action"])
+        annulla = Gtk.Button(label=tr("Cancel"))
+        ok = Gtk.Button(label=tr("Delete"), css_classes=["destructive-action"])
         annulla.connect("clicked", lambda *_: d.destroy())
         ok.connect("clicked", lambda *_: (on_ok(), d.destroy()))
         row.append(annulla)
@@ -1882,7 +2280,7 @@ class Scrivania(Gtk.ApplicationWindow):
     def _info(self, title, testo):
         d, box = self._dialog(title)
         box.append(Gtk.Label(label=testo, xalign=0, wrap=True, max_width_chars=60))
-        ok = Gtk.Button(label="Chiudi", halign=Gtk.Align.END, css_classes=["zeta-primary"])
+        ok = Gtk.Button(label=tr("Close"), halign=Gtk.Align.END, css_classes=["zeta-primary"])
         ok.connect("clicked", lambda *_: d.destroy())
         box.append(ok)
         d.set_default_widget(ok)
@@ -1890,7 +2288,7 @@ class Scrivania(Gtk.ApplicationWindow):
         ok.grab_focus()           # non il testo: appariva tutto selezionato
 
     def _error(self, testo):
-        self._info("Operazione non riuscita", testo)
+        self._info(tr("Operation failed"), testo)
 
 
 class App(Gtk.Application):
@@ -1909,10 +2307,10 @@ class App(Gtk.Application):
 
 if __name__ == "__main__":
     if "--stato" in sys.argv:
-        print("cartella: %s" % desktop_dir())
-        print("icone attive: %s" % icone_attive())
-        print("cestino: %d element(i)" % trash_count())
-        print("stato: %s" % json.dumps(load_state(), ensure_ascii=False))
+        print("folder: %s" % desktop_dir())
+        print("icons enabled: %s" % icone_attive())
+        print("trash: %d item(s)" % trash_count())
+        print("state: %s" % json.dumps(load_state(), ensure_ascii=False))
         sys.exit(0)
     if not icone_attive():
         sys.exit(0)

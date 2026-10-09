@@ -1,14 +1,15 @@
 [Desktop Entry]
 Type=Application
 Name=ZETA Share
-GenericName=Condivisione con i dispositivi vicini
-GenericName[en]=Nearby sharing
-Comment=Invia file all'istante ai dispositivi vicini
-Comment[en]=Send files instantly to nearby devices
+GenericName=Nearby sharing
+GenericName[it]=Condivisione con i dispositivi vicini
+Comment=Send files instantly to nearby devices
+Comment[it]=Invia file all'istante ai dispositivi vicini
 Exec=zeta-share %F
 Icon=zeta-share
 Terminal=false
 Categories=Network;FileTransfer;Utility;
-Keywords=condividi;invia;share;localsend;airdrop;telefono;iphone;android;trasferimento;
+Keywords=share;send;localsend;airdrop;phone;iphone;android;transfer;
+Keywords[it]=condividi;invia;share;localsend;airdrop;telefono;iphone;android;trasferimento;
 StartupWMClass=org.localsend.localsend_app
 StartupNotify=true

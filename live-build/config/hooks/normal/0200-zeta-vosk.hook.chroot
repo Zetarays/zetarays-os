@@ -1,49 +1,42 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # ZETA RAYS — riconoscimento vocale offline (Vosk) per ZETA.
-# Non fatale: se il download fallisce, la build continua e la voce resta
-# "da attivare" (ZETA lo spiega, i comandi scritti funzionano comunque).
-set +e
-
+# Tutto dalla cache inclusa nell'immagine (build.sh la prende da cache/vosk):
+# prima si scaricava qui da internet, e un errore di rete passeggero lasciava
+# un'immagine senza voce (successo il 7 ottobre con amd64). Ora, se qualcosa
+# manca, la costruzione si ferma invece di consegnare un sistema a meta'.
+set -e
+INCLUSO=/usr/share/zeta/vosk-cache
+case "$(uname -m)" in
+    aarch64|arm64) A=aarch64 ;;
+    x86_64|amd64)  A=x86_64 ;;
+    *) echo "ZETA RAYS: ERRORE - architettura non supportata da Vosk" >&2; exit 1 ;;
+esac
 echo "ZETA RAYS: installazione motore vocale Vosk…"
-
-# 1) libreria Python vosk (wheel manylinux per l'architettura)
-pip3 install --no-cache-dir --break-system-packages vosk >/tmp/vosk-pip.log 2>&1 \
-    && echo "ZETA RAYS: vosk (python) installato" \
-    || echo "ZETA RAYS: vosk python non installato (voce disattivata) — vedi /tmp/vosk-pip.log"
-
-# 2) modello italiano «small» (~48 MB) in /usr/share/vosk/model-it
-MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip"
-mkdir -p /usr/share/vosk
-if curl -fsSL --retry 3 -o /tmp/vosk-it.zip "$MODEL_URL"; then
-    unzip -q -o /tmp/vosk-it.zip -d /usr/share/vosk && \
-    mv /usr/share/vosk/vosk-model-small-it-0.22 /usr/share/vosk/model-it 2>/dev/null
-    rm -f /tmp/vosk-it.zip
-    if [ -f /usr/share/vosk/model-it/conf/model.conf ]; then
-        echo "ZETA RAYS: modello vocale italiano installato"
-    else
-        echo "ZETA RAYS: modello vocale non valido, salto"
-    fi
-else
-    echo "ZETA RAYS: modello vocale non scaricato (voce disattivata finché non lo si aggiunge)"
+if [ ! -d "$INCLUSO/$A" ] || [ ! -d "$INCLUSO/modelli" ]; then
+    echo "ZETA RAYS: ERRORE - Vosk non e' nell'immagine ($INCLUSO)" >&2
+    exit 1
 fi
 
-# 3) modello inglese «small» (~40 MB) in /usr/share/vosk/model-en
+# 1) libreria Python vosk, senza rete
+if ! pip3 install --no-index --find-links "$INCLUSO/$A" --break-system-packages vosk >/tmp/vosk-pip.log 2>&1; then
+    cat /tmp/vosk-pip.log >&2
+    echo "ZETA RAYS: ERRORE - vosk (python) non installato" >&2
+    exit 1
+fi
+python3 -c "import vosk" || { echo "ZETA RAYS: ERRORE - vosk non si importa" >&2; exit 1; }
+echo "ZETA RAYS: vosk (python) installato"
+
+# 2) modelli italiano e inglese «small» (~48 e ~40 MB) in /usr/share/vosk.
 # Vosk carica un modello per volta e non indovina la lingua: averli entrambi
-# permette di scegliere quale ascoltare (Impostazioni, oppure la lingua del
-# sistema). Se il download non riesce, resta l'italiano e nulla si rompe.
-MODEL_EN_URL="https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-if curl -fsSL --retry 3 -o /tmp/vosk-en.zip "$MODEL_EN_URL"; then
-    unzip -q -o /tmp/vosk-en.zip -d /usr/share/vosk && \
-    mv /usr/share/vosk/vosk-model-small-en-us-0.15 /usr/share/vosk/model-en 2>/dev/null
-    rm -f /tmp/vosk-en.zip
-    if [ -f /usr/share/vosk/model-en/conf/model.conf ]; then
-        echo "ZETA RAYS: modello vocale inglese installato"
-    else
-        echo "ZETA RAYS: modello vocale inglese non valido, salto"
-    fi
-else
-    echo "ZETA RAYS: modello vocale inglese non scaricato (resta solo l'italiano)"
-fi
-
-exit 0
+# permette di scegliere quale ascoltare (Impostazioni, o la lingua del sistema).
+mkdir -p /usr/share/vosk
+for coppia in "vosk-model-small-it-0.22 model-it" "vosk-model-small-en-us-0.15 model-en"; do
+    set -- $coppia
+    rm -rf "/usr/share/vosk/$1" "/usr/share/vosk/$2"
+    unzip -q -o "$INCLUSO/modelli/$1.zip" -d /usr/share/vosk
+    mv "/usr/share/vosk/$1" "/usr/share/vosk/$2"
+    [ -f "/usr/share/vosk/$2/conf/model.conf" ] || { echo "ZETA RAYS: ERRORE - modello $2 non valido" >&2; exit 1; }
+    echo "ZETA RAYS: modello vocale $2 installato"
+done
+rm -rf "$INCLUSO"

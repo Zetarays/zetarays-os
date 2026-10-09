@@ -17,12 +17,22 @@ import os
 import shutil
 import json
 import subprocess
+import sys
 from dataclasses import dataclass
 
-ACTIVE = "ATTIVO"
-CONFIGURED = "CONFIGURATO"
-NOT_CONFIGURED = "NON CONFIGURATO"
-WARNING = "ATTENZIONE"
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import ntr, tr  # noqa: E402
+
+# stati: chiavi stabili; il testo da mostrare e' state_label()
+ACTIVE = "active"
+CONFIGURED = "configured"
+NOT_CONFIGURED = "not-configured"
+WARNING = "warning"
+
+
+def state_label(state: str) -> str:
+    return {ACTIVE: tr("ACTIVE"), CONFIGURED: tr("CONFIGURED"),
+            NOT_CONFIGURED: tr("NOT CONFIGURED"), WARNING: tr("ATTENTION")}.get(state, state)
 
 
 @dataclass
@@ -34,8 +44,10 @@ class Check:
 
 
 def _run(cmd: list[str], timeout: float = 6.0) -> str:
+    # the output is parsed: always in the C locale, whatever the user's language
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           env=dict(os.environ, LC_ALL="C"))
         return (p.stdout or "").strip()
     except (subprocess.SubprocessError, FileNotFoundError):
         return ""
@@ -53,37 +65,38 @@ def check_firewall() -> Check:
         try:
             items = json.loads(raw).get("ruleset", {}).get("nftables", [])
         except (ValueError, AttributeError):
-            return Check("firewall", "Firewall", ACTIVE, "nftables attivo")
+            return Check("firewall", tr("Firewall"), ACTIVE, tr("nftables active"))
         rules = sum(1 for i in items if "rule" in i)
         blocks = any(i["chain"].get("hook") == "input" and i["chain"].get("policy") == "drop"
                      for i in items if "chain" in i)
-        detail = "nftables attivo · %d regole" % rules
+        parts = [tr("nftables active"), ntr("{n} rule", "{n} rules", rules).format(n=rules)]
         if blocks:
-            detail += " · entrata non richiesta bloccata"
-        return Check("firewall", "Firewall", ACTIVE, detail)
+            parts.append(tr("unsolicited incoming traffic blocked"))
+        return Check("firewall", tr("Firewall"), ACTIVE, " · ".join(parts))
     if shutil.which("nft"):
-        return Check("firewall", "Firewall", NOT_CONFIGURED,
-                     "nftables presente ma non attivo")
-    return Check("firewall", "Firewall", NOT_CONFIGURED, "nessun firewall attivo")
+        return Check("firewall", tr("Firewall"), NOT_CONFIGURED,
+                     tr("nftables installed but not active"))
+    return Check("firewall", tr("Firewall"), NOT_CONFIGURED, tr("no active firewall"))
 
 
 def check_encryption() -> Check:
     crypt = _run(["sh", "-c", "lsblk -o TYPE 2>/dev/null | grep -c crypt"])
-    if crypt and crypt != "0":
-        return Check("encryption", "Cifratura del disco", ACTIVE,
-                     "%s volume/i cifrato/i (LUKS)" % crypt)
-    return Check("encryption", "Cifratura del disco", NOT_CONFIGURED,
-                 "nessun volume cifrato rilevato")
+    n = int(crypt) if crypt.isdigit() else 0
+    if n:
+        return Check("encryption", tr("Disk encryption"), ACTIVE,
+                     ntr("{n} encrypted volume (LUKS)", "{n} encrypted volumes (LUKS)", n).format(n=n))
+    return Check("encryption", tr("Disk encryption"), NOT_CONFIGURED,
+                 tr("no encrypted volume detected"))
 
 
 def check_secure_boot() -> Check:
     data = _run(["sh", "-c",
                  "od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-* 2>/dev/null | awk '{print $NF}'"])
     if not os.path.exists("/sys/firmware/efi"):
-        return Check("secureboot", "Avvio sicuro", NOT_CONFIGURED, "sistema non UEFI")
+        return Check("secureboot", tr("Secure boot"), NOT_CONFIGURED, tr("not a UEFI system"))
     if data.strip() == "1":
-        return Check("secureboot", "Avvio sicuro", ACTIVE, "Secure Boot attivo")
-    return Check("secureboot", "Avvio sicuro", NOT_CONFIGURED, "Secure Boot non attivo")
+        return Check("secureboot", tr("Secure boot"), ACTIVE, tr("Secure Boot on"))
+    return Check("secureboot", tr("Secure boot"), NOT_CONFIGURED, tr("Secure Boot off"))
 
 
 def check_updates() -> Check:
@@ -91,23 +104,26 @@ def check_updates() -> Check:
                 "apt-get -s upgrade 2>/dev/null | grep -c '^Inst'"])
     n = int(out) if out.isdigit() else -1
     if n == 0:
-        return Check("updates", "Aggiornamenti", ACTIVE, "sistema aggiornato")
+        return Check("updates", tr("Updates"), ACTIVE, tr("system up to date"))
     if n > 0:
-        return Check("updates", "Aggiornamenti", WARNING, "%d aggiornamenti disponibili" % n)
-    return Check("updates", "Aggiornamenti", NOT_CONFIGURED, "stato non determinato")
+        return Check("updates", tr("Updates"), WARNING,
+                     ntr("{n} update available", "{n} updates available", n).format(n=n))
+    return Check("updates", tr("Updates"), NOT_CONFIGURED, tr("status unknown"))
 
 
 def check_apparmor() -> Check:
     if _run(["sh", "-c", "aa-status --enabled 2>/dev/null; echo $?"]).endswith("0"):
-        n = _run(["sh", "-c", "aa-status 2>/dev/null | grep -oE '[0-9]+ profiles' | head -1"])
-        return Check("apparmor", "Isolamento applicazioni", ACTIVE, n or "AppArmor attivo")
-    return Check("apparmor", "Isolamento applicazioni", NOT_CONFIGURED, "AppArmor non attivo")
+        n = _run(["sh", "-c", "aa-status 2>/dev/null | grep -oE '[0-9]+ profiles' | head -1"]).split()
+        detail = (ntr("{n} profile", "{n} profiles", int(n[0])).format(n=int(n[0]))
+                  if n and n[0].isdigit() else tr("AppArmor active"))
+        return Check("apparmor", tr("App isolation"), ACTIVE, detail)
+    return Check("apparmor", tr("App isolation"), NOT_CONFIGURED, tr("AppArmor not active"))
 
 
 def check_audit() -> Check:
     if _service_active("auditd"):
-        return Check("audit", "Registro di controllo", ACTIVE, "auditd in esecuzione")
-    return Check("audit", "Registro di controllo", NOT_CONFIGURED, "auditd non attivo")
+        return Check("audit", tr("Audit log"), ACTIVE, tr("auditd running"))
+    return Check("audit", tr("Audit log"), NOT_CONFIGURED, tr("auditd not active"))
 
 
 def check_network() -> Check:
@@ -115,8 +131,10 @@ def check_network() -> Check:
                       "ss -tulnH 2>/dev/null | grep -vE '127\\.0\\.0\\.1|::1' | wc -l"])
     n = int(listening) if listening.isdigit() else 0
     if n == 0:
-        return Check("network", "Rete", ACTIVE, "nessun servizio esposto verso l'esterno")
-    return Check("network", "Rete", CONFIGURED, "%d servizi in ascolto sulla rete" % n)
+        return Check("network", tr("Network"), ACTIVE, tr("no services exposed to the outside"))
+    return Check("network", tr("Network"), CONFIGURED,
+                 ntr("{n} service listening on the network", "{n} services listening on the network",
+                     n).format(n=n))
 
 
 ALL_CHECKS = [check_firewall, check_encryption, check_secure_boot, check_updates,
@@ -128,9 +146,9 @@ def collect() -> list[Check]:
 
 
 def summary() -> str:
-    lines = ["STATO DI SICUREZZA", "─" * 40]
+    lines = [tr("SECURITY STATUS"), "─" * 40]
     for c in collect():
-        lines.append("%-24s %s" % (c.label, c.state))
+        lines.append("%-24s %s" % (c.label, state_label(c.state)))
     return "\n".join(lines)
 
 

@@ -3,9 +3,16 @@
 import os
 import re
 
+from i18n import tr
+
 from . import run
 
 VPN_TYPES = ("vpn", "wireguard")
+
+# nmcli traduce stati e messaggi nella lingua del sistema («connesso»,
+# «abilitato»): quando se ne legge l'uscita si usa sempre l'inglese. C.UTF-8
+# e non C, cosi' i nomi delle reti con lettere accentate restano intatti.
+NMCLI = ["env", "LC_ALL=C.UTF-8", "LANGUAGE=C", "nmcli"]
 
 
 def _split(line):
@@ -27,7 +34,7 @@ def _split(line):
 
 
 def _rows(args, timeout=8):
-    out = run(["nmcli", "-t"] + args, timeout=timeout)
+    out = run(NMCLI + ["-t"] + args, timeout=timeout)
     return [_split(l) for l in (out or "").splitlines() if l.strip()]
 
 
@@ -35,7 +42,9 @@ def nice_name(conn, typ):
     """Nome da mostrare: i nomi automatici di NetworkManager diventano leggibili."""
     m = re.match(r"^(Wired connection|Connessione via cavo)\s*(\d+)$", conn or "")
     if m:
-        return "Connessione via cavo" + ("" if m.group(2) == "1" else " " + m.group(2))
+        if m.group(2) == "1":
+            return tr("Wired connection")
+        return tr("Wired connection {n}").format(n=m.group(2))
     return conn
 
 
@@ -55,8 +64,17 @@ def status():
     return info
 
 
+def connectivity():
+    """Stato di Internet secondo NetworkManager: full, limited, portal, none, unknown.
+
+    Senza --check: legge l'ultimo controllo di NetworkManager, non aspetta la rete.
+    """
+    stato = (run(NMCLI + ["-t", "networking", "connectivity"]) or "").strip()
+    return stato if stato in ("full", "limited", "portal", "none") else "unknown"
+
+
 def wifi_enabled():
-    return (run(["nmcli", "radio", "wifi"]) or "").strip() == "enabled"
+    return (run(NMCLI + ["-t", "radio", "wifi"]) or "").strip() == "enabled"
 
 
 def has_wifi():
@@ -64,7 +82,7 @@ def has_wifi():
 
 
 def set_wifi(on):
-    run(["nmcli", "radio", "wifi", "on" if on else "off"])
+    run(NMCLI + ["radio", "wifi", "on" if on else "off"])
 
 
 def wifi_networks(rescan=False):
@@ -283,9 +301,9 @@ def connect_wifi_esito(ssid, password=None, nascosta=False):
     conosciuta = known_connection(ssid)
     dev = _wifi_dev()
     if not dev:
-        return False, "Questo computer non ha una scheda Wi-Fi.", "altro"
+        return False, tr("This computer has no Wi-Fi adapter."), "altro"
     if not nascosta and not _attendi_rete(ssid):
-        return False, "La rete «%s» non si vede da qui" % ssid, "non trovata"
+        return False, tr("The network “{name}” is not in range").format(name=ssid), "non trovata"
     inizio = time.time()
     if nascosta:
         # non compare nelle scansioni, quindi «device wifi connect» non la
@@ -298,7 +316,8 @@ def connect_wifi_esito(ssid, password=None, nascosta=False):
         rc, out = _nmcli(["connection", "add", "type", "wifi", "ifname", dev, "con-name", ssid,
                           "ssid", ssid, "802-11-wireless.hidden", "yes"] + sic, timeout=15)
         if rc != 0:
-            return False, "Non riesco a creare il profilo di «%s»: %s" % (ssid, out[-120:]), "altro"
+            return False, tr("Could not create the profile for “{name}”: {error}").format(
+                name=ssid, error=out[-120:]), "altro"
         conosciuta = False
         rc, out, motivo = _attiva(["--ask", "connection", "up", "id", ssid], password)
     elif password:
@@ -312,7 +331,7 @@ def connect_wifi_esito(ssid, password=None, nascosta=False):
         # chiede, e la risposta vuota la fa fallire subito
         rc, out, motivo = _attiva(["--ask", "device", "wifi", "connect", ssid, "ifname", dev], None)
     if rc == 0 and "error" not in out.lower():
-        return True, "Connesso a %s" % ssid, None
+        return True, tr("Connected to {name}").format(name=ssid), None
     motivo = motivo or _motivo(out)
     if motivo == "altro" and "802-11-wireless-security" in out:
         motivo = "password"                  # protetta e senza password
@@ -323,21 +342,28 @@ def connect_wifi_esito(ssid, password=None, nascosta=False):
     elif not conosciuta and motivo != "tempo" and known_connection(ssid):
         _nmcli(["connection", "delete", "id", ssid], timeout=15)    # niente profili a meta'
     if motivo == "password" and ("property is invalid" in out.lower() or (password and len(password) < 8)):
-        return False, "Password non valida per «%s»: le reti WPA la vogliono di almeno 8 caratteri." % ssid, motivo
+        return False, tr("Invalid password for “{name}”: WPA networks need at least 8 characters.").format(
+            name=ssid), motivo
     if motivo == "password" and not password:
         if conosciuta:
-            return False, "La password salvata per «%s» non funziona più: scrivi quella attuale." % ssid, motivo
-        return False, "«%s» è protetta: serve la password." % ssid, motivo
+            return False, tr("The saved password for “{name}” no longer works: enter the current one.").format(
+                name=ssid), motivo
+        return False, tr("“{name}” is secured: a password is required.").format(name=ssid), motivo
     if motivo == "password" and _chiave_rifiutata(inizio) is False:
         # NetworkManager ha richiesto la password, ma la chiave non e' stata
         # rifiutata: l'accesso non e' riuscito per un altro motivo
-        return False, ("L'accesso a «%s» non è riuscito. Controlla la password; se è giusta, il "
-                       "segnale è debole o il router non ha risposto: avvicinati e riprova." % ssid), motivo
-    ultima = out.splitlines()[-1][:120] if out else "errore sconosciuto"
-    msg = {"password": "Password sbagliata per «%s». Riprova." % ssid,
-           "non trovata": "La rete «%s» non si vede da qui" % ssid,
-           "tempo": "«%s» non ha risposto in tempo: avvicinati al router e riprova" % ssid}.get(
-               motivo, "Connessione non riuscita: %s" % ultima)
+        return False, tr("Could not join “{name}”. Check the password; if it is correct, the signal "
+                         "is weak or the router did not respond: move closer and try again.").format(
+                             name=ssid), motivo
+    ultima = out.splitlines()[-1][:120] if out else tr("unknown error")
+    if motivo == "password":
+        msg = tr("Wrong password for “{name}”. Try again.").format(name=ssid)
+    elif motivo == "non trovata":
+        msg = tr("The network “{name}” is not in range").format(name=ssid)
+    elif motivo == "tempo":
+        msg = tr("“{name}” did not respond in time: move closer to the router and try again").format(name=ssid)
+    else:
+        msg = tr("Connection failed: {error}").format(error=ultima)
     return False, msg, motivo
 
 
@@ -354,7 +380,7 @@ def forget_wifi(ssid):
 
 
 def disconnect(device):
-    run(["nmcli", "device", "disconnect", device], timeout=15)
+    run(NMCLI + ["device", "disconnect", device], timeout=15)
 
 
 def vpns():
@@ -379,8 +405,8 @@ def import_vpn(path):
     kind = "wireguard" if path.lower().endswith(".conf") else "openvpn"
     out = run(["nmcli", "connection", "import", "type", kind, "file", path], timeout=20, check=True)
     if out is None:
-        return False, "Importazione non riuscita (file non valido?)"
-    return True, "VPN importata"
+        return False, tr("Import failed (invalid file?)")
+    return True, tr("VPN imported")
 
 
 def remove_connection(uuid):

@@ -1,4 +1,4 @@
-# ZETA RAYS 1.6 — pacchetti (solo repository Debian 13 "trixie")
+# ZETA RAYS 2.0 — pacchetti (solo repository Debian 13 "trixie")
 
 # --- Sistema di base ---
 live-boot
@@ -137,11 +137,9 @@ hexyl
 thunar
 gvfs
 firefox-esr
-firefox-esr-l10n-it
 # Posta: Mozilla Thunderbird, il programma di posta di ZETA RAYS (icona
 # «Posta» nel dock, zeta-posta)
 thunderbird
-thunderbird-l10n-it
 gnome-text-editor
 synaptic
 gnome-system-monitor
@@ -288,7 +286,7 @@ shim-signed
 grub-efi-arm64-signed
 #endif
 
-# --- ZETA RAYS 1.7: ricerca universale, OCR, indicizzazione, fastfetch ---
+# --- ZETA RAYS 2.0: ricerca universale, OCR, indicizzazione, fastfetch ---
 fastfetch
 plocate
 poppler-utils
@@ -382,4 +380,6 @@ avahi-daemon
 # Risolve i nomi «.local» (stampante-ufficio.local): senza, le stampanti di
 # rete trovate non si potevano aggiungere senza driver.
 libnss-mdns
-
+# App isolation: the kernel has AppArmor on; this loads Debian's profiles
+# (as on a standard Debian install) so Security shows it active
+apparmor

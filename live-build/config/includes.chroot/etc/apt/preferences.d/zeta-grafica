@@ -1,0 +1,6 @@
+# ZETA RAYS: the artwork of the base distribution never comes back with an
+# installation or an update (wallpapers, boot menu background, boot splash,
+# login and lock screen themes). ZETA RAYS has its own for all of them.
+Package: desktop-base plymouth-themes
+Pin: release a=*
+Pin-Priority: -1

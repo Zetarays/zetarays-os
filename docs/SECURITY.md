@@ -1,42 +1,59 @@
 # ZETA RAYS Security
 
-Il centro di sicurezza di ZETA RAYS OS (`zeta-sicurezza`) e la sua raccolta di
-strumenti. ZETA RAYS è orientato alla sicurezza informatica **per uso autorizzato**:
-penetration testing autorizzato, difesa, ricerca, CTF, forense, amministrazione.
+The security center of ZETA RAYS OS (the Security app, `zeta-sicurezza`) and
+its collection of tools. ZETA RAYS is built for information security work
+**with authorization**: authorized penetration testing, defense, research,
+CTF, forensics, administration.
 
-## Stato del sistema
+## System status
 
-Il centro mostra lo stato reale, senza mai dichiarare il sistema "sicuro" a
-priori. Ogni voce è classificata onestamente:
+The center shows the real state of the system and never declares it "secure"
+by default. Each item is classified honestly:
 
-| Stato | Significato |
+| State | Meaning |
 |---|---|
-| ATTIVO | la protezione è attiva |
-| CONFIGURATO | presente e configurato |
-| NON CONFIGURATO | disponibile ma non attivo |
-| ATTENZIONE | richiede intervento |
+| ACTIVE | the protection is active |
+| CONFIGURED | present and configured |
+| NOT CONFIGURED | available but not active |
+| ATTENTION | needs action |
 
-Voci controllate: firewall, cifratura del disco, avvio sicuro, aggiornamenti,
-isolamento applicazioni (AppArmor), registro di controllo (auditd), rete.
+Items checked: firewall, disk encryption, Secure Boot, updates, application
+confinement (AppArmor), audit log (auditd), network.
+Debian's AppArmor profiles are installed and loaded at boot (the
+`apparmor` package), as on a standard Debian system.
 
-## Strumenti per categoria
+## Tools
 
-| Categoria | Strumenti |
+Preinstalled in the image:
+
+| Category | Tools |
 |---|---|
-| Ricognizione | nmap, whois, bind9-dnsutils, masscan |
-| Rete | wireshark, tcpdump, tshark, nftables |
+| Reconnaissance | nmap, masscan, whois, dig (bind9-dnsutils) |
+| Network | tcpdump, tshark |
 | Web | sqlmap, ffuf, gobuster |
-| Forense | Sleuth Kit, foremost, binwalk, ExifTool |
-| Crittografia | OpenSSL, GnuPG, John the Ripper, hashcat |
-| Difesa | Lynis, AIDE, rkhunter, chkrootkit, ClamAV, auditd, firejail |
+| Forensics | Sleuth Kit, foremost, binwalk, ExifTool |
+| Cryptography and passwords | OpenSSL, GnuPG, John the Ripper, hashcat |
+| Defense | nftables, Lynis, AIDE, rkhunter, chkrootkit, ClamAV, auditd, firejail |
 
-Tutti gli strumenti provengono dai repository ufficiali e sono legittimi e
-mantenuti. Non viene installato ogni pacchetto di sicurezza esistente: la
-selezione è curata.
+The Security app lists its catalog by category (reconnaissance, network
+analysis, web security, passwords and authentication, wireless, sniffing and
+spoofing, forensics, reverse engineering, defense). Every tool can really be
+started: graphical tools open in their own window, command-line tools open in
+the terminal with their help in view. Tools that are not installed (Wireshark,
+Nikto, Hydra, Aircrack-ng, bettercap and others) are installed with one click,
+with authentication, but only if APT really knows them; otherwise the app
+explains why they are missing.
 
-## Uso etico
+All tools come from the official Debian repositories and are legitimate and
+maintained. Not every security package in existence is installed: the
+selection is curated.
 
-- L'analisi malware avviene in ambiente isolato (firejail); il sistema non
-  esegue malware sconosciuto direttamente sull'host.
-- Le operazioni intrusive richiedono autorizzazione e conferma esplicita.
-- L'assistente non compie attacchi autonomi né aggira controlli di sicurezza.
+## Ethical use
+
+- Nothing is ever run against a target unless the user asks: ZETA RAYS opens
+  the tool, and its use is the responsibility of whoever launches it.
+- firejail is included to run untrusted programs in a sandbox instead of
+  directly on the host.
+- ZETA, the assistant, has no action that attacks other systems, never
+  bypasses security controls, and asks for consent before anything
+  destructive.

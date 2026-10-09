@@ -1,0 +1,48 @@
+#!/bin/sh
+# ZETA RAYS — languages.
+#
+# Every language offered by Settings > Language & Region (the list is
+# /usr/share/zeta/lingue.json) is generated here, so switching language in
+# the live session or on the installed system is immediate and never needs
+# the network. The image starts in English (en_US.UTF-8); the installer
+# writes the language chosen by the user into the installed system.
+set -e
+
+python3 - <<'EOF'
+import json
+import re
+
+wanted = {l["locale"] for l in json.load(open("/usr/share/zeta/lingue.json", encoding="utf-8"))}
+lines = open("/etc/locale.gen", encoding="utf-8").read().splitlines()
+out, found = [], set()
+for line in lines:
+    m = re.match(r"^#?\s*([A-Za-z_@.0-9-]+)\s+(UTF-8)\s*$", line)
+    if m and m.group(1) in wanted:
+        out.append("%s UTF-8" % m.group(1))  # e.g. "it_IT.UTF-8 UTF-8", "hi_IN UTF-8"
+        found.add(m.group(1))
+    else:
+        out.append(line)
+missing = sorted(wanted - found)
+if missing:
+    raise SystemExit("ZETA RAYS: locales missing from /etc/locale.gen: %s" % ", ".join(missing))
+open("/etc/locale.gen", "w", encoding="utf-8").write("\n".join(out) + "\n")
+print("ZETA RAYS: %d languages enabled" % len(found))
+EOF
+
+locale-gen
+update-locale --reset LANG=en_US.UTF-8
+
+# Fail the build if a language did not compile: a language in the menu that
+# silently falls back to "C" would be worse than no language at all.
+python3 - <<'EOF'
+import json
+import subprocess
+
+have = set(subprocess.run(["locale", "-a"], capture_output=True, text=True).stdout.split())
+# "locale -a" spells "it_IT.UTF-8" as "it_IT.utf8"; "hi_IN" stays "hi_IN"
+missing = [l["locale"] for l in json.load(open("/usr/share/zeta/lingue.json", encoding="utf-8"))
+           if l["locale"].replace(".UTF-8", ".utf8") not in have]
+if missing:
+    raise SystemExit("ZETA RAYS: locales not generated: %s" % ", ".join(missing))
+print("ZETA RAYS: all languages generated")
+EOF

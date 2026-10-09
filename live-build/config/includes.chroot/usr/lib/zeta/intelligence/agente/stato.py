@@ -17,6 +17,8 @@ import subprocess
 import time
 import unicodedata
 
+from i18n import tr, language
+
 HOME = os.path.expanduser("~")
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
 
@@ -28,15 +30,18 @@ def norm(testo: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def run(cmd, timeout=10, input_=None):
-    """(codice, uscita, errori) di un comando; mai un'eccezione."""
+def run(cmd, timeout=10, input_=None, c_locale=False):
+    """(codice, uscita, errori) di un comando; mai un'eccezione.
+    c_locale=True: uscita in inglese fisso (LC_ALL=C), per i comandi la cui
+    uscita si legge e si confronta (es. «enabled», «Volume: 0.50»)."""
+    env = dict(os.environ, LC_ALL="C") if c_locale else None
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, input=input_)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, input=input_, env=env)
         return r.returncode, r.stdout.strip(), r.stderr.strip()
     except FileNotFoundError:
-        return 127, "", "%s non installato" % cmd[0]
+        return 127, "", tr("{cmd} is not installed").format(cmd=cmd[0])
     except subprocess.TimeoutExpired:
-        return 124, "", "tempo scaduto"
+        return 124, "", tr("timed out")
     except OSError as e:
         return 1, "", str(e)
 
@@ -202,6 +207,21 @@ SINONIMI = {
     "zeta": "zeta-core", "zeta core": "zeta-core", "assistente": "zeta-core",
     "testo da immagine": "zeta-testo", "ocr": "zeta-testo", "stampanti avanzate": "system-config-printer",
     "cerca": "zeta-cerca", "ricerca": "zeta-cerca",
+    # in inglese
+    "web browser": "firefox-esr", "email client": "thunderbird", "mail client": "thunderbird",
+    "terminal": "foot", "command prompt": "foot", "command line": "foot",
+    "files": "thunar", "file manager": "thunar", "file explorer": "thunar", "explorer": "thunar",
+    "folders": "thunar", "text editor": "org.gnome.TextEditor", "notepad": "org.gnome.TextEditor",
+    "notes": "org.gnome.TextEditor", "calculator": "org.gnome.Calculator",
+    "system monitor": "zeta-monitor", "activity monitor": "zeta-monitor", "process manager": "zeta-monitor",
+    "control panel": "zeta-impostazioni", "preferences": "zeta-impostazioni",
+    "sharing": "zeta-share", "packages": "synaptic", "package manager": "synaptic",
+    "image viewer": "org.gnome.eog", "photos": "org.gnome.eog", "pictures": "org.gnome.eog",
+    "images": "org.gnome.eog", "pdf viewer": "org.gnome.Evince", "pdf reader": "org.gnome.Evince",
+    "video player": "mpv", "media player": "mpv", "music": "mpv", "music player": "mpv",
+    "archives": "org.gnome.FileRoller", "archive manager": "org.gnome.FileRoller",
+    "assistant": "zeta-core", "text from image": "zeta-testo", "advanced printers": "system-config-printer",
+    "printer settings": "system-config-printer", "search": "zeta-cerca",
 }
 
 _PLACEHOLDER = re.compile(r"%[a-zA-Z]")
@@ -242,6 +262,7 @@ def app_installate(ricarica=False) -> list[App]:
     except ImportError:
         NOMI = {}
     viste, out = set(), []
+    lingua = language()
     for d in DIRS_DESKTOP:
         for f in sorted(glob.glob(os.path.join(d, "*.desktop"))):
             aid = os.path.basename(f)[:-8]
@@ -253,7 +274,7 @@ def app_installate(ricarica=False) -> list[App]:
             viste.add(aid)
             a = App()
             a.id = aid
-            a.nome = NOMI.get(aid + ".desktop") or info.get("Name[it]") or info.get("Name") or aid
+            a.nome = NOMI.get(aid + ".desktop") or info.get("Name[%s]" % lingua) or info.get("Name") or aid
             try:
                 import shlex
                 a.argv = [x for x in shlex.split(_PLACEHOLDER.sub("", info["Exec"])) if x]
@@ -266,10 +287,14 @@ def app_installate(ricarica=False) -> list[App]:
             if info.get("StartupWMClass"):
                 classi.add(norm(info["StartupWMClass"]))
             a.classi = {c for c in classi if c}
+            # i nomi con cui l'utente la chiama: in inglese, in italiano e
+            # nella lingua del sistema
             nomi = {norm(a.nome), norm(info.get("Name", "")), norm(info.get("Name[it]", "")),
+                    norm(info.get("Name[%s]" % lingua, "")),
                     norm(info.get("GenericName[it]", "")), norm(info.get("GenericName", "")),
+                    norm(info.get("GenericName[%s]" % lingua, "")),
                     norm(aid), norm(aid.rsplit(".", 1)[-1]), norm(a.binario)}
-            for k in ("Keywords[it]", "Keywords"):
+            for k in ("Keywords[it]", "Keywords", "Keywords[%s]" % lingua):
                 nomi |= {norm(x) for x in info.get(k, "").split(";") if len(x) > 2}
             a.nomi = {n for n in nomi if n}
             a.nascosta = info.get("NoDisplay", "").lower() == "true" or info.get("Hidden", "").lower() == "true"
@@ -290,6 +315,13 @@ RUOLI = {
     "editor": "editor", "editor di testo": "editor", "blocco note": "editor",
     "lettore video": "video", "lettore multimediale": "video",
     "visualizzatore immagini": "immagini", "lettore pdf": "pdf",
+    # in inglese
+    "web browser": "browser", "email client": "posta", "mail client": "posta",
+    "terminal": "terminale", "command prompt": "terminale", "command line": "terminale",
+    "file manager": "file", "file explorer": "file", "files": "file",
+    "text editor": "editor", "notepad": "editor",
+    "video player": "video", "media player": "video", "music player": "video",
+    "image viewer": "immagini", "photo viewer": "immagini", "pdf viewer": "pdf", "pdf reader": "pdf",
 }
 
 
@@ -308,9 +340,9 @@ def _predefinita(ruolo: str) -> str | None:
 def trova_app(testo: str, ruoli: bool = True) -> App | None:
     """La app di cui si parla: sinonimi, nome esatto, poi parole del nome."""
     t = norm(testo)
-    t = re.sub(r"^(?:(?:il|lo|la|i|gli|le|un|una|uno)\s+|l'\s*)", "", t)
-    t = re.sub(r"\s+(app|applicazione|programma)$", "", t)
-    t = re.sub(r"^(app|applicazione|programma)\s+", "", t)
+    t = re.sub(r"^(?:(?:il|lo|la|i|gli|le|un|una|uno|the|a|an|my)\s+|l'\s*)", "", t)
+    t = re.sub(r"\s+(app|applicazione|programma|application|program)$", "", t)
+    t = re.sub(r"^(app|applicazione|programma|application|program)\s+", "", t)
     if not t:
         return None
     tutte = app_installate()
@@ -341,7 +373,9 @@ def trova_app(testo: str, ruoli: bool = True) -> App | None:
     # una descrizione: «quel programma per le email», «qualcosa per la musica»
     m = re.match(r"^(?:quel|quello|qualcosa|qualche|un|una|il|la|l')?\s*"
                  r"(?:programma|app|applicazione|cosa|coso|roba)?\s*"
-                 r"(?:per|della|delle|dei|del|di|da)\s+(?:(?:il|lo|la|l'|i|gli|le|un|una)\s*)?(.+)$", t)
+                 r"(?:per|della|delle|dei|del|di|da)\s+(?:(?:il|lo|la|l'|i|gli|le|un|una)\s*)?(.+)$", t) or \
+        re.match(r"^(?:(?:that|some|something|an|a)\s+)?(?:(?:program|app|application|thing)\s+)?"
+                 r"(?:for|to)\s+(?:(?:the|my|a|an)\s+)?(.+)$", t)
     if m and m.group(1) != t:
         return trova_app(m.group(1), ruoli)
     return None

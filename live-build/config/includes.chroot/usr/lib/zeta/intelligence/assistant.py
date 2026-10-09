@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Callable
 
+from i18n import tr
+
 from . import intents
 from .providers.ollama import MemoriaInsufficiente
 from .actions import ActionEngine, ActionResult
@@ -34,10 +36,10 @@ _INFO_ACTIONS = {"cpu_usage", "memory_usage", "disk_usage", "ip_address",
                  "volume_status", "find_files", "set_volume"}
 
 
-NOT_CONFIGURED = (
-    "ZETA non ha ancora un modello collegato.\n"
-    "Per usarlo apri Impostazioni › AI e inserisci la chiave di un servizio (Claude, OpenAI, Gemini),\n"
-    "oppure installa Ollama con un modello locale, che funziona anche senza Internet.")
+NOT_CONFIGURED = tr(
+    "ZETA isn't connected to a model yet.\n"
+    "To use it, open Settings › AI and enter a key for a service (Claude, OpenAI, Gemini),\n"
+    "or install Ollama with a local model, which also works without Internet.")
 
 
 class Assistant:
@@ -85,10 +87,10 @@ class Assistant:
         if res.needs_confirmation:
             approved = confirm(res) if confirm else False
             if not approved:
-                return "Operazione annullata."
+                return tr("Operation canceled.")
             res = self.vecchio.run(intent.action, intent.args, authorized=True)
         if not res.ok:
-            return "Non è riuscito: %s" % res.output
+            return tr("It didn't work: {error}").format(error=res.output)
         out = (res.output or "").strip()
         if out and intent.action in _INFO_ACTIONS:
             return out
@@ -107,8 +109,8 @@ class Assistant:
             self.memory.save_turn(text, local, azione=True)
             return local
         if not allow_ai:
-            return ("Non ho capito il comando. Prova ad esempio: «apri i documenti», "
-                    "«quanta RAM sto usando», «apri il terminale», «chiudi la finestra».")
+            return tr("I didn't understand the command. Try, for example: “open documents”, "
+                      "“how much RAM am I using”, “open the terminal”, “close the window”.")
         # modello locale: sceglie un'azione dal catalogo (se la frase ne chiede
         # una), altrimenti si conversa. I servizi in rete usano gli strumenti.
         if not getattr(self.provider, "usa_strumenti", True):
@@ -129,17 +131,18 @@ class Assistant:
         """
         t = (text or "").strip()
         if not t:
-            return ("Non hai scritto nulla. Prova con «apri i documenti», "
-                    "«che ore sono», «quanta RAM sto usando».")
+            return tr("You didn't write anything. Try “open documents”, "
+                      "“what time is it”, “how much RAM am I using”.")
         if not any(c.isalnum() for c in t):
-            return ("Non ho capito «%s». Prova a scriverlo a parole: "
-                    "«apri le impostazioni», «che ore sono»." % t[:30])
+            return tr("I didn't understand “{text}”. Try writing it in words: "
+                      "“open settings”, “what time is it”.").format(text=t[:30])
         return None
 
     def provider_label(self) -> str:
         p = self.provider
-        extra = " (locale)" if p.config.kind == "local" else ""
-        return "%s%s" % (p.config.label, extra)
+        if p.config.kind == "local":
+            return tr("{name} (local)").format(name=p.config.label)
+        return p.config.label
 
     def ask(self, text: str, on_text: Callable[[str], None] | None = None,
             confirm: Callable[[ActionResult], bool] | None = None) -> str:
@@ -186,11 +189,17 @@ class Assistant:
     # «Ho aperto Firefox» detto dal modello senza che nessuna azione sia
     # partita e' una bugia: il modello non tocca il computer. Si lascia la
     # risposta ma si dice chiaramente che non e' successo nulla.
+    # Le stesse frasi in inglese («I've opened», «Done»): il modello risponde
+    # nella lingua di chi scrive.
     _PROMESSA = re.compile(
         r"(?i)(?:^\s*fatto\b|\b(?:ho|l'ho|li ho|le ho)\s+(?:gia'?\s+|appena\s+)?(?:aperto|chiuso|"
         r"eliminato|cancellato|creato|spostato|copiato|installato|disinstallato|spento|acceso|"
         r"riavviato|avviato|impostato|attivato|disattivato|collegato|scollegato|bloccato|"
-        r"salvato|scaricato|rinominato|alzato|abbassato|cambiato)\b)")
+        r"salvato|scaricato|rinominato|alzato|abbassato|cambiato)\b"
+        r"|^\s*done\b|\bi(?:'ve|\u2019ve| have)?\s+(?:already\s+|just\s+)?(?:opened|closed|deleted|"
+        r"removed|created|moved|copied|installed|uninstalled|turned\s+(?:off|on)|switched\s+(?:off|on)|"
+        r"restarted|rebooted|started|launched|enabled|disabled|connected|disconnected|locked|saved|"
+        r"downloaded|renamed|raised|lowered|changed|muted)\b)")
 
     @classmethod
     def _onesta(cls, final: str, eseguite: bool) -> str:
@@ -201,17 +210,18 @@ class Assistant:
                     if not re.search(r"(?i)\bnon\s+(?:l'|li\s+|le\s+|lo\s+)?$", final[max(0, m.start() - 8):m.start()])]
         if not promesse:
             return final
-        return (final + "\n\n(Nota: non ho eseguito nessuna azione sul computer. "
-                "Se vuoi che la faccia, chiedimelo come comando, ad esempio «apri Firefox».)")
+        return (final + "\n\n" + tr("(Note: I didn't perform any action on the computer. "
+                                      "If you want me to, ask for it as a command, for example "
+                                      "“open Firefox”.)"))
 
     def _chiudi_turno(self, text: str, final: str, inizio: int, eseguite: bool = False) -> str:
         final = self._onesta(final, eseguite)
         if self._chiamata_grezza(final):
             # tutto il turno resta fuori dalla cronologia: non ha avuto risposta
             del self.history[inizio:]
-            return ("Non sono riuscito a capire la richiesta. Prova a dirla in "
-                    "un altro modo, oppure con un comando: «apri il terminale», "
-                    "«quanta RAM sto usando».")
+            return tr("I couldn't understand the request. Try saying it another "
+                      "way, or with a command: “open the terminal”, "
+                      "“how much RAM am I using”.")
         self.history.append(Message("assistant", final))
         self.memory.save_turn(text, final)
         return final
@@ -232,7 +242,7 @@ class Assistant:
             return str(e)
         except Exception:  # noqa: BLE001
             if ricevuto:
-                return "".join(ricevuto) + "\n\n(La risposta si e' interrotta.)"
+                return "".join(ricevuto) + "\n\n" + tr("(The reply was cut off.)")
             return self._turn([]).text
 
     def _turn(self, tools) -> Reply:
@@ -262,8 +272,8 @@ class Assistant:
         except Exception:  # noqa: BLE001
             if not self.provider.available():
                 return Reply(text=NOT_CONFIGURED)
-            return Reply(text="Non riesco a contattare %s in questo momento. Controlla la connessione "
-                              "a Internet o la configurazione in Impostazioni › AI." % self.provider_label())
+            return Reply(text=tr("I can't reach {provider} right now. Check your Internet connection "
+                                 "or the setup in Settings › AI.").format(provider=self.provider_label()))
 
     def _ripiega_su_altro_modello(self, e: "ProviderError") -> bool:
         """Solo se l'utente non ha scelto un modello (si usa il predefinito) e il
@@ -297,8 +307,8 @@ class Assistant:
             r = locale.chat(self.history, None)
         except Exception:  # noqa: BLE001
             return None
-        r.text = ("(%s non risponde: %s Ha risposto il modello locale.)\n\n%s"
-                  % (self.provider_label(), str(e).split(":", 1)[-1].strip(), r.text))
+        r.text = (tr("({provider} isn't responding: {reason} The local model answered instead.)").format(
+            provider=self.provider_label(), reason=str(e).split(":", 1)[-1].strip()) + "\n\n" + r.text)
         return r
 
     def _execute_tools(self, calls: list[ToolCall],
@@ -311,16 +321,16 @@ class Assistant:
                 if approved:
                     res = self.engine.run(call.name, call.arguments, authorized=True)
                 else:
-                    res = ActionResult(False, "Azione annullata dall'utente.")
+                    res = ActionResult(False, "Action canceled by the user.")
             out.append((call.name, res))
         return out
 
     def _describe_calls(self, reply: Reply) -> str:
-        return reply.text or "Eseguo le azioni richieste."
+        return reply.text or "Running the requested actions."
 
     def _format_results(self, results: list[tuple[str, ActionResult]]) -> str:
         parts = []
         for name, res in results:
-            head = "OK" if res.ok else "ERRORE"
+            head = "OK" if res.ok else "ERROR"
             parts.append("[%s] %s: %s" % (head, name, res.output))
         return "\n".join(parts)

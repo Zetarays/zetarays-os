@@ -1,47 +1,74 @@
-# Costruire le immagini di ZETA RAYS OS
+# Building the ZETA RAYS OS images
 
-## Cosa serve
+## Requirements
 
-- Docker (su Mac: Colima, `colima start --memory 12 --cpu 8`).
-- Circa 40 GB liberi.
-- Per la OVA: VirtualBox (`VBoxManage`).
-- Rete: la prima volta si scaricano i pacchetti Debian e i file grandi.
+- Docker (on a Mac: Colima, `colima start --memory 16 --cpu 8`).
+- About 40 GB of free disk space.
+- For the OVA: VirtualBox (`VBoxManage`).
+- Network: the first build downloads the Debian packages and the large files
+  listed below; Flathub must be reachable.
 
-## Comandi
+On an Apple Silicon Mac the amd64 image is built under emulation (`build.sh`
+switches Colima from Rosetta to QEMU for the build and back afterwards). It
+needs free memory on the Mac itself: shut down test virtual machines before an
+amd64 build. Giving Colima more than about 16 GB makes things worse, not
+better.
+
+## Commands
 
 ```bash
-./build.sh arm64          # ISO arm64  → out/zetarays-1.7-arm64.iso
-./build.sh amd64          # ISO amd64  → out/zetarays-1.7-amd64.iso
-ZETA_ARCH=arm64 tools/make-ova.sh    # OVA dalla ISO appena costruita
-tools/build-all-1.7.sh    # tutte e quattro, in ordine, fermandosi al primo errore
+./build.sh arm64          # arm64 ISO -> out/zetarays-2.0-arm64.iso
+./build.sh amd64          # amd64 ISO -> out/zetarays-2.0-amd64.iso
+ZETA_ARCH=arm64 tools/make-ova.sh    # OVA from the ISO just built
+tools/build-all-2.0.sh    # all four images, in order, stopping at the first error
 ```
 
-## Cosa scarica la costruzione (e controlla)
+`tools/build-all-2.0.sh` always starts from scratch and copies the four images
+to the delivery folder (`~/Desktop/ZETA RAYS 2.0`, or `$ZETA_CONSEGNA`) only if
+all of them were built. `tools/genera-readme.py` writes the README.txt of that
+folder from `docs/README-2.0.txt.in`, filling in sizes, checksums and the
+kernel version.
 
-Questi file non stanno nel repository perché troppo grandi o generati:
+## What the build downloads (and checks)
 
-| File | Da dove | Controllo |
+These files are not in the repository because they are too large or generated:
+
+| File | Source | Check |
 |---|---|---|
-| modello AI llama3.2:1b (1,3 GB) | registro ufficiale di Ollama (`tools/scarica-modello-ai.sh`) | SHA-256 del manifesto nel repository |
-| runtime Ollama | GitHub, rilasci ufficiali di Ollama | presenza e avvio nell'immagine |
-| LocalSend (ZETA Share) | rilasci ufficiali di LocalSend | SHA-256 fissato in `build.sh` |
-| libhyprutils-dev 0.13.1 | snapshot.debian.org | SHA-1 fissato in `build.sh` |
-| Hyprland 0.55.2 con la correzione #15416 | `tools/build-hyprland-zeta.sh` (da compilare una volta) | versione `+zeta1` verificata in costruzione |
+| AI model llama3.2:1b (1.3 GB) | official Ollama registry (`tools/scarica-modello-ai.sh`) | SHA-256 from the manifest kept in the repository |
+| Ollama runtime 0.40.0 | GitHub, official Ollama releases | installed and started in the image |
+| Natural voice: Piper 2023.11.14-2, voices Paola (it) and Lessac (en) | GitHub and Hugging Face (`tools/scarica-voce.sh`) | SHA-256 pinned in the script |
+| Speech recognition: Vosk models (it, en) and Python packages | alphacephei.com and PyPI (`tools/scarica-voce.sh`) | SHA-256 pinned for the models; the build installs without network |
+| LocalSend (ZETA Share) | official LocalSend releases | SHA-256 pinned in `build.sh` |
+| libhyprutils-dev 0.13.1 | snapshot.debian.org | SHA-1 pinned in `build.sh` |
+| Hyprland 0.55.2 with fix #15416 | `tools/build-hyprland-zeta.sh` (compiled once) | `+zeta1` version checked during the build |
 
-La pagina iniziale di Firefox si genera dal sito (`tools/genera-pagina-firefox.py`,
-con `tools/sito-font-libero.py` che usa il font libero Syne).
+The Firefox start page is generated from the website
+(`tools/genera-pagina-firefox.py`, after `tools/sito-font-libero.py` replaces
+the website's font with the free Syne font). See [start-page.md](start-page.md).
 
-## Controlli automatici della costruzione
+## Automatic checks during the build
 
-La costruzione si ferma da sola se: mancano le barre del titolo (hyprbars),
-il pacchetto di avvio (initramfs) supera gli 80 MB, resta qualche pacchetto da
-aggiornare, manca il logo dell'installer, l'avvio sicuro o il motore dell'AI,
-o la pagina iniziale di Firefox. La costruzione amd64 su Mac Apple Silicon è
-emulata: se Python va in crash mentre configura i pacchetti, `build.sh`
-riprende da solo la configurazione.
+The build stops by itself if:
 
-## Dopo la costruzione
+- a UI string has no Italian translation (`tools/i18n.py check`); the `.mo`
+  catalogs are then compiled fresh from `po/*.po`;
+- the Firefox start page or its policy is missing;
+- the title bars (hyprbars) did not compile, or Hyprland is not the patched
+  version;
+- the boot archive (initramfs) is larger than 80 MB;
+- some package is left to upgrade;
+- the installer logo, Secure Boot support, the AI runtime or the AI model is
+  missing;
+- LocalSend or Flathub is missing;
+- a language offered in Settings > Language & Region did not compile.
+
+If Python crashes while configuring packages (this happens at random under
+amd64 emulation), `build.sh` resumes the configuration by itself, up to three
+times.
+
+## After the build
 
 ```bash
-cd out && shasum -a 256 zetarays-1.7-*.iso zetarays-1.7-*.ova
+cd out && shasum -a 256 zetarays-2.0-*.iso zetarays-2.0-*.ova
 ```

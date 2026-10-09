@@ -9,6 +9,8 @@ live-build/config/includes.chroot/usr/share/ollama/.ollama/models/blobs/
 live-build/config/includes.chroot/usr/share/zeta/ollama-runtime.tar.zst
 live-build/config/includes.chroot/usr/share/zeta/hyprland-corretto/
 live-build/config/includes.chroot/usr/share/zeta/localsend/
+live-build/config/includes.chroot/usr/share/zeta/piper-cache/
+live-build/config/includes.chroot/usr/share/zeta/vosk-cache/
 live-build/config/includes.chroot/usr/share/zetarays/start/
 live-build/config/includes.chroot/usr/share/grub/themes/zeta/
 
@@ -26,3 +28,7 @@ __pycache__/
 *.pyc
 *.parziale
 *.tmp
+
+# Compiled translations (build.sh generates them from po/)
+live-build/config/includes.chroot/usr/share/locale/*/LC_MESSAGES/zetarays.mo
+po/zetarays.pot

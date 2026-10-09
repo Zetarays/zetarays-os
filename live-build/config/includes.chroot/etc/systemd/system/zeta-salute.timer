@@ -1,5 +1,5 @@
 [Unit]
-Description=ZETA RAYS: controllo della salute ogni due minuti
+Description=ZETA RAYS: health check every two minutes
 
 [Timer]
 OnBootSec=3min

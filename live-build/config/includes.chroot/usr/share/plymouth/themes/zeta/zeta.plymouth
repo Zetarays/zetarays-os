@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=ZETA RAYS
-Description=Avvio di ZETA RAYS
+Description=ZETA RAYS boot screen
 ModuleName=script
 
 [script]

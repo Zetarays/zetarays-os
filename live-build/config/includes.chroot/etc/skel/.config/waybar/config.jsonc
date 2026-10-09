@@ -23,7 +23,7 @@
   // Finestre ridotte a icona: il modulo compare solo quando ce n'è almeno una
   "custom/finestre": {
     "exec": "zeta-finestre conta", "interval": 30, "signal": 9,
-    "tooltip": true, "tooltip-format": "Finestre ridotte a icona",
+    "tooltip": true, "tooltip-format": "Minimized windows",
     "on-click": "zeta-finestre"
   },
 
@@ -66,14 +66,13 @@
   "image#packages": { "path": "/usr/share/icons/zeta/scalable/apps/synaptic.svg",             "size": 42, "tooltip": false, "on-click": "synaptic-pkexec" },
   "image#settings": { "path": "/usr/share/icons/zeta/scalable/apps/zeta-impostazioni.svg",    "size": 42, "tooltip": false, "on-click": "zeta-impostazioni" },
 
-  "image#net": { "exec": "zeta-status net", "interval": 5, "size": 18, "tooltip": false, "on-click": "zeta-pannello controllo" },
-  "image#vol": { "exec": "zeta-status vol", "interval": 30, "signal": 11, "size": 18, "tooltip": false, "on-click": "zeta-pannello controllo",
+  "image#net": { "exec": "zeta-status net", "interval": 5, "size": 18, "tooltip": false, "on-click": "zeta-pannello rete" },
+  "image#vol": { "exec": "zeta-status vol", "interval": 30, "signal": 11, "size": 18, "tooltip": false, "on-click": "zeta-pannello audio",
                  "on-scroll-up": "zeta-volume su", "on-scroll-down": "zeta-volume giu" },
   "image#bat": { "exec": "zeta-status bat", "interval": 30, "size": 20, "tooltip": false, "on-click": "zeta-pannello controllo" },
   "image#power": { "path": "/usr/share/zeta/status/power.svg", "size": 18, "tooltip": false, "on-click": "zeta-pannello energia" },
   "clock": {
     "format": "<span weight='500'>{0:%H:%M}</span>\n<span size='8.5pt' foreground='#8A8A8E'>{0:L%a %d %b}</span>",
-    "locale": "it_IT.UTF-8",
     "justify": "right",
     "tooltip-format": "<span size='11pt'>{0:L%A %d %B %Y}</span>\n\n<tt>{calendar}</tt>",
     "calendar": {

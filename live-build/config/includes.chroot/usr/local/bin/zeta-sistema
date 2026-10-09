@@ -20,6 +20,19 @@ import time
 
 sys.path.insert(0, "/usr/lib/zeta")
 import psutil  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
+
+USAGE = tr("""zeta — system commands (read-only: they change nothing).
+
+  zeta system           summary: CPU, memory, disk, GPU, network, services, AI
+  zeta memory           RAM, swap, pressure, top memory users, earlyoom closures
+  zeta processes        programs by CPU (zeta processes mem: by memory)
+  zeta repositories     repositories, package list age, updates
+  zeta ai status        active intelligence, services, Ollama
+  zeta ai test [SERVICE]  really tests the connection
+  zeta shell status     the terminal (see “zeta shell” for the rest)
+  zeta diagnose         full report (with sudo it also reads the logs)
+""")
 
 B, D, A, V, G, R, X = "\033[1m", "\033[38;2;138;138;142m", "\033[38;2;58;141;255m", \
     "\033[38;2;76;201;74m", "\033[38;2;255;181;71m", "\033[38;2;255;107;107m", "\033[0m"
@@ -44,9 +57,11 @@ def livello(perc, att=80, prob=92):
     return "problema" if perc >= prob else ("attenzione" if perc >= att else "ok")
 
 
-def run(cmd, timeout=5):
+def run(cmd, timeout=5, c_locale=False):
+    # c_locale: the output is parsed, so it must not depend on the user's language
+    env = dict(os.environ, LC_ALL="C") if c_locale else None
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
 
@@ -77,7 +92,7 @@ def app_per_memoria(n=10):
             continue
         if nome in ("Isolated Web Co", "Web Content", "WebExtensions", "Privileged Cont",
                     "RDD Process", "Socket Process", "Utility Process", "forkserver"):
-            nome = "firefox (schede)"
+            nome = tr("firefox (tabs)")
         n_, r_ = tot.get(nome, (0, 0))
         tot[nome] = (n_ + 1, r_ + rss)
     return sorted(tot.items(), key=lambda kv: -kv[1][1])[:n]
@@ -85,37 +100,41 @@ def app_per_memoria(n=10):
 
 def cmd_memoria():
     vm, sw = psutil.virtual_memory(), psutil.swap_memory()
-    titolo("Memoria")
-    riga("RAM usata", "%s di %s (%d%%), disponibile %s" % (
-        gb(vm.total - vm.available), gb(vm.total), vm.percent, gb(vm.available)), livello(vm.percent))
-    riga("cache (si libera da sola)", gb(getattr(vm, "cached", 0) + getattr(vm, "buffers", 0)))
-    riga("swap", "%s di %s (%d%%)" % (gb(sw.used), gb(sw.total), sw.percent) if sw.total else "nessuna",
+    titolo(tr("Memory"))
+    riga(tr("RAM used"), tr("{used} of {total} ({pct}%), {available} available").format(
+        used=gb(vm.total - vm.available), total=gb(vm.total), pct="%d" % vm.percent,
+        available=gb(vm.available)), livello(vm.percent))
+    riga(tr("cache (frees itself)"), gb(getattr(vm, "cached", 0) + getattr(vm, "buffers", 0)))
+    riga("swap", tr("{used} of {total} ({pct}%)").format(used=gb(sw.used), total=gb(sw.total), pct="%d" % sw.percent)
+         if sw.total else tr("no swap"),
          livello(sw.percent, 60, 85) if sw.total else None)
     if os.path.exists("/sys/block/zram0"):
         try:
             mm = open("/sys/block/zram0/mm_stat").read().split()
             orig, compr = int(mm[0]), int(mm[1])
             if orig:
-                riga("zram (swap compressa)", "%s compressi in %s" % (gb(orig), gb(compr)))
+                riga(tr("zram (compressed swap)"), tr("{original} compressed into {compressed}").format(
+                    original=gb(orig), compressed=gb(compr)))
         except (OSError, ValueError, IndexError):
             pass
     p = psi("memory")
     if p is not None:
-        riga("pressione (60 s)", "%.1f%% del tempo in attesa di memoria" % p,
+        riga(tr("pressure (60 s)"), tr("{pct} of the time waiting for memory").format(pct="%.1f%%" % p),
              "problema" if p > 20 else ("attenzione" if p > 5 else "ok"))
-    titolo("Chi usa più memoria")
+    titolo(tr("Top memory users"))
     for nome, (n, rss) in app_per_memoria():
-        print("  %-26s %9s  %s" % (nome[:26], gb(rss), ("%d processi" % n) if n > 1 else ""))
+        print("  %-26s %9s  %s" % (nome[:26], gb(rss),
+                                   ntr("{n} process", "{n} processes", n).format(n=n) if n > 1 else ""))
     chiusi = run(["journalctl", "-u", "earlyoom", "--since", "-24h", "-o", "cat", "--no-pager"])
     uccisi = [r for r in chiusi.splitlines() if "sending SIG" in r and " to process " in r]
-    titolo("Chiusure per memoria finita (ultime 24 ore)")
+    titolo(tr("Out-of-memory closures (last 24 hours)"))
     if uccisi:
         for r in uccisi[-5:]:
             print("  " + r[:110])
     elif chiusi or os.access("/var/log/journal", os.R_OK):
-        print("  nessuna")
+        print("  " + tr("no closures"))
     else:
-        print("  %s(registro non leggibile da questo utente: sudo zeta memory)%s" % (D, X))
+        print("  %s%s%s" % (D, tr("(log not readable by this user: sudo zeta memory)"), X))
     return 0
 
 
@@ -141,72 +160,74 @@ def cmd_processi(per="cpu"):
         except (psutil.Error, AttributeError):
             continue
     dati.sort(key=lambda d: -(d[5] if per.startswith("mem") else d[4]))
-    titolo("Processi per %s" % ("memoria" if per.startswith("mem") else "CPU"))
-    print("  %s%7s  %-22s %-10s %-9s %6s %9s %5s%s" % (D, "PID", "NOME", "UTENTE", "STATO", "CPU%",
-                                                       "MEMORIA", "THR", X))
+    titolo(tr("Processes by memory") if per.startswith("mem") else tr("Processes by CPU"))
+    print("  %s%7s  %-22s %-10s %-9s %6s %9s %5s%s" % (D, "PID", tr("NAME"), tr("USER"), tr("STATUS"), "CPU%",
+                                                       tr("MEMORY"), "THR", X))
     for pid, nome, ut, st, cpu, rss, thr in dati[:20]:
         c = R if cpu > 80 else (G if cpu > 30 else "")
         print("  %7d  %-22s %-10s %-9s %s%6.1f%s %9s %5d" % (pid, nome[:22], ut[:10], st[:9], c, cpu,
                                                             X if c else "", gb(rss), thr))
-    print("\n  %sPer chiudere un programma bloccato: Ctrl+Alt+Esc (mirino) o Ctrl+Alt+Canc.%s" % (D, X))
+    print("\n  %s%s%s" % (D, tr("To close a frozen program: Ctrl+Alt+Esc (crosshair) or Ctrl+Alt+Del."), X))
     return 0
 
 
 def cmd_sistema():
-    titolo("ZETA RAYS · sistema")
+    titolo(tr("ZETA RAYS · system"))
     try:
         os_rel = dict(l.strip().split("=", 1) for l in open("/etc/os-release") if "=" in l)
-        riga("sistema", os_rel.get("PRETTY_NAME", "").strip('"'))
+        riga(tr("system"), os_rel.get("PRETTY_NAME", "").strip('"'))
     except OSError:
         pass
     riga("kernel", os.uname().release)
     up = time.time() - psutil.boot_time()
-    riga("acceso da", "%d h %d min" % (up // 3600, up % 3600 // 60))
+    riga(tr("up for"), "%d h %d min" % (up // 3600, up % 3600 // 60))
     carico = os.getloadavg()
     n = psutil.cpu_count() or 1
-    riga("processore", "%d%% (carico %.2f %.2f %.2f su %d core)" % (
-        psutil.cpu_percent(0.5), *carico, n), livello(carico[0] / n * 100, 100, 200))
+    riga(tr("processor"), ntr("{pct}% (load {load} on {n} core)", "{pct}% (load {load} on {n} cores)", n).format(
+        pct="%d" % psutil.cpu_percent(0.5), load="%.2f %.2f %.2f" % carico, n=n),
+        livello(carico[0] / n * 100, 100, 200))
     vm = psutil.virtual_memory()
-    riga("memoria", "%s liberi di %s (%d%% usata)" % (gb(vm.available), gb(vm.total), vm.percent),
-         livello(vm.percent))
+    riga(tr("memory"), tr("{free} free of {total} ({pct}% used)").format(
+        free=gb(vm.available), total=gb(vm.total), pct="%d" % vm.percent), livello(vm.percent))
     for mp in ("/", "/home"):
         try:
             du = psutil.disk_usage(mp)
             if mp == "/home" and os.stat("/home").st_dev == os.stat("/").st_dev:
                 continue
-            riga("disco %s" % mp, "%s liberi di %s (%d%%)" % (gb(du.free), gb(du.total), du.percent),
-                 livello(du.percent, 85, 95))
+            riga(tr("disk {mount}").format(mount=mp), tr("{free} free of {total} ({pct}%)").format(
+                free=gb(du.free), total=gb(du.total), pct="%d" % du.percent), livello(du.percent, 85, 95))
         except OSError:
             pass
     try:
         from monitor import collectors
-        g = collectors.gpu()
-        if g:
-            riga("scheda grafica", "%s%s" % (g.get("name", "?"),
-                 (" · %d%% usata" % g["busy"]) if g.get("busy") is not None else ""))
+        g = collectors.Collectors().gpu()
+        if g and g.get("name") not in (None, collectors.NA):
+            riga(tr("graphics card"), "%s%s" % (g.get("name", "?"),
+                 (" · " + tr("{pct}% used").format(pct="%d" % g["busy"])) if g.get("busy") is not None else ""))
     except Exception:  # noqa: BLE001 - dato accessorio
         pass
     try:
         t = [x.current for v in psutil.sensors_temperatures().values() for x in v if x.current]
         if t:
-            riga("temperatura massima", "%.0f °C" % max(t), livello(max(t), 80, 90))
+            riga(tr("max temperature"), "%.0f °C" % max(t), livello(max(t), 80, 90))
     except (AttributeError, OSError):
         pass
     falliti = run(["systemctl", "--failed", "--no-legend", "--plain"]).split("\n")
     falliti = [f.split()[0] for f in falliti if f.strip()]
-    riga("servizi in errore", ", ".join(falliti) if falliti else "nessuno", "problema" if falliti else "ok")
+    riga(tr("failed services"), ", ".join(falliti) if falliti else tr("none"), "problema" if falliti else "ok")
     via = run(["ip", "-j", "route", "show", "default"])
     try:
         v = json.loads(via or "[]")
-        riga("rete", ("uscita via %s (%s)" % (v[0].get("dev"), v[0].get("gateway"))) if v
-             else "nessuna connessione", "ok" if v else "attenzione")
+        riga(tr("network"), tr("out via {device} ({gateway})").format(device=v[0].get("dev"), gateway=v[0].get("gateway"))
+             if v else tr("no connections"), "ok" if v else "attenzione")
     except ValueError:
         pass
     try:
         from intelligence import ollama_gestione as og
         car = og.caricati()
-        riga("Ollama", ("attivo · " + (", ".join(m["nome"] for m in car) + " in memoria" if car
-                        else "nessun modello in memoria")) if og.servizio_attivo() else "fermo")
+        riga("Ollama", ((tr("running · {models} in memory").format(models=", ".join(m["nome"] for m in car))
+                         if car else tr("running · no models in memory"))
+                        if og.servizio_attivo() else tr("stopped")))
     except Exception:  # noqa: BLE001
         pass
     # reattivita' del desktop: quanto ci mette il gestore delle finestre a rispondere
@@ -222,38 +243,39 @@ def cmd_sistema():
             s.recv(65536)
             ms = (time.monotonic() - t0) * 1000
             s.close()
-            riga("desktop", "risponde in %.0f ms" % ms, livello(ms, 100, 500))
+            riga(tr("desktop"), tr("responds in {ms} ms").format(ms="%.0f" % ms), livello(ms, 100, 500))
         except OSError:
-            riga("desktop", "non risponde", "problema")
+            riga(tr("desktop"), tr("not responding"), "problema")
     salute = "/run/zeta-salute.txt"
     if os.path.exists(salute):
-        titolo("Ultimo controllo automatico (zeta-salute)")
+        titolo(tr("Last automatic check (zeta-salute)"))
         print("  " + open(salute).read().strip().replace("\n", "\n  "))
     return 0
 
 
 def cmd_repository():
     from system import pacchetti
-    titolo("Repository dei pacchetti")
+    titolo(tr("Package repositories"))
     for f, r in pacchetti.repository():
         print("  %s%-18s%s %s" % (D, f[:18], X, r))
     eta = pacchetti.eta_indici()
     print()
-    riga("elenco dei pacchetti", pacchetti.descrivi_eta(eta),
+    riga(tr("package list"), pacchetti.descrivi_eta(eta),
          "attenzione" if pacchetti.indici_vecchi() else "ok")
     try:
         pref = open("/etc/apt/preferences.d/zeta-backports.pref").read()
-        riga("priorità", "backports solo per: " + pref.split("Package:")[1].split("\n")[0].strip()[:70])
+        riga(tr("priority"), tr("backports only for: {packages}").format(
+            packages=pref.split("Package:")[1].split("\n")[0].strip()[:70]))
     except (OSError, IndexError):
         pass
-    agg = run(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=60)
+    agg = run(["apt-get", "-s", "-o", "Debug::NoLocking=1", "upgrade"], timeout=60, c_locale=True)
     n = sum(1 for r in agg.splitlines() if r.startswith("Inst "))
-    riga("aggiornamenti pronti", str(n) if n else "nessuno", "attenzione" if n else "ok")
+    riga(tr("updates ready"), str(n) if n else tr("none"), "attenzione" if n else "ok")
     rotti = run(["dpkg", "--audit"], timeout=30).strip()
-    riga("pacchetti a metà", "nessuno" if not rotti else rotti.splitlines()[0][:80],
+    riga(tr("half-installed packages"), tr("none") if not rotti else rotti.splitlines()[0][:80],
          "ok" if not rotti else "problema")
-    print("\n  %sAggiornare l'elenco: sudo apt update · Installare: Pacchetti (Synaptic) o sudo apt install%s"
-          % (D, X))
+    print("\n  %s%s%s" % (D, tr("Update the list: sudo apt update · Install: Packages (Synaptic) or sudo apt install"),
+                          X))
     return 0
 
 
@@ -266,7 +288,7 @@ def cmd_ai(arg):
         esito = 0
         for pid in ids:
             if pid not in CATALOG:
-                print("Servizio sconosciuto: %s (vedi «zeta ai status»)" % pid)
+                print(tr("Unknown service: {name} (see “zeta ai status”)").format(name=pid))
                 esito = 1
                 continue
             print("%s…" % CATALOG[pid][1], end=" ", flush=True)
@@ -274,38 +296,38 @@ def cmd_ai(arg):
             print("%s%s%s %s" % (V if ok else R, "✓" if ok else "✗", X, msg))
             esito |= 0 if ok else 1
         return esito
-    titolo("Intelligenza di ZETA")
+    titolo(tr("ZETA Intelligence"))
     scelta = reg.settings.get("default") or "auto"
     attiva = reg.resolve_default()
-    riga("scelta", "automatica (Ollama prima)" if scelta == "auto" else CATALOG[scelta][1])
+    riga(tr("choice"), tr("automatic (Ollama first)") if scelta == "auto" else CATALOG[scelta][1])
     modello = attiva.config.model or (attiva._model() if hasattr(attiva, "_model") else "")
-    riga("in uso adesso", "%s · %s" % (attiva.config.label, modello or "modello predefinito"))
-    riga("chiavi", keyring_where())
-    titolo("Servizi")
+    riga(tr("in use now"), "%s · %s" % (attiva.config.label, modello or tr("default model")))
+    riga(tr("keys"), keyring_where())
+    titolo(tr("Services"))
     for r in reg.status():
-        stato = "pronto" if r["ready"] else "da configurare"
+        stato = tr("ready") if r["ready"] else tr("needs setup")
         print("  %s%s%s %-38s %s%s%s" % (V if r["ready"] else D, "●" if r["ready"] else "○", X,
                                           r["label"][:38], D, stato, X))
-    titolo("Ollama (sul computer)")
+    titolo(tr("Ollama (on this computer)"))
     if not og.installato():
-        riga("stato", "non installato", "attenzione")
+        riga(tr("status"), tr("not installed"), "attenzione")
         return 0
     attivo = og.servizio_attivo()
-    riga("servizio", ("attivo · versione %s" % og.versione()) if attivo else "fermo",
+    riga(tr("service"), tr("running · version {version}").format(version=og.versione()) if attivo else tr("stopped"),
          "ok" if attivo else "attenzione")
     for m in og.modelli():
-        riga("modello", "%s  %.1f GB  %s" % (m["nome"], m["gb"], m["parametri"]))
+        riga(tr("model"), "%s  %.1f GB  %s" % (m["nome"], m["gb"], m["parametri"]))
     car = og.caricati()
-    riga("in memoria", ", ".join("%s (%.1f GB)" % (m["nome"], m["gb"]) for m in car) or "nessuno")
+    riga(tr("in memory"), ", ".join("%s (%.1f GB)" % (m["nome"], m["gb"]) for m in car) or tr("none"))
     ris = og.risorse_processo()
-    riga("processi di Ollama", "%s di RAM" % gb(ris["ram_gb"] * 1e9))
-    print("\n  %sProva: zeta ai test [servizio] · Impostazioni › AI per scegliere e configurare%s" % (D, X))
+    riga(tr("Ollama processes"), tr("{size} of RAM").format(size=gb(ris["ram_gb"] * 1e9)))
+    print("\n  %s%s%s" % (D, tr("Test: zeta ai test [service] · Settings › AI to choose and configure"), X))
     return 0
 
 
 def main(a):
     if not a:
-        print(__doc__)
+        print(USAGE)
         return 1
     c, resto = a[0], a[1:]
     if c in ("system", "sistema", "status", "stato"):
@@ -322,7 +344,7 @@ def main(a):
         os.execvp("zeta-shell", ["zeta-shell"] + (["stato"] if not resto or resto[0] == "status" else resto))
     if c in ("diagnose", "diagnosi"):
         os.execvp("zeta-diagnosi", ["zeta-diagnosi"] + resto)
-    print(__doc__)
+    print(USAGE)
     return 1
 
 

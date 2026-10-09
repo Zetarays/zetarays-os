@@ -15,10 +15,20 @@ def run(cmd, timeout=6, check=False):
 
     Allo scadere del tempo termina l'intero gruppo di processi: nessun comando
     resta appeso in background.
+
+    Lo stdout lo leggono le app, non le persone: gli strumenti di sistema
+    rispondono in inglese (LC_ALL=C.UTF-8), qualunque sia la lingua scelta
+    (es. «nmcli radio wifi» stampa «enabled», non «abilitato»). I programmi
+    di ZETA (zeta-*) restano nella lingua dell'utente: possono mostrare
+    notifiche.
     """
+    env = None
+    if not os.path.basename(str(cmd[0] if cmd else "")).startswith("zeta-"):
+        env = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
     try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             stdin=subprocess.DEVNULL, text=True, start_new_session=True)
+                             stdin=subprocess.DEVNULL, text=True, start_new_session=True,
+                             env=env)
     except OSError:
         return None if check else ""
     try:

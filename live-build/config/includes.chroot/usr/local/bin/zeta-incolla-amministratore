@@ -21,11 +21,24 @@ import subprocess
 import sys
 from urllib.parse import unquote, urlparse
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import language, ntr, tr  # noqa: E402
+
 AIUTANTE = "/usr/libexec/zeta-copia-amministratore"
+
+USO = tr("""ZETA RAYS — “Paste Here as Administrator” and “Open as Administrator”.
+
+  zeta-incolla-amministratore incolla FOLDER   paste the copied files (Ctrl+C,
+                                               from the desktop or the file
+                                               manager), asking for the password
+  zeta-incolla-amministratore apri FOLDER      open the folder in the file
+                                               manager with administrator
+                                               rights (admin://)
+""")
 
 
 def avvisa(titolo, testo="", errore=False):
-    cmd = ["notify-send", "-a", "Gestore file", "-i",
+    cmd = ["notify-send", "-a", tr("File Manager"), "-i",
            "dialog-error" if errore else "system-file-manager", titolo]
     if testo:
         cmd.append(testo)
@@ -73,14 +86,17 @@ def chiedi_conflitto(dest, nomi):
                           flags=Gio.ApplicationFlags.NON_UNIQUE)
 
     def attiva(a):
-        elenco = ", ".join("«%s»" % n for n in nomi[:4]) + (" e altri" if len(nomi) > 4 else "")
+        elenco = ", ".join(tr("“{name}”").format(name=n) for n in nomi[:4])
+        if len(nomi) > 4:
+            elenco = tr("{names} and others").format(names=elenco)
         d = Adw.AlertDialog(
-            heading="Esiste già in %s" % dest,
-            body="%s %s già in questa cartella. Cosa vuoi fare?"
-                 % (elenco, "c'è" if len(nomi) == 1 else "ci sono"))
-        d.add_response("annulla", "Annulla")
-        d.add_response("entrambi", "Mantieni entrambi")
-        d.add_response("sostituisci", "Sostituisci")
+            heading=tr("Already exists in {folder}").format(folder=dest),
+            body=ntr("{names} is already in this folder. What do you want to do?",
+                     "{names} are already in this folder. What do you want to do?",
+                     len(nomi)).format(names=elenco))
+        d.add_response("annulla", tr("Cancel"))
+        d.add_response("entrambi", tr("Keep Both"))
+        d.add_response("sostituisci", tr("Replace"))
         d.set_response_appearance("sostituisci", Adw.ResponseAppearance.DESTRUCTIVE)
         d.set_default_response("entrambi")
         d.set_close_response("annulla")
@@ -99,16 +115,16 @@ def chiedi_conflitto(dest, nomi):
 def incolla(dest):
     dest = os.path.realpath(dest)
     if not os.path.isdir(dest):
-        avvisa("Cartella non trovata", dest, errore=True)
+        avvisa(tr("Folder not found"), dest, errore=True)
         return 1
     azione, sorgenti = appunti()
     if not sorgenti:
-        avvisa("Niente da incollare",
-               "Prima copia i file (tasto destro › Copia, oppure Ctrl+C), poi riprova.")
+        avvisa(tr("Nothing to paste"),
+               tr("First copy the files (right-click › Copy, or Ctrl+C), then try again."))
         return 1
     sorgenti = [s for s in sorgenti if os.path.lexists(s)]
     if not sorgenti:
-        avvisa("I file copiati non esistono più", errore=True)
+        avvisa(tr("The copied files no longer exist"), errore=True)
         return 1
     doppi = [os.path.basename(s.rstrip("/")) for s in sorgenti
              if os.path.lexists(os.path.join(dest, os.path.basename(s.rstrip("/"))))
@@ -119,31 +135,34 @@ def incolla(dest):
         if conflitto == "annulla":
             return 1
     try:
-        r = subprocess.run(["pkexec", AIUTANTE, azione, conflitto, dest, "--"] + sorgenti,
+        # pkexec azzera l'ambiente: la lingua dei messaggi si passa a parte
+        r = subprocess.run(["pkexec", AIUTANTE, "--lang=" + language(),
+                            azione, conflitto, dest, "--"] + sorgenti,
                            capture_output=True, text=True)
     except OSError as e:
-        avvisa("Copia non riuscita", str(e), errore=True)
+        avvisa(tr("Copy failed"), str(e), errore=True)
         return 1
     if r.returncode == 126 and not r.stdout.strip():
-        avvisa("Copia annullata", "Senza la password i file non sono stati copiati.")
+        avvisa(tr("Copy canceled"), tr("Without the password, the files were not copied."))
         return 1
     if r.returncode == 127 and not r.stdout.strip():
-        avvisa("Non è stato possibile chiedere la password",
-               (r.stderr or "pkexec non ha risposto").strip()[:300], errore=True)
+        avvisa(tr("Could not ask for the password"),
+               (r.stderr or tr("pkexec did not respond")).strip()[:300], errore=True)
         return 1
     try:
         esito = json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
-        avvisa("Copia non riuscita", (r.stderr or "errore sconosciuto").strip()[:200], errore=True)
+        avvisa(tr("Copy failed"), (r.stderr or tr("unknown error")).strip()[:200], errore=True)
         return 1
     fatti, errori = esito.get("fatti", []), esito.get("errori", [])
     if fatti:
-        verbo = "Spostati" if azione == "sposta" else "Copiati"
-        if len(fatti) == 1:
-            verbo = verbo[:-1] + "o"
-        avvisa("%s in %s" % (verbo, dest), ", ".join(fatti[:6]) + (" …" if len(fatti) > 6 else ""))
+        if azione == "sposta":
+            titolo = ntr("Moved to {folder}", "Moved to {folder}", len(fatti)).format(folder=dest)
+        else:
+            titolo = ntr("Copied to {folder}", "Copied to {folder}", len(fatti)).format(folder=dest)
+        avvisa(titolo, ", ".join(fatti[:6]) + (" …" if len(fatti) > 6 else ""))
     if errori:
-        avvisa("Alcuni file non sono stati copiati", "\n".join(errori[:5]), errore=True)
+        avvisa(tr("Some files were not copied"), "\n".join(errori[:5]), errore=True)
     if azione == "sposta" and fatti:
         # gli appunti puntano a file che non ci sono piu'
         subprocess.run(["wl-copy", "--clear"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -156,14 +175,14 @@ def apri(dest):
         subprocess.Popen(["thunar", "admin://" + dest], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as e:
-        avvisa("Non si apre", str(e), errore=True)
+        avvisa(tr("Could not open the folder"), str(e), errore=True)
         return 1
     return 0
 
 
 def main(argv):
     if len(argv) != 2 or argv[0] not in ("incolla", "apri"):
-        print(__doc__)
+        print(USO)
         return 2
     cartella = argv[1]
     if cartella.startswith("file://"):

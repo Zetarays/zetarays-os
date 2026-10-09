@@ -1,0 +1,15 @@
+#!/bin/sh
+# ZETA RAYS — the default language of the image, set last.
+#
+# live-build's own hook 1020-create-locales-files writes LANG=C.UTF-8 into
+# /etc/default/locale after our 0110 hook: without this, the OVAs and any
+# system copied from the image would start with no real language ("C").
+# The live session gets its language from the boot menu, the installed
+# system from the installer; this is the default for everything else.
+set -e
+update-locale --reset LANG=en_US.UTF-8
+grep -q '^LANG=en_US.UTF-8$' /etc/default/locale || {
+    echo "ZETA RAYS: default language not set: $(cat /etc/default/locale)" >&2
+    exit 1
+}
+echo "ZETA RAYS: default language en_US.UTF-8"

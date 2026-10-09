@@ -22,21 +22,23 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio  # noqa: E402
 
+from i18n import tr  # noqa: E402
+
 TERMINALI = os.path.expanduser("~/.config/xdg-terminals.list")
 
 # categoria: (titolo, tipi da impostare, categoria .desktop preferita, app di ripiego)
 CATEGORIE = {
-    "browser": ("Browser", ["x-scheme-handler/https", "x-scheme-handler/http", "text/html",
+    "browser": (tr("Browser"), ["x-scheme-handler/https", "x-scheme-handler/http", "text/html",
                             "application/xhtml+xml"], "WebBrowser", "firefox-esr.desktop"),
-    "posta": ("Posta", ["x-scheme-handler/mailto", "message/rfc822"], "Email", "thunderbird.desktop"),
-    "file": ("Gestore file", ["inode/directory"], "FileManager", "thunar.desktop"),
-    "terminale": ("Terminale", [], "TerminalEmulator", "foot.desktop"),
-    "editor": ("Editor di testo", ["text/plain", "text/markdown", "text/x-python", "application/x-shellscript",
+    "posta": (tr("Mail"), ["x-scheme-handler/mailto", "message/rfc822"], "Email", "thunderbird.desktop"),
+    "file": (tr("File Manager"), ["inode/directory"], "FileManager", "thunar.desktop"),
+    "terminale": (tr("Terminal"), [], "TerminalEmulator", "foot.desktop"),
+    "editor": (tr("Text Editor"), ["text/plain", "text/markdown", "text/x-python", "application/x-shellscript",
                                    "application/json", "text/csv"], "TextEditor", "org.gnome.TextEditor.desktop"),
-    "video": ("Musica e video", ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime",
+    "video": (tr("Music and Video"), ["video/mp4", "video/x-matroska", "video/webm", "video/quicktime",
                                  "video/x-msvideo", "audio/mpeg", "audio/flac", "audio/ogg", "audio/x-wav",
                                  "audio/mp4", "audio/aac"], "Player", "mpv.desktop"),
-    "immagini": ("Immagini", ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    "immagini": (tr("Images"), ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
                               "image/tiff", "image/svg+xml"], "Viewer", "org.gnome.eog.desktop"),
     "pdf": ("PDF", ["application/pdf"], "Viewer", "org.gnome.Evince.desktop"),
 }
@@ -50,7 +52,7 @@ ESCLUSE = {"footclient.desktop", "foot-server.desktop", "zeta-scrivania.desktop"
 # dock («File», «Documenti») dicevano il ruolo invece dell'app.
 NOMI_PROPRI = {
     "firefox-esr.desktop": "Firefox", "thunderbird.desktop": "Thunderbird", "thunar.desktop": "Thunar",
-    "foot.desktop": "Foot", "org.gnome.TextEditor.desktop": "Editor di testo di GNOME",
+    "foot.desktop": "Foot", "org.gnome.TextEditor.desktop": tr("GNOME Text Editor"),
     "mpv.desktop": "mpv", "org.gnome.eog.desktop": "Eye of GNOME", "org.gnome.Evince.desktop": "Evince",
     "org.xfce.mousepad.desktop": "Mousepad", "debian-xterm.desktop": "XTerm", "debian-uxterm.desktop": "UXTerm",
     "chromium.desktop": "Chromium", "org.gnome.Nautilus.desktop": "Nautilus", "vlc.desktop": "VLC",
@@ -113,10 +115,10 @@ def attuale(cat: str) -> str | None:
 def imposta(cat: str, app_id: str) -> tuple:
     """(ok, messaggio). Scrive la scelta e la verifica rileggendola."""
     if cat not in CATEGORIE:
-        return False, "Categoria sconosciuta: %s" % cat
+        return False, tr("Unknown category: {category}").format(category=cat)
     app = Gio.DesktopAppInfo.new(app_id)
     if app is None:
-        return False, "L'applicazione %s non è installata." % app_id
+        return False, tr("The application {app} is not installed.").format(app=app_id)
     titolo = CATEGORIE[cat][0]
     nome_app = nome(app_id, app)
     if cat == "terminale":
@@ -124,10 +126,10 @@ def imposta(cat: str, app_id: str) -> tuple:
             os.makedirs(os.path.dirname(TERMINALI), exist_ok=True)
             tmp = TERMINALI + ".tmp"
             with open(tmp, "w") as f:
-                f.write("# scelto in Impostazioni › App predefinite\n%s\n" % app_id)
+                f.write("# chosen in Settings › Default Apps\n%s\n" % app_id)
             os.replace(tmp, TERMINALI)
         except OSError as e:
-            return False, "Non riesco a salvare la scelta: %s" % (e.strerror or e)
+            return False, tr("Could not save the choice: {error}").format(error=e.strerror or e)
         ok = _terminale_scelto() == app_id
     else:
         supportati = set(app.get_supported_types() or [])
@@ -144,8 +146,9 @@ def imposta(cat: str, app_id: str) -> tuple:
         verifica = Gio.AppInfo.get_default_for_type(tipi[0], False)
         ok = bool(verifica and verifica.get_id() == app_id) and not errori
     if ok:
-        return True, "%s è ora l'app predefinita per: %s." % (nome_app, titolo)
-    return False, "Non sono riuscito a rendere %s l'app predefinita per: %s." % (nome_app, titolo)
+        return True, tr("{app} is now the default app for: {category}.").format(app=nome_app, category=titolo)
+    return False, tr("Could not make {app} the default app for: {category}.").format(
+        app=nome_app, category=titolo)
 
 
 def avvia(cat: str, argomenti=()) -> tuple:
@@ -153,7 +156,7 @@ def avvia(cat: str, argomenti=()) -> tuple:
     aid = attuale(cat) or CATEGORIE.get(cat, ("", [], "", ""))[3]
     app = Gio.DesktopAppInfo.new(aid) if aid else None
     if app is None:
-        return False, "Nessuna app predefinita per %s." % CATEGORIE.get(cat, (cat,))[0]
+        return False, tr("No default app for {category}.").format(category=CATEGORIE.get(cat, (cat,))[0])
     uris = []
     for a in argomenti:
         if "://" in a or a.startswith(("mailto:", "data:")):
@@ -163,5 +166,5 @@ def avvia(cat: str, argomenti=()) -> tuple:
     try:
         ok = app.launch_uris(uris, None)
     except Exception as e:  # noqa: BLE001 - GLib.Error
-        return False, "Non riesco ad aprire %s: %s" % (app.get_display_name(), e)
+        return False, tr("Could not open {app}: {error}").format(app=app.get_display_name(), error=e)
     return bool(ok), app.get_display_name()

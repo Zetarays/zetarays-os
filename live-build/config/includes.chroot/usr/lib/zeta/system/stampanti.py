@@ -17,10 +17,12 @@ import re
 import socket
 import subprocess
 
+from i18n import tr
+
 LPADMIN = "/usr/sbin/lpadmin"
 LPINFO = "/usr/sbin/lpinfo"
 PAGINA_DI_PROVA = "/usr/share/cups/data/default-testpage.pdf"
-_ENV = dict(os.environ, LANG="C", LC_ALL="C")
+_ENV = dict(os.environ, LANG="C", LC_ALL="C", LANGUAGE="C")
 
 
 def _cmd(argv, timeout=20):
@@ -30,7 +32,7 @@ def _cmd(argv, timeout=20):
                            env=_ENV, stdin=subprocess.DEVNULL)
         return p.returncode, p.stdout, p.stderr.strip()
     except subprocess.TimeoutExpired:
-        return 124, "", "la stampante non ha risposto in tempo"
+        return 124, "", tr("the printer did not respond in time")
     except OSError as e:
         return 127, "", e.strerror or str(e)
 
@@ -112,8 +114,8 @@ def collegamento(uri):
             "ipp-usb" in u or re.search(r":6\d{4}/", u):
         return "USB"
     if u.startswith(("cups-pdf:", "file:")):
-        return "Sul computer"
-    return "In rete (Wi-Fi o cavo)"
+        return tr("On this computer")
+    return tr("Network (Wi-Fi or cable)")
 
 
 # ------------------------------------------------------------- ricerca
@@ -242,30 +244,29 @@ def _prima_stampante():
 def aggiungi(uri, nome_visibile, device_id="", modello=""):
     """Aggiunge la stampante. (ok, messaggio)."""
     if not gestibili():
-        return False, ("Questo utente non puo' aggiungere stampanti: "
-                       "serve il gruppo lpadmin.")
+        return False, tr("This user cannot add printers: membership in the lpadmin group is required.")
     coda = _nome_coda(nome_visibile)
     descr = nome_visibile[:120]
     era_prima = _prima_stampante()
     rc, _o, err = _cmd([LPADMIN, "-p", coda, "-E", "-v", uri, "-m", "everywhere",
                         "-D", descr], 60)
-    modo = "senza driver"
+    modo = tr("driverless")
     if rc != 0:
         _cmd([LPADMIN, "-x", coda], 10)     # lpadmin lascia la coda a meta'
         driver = _driver_per(device_id, modello)
         if driver is None:
-            return False, ("La stampante non permette la stampa senza driver e "
-                           "non c'e' un driver adatto installato (%s)." % (err or "nessun dettaglio"))
+            return False, tr("The printer does not support driverless printing and no suitable driver "
+                             "is installed ({error}).").format(error=err or tr("no details"))
         rc, _o, err = _cmd([LPADMIN, "-p", coda, "-E", "-v", uri, "-m", driver[0],
                             "-D", descr], 60)
-        modo = "driver %s" % driver[1]
+        modo = tr("driver {name}").format(name=driver[1])
         if rc != 0:
             _cmd([LPADMIN, "-x", coda], 10)
-            return False, "Non e' stato possibile aggiungerla: %s" % (err or rc)
+            return False, tr("Could not add the printer: {error}").format(error=err or rc)
     if era_prima:
         _cmd([LPADMIN, "-d", coda], 10)
     _cmd([LPADMIN, "-p", coda, "-o", "printer-error-policy=retry-job"], 10)
-    return True, "«%s» aggiunta (%s)." % (descr, modo)
+    return True, tr("“{name}” added ({method}).").format(name=descr, method=modo)
 
 
 _HOST_VALIDO = re.compile(r"^[A-Za-z0-9.\-]+(:\d{2,5})?$|^\[?[0-9A-Fa-f:]+\]?$")
@@ -279,7 +280,7 @@ def aggiungi_indirizzo(host):
     host = (host or "").strip()
     host = re.sub(r"^[a-z]+://", "", host).split("/")[0]
     if not host or not _HOST_VALIDO.match(host):
-        return False, "Scrivi l'indirizzo della stampante, per esempio 192.168.1.50."
+        return False, tr("Enter the printer's address, for example 192.168.1.50.")
     porta = None
     m = re.match(r"^([A-Za-z0-9.\-]+):(\d{2,5})$", host)   # 192.168.1.50:8631
     if m:
@@ -289,16 +290,16 @@ def aggiungi_indirizzo(host):
     nudo = host.strip("[]")
     if porta:
         if not _porta_aperta(nudo, porta):
-            return False, "All'indirizzo %s:%d non risponde nessuna stampante." % (nudo, porta)
+            return False, tr("No printer responds at {address}:{port}.").format(address=nudo, port=porta)
         for uri in ("ipp://%s:%d/ipp/print" % (host, porta), "ipp://%s:%d/" % (host, porta)):
             ok, msg = _prova_everywhere(uri, nudo)
             if ok:
                 return ok, msg
-        return False, "Alla porta %d c'e' qualcosa, ma non una stampante IPP." % porta
+        return False, tr("Something is listening on port {port}, but it is not an IPP printer.").format(port=porta)
     porte = {p: _porta_aperta(nudo, p) for p in (631, 443, 9100)}
     if not any(porte.values()):
-        return False, ("All'indirizzo %s non risponde nessuna stampante. Controlla "
-                       "che sia accesa e sulla stessa rete (Wi-Fi o cavo)." % nudo)
+        return False, tr("No printer responds at {address}. Check that it is turned on and on the "
+                         "same network (Wi-Fi or cable).").format(address=nudo)
     if porte[631] or porte[443]:
         for uri in ("ipp://%s/ipp/print" % host, "ipps://%s/ipp/print" % host,
                     "ipp://%s/ipp" % host, "ipp://%s/" % host):
@@ -312,18 +313,18 @@ def aggiungi_indirizzo(host):
         coda = _nome_coda("Stampante_" + nudo)
         rc, _o, err = _cmd([LPADMIN, "-p", coda, "-E", "-v", "socket://%s:9100" % host,
                             "-m", "drv:///sample.drv/generpcl.ppd",
-                            "-D", "Stampante %s" % nudo], 30)
+                            "-D", tr("Printer {address}").format(address=nudo)], 30)
         if rc != 0:
             rc, _o, err = _cmd([LPADMIN, "-p", coda, "-E", "-v", "socket://%s:9100" % host,
                                 "-m", "gutenprint.5.3://pcl-g_5e/expert",
-                                "-D", "Stampante %s" % nudo], 30)
+                                "-D", tr("Printer {address}").format(address=nudo)], 30)
         if rc == 0:
             if era_prima:
                 _cmd([LPADMIN, "-d", coda], 10)
-            return True, "Stampante %s aggiunta con il driver generico PCL." % nudo
+            return True, tr("Printer {address} added with the generic PCL driver.").format(address=nudo)
         _cmd([LPADMIN, "-x", coda], 10)
-        return False, "Non e' stato possibile aggiungerla: %s" % err
-    return False, "La stampante %s risponde ma non accetta la stampa da rete." % nudo
+        return False, tr("Could not add the printer: {error}").format(error=err)
+    return False, tr("Printer {address} responds but does not accept network printing.").format(address=nudo)
 
 
 def _prova_everywhere(uri, nudo):
@@ -339,11 +340,11 @@ def _prova_everywhere(uri, nudo):
         re.search(r"printer-make-and-model=(\S+)", out)
     descr = re.sub(r"\s*-\s*IPP Everywhere.*$", "", m.group(1)) if m else ""
     if descr.lower() in ("", "printer", "unknown"):
-        descr = "Stampante %s" % nudo
+        descr = tr("Printer {address}").format(address=nudo)
     _cmd([LPADMIN, "-p", coda, "-D", descr, "-o", "printer-error-policy=retry-job"], 10)
     if era_prima:
         _cmd([LPADMIN, "-d", coda], 10)
-    return True, "«%s» aggiunta (senza driver)." % descr
+    return True, tr("“{name}” added (driverless).").format(name=descr)
 
 
 def _porta_aperta(host, porta, attesa=2.5):
@@ -367,7 +368,7 @@ def imposta_predefinita(nome):
 
 def pagina_di_prova(nome):
     prova = PAGINA_DI_PROVA if os.path.exists(PAGINA_DI_PROVA) else "/usr/share/cups/data/testprint"
-    rc, _o, err = _cmd(["lp", "-d", nome, "-t", "Pagina di prova ZETA RAYS", prova], 20)
+    rc, _o, err = _cmd(["lp", "-d", nome, "-t", tr("ZETA RAYS test page"), prova], 20)
     return rc == 0, err
 
 

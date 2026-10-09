@@ -29,6 +29,7 @@ from core.orb import Orb  # noqa: E402
 from ui import accento  # noqa: E402
 from ui import tema  # noqa: E402
 from intelligence import speech  # noqa: E402
+from i18n import tr  # noqa: E402
 
 HYPRBARS = "/usr/lib/zeta/hypr/hyprbars.so"
 
@@ -71,6 +72,13 @@ def _md(testo):
 def _senza_md(testo):
     """Per la voce: niente asterischi o cancelletti letti ad alta voce."""
     return re.sub(r"[*`#]+", "", testo or "")
+
+
+def _rapporto(testo):
+    """Rapporto di sistema (tabella, elenco o «Etichetta: 12 …»): carattere a
+    spaziatura fissa. Non dipende dalla lingua delle risposte."""
+    testo = testo or ""
+    return "\n" in testo or bool(re.match(r"[^\n:]{1,30}:\s*\d", testo))
 
 
 def read_color():
@@ -119,7 +127,7 @@ class Window(Gtk.ApplicationWindow):
         # quale intelligenza risponde davvero (fornitore, modello, dove gira):
         # se quella scelta non e' pronta il sistema ne usa un'altra, e qui si vede
         self.motore = Gtk.Label(label="", css_classes=["motore"], ellipsize=3,
-                                tooltip_text="Si cambia in Impostazioni › AI")
+                                tooltip_text=tr("Change it in Settings › AI"))
         root.append(self.motore)
         threading.Thread(target=self._leggi_motore, daemon=True).start()
 
@@ -138,12 +146,12 @@ class Window(Gtk.ApplicationWindow):
         # --- riga di input ---
         row = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=6, margin_bottom=14)
         self.entry = Gtk.Entry(hexpand=True, css_classes=["prompt"],
-                               placeholder_text="Scrivi un comando…  «apri i documenti»")
+                               placeholder_text=tr("Type a command…  “open documents”"))
         self.entry.connect("activate", lambda *_: self.submit(self.entry.get_text()))
-        self.mic = Gtk.Button(css_classes=["circle"], tooltip_text="Parla")
+        self.mic = Gtk.Button(css_classes=["circle"], tooltip_text=tr("Speak"))
         self.mic.set_child(Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic"))
         self.mic.connect("clicked", lambda *_: self.on_mic())
-        self.send = send = Gtk.Button(css_classes=["send"], tooltip_text="Invia")
+        self.send = send = Gtk.Button(css_classes=["send"], tooltip_text=tr("Send"))
         self.send_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
         send.set_child(self.send_icon)
         send.connect("clicked", self.on_send)
@@ -152,7 +160,7 @@ class Window(Gtk.ApplicationWindow):
         self.voce = None
         if speech.available():
             self.voce = Gtk.ToggleButton(css_classes=["circle"],
-                                         tooltip_text="Leggi le risposte ad alta voce")
+                                         tooltip_text=tr("Read replies aloud"))
             self.voce.set_child(Gtk.Image.new_from_icon_name("audio-speakers-symbolic"))
             self.voce.set_active(speech.enabled())
             self.voce.connect("toggled", self.on_voce)
@@ -171,8 +179,8 @@ class Window(Gtk.ApplicationWindow):
         self._ultimo_tick = GLib.get_monotonic_time()
         self._tick_id = 0
         self._programma_tick()
-        self._say_zeta("Ciao, io sono ZETA. Dimmi cosa fare: «apri le impostazioni», "
-                       "«quanta RAM sto usando», «apri il terminale».")
+        self._say_zeta(tr("Hi, I'm ZETA. Tell me what to do: “open settings”, "
+                          "“how much RAM am I using”, “open the terminal”."))
         GLib.idle_add(lambda: (self.entry.grab_focus(), False)[1])
         self._prepara_voce()
         self._prepara_modello()
@@ -237,11 +245,10 @@ class Window(Gtk.ApplicationWindow):
         adj.set_value(max(0.0, adj.get_upper() - adj.get_page_size()))
 
     def _say_user(self, text):
-        self._bubble("Tu", text)
+        self._bubble(tr("You"), text)
 
     def _say_zeta(self, text):
-        info = "\n" in text or text.startswith(("Uso ", "Memoria", "OS:", "Applicazioni"))
-        self._bubble("ZETA RAYS", text, info=info)
+        self._bubble("ZETA RAYS", text, info=_rapporto(text))
 
     # ---------- esecuzione comandi ----------
     def on_send(self, _b=None):
@@ -261,13 +268,13 @@ class Window(Gtk.ApplicationWindow):
         self._modo_invio(False)
         self._togli_pending()
         self.set_state("attesa")
-        self._say_zeta("Richiesta annullata.")
+        self._say_zeta(tr("Request canceled."))
 
     def _modo_invio(self, occupato):
         """Il pulsante di invio diventa «ferma» mentre si elabora."""
         self.send_icon.set_from_icon_name(
             "process-stop-symbolic" if occupato else "go-up-symbolic")
-        self.send.set_tooltip_text("Ferma" if occupato else "Invia")
+        self.send.set_tooltip_text(tr("Stop") if occupato else tr("Send"))
 
     def submit(self, text):
         text = (text or "").strip()
@@ -290,7 +297,7 @@ class Window(Gtk.ApplicationWindow):
     @staticmethod
     def _descrivi(prov):
         c = prov.config
-        dove = "locale" if c.kind == "local" else "in rete"
+        dove = tr("local") if c.kind == "local" else tr("online")
         modello = c.model
         if not modello and hasattr(prov, "_model"):
             try:
@@ -303,9 +310,9 @@ class Window(Gtk.ApplicationWindow):
         try:
             from intelligence.registry import Registry
             prov = Registry().resolve_default()
-            testo = self._descrivi(prov) + ("" if prov.available() else " · non pronto")
+            testo = self._descrivi(prov) + ("" if prov.available() else " · " + tr("not ready"))
         except Exception as e:  # noqa: BLE001
-            testo = "AI non disponibile (%s)" % e
+            testo = tr("AI unavailable ({error})").format(error=e)
         GLib.idle_add(self.motore.set_text, testo)
 
     def _fase(self, testo, richiesta):
@@ -315,9 +322,9 @@ class Window(Gtk.ApplicationWindow):
             self._pending.set_text(testo)
         return False
 
-    def _pending_bubble(self, testo="Sto elaborando…"):
+    def _pending_bubble(self, testo=None):
         self.log.append(Gtk.Label(label="ZETA RAYS", xalign=0, css_classes=["who"]))
-        lbl = Gtk.Label(label=testo, xalign=0, wrap=True,
+        lbl = Gtk.Label(label=testo or tr("Working on it…"), xalign=0, wrap=True,
                         halign=Gtk.Align.START, css_classes=["bubble", "zeta", "pending"])
         self.log.append(lbl)
         GLib.idle_add(self._scroll_end)
@@ -330,9 +337,9 @@ class Window(Gtk.ApplicationWindow):
         if not self._busy or self._pending is None or self._streamed:
             return bool(self._busy and self._pending is not None)
         self._elapsed += 1
-        fase = getattr(self, "_fase_testo", "") or "Sto elaborando…"
+        fase = getattr(self, "_fase_testo", "") or tr("Working on it…")
         if self._elapsed >= 4:
-            self._pending.set_text("%s (%ds)" % (fase, self._elapsed))
+            self._pending.set_text(tr("{status} ({seconds}s)").format(status=fase, seconds=self._elapsed))
         return True
 
     def _work(self, text, richiesta):
@@ -355,19 +362,20 @@ class Window(Gtk.ApplicationWindow):
             from intelligence.providers.ollama import OllamaProvider
             from intelligence.agente.capire import capire
             if capire(text):
-                fase = "Eseguo…"                     # comando: il modello non serve
+                fase = tr("Running…")                     # comando: il modello non serve
             elif isinstance(prov, OllamaProvider):
-                fase = ("Sto elaborando…" if prov._gia_caricato() else
-                        "Carico il modello %s in memoria, la prima risposta è più lenta…" % prov.config.model)
+                fase = (tr("Working on it…") if prov._gia_caricato() else
+                        tr("Loading the {model} model into memory, the first reply is slower…").format(
+                            model=prov.config.model))
             else:
-                fase = "Contatto %s…" % prov.config.label
+                fase = tr("Contacting {service}…").format(service=prov.config.label)
             GLib.idle_add(self._fase, fase, richiesta)
             self._streamed = ""
             answer = self.assistant.respond(
                 text, confirm=self._confirm,
                 on_text=lambda c: GLib.idle_add(self._chunk, c, richiesta))
         except Exception as e:  # noqa: BLE001
-            answer = "Si è verificato un errore: %s" % e
+            answer = tr("An error occurred: {error}").format(error=e)
         GLib.idle_add(self._done, answer, richiesta)
 
     def _chunk(self, pezzo, richiesta):
@@ -402,8 +410,7 @@ class Window(Gtk.ApplicationWindow):
             # Carattere a spaziatura fissa solo per i rapporti dei comandi di
             # sistema (tabelle, elenchi): una risposta del modello su piu'
             # righe, come una poesia, resta nel carattere normale.
-            if not self._streamed and ("\n" in answer or answer.startswith(
-                    ("Uso ", "Memoria", "OS:", "Applicazioni"))):
+            if not self._streamed and _rapporto(answer):
                 self._pending.add_css_class("info")
             self._pending = None
             GLib.idle_add(self._scroll_end)
@@ -438,18 +445,18 @@ class Window(Gtk.ApplicationWindow):
         out = {"ok": False}
 
         def show():
-            dlg = Gtk.Window(transient_for=self, modal=True, title="Conferma azione",
+            dlg = Gtk.Window(transient_for=self, modal=True, title=tr("Confirm action"),
                              default_width=420)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
                           margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
-            box.append(Gtk.Label(label="ZETA RAYS vuole eseguire un'azione di sistema:",
+            box.append(Gtk.Label(label=tr("ZETA RAYS wants to perform a system action:"),
                                  xalign=0, wrap=True))
             box.append(Gtk.Label(label=res.preview, xalign=0, selectable=True,
                                  css_classes=["bubble", "info"]))
             box.append(Gtk.Label(label=res.impact, xalign=0, wrap=True, css_classes=["hint"]))
             btns = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-            cancel = Gtk.Button(label="Annulla")
-            ok = Gtk.Button(label="Autorizza", css_classes=["suggested-action"])
+            cancel = Gtk.Button(label=tr("Cancel"))
+            ok = Gtk.Button(label=tr("Allow"), css_classes=["suggested-action"])
             cancel.connect("clicked", lambda *_: (dlg.destroy(), ev.set()))
             ok.connect("clicked", lambda *_: (out.__setitem__("ok", True), dlg.destroy(), ev.set()))
             btns.append(cancel)
@@ -512,7 +519,7 @@ class Window(Gtk.ApplicationWindow):
         self._busy = True
         self.mic.add_css_class("mic-on")
         self.set_state("ascolto")
-        self._pending = self._pending_bubble("Parla pure…")
+        self._pending = self._pending_bubble(tr("Go ahead, I'm listening…"))
         self._elapsed = 0
         threading.Thread(target=self._listen, daemon=True).start()
 
@@ -528,13 +535,13 @@ class Window(Gtk.ApplicationWindow):
         except voice.ErroreMicrofono as e:
             errore = str(e)
         except Exception as e:  # noqa: BLE001
-            errore = "Errore del microfono: %s" % e
+            errore = tr("Microphone error: {error}").format(error=e)
         GLib.idle_add(self._heard, testo, confidenza, errore)
 
     def _stato_voce(self, stato):
         """Riscontro visivo mentre si parla."""
-        testi = {"attesa": "Parla pure…", "ascolto": "Ti sto ascoltando…",
-                 "elaborazione": "Sto capendo…"}
+        testi = {"attesa": tr("Go ahead, I'm listening…"), "ascolto": tr("Listening…"),
+                 "elaborazione": tr("Understanding…")}
         if self._pending is not None and stato in testi:
             self._pending.set_text(testi[stato])
         self.set_state("ascolto" if stato != "elaborazione" else "elaborazione")
@@ -548,12 +555,12 @@ class Window(Gtk.ApplicationWindow):
         if errore:
             self._say_zeta(errore)
         elif not testo:
-            self._say_zeta("Non ho sentito nulla. Premi il microfono e parla, "
-                           "oppure scrivi il comando.")
+            self._say_zeta(tr("I didn't hear anything. Press the microphone and speak, "
+                              "or type the command."))
         elif confidenza and confidenza < 0.55:
             # meglio dire cosa si è capito che eseguire la cosa sbagliata
-            self._say_zeta("Non sono sicuro di aver capito: «%s». "
-                           "Ripeti pure, oppure scrivilo." % testo)
+            self._say_zeta(tr("I'm not sure I understood: “{text}”. "
+                              "Please repeat it, or type it.").format(text=testo))
         else:
             self.submit(testo)
         return False

@@ -36,7 +36,7 @@ release_leftovers
 # aperto e sparisce da solo quando si chiude, anche se si chiude male.
 if command -v systemd-inhibit >/dev/null 2>&1; then
     systemd-inhibit --what=idle:sleep:handle-lid-switch \
-        --who="ZETA RAYS" --why="Installazione in corso" \
+        --who="ZETA RAYS" --why="Installation in progress" \
         /usr/bin/calamares "$@"
 else
     /usr/bin/calamares "$@"

@@ -18,6 +18,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gtk  # noqa: E402
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
 LOGO = "/usr/share/zeta/brand/zeta-logo-bianco.svg"
 
 CSS = b"""
@@ -65,35 +68,31 @@ def on_activate(app):
         lb.add_css_class(cls)
         box.append(lb)
 
+    virtualbox = tr("In VirtualBox: shut the machine down, open Settings → Display, "
+                    "choose the “VMSVGA” graphics controller and turn on “Enable 3D Acceleration”.")
     if LIVE:
-        # sulla chiavetta in inglese, come il menu di avvio: la lingua si
-        # sceglie nella prima schermata dell'installer
-        label("Install ZETA RAYS OS", "title")
-        label("Without 3D acceleration the live desktop cannot start, "
-              "but you can still install ZETA RAYS OS on this computer.", "body")
-        label("After installing, the desktop needs 3D graphics.\n"
-              "In VirtualBox: shut the machine down, open Settings → Display, "
-              "choose the «VMSVGA» graphics controller and tick «Enable 3D Acceleration».",
-              "hint")
+        # sul live si offre di installare comunque (la lingua della sessione
+        # e' quella della chiavetta; il sistema la sceglie nell'installer)
+        label(tr("Install ZETA RAYS OS"), "title")
+        label(tr("Without 3D acceleration the live desktop cannot start, "
+                 "but you can still install ZETA RAYS OS on this computer."), "body")
+        label(tr("After installing, the desktop needs 3D graphics.") + "\n" + virtualbox, "hint")
     else:
-        label("Accelerazione 3D non disponibile", "title")
-        label("Il desktop di ZETA RAYS OS ha bisogno dell'accelerazione grafica 3D, "
-              "che su questo computer non è attiva.", "body")
-        label("In VirtualBox: spegni la macchina, apri Impostazioni → Schermo, "
-              "scegli la scheda grafica «VMSVGA» e attiva «Abilita accelerazione 3D».\n"
-              "Su un computer reale: installa il driver della scheda grafica.",
-              "hint")
+        label(tr("3D acceleration is not available"), "title")
+        label(tr("The ZETA RAYS OS desktop needs 3D graphics acceleration, "
+                 "which is not active on this computer."), "body")
+        label(virtualbox + "\n" + tr("On a real computer: install the graphics card driver."), "hint")
 
     row = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER, margin_top=16)
-    off = Gtk.Button(label="Shut down" if LIVE else "Spegni")
+    off = Gtk.Button(label=tr("Shut Down"))
     off.connect("clicked", lambda *_: run("poweroff"))
-    reboot = Gtk.Button(label="Restart" if LIVE else "Riavvia")
+    reboot = Gtk.Button(label=tr("Restart"))
     reboot.connect("clicked", lambda *_: run("reboot"))
     row.append(off)
     row.append(reboot)
     if LIVE:
         # esce con codice 10: zeta-installer-x riapre l'installer
-        inst = Gtk.Button(label="Install")
+        inst = Gtk.Button(label=tr("Install"))
         inst.add_css_class("primary")
         inst.connect("clicked", lambda *_: os._exit(10))
         row.append(inst)

@@ -15,11 +15,24 @@ import sys
 
 sys.path.insert(0, "/usr/lib/zeta")
 from system import predefinite as P  # noqa: E402
+from i18n import tr  # noqa: E402
+
+USO = tr("""zeta-predefinita — open the default app of a category.
+
+  zeta-predefinita terminale          the chosen terminal
+  zeta-predefinita browser [URL]      the chosen browser
+  zeta-predefinita file [FOLDER]      the chosen file manager
+  zeta-predefinita posta | editor | video | immagini | pdf [FILE]
+  zeta-predefinita elenco             the current choices
+
+Choose the apps in Settings › Default Apps. The ZETA RAYS shortcuts
+(Super+Enter, Super+E, Super+B) go through this command.
+""")
 
 
 def main(argv):
     if len(argv) < 2 or argv[1] in ("-h", "--help"):
-        print(__doc__)
+        print(USO)
         return 0 if len(argv) >= 2 else 1
     cat = argv[1]
     if cat == "elenco":
@@ -27,7 +40,7 @@ def main(argv):
             print("%-10s %s" % (c, P.attuale(c) or "-"))
         return 0
     if cat not in P.CATEGORIE:
-        print("Categoria sconosciuta: %s" % cat, file=sys.stderr)
+        print(tr("Unknown category: {category}").format(category=cat), file=sys.stderr)
         return 2
     ok, msg = P.avvia(cat, argv[2:])
     if not ok:

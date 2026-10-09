@@ -13,3 +13,14 @@ User=zeta
 Session=zeta.desktop
 Relogin=false
 CONF
+
+# Firefox nella sessione live: niente cache su disco. Qui il «disco» e' la
+# RAM (tutto cio' che si scrive resta in memoria fino allo spegnimento) e la
+# cache arrivava a centinaia di MB. Il sistema installato non e' toccato:
+# questo file nasce solo nella sessione live e l'installer copia l'immagine,
+# non la sessione.
+cat > /etc/firefox-esr/zeta-live.js <<'PREF'
+// ZETA RAYS live session: no disk cache (the disk is RAM here)
+pref("browser.cache.disk.enable", false);
+pref("browser.cache.memory.capacity", 65536);
+PREF

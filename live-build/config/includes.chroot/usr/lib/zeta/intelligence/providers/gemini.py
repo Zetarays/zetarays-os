@@ -8,7 +8,9 @@ from typing import Callable
 from .base import Message, Provider, Reply, ToolSpec
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-2.5-flash"     # veloce; un altro in Impostazioni › AI
+# veloce; un altro in Impostazioni › AI. Verificato il 7 ottobre 2026:
+# gemini-2.5-flash resta solo per chi lo usava gia', le chiavi nuove no.
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class GeminiProvider(Provider):

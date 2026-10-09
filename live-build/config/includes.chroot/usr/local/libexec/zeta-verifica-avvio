@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2059  # i formati di printf vengono dalle traduzioni (gettext)
 # SPDX-License-Identifier: GPL-3.0-or-later
 # zeta-verifica-avvio — controlla che il programma di avvio sia DAVVERO finito
 # sul disco, e fa fallire l'installazione se non c'e'.
@@ -20,23 +21,25 @@
 # l'installazione NON e' riuscita, e l'utente lo sa subito, davanti allo
 # schermo, invece di scoprirlo al riavvio.
 set -u
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 
 errore() {
-    echo "ERRORE: $*" >&2
+    printf "$(gettext 'ERROR: %s')\n\n" "$*" >&2
+    gettext "The system was copied to the disk, but the boot loader was NOT
+installed: the computer would not start after a restart.
+
+If you chose manual partitioning, the most common cause is not
+assigning the /boot/efi mount point to the EFI boot partition
+(the small FAT32 one with the boot flag). Go back, assign it
+WITHOUT formatting it, and try again.
+
+Alternatively, from the ZETA RAYS USB stick:  sudo zeta-ripara-avvio" >&2
     echo >&2
-    echo "Il sistema e' stato copiato sul disco, ma NON e' stato installato" >&2
-    echo "il programma di avvio: al riavvio il computer non partirebbe." >&2
-    echo >&2
-    echo "Se hai scelto il partizionamento manuale, la causa piu' comune e'" >&2
-    echo "non aver assegnato il punto di montaggio /boot/efi alla partizione" >&2
-    echo "di avvio EFI (quella piccola, FAT32, con il flag boot). Torna" >&2
-    echo "indietro, assegnalo SENZA formattarla, e riprova." >&2
-    echo >&2
-    echo "In alternativa, dalla chiavetta di ZETA RAYS:  sudo zeta-ripara-avvio" >&2
     exit 1
 }
 
-echo "ZETA RAYS: controllo del programma di avvio..."
+echo "$(gettext "ZETA RAYS: checking the boot loader…")"
 
 # I moduli di GRUB devono stare nella radice appena installata. E' il file che
 # manca nell'errore «normal.mod not found».
@@ -44,39 +47,39 @@ MODULI=""
 for P in /boot/grub/x86_64-efi /boot/grub/arm64-efi /boot/grub/i386-pc; do
     [ -f "$P/normal.mod" ] && MODULI="$MODULI $P"
 done
-[ -n "$MODULI" ] || errore "in /boot/grub non c'e' nessun modulo di GRUB (manca normal.mod)."
-echo "  moduli di GRUB:$MODULI"
+[ -n "$MODULI" ] || errore "$(gettext "there are no GRUB modules in /boot/grub (normal.mod is missing).")"
+printf "  $(gettext 'GRUB modules:%s')\n" "$MODULI"
 
 if [ -d /sys/firmware/efi ]; then
     # Avvio UEFI: serve un programma di avvio dentro la partizione EFI.
-    mountpoint -q /boot/efi || errore "/boot/efi non e' montato."
+    mountpoint -q /boot/efi || errore "$(gettext "/boot/efi is not mounted.")"
     TROVATI=$(find /boot/efi/EFI -maxdepth 2 -iname "*.efi" 2>/dev/null | wc -l)
-    [ "$TROVATI" -gt 0 ] || errore "nella partizione EFI non c'e' nessun programma di avvio."
-    echo "  programmi di avvio nella partizione EFI: $TROVATI"
+    [ "$TROVATI" -gt 0 ] || errore "$(gettext "there is no boot loader in the EFI partition.")"
+    printf "  $(gettext 'boot loaders in the EFI partition: %s')\n" "$TROVATI"
 
     NOSTRI=$(find /boot/efi/EFI/zetarays -iname "*.efi" 2>/dev/null | wc -l)
     if [ "$NOSTRI" -gt 0 ]; then
-        echo "  cartella di ZETA RAYS: /boot/efi/EFI/zetarays ($NOSTRI file)"
+        printf "  $(gettext 'ZETA RAYS folder: /boot/efi/EFI/zetarays (%s files)')\n" "$NOSTRI"
     else
         # Non e' fatale: su alcuni firmware conta solo il percorso di ripiego.
-        echo "  ATTENZIONE: manca /boot/efi/EFI/zetarays, si conta sul percorso di ripiego" >&2
+        echo "  $(gettext "WARNING: /boot/efi/EFI/zetarays is missing, relying on the fallback path")" >&2
         find /boot/efi/EFI/BOOT -iname "boot*.efi" 2>/dev/null | head -1 | grep -q . \
-            || errore "manca anche il percorso di ripiego EFI/BOOT."
+            || errore "$(gettext "the EFI/BOOT fallback path is missing too.")"
     fi
 else
-    echo "  avvio in modalita' BIOS"
+    echo "  $(gettext "booting in BIOS mode")"
     [ -f /boot/grub/i386-pc/normal.mod ] \
-        || errore "mancano i moduli BIOS di GRUB (/boot/grub/i386-pc)."
+        || errore "$(gettext "the GRUB BIOS modules are missing (/boot/grub/i386-pc).")"
 fi
 
 # Il menu deve avere almeno una voce, altrimenti si avvia su un elenco vuoto.
 if [ -r /boot/grub/grub.cfg ]; then
     VOCI=$(grep -c "^menuentry \|^\s*menuentry " /boot/grub/grub.cfg 2>/dev/null || echo 0)
-    [ "$VOCI" -gt 0 ] || errore "il menu di avvio (/boot/grub/grub.cfg) non ha nessuna voce."
-    echo "  voci nel menu di avvio: $VOCI"
+    [ "$VOCI" -gt 0 ] || errore "$(gettext "the boot menu (/boot/grub/grub.cfg) has no entries.")"
+    printf "  $(gettext 'entries in the boot menu: %s')\n" "$VOCI"
 else
-    errore "manca /boot/grub/grub.cfg."
+    errore "$(gettext "/boot/grub/grub.cfg is missing.")"
 fi
 
-echo "ZETA RAYS: programma di avvio installato correttamente."
+echo "$(gettext "ZETA RAYS: boot loader installed correctly.")"
 exit 0

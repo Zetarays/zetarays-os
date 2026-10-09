@@ -5,6 +5,27 @@
 
 gsettings set org.gnome.desktop.interface icon-theme 'zeta' 2>/dev/null
 
+# --- Language of this login for everything started later -------------------
+# Apps started through D-Bus or by the user's systemd manager (which can
+# outlive a quick log out and back in) would otherwise keep the language and
+# input method of the previous login.
+# A variable this login does not have is set EMPTY, not left out: the user's
+# service manager can outlive a quick log out and back in, and its old value
+# (e.g. LANGUAGE=it_IT:it) cannot be unset; empty means "not set" to gettext.
+env_lingua=()
+for v in LANG LANGUAGE LC_ALL LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES \
+         LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT LC_IDENTIFICATION \
+         XMODIFIERS QT_IM_MODULE SDL_IM_MODULE; do
+    env_lingua+=("$v=${!v:-}")
+done
+dbus-update-activation-environment --systemd "${env_lingua[@]}" 2>/dev/null
+# Portali partiti prima che una sessione esportasse il suo ambiente (per
+# esempio chiamati da una sessione SSH, o dopo un'uscita e un rientro veloci):
+# falliti con «cannot open display», resterebbero fermi e le app aspetterebbero
+# a vuoto. Si azzera lo stato e si riavviano con l'ambiente di questa sessione.
+systemctl --user reset-failed 'xdg-desktop-portal*' >/dev/null 2>&1
+systemctl --user try-restart xdg-desktop-portal.service xdg-desktop-portal-hyprland.service >/dev/null 2>&1 &
+
 # --- I componenti della scrivania si rialzano da soli -----------------------
 # Se uno di essi cade, l'utente non deve restare senza barra, senza sfondo o
 # senza icone: un ciclo lo riavvia. Una pausa crescente evita che un programma
@@ -31,7 +52,7 @@ sorveglia() {
             if [ $(( SECONDS - inizio )) -ge 60 ]; then
                 attesa=2
             fi
-            logger -t zeta-session "$nome terminato (codice $codice), riavvio tra ${attesa}s" 2>/dev/null || true
+            logger -t zeta-session "$nome exited (code $codice), restarting in ${attesa}s" 2>/dev/null || true
             sleep "$attesa"
             attesa=$(( attesa < 30 ? attesa * 2 : 30 ))
         done
@@ -41,10 +62,20 @@ sorveglia() {
 # Cartelle personali in italiano (Scrivania, Documenti, Scaricati...):
 # si creano al primo accesso, prima che servano alle icone della scrivania.
 xdg-user-dirs-update 2>/dev/null
+# Immagine dell'utente: senza una scelta, il simbolo di ZETA RAYS nel colore
+# d'accento (menu account, schermata di blocco e di accesso). Non tocca una
+# scelta gia' fatta.
+( /usr/bin/python3 -c 'import sys; sys.path.insert(0, "/usr/lib/zeta"); from system import avatar; avatar.assicura()' >/dev/null 2>&1 ) &
 # Cartella per le AppImage: quelle messe qui (o in Scaricati, o in /opt)
 # entrano nel menu da sole (zeta-appimage.path). Al primo accesso si integrano
 # quelle gia' presenti, in secondo piano e senza fretta.
-mkdir -p "$HOME/Applicazioni"
+# AppImages: ~/Applications is the standard place (the old Italian folder of
+# earlier installs keeps working: applicazioni.py scans both)
+mkdir -p "$HOME/Applications"
+# input method for Chinese, Japanese and Korean, when turned on in Settings
+if [ -s "$HOME/.config/zeta/metodo-input" ] && command -v fcitx5 >/dev/null; then
+    fcitx5 -d --replace >/dev/null 2>&1
+fi
 ( sleep 20; nice -n 10 zeta-app appimage >/dev/null 2>&1 ) &
 
 # Colori, tema, testo, icone, cursore e icone sulla scrivania (zeta-aspetto
@@ -123,4 +154,9 @@ elif [ -d /run/live/medium ]; then
     # Sistema live: benvenuto con "Prova" / "Installa". Non dipende dal menu di
     # avvio, che in alcune macchine virtuali non riceve la tastiera.
     ( sleep 3; zeta-benvenuto ) &
+elif [ -e /etc/zeta/primo-avvio-lingua ] && [ ! -e "$HOME/.config/zeta/lingua-scelta" ]; then
+    # Ready-made system (OVA): no installer asked for the language, so the
+    # first login opens Settings > Language & Region, once
+    mkdir -p "$HOME/.config/zeta" && : > "$HOME/.config/zeta/lingua-scelta"
+    ( sleep 4; zeta-impostazioni lingua ) &
 fi

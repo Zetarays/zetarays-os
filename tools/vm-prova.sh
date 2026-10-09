@@ -9,7 +9,7 @@
 #   tools/vm-prova.sh spegni
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISO="${ZETA_ISO:-$ROOT/out/zetarays-1.7-arm64.iso}"
+ISO="${ZETA_ISO:-$ROOT/out/zetarays-2.0-arm64.iso}"
 VM="$ROOT/.cache/vm"
 SOCK="$VM/qmp.sock"
 mkdir -p "$VM"

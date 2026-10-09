@@ -1,20 +1,6 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""zeta shell — il terminale di ZETA RAYS.
-
-  zeta shell stato                 shell installate, predefinita, sessioni, cronologia
-  zeta shell temi                  i temi disponibili (tutti su fondo nero)
-  zeta shell tema NOME             cambia tema (zeta, ambra, verde, viola, rosso, contrasto)
-  zeta shell accento RRGGBB|sistema   colore d'accento del terminale
-  zeta shell carattere "NOME" [DIMENSIONE]   carattere del terminale
-  zeta shell trasparenza 0.70-1.00           opacita' dello sfondo
-  zeta shell ripristina            torna ai colori e al carattere di sistema
-  zeta shell predefinita bash|zsh|fish|...  shell delle finestre nuove
-  zeta shell sessioni              sessioni aperte (anche quelle rimaste in sospeso)
-  zeta shell riprendi [NOME]       riprende una sessione in sospeso in questa finestra
-
-Le modifiche valgono per le finestre del terminale aperte da adesso.
-"""
+"""zeta shell — the ZETA RAYS terminal (usage: see usage() below)."""
 import json
 import os
 import re
@@ -23,10 +9,46 @@ import sqlite3
 import subprocess
 import sys
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import ntr, tr  # noqa: E402
+
+
+def usage():
+    return tr("""zeta shell — the ZETA RAYS terminal.
+
+  zeta shell status                installed shells, default, sessions, history
+  zeta shell themes                available themes (all on a black background)
+  zeta shell theme NAME            change theme (zeta, ambra, verde, viola, rosso, contrasto)
+  zeta shell accent RRGGBB|system  terminal accent color
+  zeta shell font "NAME" [SIZE]    terminal font
+  zeta shell transparency 0.70-1.00   background opacity
+  zeta shell reset                 back to the system colors and font
+  zeta shell default bash|zsh|fish|...  shell for new windows
+  zeta shell sessions              open sessions (including detached ones)
+  zeta shell resume [NAME]         resume a detached session in this window
+
+Changes apply to terminal windows opened from now on.""")
+
+
+# Comandi in inglese: si traducono nei nomi storici (in italiano, che restano
+# validi e che usano altri programmi, es. «zeta-shell applica»).
+ALIAS = {"status": "stato", "themes": "temi", "theme": "tema", "accent": "accento",
+         "font": "carattere", "transparency": "trasparenza", "opacity": "trasparenza",
+         "reset": "ripristina", "default": "predefinita", "sessions": "sessioni",
+         "resume": "riprendi", "apply": "applica", "help": "aiuto", "--help": "aiuto",
+         "-h": "aiuto"}
+
 HOME = os.path.expanduser("~")
 CFG = os.path.join(HOME, ".config", "zeta", "terminale.json")
 PREF_SHELL = os.path.join(HOME, ".config", "zeta", "shell")
 TEMI = "/usr/share/zeta/shell/temi"
+# shown by "zeta shell themes" (the .ini files keep the original description)
+DESCRIZIONI_TEMI = {"zeta": tr("ZETA black, system accent color"),
+                    "ambra": tr("Black with an amber accent"), "contrasto": tr("High-contrast black"),
+                    "rosso": tr("Black with a red accent"), "verde": tr("Black with a green accent (Kali style)"),
+                    "viola": tr("Black with a purple accent")}
+# English names of the themes (the files keep their Italian names)
+NOMI_TEMI = {"amber": "ambra", "contrast": "contrasto", "red": "rosso", "green": "verde", "purple": "viola"}
 STARSHIP_T = "/usr/share/zeta/shell/starship.toml"
 CACHE = os.path.join(HOME, ".cache", "zeta")
 FOOT_TEMA = os.path.join(HOME, ".config", "foot", "tema.ini")
@@ -93,7 +115,7 @@ def applica(d=None):
     acc = accento(d)
     # tema.ini (incluso in fondo a foot.ini) contiene SOLO cio' che l'utente ha
     # scelto: il resto lo decide il tema di sistema, come prima
-    parti = ["# ZETA RAYS — tema del terminale, scritto da «zeta shell» (non modificare)"]
+    parti = ["# ZETA RAYS — terminal theme, written by “zeta shell” (do not edit)"]
     if d["carattere"] or d["dimensione"]:
         parti += ["[main]", "font=%s:size=%s" % (d["carattere"] or "JetBrains Mono",
                                                  d["dimensione"] or _dimensione_sistema())]
@@ -167,32 +189,41 @@ def cronologia():
 def stato():
     d = leggi()
     pred = (open(PREF_SHELL).read().strip() if os.path.exists(PREF_SHELL) else "bash")
-    print("\033[1mTerminale di ZETA RAYS\033[0m\n")
-    print("  shell installate: %s" % ", ".join(n for n, _ in shells()))
+    print("\033[1m%s\033[0m\n" % tr("ZETA RAYS Terminal"))
+
+    def voce(etichetta, valore):
+        print("  %-17s %s" % (etichetta + ":", valore))
+    voce(tr("installed shells"), ", ".join(n for n, _ in shells()))
     mancano = [n for n in ("zsh", "fish") if not shutil.which(n)]
     if mancano:
-        print("  non installate:   %s  (si installano dal menu Ctrl+Maiusc+N)" % ", ".join(mancano))
-    print("  predefinita:      %s" % pred)
-    print("  tema:             %s, accento #%s, carattere %s %s, trasparenza %s" % (
-        d["tema"], accento(d), d["carattere"] or "di sistema", d["dimensione"] or "",
-        "di sistema" if d["trasparenza"] is None else "%.2f" % float(d["trasparenza"])))
+        voce(tr("missing shells"), tr("{shells}  (install them from the Ctrl+Shift+N menu)").format(
+            shells=", ".join(mancano)))
+    voce(tr("default shell"), pred)
+    di_sistema = tr("from system")
+    voce(tr("theme"), tr("{theme}, accent #{accent}, font {font} {size}, transparency {alpha}").format(
+        theme=d["tema"], accent=accento(d), font=d["carattere"] or di_sistema,
+        size=d["dimensione"] or "",
+        alpha=di_sistema if d["trasparenza"] is None else "%.2f" % float(d["trasparenza"])))
     for nome in ("tmux", "atuin", "starship", "fzf"):
-        print("  %-17s %s" % (nome + ":", "si" if shutil.which(nome) else "NO (funzioni ridotte)"))
+        voce(nome, tr("yes") if shutil.which(nome) else tr("NO (reduced features)"))
     c = cronologia()
     if c:
-        print("  cronologia:       %d comandi (%.1f MB), Ctrl+R per cercare" % (c[0], c[1] / 1e6))
+        voce(tr("history"), ntr("{n} command ({size} MB), Ctrl+R to search",
+                                "{n} commands ({size} MB), Ctrl+R to search", c[0]).format(
+            n=c[0], size="%.1f" % (c[1] / 1e6)))
     ss = sessioni()
-    print("\n  sessioni: %d" % len(ss))
+    print("\n  " + tr("sessions: {n}").format(n=len(ss)))
     for n, att, win, cmd in ss:
-        print("    %-10s %-12s %d sched%s  %s" % (n, "aperta" if att else "IN SOSPESO",
-              win, "a" if win == 1 else "e", ", ".join(cmd)))
+        print("    %-10s %-12s %s  %s" % (n, tr("attached") if att else tr("DETACHED"),
+              ntr("{n} tab", "{n} tabs", win).format(n=win), ", ".join(cmd)))
     if any(not att for _n, att, _w, _c in ss):
-        print("\n  Per riprendere una sessione in sospeso: zeta shell riprendi NOME")
+        print("\n  " + tr("To resume a detached session: zeta shell resume NAME"))
     return 0
 
 
 def main(a):
     cmd = a[0] if a else "stato"
+    cmd = ALIAS.get(cmd, cmd)
     d = leggi()
     if cmd in ("stato", "status"):
         return stato()
@@ -202,22 +233,26 @@ def main(a):
         for f in sorted(os.listdir(TEMI)):
             if f.endswith(".ini") and not f.startswith("."):
                 with open(os.path.join(TEMI, f), encoding="utf-8", errors="replace") as fh:
-                    descr = fh.readline().split(":", 1)[-1].strip()
+                    descr = DESCRIZIONI_TEMI.get(f[:-4]) or fh.readline().split(":", 1)[-1].strip()
                 segno = "●" if f[:-4] == d["tema"] else " "
                 print(" %s %-10s %s" % (segno, f[:-4], descr))
         return 0
     if cmd == "ripristina":
         d = dict(PREDEF)
     elif cmd == "tema" and len(a) > 1:
+        a[1] = NOMI_TEMI.get(a[1], a[1])
         if not os.path.exists(os.path.join(TEMI, a[1] + ".ini")):
-            print("Tema sconosciuto: %s (vedi «zeta shell temi»)" % a[1], file=sys.stderr)
+            print(tr("Unknown theme: {name} (see “zeta shell themes”)").format(name=a[1]),
+                  file=sys.stderr)
             return 1
         d["tema"] = a[1]
         d["accento"] = "sistema"
     elif cmd == "accento" and len(a) > 1:
         v = a[1].lstrip("#").upper()
+        if v == "SYSTEM":
+            v = "SISTEMA"
         if v != "SISTEMA" and not re.fullmatch(r"[0-9A-F]{6}", v):
-            print("Colore non valido: usa RRGGBB (es. 3A8DFF) oppure «sistema»", file=sys.stderr)
+            print(tr("Invalid color: use RRGGBB (e.g. 3A8DFF) or “system”"), file=sys.stderr)
             return 1
         d["accento"] = "sistema" if v == "SISTEMA" else v
     elif cmd == "carattere" and len(a) > 1:
@@ -234,32 +269,36 @@ def main(a):
             return 1
     elif cmd == "predefinita" and len(a) > 1:
         if a[1] not in [n for n, _ in shells()]:
-            print("%s non e' installata. Si installa dal terminale: Ctrl+Maiusc+N" % a[1], file=sys.stderr)
+            print(tr("{shell} isn't installed. Install it from the terminal: Ctrl+Shift+N").format(
+                shell=a[1]), file=sys.stderr)
             return 1
         os.makedirs(os.path.dirname(PREF_SHELL), exist_ok=True)
         with open(PREF_SHELL, "w") as f:
             f.write(a[1] + "\n")
-        print("Le finestre nuove del terminale useranno %s." % a[1])
+        print(tr("New terminal windows will use {shell}.").format(shell=a[1]))
         return 0
     elif cmd == "sessioni":
         for n, att, win, cmd_ in sessioni():
-            print("%-10s %-11s %s" % (n, "aperta" if att else "in sospeso", ", ".join(cmd_)))
+            print("%-10s %-11s %s" % (n, tr("attached") if att else tr("detached"), ", ".join(cmd_)))
         return 0
     elif cmd == "riprendi":
         sosp = [n for n, att, _w, _c in sessioni() if not att]
         nome = a[1] if len(a) > 1 else (sosp[0] if sosp else None)
         if not nome:
-            print("Nessuna sessione in sospeso.")
+            print(tr("No detached sessions."))
             return 0
         if os.environ.get("TMUX"):
             return subprocess.call(["tmux", "switch-client", "-t", "=" + nome])
         os.execvp("tmux", ["tmux", "attach-session", "-t", "=" + nome])
+    elif cmd == "aiuto":
+        print(usage())
+        return 0
     else:
-        print(__doc__)
+        print(usage())
         return 1
     salva(d)
     applica(d)
-    print("Fatto: vale per le finestre del terminale aperte da adesso.")
+    print(tr("Done: applies to terminal windows opened from now on."))
     return 0
 
 

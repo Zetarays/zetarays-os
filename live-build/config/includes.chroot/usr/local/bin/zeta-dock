@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, "/usr/lib/zeta")
 from system import dock  # noqa: E402
+from i18n import tr  # noqa: E402
 
 # «Impostazioni dell'app»: il comando che apre davvero le preferenze di
 # quell'app. Per le altre si apre l'app e si dice dove trovarle: meglio che
@@ -34,7 +35,7 @@ def _avvia(argv):
 
 def _notifica(testo):
     try:
-        _avvia(["notify-send", "-a", "Dock", "-i", "zeta-dock", "Dock", testo])
+        _avvia(["notify-send", "-a", "Dock", "-i", "zeta-dock", tr("Dock"), testo])
     except OSError:
         pass
 
@@ -54,13 +55,13 @@ def togli(i):
     if not 0 <= i < len(voci):
         return 1
     if len(voci) == 1:
-        _notifica("Il dock deve avere almeno un'app.")
+        _notifica(tr("The dock must contain at least one app."))
         return 1
     nome = voci[i].get("name", "")
     del voci[i]
     dock.save_dock(voci)
     dock.apply(voci)
-    _notifica("Tolta dal dock: %s. Si rimette da Impostazioni › Dock." % nome)
+    _notifica(tr("Removed from the dock: {name}. Add it back in Settings › Dock.").format(name=nome))
     return 0
 
 
@@ -72,17 +73,10 @@ def menu(i):
     nome = voce.get("name") or voce.get("cmd", "").split()[0]
     from ui import popup
     popup.preload_layer_shell()
-    import json
     import gi
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gio, Gtk
 
-    try:
-        pos = subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
-                             text=True, timeout=2).stdout
-        x = int(json.loads(pos).get("x", 0))
-    except (OSError, subprocess.SubprocessError, ValueError):
-        x = 0
     in_alto = dock.posizione() == "top"
     app = _app_della_voce(voce)
     from intelligence.agente import stato
@@ -107,15 +101,15 @@ def menu(i):
             _avvia(cmd)
         else:
             apri()
-            _notifica("Le impostazioni di %s sono nel suo menu." % nome)
+            _notifica(tr("{name} settings are in its own menu.").format(name=nome))
 
-    righe = [("Apri", apri)]
+    righe = [(tr("Open"), apri)]
     for testo, comando in voce.get("voci", []):          # voci proprie dell'app
         righe.append((testo, lambda c=comando: _avvia(["sh", "-c", c])))
     if aperta:
-        righe.append(("Chiudi", chiudi))
-    righe += [None, ("Rimuovi dal Dock", lambda: togli(i)), ("Opzioni", opzioni),
-              ("Impostazioni dell'app", impostazioni_app)]
+        righe.append((tr("Close"), chiudi))
+    righe += [None, (tr("Remove from Dock"), lambda: togli(i)), (tr("Options"), opzioni),
+              (tr("App Settings"), impostazioni_app)]
 
     class Menu(Gtk.ApplicationWindow):
         def __init__(self, gapp):
@@ -124,7 +118,8 @@ def menu(i):
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                            css_classes=["zeta-card"], halign=Gtk.Align.START,
                            valign=Gtk.Align.START if in_alto else Gtk.Align.END)
-            card.set_margin_start(max(8, x - 110))
+            # sotto il cursore, sul suo monitor, sempre dentro lo schermo
+            popup.menu_al_cursore(self, card, 220)
             if in_alto:
                 card.set_margin_top(84)
             else:
@@ -189,7 +184,13 @@ def main(argv):
         return 0 if dock.apply(reload=False) else 1
     if cmd in ("menu", "togli") and len(argv) > 2 and argv[2].isdigit():
         return (menu if cmd == "menu" else togli)(int(argv[2]))
-    print(__doc__)
+    print(tr("""zeta-dock — generates and reloads the ZETA RAYS dock from ~/.config/zeta/dock.json.
+
+  zeta-dock apply     regenerate the bar from the saved dock and reload it
+  zeta-dock genera    regenerate only, without reloading the bar
+  zeta-dock reset     restore the default dock
+  zeta-dock menu N    right-click menu for dock icon N
+  zeta-dock togli N   remove icon N from the dock"""))
     return 1
 
 

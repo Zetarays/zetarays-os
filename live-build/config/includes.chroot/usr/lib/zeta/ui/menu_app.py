@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
+from i18n import tr  # noqa: E402
 from system import applicazioni as reg  # noqa: E402
 
 CSS = """
@@ -75,10 +76,11 @@ class MenuInterno:
                 sep.add_css_class("zeta-menu-sep")
                 box.append(sep)
                 continue
-            etichetta, fn = voce
+            # (etichetta, azione) o (etichetta, azione, True) per una voce pericolosa
+            etichetta, fn = voce[0], voce[1]
             b = Gtk.Button(child=Gtk.Label(label=etichetta, xalign=0))
             b.add_css_class("zeta-menu-voce")
-            if etichetta.startswith("Disinstalla"):
+            if len(voce) > 2 and voce[2]:
                 b.add_css_class("pericolo")
             b.connect("clicked", lambda _b, f=fn: (self.chiudi(), f()))
             box.append(b)
@@ -121,27 +123,29 @@ def voci_app(app, avvia, dopo=None):
         ok, msg = risultato
         avviso(msg)
 
-    voci = [("Apri", fatto(lambda: avvia(app))),
-            ("Apri posizione file", fatto(lambda: reg.mostra_nel_gestore_file(reg.posizione(app)))),
+    voci = [(tr("Open"), fatto(lambda: avvia(app))),
+            (tr("Open file location"), fatto(lambda: reg.mostra_nel_gestore_file(reg.posizione(app)))),
             None]
-    if reg.sulla_scrivania(app):
-        voci.append(("Già sulla Scrivania", fatto(lambda: reg.mostra_nel_gestore_file(reg.sulla_scrivania(app)))))
+    sulla = reg.sulla_scrivania(app) or reg.appimage_sulla_scrivania(app)
+    if sulla:
+        voci.append((tr("Already on the Desktop"),
+                     fatto(lambda: reg.mostra_nel_gestore_file(sulla))))
     else:
-        voci.append(("Aggiungi alla Scrivania", fatto(lambda: esito(reg.aggiungi_scrivania(app)))))
+        voci.append((tr("Add to Desktop"), fatto(lambda: esito(reg.aggiungi_scrivania(app)))))
     if reg.nel_dock(app):
-        voci.append(("Togli dal Dock", fatto(lambda: esito(reg.togli_dock(app)))))
+        voci.append((tr("Remove from Dock"), fatto(lambda: esito(reg.togli_dock(app)))))
     else:
-        voci.append(("Aggiungi al Dock", fatto(lambda: esito(reg.aggiungi_dock(app)))))
-    voci += [None, ("Informazioni", fatto(lambda: _zeta_app("info", app.id))),
-             ("Cambia icona…", fatto(lambda: _zeta_app("cambia-icona", app.id)))]
+        voci.append((tr("Add to Dock"), fatto(lambda: esito(reg.aggiungi_dock(app)))))
+    voci += [None, (tr("Get info"), fatto(lambda: _zeta_app("info", app.id))),
+             (tr("Change icon…"), fatto(lambda: _zeta_app("cambia-icona", app.id)))]
     if app.icona_personale:
-        voci.append(("Ripristina l'icona", fatto(lambda: esito(reg.ripristina_icona(app)))))
+        voci.append((tr("Restore icon"), fatto(lambda: esito(reg.ripristina_icona(app)))))
     if not app.protetta:
-        voci.append(("Togli dalle Applicazioni", fatto(
-            lambda: (reg.nascondi(app), avviso("«%s» tolta dal menu" % app.nome,
-                                               "Rimettila da Impostazioni › App predefinite."))))
+        voci.append((tr("Remove from Applications"), fatto(
+            lambda: (reg.nascondi(app), avviso(tr("“{name}” removed from the menu").format(name=app.nome),
+                                               tr("Put it back from Settings › Default Apps.")))))
         )
         si, _perche = reg.disinstallabile(app)
         if si:
-            voci.append(("Disinstalla…", fatto(lambda: _zeta_app("disinstalla", app.id))))
+            voci.append((tr("Uninstall…"), fatto(lambda: _zeta_app("disinstalla", app.id)), True))
     return voci

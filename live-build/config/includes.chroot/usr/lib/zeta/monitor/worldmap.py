@@ -7,13 +7,18 @@ animati. Nessuna tessera scaricata da Internet: la mappa è locale.
 """
 import json
 import math
+import sys
 import time
 
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import language  # noqa: E402
+
 DATA = "/usr/share/zeta/monitor/world.json"
+ISO_CODES = "/usr/share/iso-codes/json/iso_3166-1.json"
 LAT_MIN, LAT_MAX = -58.0, 84.0
 
 
@@ -28,12 +33,34 @@ def project(lon, lat):
     return x, y
 
 
+def _english_names():
+    """{ISO alpha-2: English name} from the iso-codes package ({} if missing)."""
+    try:
+        with open(ISO_CODES) as f:
+            return {c["alpha_2"]: c.get("common_name") or c["name"] for c in json.load(f)["3166-1"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
 def _load():
+    """Countries of world.json. Its names are Italian: in any other interface
+    language they are replaced with the English names (iso-codes)."""
     try:
         with open(DATA) as f:
-            return json.load(f)["countries"]
+            countries = json.load(f)["countries"]
     except (OSError, ValueError, KeyError):
         return []
+    if language() != "it":
+        english = _english_names()
+        extra = {"Cipro del Nord": "Northern Cyprus"}      # no ISO code in world.json
+        for c in countries:
+            c["name"] = english.get(c.get("iso")) or extra.get(c.get("name"), c.get("name"))
+    return countries
+
+
+def country_names():
+    """{ISO alpha-2: country name in the interface language}."""
+    return {c["iso"]: c["name"] for c in _load() if c.get("iso")}
 
 
 class WorldMap(Gtk.DrawingArea):

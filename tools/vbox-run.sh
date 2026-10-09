@@ -8,9 +8,9 @@
 set -uo pipefail
 ARCH="${1:-arm64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OVA="$ROOT/out/zeta-1.7-$ARCH.ova"
+OVA="$ROOT/out/zetarays-2.0-$ARCH.ova"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
-NAME="ZETA RAYS 1.7 ($ARCH)"
+NAME="ZETA RAYS 2.0 ($ARCH)"
 
 [ -f "$OVA" ] || { echo "OVA non trovata: $OVA"; exit 1; }
 

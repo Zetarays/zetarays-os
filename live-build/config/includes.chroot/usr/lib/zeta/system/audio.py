@@ -7,6 +7,8 @@ con `wpctl`. Volumi espressi da 0.0 a 1.0 (fino a 1.5 per l'amplificazione).
 import json
 import re
 
+from i18n import tr
+
 from . import run
 
 SINK, SOURCE = "Audio/Sink", "Audio/Source"
@@ -77,16 +79,21 @@ def streams():
 
 def _nice(label):
     # "Built-in Audio Analog Stereo" -> "Audio integrato (analogico stereo)"
-    t = label.replace("Built-in Audio", "Audio integrato")
-    t = re.sub(r"\bAnalog Stereo\b", "analogico stereo", t)
-    t = re.sub(r"\bDigital Stereo\b", "digitale stereo", t)
+    t = label.replace("Built-in Audio", tr("Built-in Audio"))
+    t = re.sub(r"\bAnalog Stereo\b", lambda _m: tr("Analog Stereo"), t)
+    t = re.sub(r"\bDigital Stereo\b", lambda _m: tr("Digital Stereo"), t)
     t = re.sub(r"\bHDMI\b", "HDMI", t)
     return t
 
 
+# wpctl stampa e legge i numeri secondo la lingua del sistema (in italiano
+# «0,40»): sempre in C, cosi' il volume si legge e si scrive con il punto.
+_WPCTL = ["env", "LC_ALL=C", "wpctl"]
+
+
 def volume(target=DEFAULT_SINK):
     """(volume 0..1.5, muto) oppure (None, False) se non c'è audio."""
-    out = run(["wpctl", "get-volume", str(target)], timeout=3)
+    out = run(_WPCTL + ["get-volume", str(target)], timeout=3)
     m = re.search(r"Volume:\s*([\d.]+)", out or "")
     if not m:
         return None, False
@@ -95,15 +102,15 @@ def volume(target=DEFAULT_SINK):
 
 def set_volume(value, target=DEFAULT_SINK):
     value = max(0.0, min(1.5, value))
-    run(["wpctl", "set-volume", "-l", "1.5", str(target), "%.2f" % value], timeout=3)
+    run(_WPCTL + ["set-volume", "-l", "1.5", str(target), "%.2f" % value], timeout=3)
 
 
 def set_mute(muted, target=DEFAULT_SINK):
-    run(["wpctl", "set-mute", str(target), "1" if muted else "0"], timeout=3)
+    run(_WPCTL + ["set-mute", str(target), "1" if muted else "0"], timeout=3)
 
 
 def set_default(node_id):
-    run(["wpctl", "set-default", str(node_id)], timeout=3)
+    run(_WPCTL + ["set-default", str(node_id)], timeout=3)
 
 
 def available():

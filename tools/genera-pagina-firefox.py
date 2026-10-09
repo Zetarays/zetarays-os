@@ -103,6 +103,14 @@ def main(site, out):
     page = re.sub(r'\s+href=&quot;[^&]*&quot;', "", page)
     page = re.sub(r'\s+target=&quot;[^&]*&quot;', "", page)
 
+    # offline copy inside the system: it opens in the system's language
+    # (Italian or English) unless the visitor chose one; the site online keeps
+    # starting in English
+    vecchio = 'setLang(scelta === "it" ? "it" : "en");'
+    if page.count(vecchio) == 1:
+        page = page.replace(vecchio, 'setLang(scelta || ((navigator.language || "").slice(0, 2) === "it" ? "it" : "en"));')
+    else:
+        print("genera-pagina-firefox: language switch not found, the page starts in English", file=sys.stderr)
     extra = HEAD_EXTRA % {"online": '"%s"' % ONLINE_URL, "probe": '"%s"' % PROBE_URL,
                           "timeout": PROBE_TIMEOUT_MS}
     # the site writes no <head>/<body> tags (HTML5 allows it): the head part

@@ -112,6 +112,18 @@ tooltip {
   border-radius: 10px;
   color: @ink;
 }
+/* Tastiera in uso (solo con piu' layout): sigla cliccabile */
+#custom-tastiera {
+  padding: 0 10px;
+  margin-right: 2px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: @ink_2;
+}
+#custom-tastiera:hover {
+  background: @hover;
+}
 /* Energia: in fondo a destra, separato dall'orologio */
 #image.power {
   padding: 0 14px 0 12px;

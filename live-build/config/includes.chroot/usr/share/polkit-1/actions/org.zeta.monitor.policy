@@ -4,8 +4,10 @@
 <policyconfig>
   <vendor>ZETA RAYS</vendor>
   <action id="org.zetarays.monitor.firewall">
-    <description>Attivare o disattivare il firewall</description>
-    <message>Inserisci la password per cambiare lo stato del firewall.</message>
+    <description>Turn the firewall on or off</description>
+    <description xml:lang="it">Attivare o disattivare il firewall</description>
+    <message>Enter your password to change the firewall status.</message>
+    <message xml:lang="it">Inserisci la password per cambiare lo stato del firewall.</message>
     <icon_name>zeta-shield</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>

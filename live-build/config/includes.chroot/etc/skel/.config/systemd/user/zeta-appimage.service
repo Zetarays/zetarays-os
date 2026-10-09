@@ -1,5 +1,5 @@
 [Unit]
-Description=ZETA RAYS: integra le AppImage nel menu
+Description=ZETA RAYS: add AppImages to the menu
 
 [Service]
 Type=oneshot

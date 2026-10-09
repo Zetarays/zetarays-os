@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # ZETA RAYS — apre all'istante un pannello della barra.
 #
-#   zeta-pannello controllo | energia | launcher | cerca
+#   zeta-pannello controllo | rete | audio | energia | launcher | cerca
 #
 # I pannelli restano in memoria, nascosti (partono con la sessione): il clic
 # manda solo «mostra» al pannello gia' pronto con gapplication (un piccolo
@@ -10,11 +10,16 @@
 # computer lento richiedeva quasi un secondo. Secondo clic = chiude.
 # Se il pannello non e' in memoria lo si avvia come prima: non resta mai un
 # pulsante che non fa nulla.
+# rete e audio sono viste dello stesso processo del centro di controllo
+# (zeta-controllo): ognuna con le sole cose sue.
+azione=mostra
+vista=
 case "$1" in
     controllo) id=org.zetarays.Controllo; prog=zeta-controllo ;;
+    rete|audio) id=org.zetarays.Controllo; prog=zeta-controllo; azione=$1; vista=$1 ;;
     energia)   id=org.zetarays.Energia;   prog=zeta-energia ;;
     launcher)  id=org.zetarays.Launcher;  prog=zeta-launcher ;;
     cerca)     id=org.zetarays.Cerca;     prog=zeta-cerca ;;
-    *) echo "uso: zeta-pannello controllo|energia|launcher|cerca" >&2; exit 2 ;;
+    *) echo "usage: zeta-pannello controllo|rete|audio|energia|launcher|cerca" >&2; exit 2 ;;
 esac
-gapplication action "$id" mostra 2>/dev/null || exec "$prog"
+gapplication action "$id" "$azione" 2>/dev/null || exec "$prog" $vista

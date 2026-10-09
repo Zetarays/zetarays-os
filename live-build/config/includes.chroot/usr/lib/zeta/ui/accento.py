@@ -21,6 +21,45 @@ RESO = os.path.join(CFG, "accent-reso")
 SCELTO = os.path.join(CFG, "accent")
 PREDEFINITO = "#3A8DFF"
 
+# I colori d'accento di ZETA RAYS: l'unica tavolozza del sistema. La usano
+# Impostazioni › Aspetto, i colori dell'immagine dell'account e i comandi a
+# voce o scritti («metti il rosso»). (chiave, colore, nome inglese da tradurre)
+TAVOLOZZA = (
+    ("blu", "#3A8DFF", "Blue"),
+    ("rosso", "#C8102E", "Red"),
+    ("verde", "#4CC94A", "Green"),
+    ("bianco", "#FFFFFF", "White"),
+)
+
+
+def nome(chiave: str) -> str:
+    """Il nome del colore, tradotto (le stringhe scritte qui per esteso
+    perche' tools/i18n.py le trovi)."""
+    from i18n import tr
+    return {"blu": tr("Blue"), "rosso": tr("Red"), "verde": tr("Green"),
+            "bianco": tr("White")}.get(chiave, chiave)
+
+
+def colore_di(chiave: str) -> str | None:
+    """Il colore di una voce della tavolozza («blu», «rosso»…), o None."""
+    for k, colore, _nome in TAVOLOZZA:
+        if k == chiave:
+            return colore
+    return None
+
+
+def scelto_hex() -> str:
+    """La scelta dell'utente così com'è (non adattata al tema)."""
+    try:
+        with open(SCELTO) as f:
+            v = f.read().strip().upper()
+        if len(v) == 7 and v.startswith("#"):
+            int(v[1:], 16)
+            return v
+    except (OSError, ValueError):
+        pass
+    return PREDEFINITO
+
 
 def colore_hex() -> str:
     for percorso in (RESO, SCELTO):

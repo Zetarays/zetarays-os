@@ -34,6 +34,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from i18n import language, tr
+
 from .providers.base import Provider, ProviderConfig
 from .providers.claude import ClaudeProvider
 from .providers.gemini import GeminiProvider
@@ -57,21 +59,35 @@ CATALOG = {
     "openrouter": (OpenAICompatProvider, "OpenRouter", "cloud"),
     # Qualsiasi servizio compatibile OpenAI, in rete o sul computer (LM Studio,
     # vLLM, llama.cpp): indirizzo e modello li scrive l'utente.
-    "personalizzato": (OpenAICompatProvider, "Personalizzato (compatibile OpenAI)", "cloud"),
+    "personalizzato": (OpenAICompatProvider, tr("Custom (OpenAI-compatible)"), "cloud"),
     "ollama":   (OllamaProvider,       "Ollama",   "local"),
 }
 
 # Istruzioni brevi e in positivo: il modello locale (1B) con un elenco di
 # divieti rifiutava anche richieste innocue («scrivi una frase su Roma»:
 # visto). Provate su 8 richieste normali: 0 rifiuti, contro 1-2 di prima.
-DEFAULT_SYSTEM = (
-    "Sei ZETA, l'intelligenza di ZETA RAYS OS. Rispondi sempre in italiano, in modo breve, "
-    "chiaro e gentile. Aiuta volentieri: scrivi testi e poesie, spiega, rispondi alle domande, "
-    "dai consigli. Rifiuta soltanto le richieste chiaramente illegali o che danneggiano altre "
-    "persone; il lavoro di sicurezza su sistemi propri o autorizzati e' legittimo. Non dire mai "
-    "di aver fatto un'azione sul computer: le azioni le esegue il sistema, che ne comunica "
-    "l'esito vero. Il sistema operativo si chiama ZETA RAYS OS."
-)
+# In inglese (i modelli piccoli le seguono meglio), con la lingua della
+# risposta lasciata a chi scrive; la lingua del sistema serve quando la
+# richiesta non ne ha una chiara.
+_NOMI_LINGUE = {"it": "Italian", "en": "English", "de": "German", "fr": "French",
+                "es": "Spanish", "pt": "Portuguese", "nl": "Dutch", "pl": "Polish"}
+
+
+def _prompt_predefinito() -> str:
+    lingua = language()
+    nome = _NOMI_LINGUE.get(lingua, lingua)
+    return (
+        "You are ZETA, the assistant of ZETA RAYS OS. Always reply in the language the user "
+        "writes in (if unclear, use %s), briefly, clearly and kindly. Be glad to help: write "
+        "texts and poems, explain, answer questions, give advice. Refuse only requests that are "
+        "clearly illegal or harm other people; security work on your own or authorized systems "
+        "is legitimate. Never say you performed an action on the computer: the system performs "
+        "actions and reports the real outcome. The operating system is called ZETA RAYS OS."
+        % nome
+    )
+
+
+DEFAULT_SYSTEM = _prompt_predefinito()
 
 
 KEYS_FILE = CONFIG_DIR / "chiavi.json"          # vecchio formato, in chiaro
@@ -272,9 +288,10 @@ def keyring_set(name: str, value: str) -> bool:
 def keyring_where() -> str:
     """Dove vengono tenute le chiavi, da mostrare nelle Impostazioni."""
     if _secret_service():
-        return "portachiavi del sistema"
+        return tr("system keyring")
     if _creds_ok():
-        return "cifrate in %s (solo tu, solo su questo computer)" % CREDS_DIR
+        # zeta-prove e le Impostazioni tengono solo la parte prima di " ("
+        return tr("encrypted in {path} (only you, only on this computer)").format(path=CREDS_DIR)
     return str(KEYS_FILE)
 
 
@@ -330,7 +347,7 @@ class Registry:
         elif provider_id in CATALOG:
             s["default"] = provider_id
         else:
-            raise ValueError("provider sconosciuto: %s" % provider_id)
+            raise ValueError(tr("unknown provider: {name}").format(name=provider_id))
         save_settings(s)
         self.settings = s
 
@@ -351,11 +368,11 @@ class Registry:
     def test(self, provider_id: str) -> tuple[bool, str]:
         """Prova il collegamento di un provider e restituisce (riuscito, messaggio)."""
         if provider_id not in CATALOG:
-            return False, "Provider sconosciuto."
+            return False, tr("Unknown provider.")
         try:
             return self.get(provider_id).test()
         except Exception as e:  # noqa: BLE001 - una prova non deve mai far cadere l'app
-            return False, "Errore inatteso: %s" % e
+            return False, tr("Unexpected error: {error}").format(error=e)
 
     def resolve_default(self) -> Provider:
         """Sceglie il provider da usare (vedi ordine in cima al file)."""

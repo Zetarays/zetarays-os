@@ -10,11 +10,17 @@ intatta: non si genera mai un file rotto.
 from __future__ import annotations
 
 import json
+import locale
 import shlex
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
+
+if "/usr/lib/zeta" not in sys.path:
+    sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 
 HOME = Path(os.path.expanduser("~"))
 CFG = HOME / ".config" / "zeta"
@@ -25,19 +31,19 @@ SEGNALE_DOCK = 12        # SIGRTMIN+12: finestre aperte/chiuse (lo manda zeta-sp
 
 # Dock predefinito: accesso immediato alle funzioni principali del sistema.
 DEFAULT = [
-    {"cmd": "thunar",             "name": "File",          "icon": "org.xfce.thunar"},
-    {"cmd": "foot",               "name": "Terminale",     "icon": "foot"},
+    {"cmd": "thunar",             "name": tr("Files"),     "icon": "org.xfce.thunar"},
+    {"cmd": "foot",               "name": tr("Terminal"),  "icon": "foot"},
     {"cmd": "firefox-esr",        "name": "Firefox",       "icon": "firefox-esr"},
     # Posta (Thunderbird): suggerimento, puntino quando e' aperta, «Nuovo
     # messaggio» nel menu. Lo stato lo chiede il dock solo quando si apre o si chiude
     # una finestra (segnale di zeta-spazi): nessun controllo periodico.
-    {"cmd": "zeta-posta",         "name": "Posta",         "icon": "zeta-posta",
-     "stato": "zeta-posta stato", "voci": [["Nuovo messaggio", "zeta-posta nuovo"]]},
-    {"cmd": "gnome-text-editor",  "name": "Editor",        "icon": "org.gnome.TextEditor"},
-    {"cmd": "zeta-monitor",       "name": "Monitor",       "icon": "zeta-monitor"},
-    {"cmd": "zeta-sicurezza",     "name": "Sicurezza",     "icon": "zeta-sicurezza"},
-    {"cmd": "synaptic-pkexec",    "name": "Pacchetti",     "icon": "synaptic"},
-    {"cmd": "zeta-impostazioni",  "name": "Impostazioni",  "icon": "zeta-impostazioni"},
+    {"cmd": "zeta-posta",         "name": tr("Mail"),      "icon": "zeta-posta",
+     "stato": "zeta-posta stato", "voci": [[tr("New Message"), "zeta-posta nuovo"]]},
+    {"cmd": "gnome-text-editor",  "name": tr("Editor"),    "icon": "org.gnome.TextEditor"},
+    {"cmd": "zeta-monitor",       "name": tr("Monitor"),   "icon": "zeta-monitor"},
+    {"cmd": "zeta-sicurezza",     "name": tr("Security"),  "icon": "zeta-sicurezza"},
+    {"cmd": "synaptic-pkexec",    "name": tr("Packages"),  "icon": "synaptic"},
+    {"cmd": "zeta-impostazioni",  "name": tr("Settings"),  "icon": "zeta-impostazioni"},
 ]
 
 
@@ -81,7 +87,7 @@ def load_dock() -> list[dict]:
                 # dock salvati dalla 1.7 precedente: il menu proprio della
                 # Posta e' diventato una voce del menu comune
                 if e.pop("menu", None) == "zeta-posta menu":
-                    e.setdefault("voci", [["Nuovo messaggio", "zeta-posta nuovo"]])
+                    e.setdefault("voci", [[tr("New Message"), "zeta-posta nuovo"]])
             return voci
     except (OSError, ValueError):
         pass
@@ -142,12 +148,45 @@ def icon_size() -> int:
     return v if 28 <= v <= 64 else 42
 
 
+def _locale_orologio() -> str:
+    """La lingua dell'orologio della barra: quella dell'utente (LC_ALL,
+    LC_TIME, LANG), se e' davvero installata. Waybar non sa usare una lingua
+    che manca (l'orologio sparirebbe): in quel caso C.UTF-8."""
+    nome = ""
+    for var in ("LC_ALL", "LC_TIME", "LANG"):
+        nome = os.environ.get(var, "")
+        if nome:
+            break
+    if not nome or nome in ("C", "POSIX"):
+        return "C.UTF-8"
+    try:
+        prima = locale.setlocale(locale.LC_TIME)
+    except locale.Error:
+        return "C.UTF-8"
+    try:
+        locale.setlocale(locale.LC_TIME, nome)
+        return nome
+    except locale.Error:
+        return "C.UTF-8"
+    finally:
+        try:
+            locale.setlocale(locale.LC_TIME, prima)
+        except locale.Error:
+            pass
+
+
 def render_config(dock: list[dict]) -> dict:
     """Configurazione Waybar completa con il dock richiesto."""
     dock_modules = []
     images = {}
     size = icon_size()
     reg = _registro()
+    # Formati della data (strftime) per l'orologio: l'ordine di giorno e mese
+    # cambia da lingua a lingua, quindi passano dalle traduzioni.
+    # xgettext:no-python-format
+    data_breve = tr("%a %b %d")              # sotto l'ora, nella barra
+    # xgettext:no-python-format
+    data_lunga = tr("%A, %B %d, %Y")         # suggerimento sopra il calendario
     for i, e in enumerate(dock):
         key = "image#dock%d" % i
         dock_modules.append(key)
@@ -179,8 +218,16 @@ def render_config(dock: list[dict]) -> dict:
         ("margin-bottom" if posizione() == "bottom" else "margin-top"): 12,
         "modules-left": ["image#launcher", "group/spazi"],
         "modules-center": ["group/dock", "group/ridotte"],
-        "modules-right": ["image#search", "image#net", "image#vol",
+        "modules-right": ["custom/tastiera", "image#search", "image#net", "image#vol",
                           "image#bat", "clock", "image#power"],
+        # Tastiera in uso (IT, US, GB...), solo con piu' layout (con uno solo
+        # zeta-tastiera non scrive nulla e Waybar non la mostra). Un clic passa
+        # alla successiva, come Alt+Shift; zeta-spazi la aggiorna al cambio.
+        "custom/tastiera": {
+            "exec": "zeta-tastiera stato", "return-type": "json",
+            "interval": 300, "signal": 14,
+            "on-click": "zeta-tastiera prossima", "tooltip": True,
+        },
         "image#launcher": {
             "exec": "echo $HOME/.config/zeta/launcher.svg",
             # Il marchio e l'elemento d'identita della barra. E un disegno a
@@ -228,13 +275,13 @@ def render_config(dock: list[dict]) -> dict:
         # /etc/NetworkManager/dispatcher.d/90-zeta-barra); l'intervallo lungo
         # e' solo una rete di sicurezza
         "image#net": {"exec": "zeta-status net", "interval": 60, "signal": 13, "size": 18,
-                      "tooltip": False, "on-click": "zeta-pannello controllo"},
+                      "tooltip": False, "on-click": "zeta-pannello rete"},
         # Il volume si aggiorna con un segnale (zeta-volume lo manda appena
         # cambia), non rileggendo lo stato ogni 2 secondi: la lettura
         # periodica resta solo come rete di sicurezza.
         "image#vol": {"exec": "zeta-status vol", "interval": 60, "signal": 11,
                       "size": 18,
-                      "tooltip": False, "on-click": "zeta-pannello controllo",
+                      "tooltip": False, "on-click": "zeta-pannello audio",
                       "on-scroll-up": "zeta-volume su",
                       "on-scroll-down": "zeta-volume giu"},
         "image#bat": {"exec": "zeta-status bat", "interval": 60, "size": 20,
@@ -243,9 +290,11 @@ def render_config(dock: list[dict]) -> dict:
                         "size": 18,
                         "tooltip": False, "on-click": "zeta-pannello energia"},
         "clock": {
-            "format": "<span weight='500'>{0:%H:%M}</span>\n<span size='8.5pt' foreground='#8A8A8E'>{0:L%a %d %b}</span>",
-            "locale": "it_IT.UTF-8", "justify": "right",
-            "tooltip-format": "<span size='11pt'>{0:L%A %d %B %Y}</span>\n\n<tt>{calendar}</tt>",
+            "format": "<span weight='500'>{0:%H:%M}</span>\n<span size='8.5pt' foreground='#8A8A8E'>{0:L"
+                      + data_breve + "}</span>",
+            "locale": _locale_orologio(), "justify": "right",
+            "tooltip-format": "<span size='11pt'>{0:L" + data_lunga
+                              + "}</span>\n\n<tt>{calendar}</tt>",
             "calendar": {"mode": "month", "weeks-pos": "",
                          "format": {"months": "<span color='#EDEDEA'><b>{}</b></span>",
                                     "weekdays": "<span color='#8A8A8E'>{}</span>",
@@ -296,8 +345,8 @@ def apply(dock: list[dict] | None = None, reload: bool = True) -> bool:
     cfg = render_config(dock)
     WAYBAR.parent.mkdir(parents=True, exist_ok=True)
     tmp = WAYBAR.with_suffix(".tmp")
-    header = ("// ZETA RAYS — barra in basso con dock (generato da zeta-dock;\n"
-              "// personalizza da Impostazioni › Dock, non modificare a mano)\n")
+    header = ("// ZETA RAYS — bottom bar with dock (generated by zeta-dock;\n"
+              "// customize it in Settings › Dock, do not edit by hand)\n")
     try:
         with open(tmp, "w") as f:
             f.write(header)

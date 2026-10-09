@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later
+     ZETA RAYS — editor di testo con lo sfondo nero e il testo chiaro
+     (Impostazioni › Aspetto › Editor di testo: Scuro). La sintassi viene da
+     Adwaita-dark. La variante chiara e quella scura sono questo stesso schema:
+     l'editor non lo scambia mai, qualunque sia il tema della scrivania. -->
+<style-scheme id="zeta-notte" name="ZETA RAYS Night" version="1.0" parent-scheme="Adwaita-dark">
+  <author>ZETA RAYS</author>
+  <description>Black background, light text</description>
+  <metadata>
+    <property name="variant">dark</property>
+    <property name="light-variant">zeta-notte</property>
+    <property name="dark-variant">zeta-notte</property>
+  </metadata>
+  <style name="text" background="#0C0C0E" foreground="#EDEDEA"/>
+  <style name="background-pattern" background="#0C0C0E"/>
+  <style name="current-line" background="#17171A"/>
+  <style name="current-line-number" background="#17171A" foreground="#8A8A8E"/>
+  <style name="line-numbers" background="#0C0C0E" foreground="#5A5A60"/>
+  <style name="cursor" foreground="#EDEDEA"/>
+</style-scheme>

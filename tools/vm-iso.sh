@@ -5,7 +5,7 @@
 set -uo pipefail
 ARCH="${2:-arm64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISO="$ROOT/out/zetarays-1.7-$ARCH.iso"
+ISO="$ROOT/out/zetarays-2.0-$ARCH.iso"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
 NAME="ZETA prova ($ARCH)"
 PORTA=$([ "$ARCH" = arm64 ] && echo 2222 || echo 2223)

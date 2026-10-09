@@ -1,0 +1,728 @@
+===============================================================================
+ ZETA RAYS OS 2.0
+ A free, minimal operating system with local AI and security tools.
+ https://zetarays.org   .   info@zetarays.org
+===============================================================================
+
+  1. Which file to download         8. Network and Wi-Fi
+  2. Verify your download           9. Troubleshooting
+  3. Philosophy                    10. Known limitations
+  4. Requirements                  11. License and credits
+  5. Trying it and installing it   12. Privacy
+  6. What is inside                13. Contact
+  7. ZETA, the AI
+
+
+1. WHICH FILE TO DOWNLOAD
+-------------------------------------------------------------------------------
+
+  zetarays-2.0-amd64.iso    Intel and AMD PCs. This is the right file for
+                            almost every desktop and laptop.
+                            {SIZE_amd64.iso}
+
+  zetarays-2.0-arm64.iso    64-bit ARM machines and Apple Silicon Macs
+                            (with UTM or QEMU).
+                            {SIZE_arm64.iso}
+
+  zetarays-2.0-amd64.ova    Ready-made VirtualBox machine for Intel and AMD
+                            PCs. Import it and start it, nothing to install.
+                            {SIZE_amd64.ova}
+
+  zetarays-2.0-arm64.ova    Ready-made VirtualBox machine for Apple Silicon
+                            Macs (VirtualBox 7.2 or later).
+                            {SIZE_arm64.ova}
+
+Use an ISO to install ZETA RAYS on a computer, or to try it from a USB stick
+without touching your disk. Use an OVA to try it inside a window, leaving your
+computer exactly as it is.
+
+The system starts in English, with a US keyboard layout. The installer lets
+you choose your language, keyboard layout and time zone, and the installed
+system then uses them everywhere (see "Language and keyboard" in section 6).
+
+
+2. VERIFY YOUR DOWNLOAD
+-------------------------------------------------------------------------------
+
+Always check that the file arrived intact. The SHA-256 checksum must match
+exactly.
+
+  arm64.iso   {SHA_arm64.iso}
+  arm64.ova   {SHA_arm64.ova}
+  amd64.iso   {SHA_amd64.iso}
+  amd64.ova   {SHA_amd64.ova}
+
+The same checksums are in the SHA256SUMS file, next to the images.
+
+How to check:
+
+  Windows (PowerShell)
+      Get-FileHash .\zetarays-2.0-amd64.iso -Algorithm SHA256
+
+  macOS (Terminal)
+      shasum -a 256 zetarays-2.0-arm64.iso
+
+  Linux (Terminal)
+      sha256sum zetarays-2.0-amd64.iso
+
+  All files at once, with SHA256SUMS in the same folder:
+      sha256sum -c SHA256SUMS        (Linux)
+      shasum -a 256 -c SHA256SUMS    (macOS)
+
+If the checksum does not match, the file is incomplete or corrupted: download
+it again. Never install an image that fails verification.
+
+
+3. PHILOSOPHY
+-------------------------------------------------------------------------------
+
+Few things, done well. A black, quiet desktop where every piece belongs to
+the same design. An assistant that runs on your own computer, does what you
+ask and checks that it really happened before saying "done". Tools for
+security work, ready to use. Nothing that phones home, nothing that runs
+without a reason, and no feature that only works in a demo.
+
+
+4. REQUIREMENTS
+-------------------------------------------------------------------------------
+
+                 Minimum                       Recommended
+  Processor      64-bit (x86-64 or ARM64)      4 cores or more
+  Memory         4 GB                          8 GB
+  Disk           15 GB free                    20 GB free or more
+  Firmware       UEFI or BIOS (amd64)          UEFI with Secure Boot
+
+  Processor    64-bit is required. On a 32-bit processor or virtual machine
+               the boot stops with an error.
+  Memory       With less than 8 GB the local AI model is not kept in memory
+               between questions, so answers are slower. With 16 GB or more
+               it is loaded in advance, at login.
+  Disk         The installed system takes about 8 GB.
+  Firmware     The images use the signed shim: Secure Boot can stay on.
+               The amd64 image also boots in BIOS/Legacy mode.
+
+
+5. TRYING IT AND INSTALLING IT
+-------------------------------------------------------------------------------
+
+From a USB stick (ISO)
+
+  1. Write the ISO to a stick of at least 8 GB with Rufus (Windows),
+     balenaEtcher (Windows, macOS, Linux) or dd (Linux, macOS).
+     The image is hybrid: write it as it is, no conversion needed.
+  2. Boot your computer from the stick. The boot menu offers:
+       Try ZETA RAYS OS                    the live desktop (starts by itself
+                                           after 5 seconds)
+       Install ZETA RAYS OS                opens the installer at once
+       Try ZETA RAYS OS (safe graphics)    for difficult graphics cards
+       Tools                               UEFI firmware settings, check the
+                                           boot media
+  3. The ZETA RAYS desktop comes up, fully working: you can try it without
+     changing anything on your computer.
+  4. To install it, choose "Install ZETA RAYS OS" in the welcome window, or
+     "Install ZETA RAYS" from the app menu.
+
+The boot menu, the live desktop and the installer start in English, with a
+US keyboard layout. The first screen of the installer has a language menu at
+the bottom: choose your language there (Italiano, for example) and the rest
+of the installation continues in that language. The next screens set your
+time zone, regional formats and keyboard layout. The installed system starts
+with all of these choices. To change them later, use Settings > Language &
+Region.
+
+In VirtualBox (OVA)
+
+  1. VirtualBox, File > Import Appliance, pick the .ova file.
+  2. Start the machine. It logs in automatically.
+  The machine comes preset with 8 GB of memory and 4 processors.
+
+In VirtualBox (ISO)
+
+  When you create the machine, choose Type "Linux" and a 64-bit version.
+  If you leave a 32-bit version, the boot stops with an error about the
+  program format (i686 / x86-64). That is not a fault in the image: it is the
+  virtual machine set to 32-bit.
+
+Alongside another system (dual boot)
+
+  ZETA RAYS can be installed next to Kali Linux, another distribution or
+  Windows. Its boot menu looks for the other systems and lists them, with five
+  seconds to choose. It installs into its own EFI folder, /EFI/zetarays, so it
+  never overwrites another system's boot files. Secure Boot keeps working
+  after installation: you do not need to turn it off.
+
+  Manual partitioning next to another system, step by step:
+
+    1. Leave the other system's EFI partition alone: the small one (100 to
+       500 MB), FAT32, with the "boot" / "esp" flags. Do not delete it and do
+       not format it. Do not add other flags (not "bios_grub").
+    2. Select the partition meant for ZETA RAYS, Edit: tick Format, file
+       system ext4, mount point "/", no flags.
+    3. Select the existing EFI partition, Edit: mount point "/boot/efi",
+       and leave Format UNTICKED. This is the step people miss: without it
+       there is nowhere to put the boot loader.
+    4. Swap is optional. An existing swap partition can be shared with the
+       other system: mount point "swap", without formatting.
+    5. Only on older computers started in BIOS (Legacy) mode, there is a
+       "Boot loader location" field at the bottom: leave the whole disk
+       selected (for example /dev/sda), not a single partition.
+
+  Before pressing Install, the summary must show "Format" only once, on the
+  ZETA RAYS partition.
+
+  If step 3 is skipped, the installer warns "No EFI system partition
+  configured": go back and do step 3. If you continue anyway, the installer
+  stops at the end and says so, instead of finishing "successfully" and
+  leaving a machine that cannot boot.
+
+  If you format a partition that the other system used as swap, that system
+  may wait about a minute and a half for it at boot. To fix it, start the
+  other system and remove the swap line from its /etc/fstab.
+
+Logging in
+
+  User        zeta
+  Password    zeta
+
+The computer is named zetarays, so the terminal shows zeta@zetarays. The OVAs
+log in automatically. When you install, you choose your own user name and
+password.
+
+
+6. WHAT IS INSIDE
+-------------------------------------------------------------------------------
+
+A complete desktop, written for ZETA RAYS: bar, Dock, app launcher, Control
+Center, Files, Terminal, Monitor, Security, Settings, file search. Technical
+base: Debian 13 (trixie), Linux kernel {KERNEL}, Hyprland 0.55 with the
+official fix for a crash with open menus.
+
+Security and analysis tools, for professional and educational use, with a
+Security app that lists them and installs the missing ones.
+
+144 file types have a program that opens them, and every one of those programs
+is actually installed: PDF, EPUB, images (including WEBP, HEIC, AVIF), video,
+audio, archives, fonts, text and code.
+
+Language and keyboard
+  The USB stick and the live session start in English, with the US
+  keyboard layout. The installer asks for your language, keyboard layout
+  and time zone, and the installed system uses them everywhere: login
+  screen, desktop, apps and terminal.
+  Settings > Language & Region changes them later: the language, the
+  regional formats (dates, times, numbers, currency), the keyboards (see
+  "Keyboards" below) and an input method for Chinese, Japanese and Korean
+  (Fcitx 5: Mozc for Japanese, Pinyin for Simplified Chinese, Chewing for
+  Traditional Chinese, Hangul for Korean; Ctrl + Space switches between
+  the keyboard and the input method). A new language applies after you
+  log out and back in; keyboards apply at once.
+  Languages: English (United States and United Kingdom), Italian, French,
+  German, Spanish, Portuguese (Portugal and Brazil), Dutch, Polish,
+  Russian, Ukrainian, Czech, Slovak, Hungarian, Romanian, Bulgarian, Greek,
+  Turkish, Swedish, Norwegian Bokmal, Danish, Finnish, Croatian, Slovenian,
+  Serbian, Hebrew, Arabic, Persian, Hindi, Bengali, Japanese, Korean,
+  Simplified Chinese and Traditional Chinese.
+  The ZETA RAYS apps themselves (desktop, bar, Settings, ZETA and the
+  other ZETA RAYS tools) are translated into English and Italian. With any
+  other language, the system, Firefox, Thunderbird, the installer and the
+  GTK and Qt apps use that language, while the ZETA RAYS apps stay in
+  English. Fonts for all these scripts are included, and text recognition
+  (OCR) reads the system language.
+
+Keyboards
+  Settings > Language & Region > Keyboards holds up to four layouts (for
+  example Italian, English US and English UK). The first one is the
+  default; Alt + Shift or a click on the indicator in the bar (IT, US,
+  GB...) switches between them, and changes apply at once.
+
+Fonts
+  Settings > Fonts shows every font of the computer in its own typeface,
+  with a sample text you can change and a search. "Add Fonts..." (or
+  dropping .ttf, .otf, .ttc or .woff files on the page) installs new fonts
+  for your user, ready at once in every app; fonts you added can be removed
+  (they go to the Trash).
+
+Account
+  Settings > Account shows your name and user and lets you choose your
+  picture: a .jpg or .png photo (cut to a circle from the centre, sharp at
+  every size) or a plain circle in one of the four system colors (blue,
+  red, green, white). By default the circle has the accent color and
+  changes with it. It appears in the account and power menu (click it to
+  open Settings > Account), on the lock screen and at login.
+
+Displays
+  Settings > Displays lists every connected display: resolution (the
+  native one is marked), refresh rate, scale (only the values that fit
+  the resolution and leave a usable desktop), orientation, and for a
+  built-in laptop panel the brightness. With two or more displays: drag
+  them on the map to match your desk, join them, mirror them or use only
+  one, and choose the main display (the first workspace opens there).
+  "Identify Displays" shows each number on its screen. Nothing changes
+  until Apply; then the real state is checked and a dialog asks to keep
+  the new settings: without an answer the previous ones come back after
+  15 seconds. Kept settings are remembered for each display (make, model
+  and serial number), also when it is unplugged and plugged in again.
+  zeta-schermi list prints the state in a terminal.
+
+Windows always within reach
+  A window can never stay where you cannot grab it: if a program moves its
+  window off the screen or opens it larger than the screen, or a display
+  is unplugged or its resolution or scale changes, the window comes back
+  with its title bar and buttons inside the screen, above the bar.
+  SUPER + SHIFT + W (or zeta-finestre recupera) brings every window back
+  at once. Menus of the bar always open inside the screen.
+
+Instant menus
+  The menus of the bar (the ZETA RAYS logo, search, network, sound, clock,
+  power) stay ready in memory: a click opens them at once, with fresh data,
+  and a second click or Esc closes them. Each shows only its own things:
+  the network icon Wi-Fi, available networks, Ethernet, Internet status,
+  VPN and Network Settings; the sound icon volume, output devices,
+  microphone, input devices and Sound Settings; the clock and the battery
+  the Control Center (quick toggles, brightness, battery). There is always
+  exactly one bar: if Waybar ever duplicates it (after the screen wakes up
+  or a monitor is reconnected), the extra copies are removed within
+  seconds.
+
+Firefox start page
+  With internet, Firefox opens zetarays.org. Without internet it opens a copy
+  of the same site stored on the computer (links disabled), never an error
+  page. You can choose another start page in Firefox's settings.
+
+Look and feel
+  Light and dark theme, with SUPER + T or from the Control Center. An accent
+  color of your choice, which retints the bar, borders, launcher, wallpaper
+  and terminal together. The default wallpaper is the ZETA RAYS logo in the
+  accent color. Eight ZETA RAYS wallpapers (blue waves, green circuits, red
+  waves, terminal, and the logo in blue, green, red and white) are one click
+  away in Settings > Appearance > Wallpaper. The lock screen is always
+  plain black, on every display, also when waking from sleep (sleep waits
+  until the lock is on screen); the wallpaper comes back after unlocking.
+  The text editor can have a white or a black page (Settings > Appearance
+  > Text Editor) while its window follows the theme of the desktop.
+
+Desktop
+  Arrange the icons your way: Home and Trash move like every other icon.
+  Right-click the Desktop > View: "Align to Grid" (on by default) or free
+  placement anywhere, icons arranged from the left (like Windows) or from
+  the right (like macOS), small, medium or large icons. "Clean Up Icons"
+  snaps them to the nearest free cells keeping your layout; "Sort By" puts
+  them in order. Drag a program (an AppImage, or an entry of the app menu)
+  from Files onto the Desktop and it becomes a shortcut, never a copy of
+  the program; New > App Shortcut... lists every app, AppImages included.
+  Programs unpacked by hand (Blender from blender.org in /opt or in
+  Downloads): their desktop entry or the program itself dropped on the
+  Desktop becomes a working shortcut with full paths, which can be moved,
+  copied and pasted freely; programs in /opt appear in the app menu by
+  themselves. Blender from blender.org starts like the packaged one, at the
+  right size for your screen.
+  Thumbnails of images, SVG, PDF and video on the Desktop and in Files. Drop
+  an image or a file from Firefox or Chromium onto the Desktop and it is
+  saved there as a real file, with its original name; a link becomes a
+  shortcut to the page. A file with the same name is never overwritten.
+  Minimized windows appear in the bar as live previews. The Dock can be
+  reordered in Settings > Dock and keeps its order after a restart.
+
+Text out of pictures (OCR, done on your computer)
+  SUPER + SHIFT + T and drag over any part of the screen: the text goes
+  straight to the clipboard. For files, right-click an image or a PDF and
+  choose "Copy Text from Image". Text is read in the system language and
+  in English.
+
+Never stuck
+  Ctrl + Alt + Esc turns the pointer into a red crosshair: click the window
+  that stopped responding and it is closed with every process it started,
+  first politely, then by force. Ctrl + Shift + Esc closes the active window.
+  Ctrl + Alt + Delete opens the emergency panel: task manager, terminal,
+  restore the desktop, lock, log out, restart, shut down. When memory is about
+  to run out, the heaviest program is closed before the computer freezes, and
+  a notification says which one. If the desktop ever crashes, it comes back by
+  itself in a few seconds, with your settings.
+
+ZETA Share
+  Send files to phones and computers nearby (Android, iPhone, Windows, macOS,
+  Linux) with LocalSend: right-click a file in Files and choose "Share with
+  ZETA Share". Files go directly over the local network, never through the
+  internet.
+
+Apps
+  Firefox, Thunderbird, a text editor, a media player, an image viewer, a PDF
+  viewer, a terminal with tabs, splits, bash, zsh and fish. Settings > Default
+  Apps chooses the default for each role, and every program follows the
+  choice.
+
+Printers
+  Settings > Printers finds Wi-Fi, wired and USB printers by itself and adds
+  them with one click, without drivers (IPP Everywhere) or with the right
+  driver (HP, Epson, Brother, Gutenprint for older Canon and others). There
+  is a "Test page" button, and a printer can also be added by its IP
+  address.
+
+Search
+  The magnifying glass in the bar finds apps, settings, your files and the
+  text inside your documents. Your own files come first, even ones you
+  created a second ago, each with the icon of its type; then external
+  disks, /opt and /etc. Internal system files are left out.
+
+Files and system folders
+  In Files, right-click inside a system folder such as /opt: "Paste Here as
+  Administrator" pastes the copied files after asking for your password,
+  "Open as Administrator" opens the folder with full rights. "Send To >
+  Desktop (Create Link)" puts a working shortcut to any program on the
+  Desktop.
+
+Installing and managing programs
+  Right-click any app in the app menu or in search: open it, open its file
+  location, add it to the Desktop or the Dock, "Get info" (where it comes
+  from: APT, Flatpak, AppImage, /opt; its version and paths), remove it from
+  the menu or uninstall it. System apps cannot be removed by mistake.
+  Double-click a .deb file or a .flatpakref (the "Install" button on
+  flathub.org) to install it. AppImages placed in ~/Applications (or found
+  in Downloads, on the Desktop, in ~/.local/bin or in /opt) join the menu by
+  themselves, with their own name and icon; the Italian folders of earlier
+  installations (Applicazioni, Scaricati, Scrivania) still work. An AppImage
+  keeps the same identity when you move, rename or update the file: one
+  menu entry, one Desktop icon, and the Desktop shortcuts and the Dock
+  follow the file. An AppImage file on the Desktop shows its app's name and
+  icon. "Change icon..." gives an app a new icon everywhere (menu, Dock,
+  search, Desktop); "Restore icon" puts the original back.
+
+Where is a program?
+  In the terminal, zeta-app find NAME (or zeta-app trova NAME) tells where a
+  program is and how to start it: every installation (APT, Flatpak,
+  AppImage, /opt...), the launch command, the executable, the desktop
+  entry, the package and its version, and whether a command is in your PATH
+  (and which one runs when you type its name). It also lists system
+  services with that name. --json gives the same answer for scripts.
+  zeta-app --help lists the other commands: launch, info, locate, desktop,
+  dock, undock, set-icon, reset-icon, hide, show, hidden, uninstall,
+  install, appimage, maintenance and list (the earlier Italian names still
+  work in scripts).
+
+Servers and shared folders
+  "Connect to Server" (app menu, search, or "Connect to a server" in
+  Settings > Wi-Fi & Network) opens shared folders of Windows PCs, Macs and
+  NAS drives (SMB), SSH servers (SFTP), FTP, WebDAV (Nextcloud), NFS and
+  older Macs (AFP). Servers on the local network are listed by themselves.
+  Favorites also appear in Files, and the password can be remembered.
+
+Terminal tools
+  ip, ifconfig, route, ss, ping, traceroute, tracepath, mtr, dig, host,
+  nslookup, ethtool, iw, nmcli, rfkill, nc (netcat), socat, telnet, ssh,
+  scp, sftp, sshfs, autossh, ssh-import-id, curl, wget, git and python3 all
+  work for the normal user. With sudo: nft, iptables and ip6tables
+  (nftables backend), ufw, conntrack, tcpdump, nmap, arp.
+
+
+7. ZETA, THE AI
+-------------------------------------------------------------------------------
+
+ZETA is the assistant of ZETA RAYS. Open it from the Dock, or from the
+launcher (SUPER + SPACE, then ZETA). You can write or speak to it, in
+English or in Italian, whatever the system language.
+
+What it does
+  It really drives the system: 58 actions on apps, windows, files and
+  folders, settings, volume, brightness, Wi-Fi, Bluetooth, the Dock,
+  processes and software. After every action it checks the real state of
+  the system, and it only says "done" when the check agrees. Deleting,
+  installing or removing software, restarting and shutting down always ask
+  for your consent first, showing exactly what will be touched. "Close"
+  asks the app to close, so it can ask you to save; only "force close" ends
+  it, and asks first. ZETA never gets free root access and cannot run
+  arbitrary commands. Every action is written to
+  ~/.local/share/zeta/actions.log, with passwords hidden.
+
+Some things to say or type
+  open firefox                         close firefox
+  open downloads                       find the file invoice
+  create a folder trips on the desktop and then open it
+  move note.txt to documents           delete note.txt from the desktop
+  how much ram am i using              which processes are using the most cpu
+  set the volume to 60%                brightness to 50%
+  connect to the wifi network HomeNet  turn off wifi
+  set the wallpaper to red waves       light theme
+  open sound settings                  lock the computer
+  The same requests work in Italian ("apri firefox", "spegni il wifi").
+
+Finding programs
+  ZETA also answers questions about the software on the computer:
+  "where is blender?", "which command launches firefox?", "which package
+  provides git?", "find my appimages". The answer comes from the same
+  search as zeta-app find. When the same app is installed more than once
+  (for example from APT and from Flatpak), ZETA lists the installations and
+  asks which one you mean: "open blender flatpak".
+
+Voice
+  ZETA can read its answers aloud with a natural voice (Piper, on your
+  computer: Paola in Italian, Lessac in English; other languages use
+  espeak-ng) and understand spoken commands (Vosk, Italian and English,
+  also on your computer). Nothing you say or hear leaves the computer.
+
+Local AI: Ollama
+  By default ZETA uses Ollama with the Llama 3.2 model (1B), included in the
+  image and running on your computer: no account, no internet, nothing sent
+  anywhere. Simple commands are understood in a fraction of a second without
+  the model; the model answers questions and free-form requests. The model
+  is loaded into memory when you open ZETA (at login on machines with 16 GB
+  or more) and released when not needed, so it does not use memory while
+  you are not using it. Settings > AI manages the local models.
+
+Online AI (optional)
+  Settings > AI also connects ZETA to Claude, OpenAI (ChatGPT), Gemini,
+  DeepSeek, Qwen, Perplexity, Mistral, Groq, xAI Grok or OpenRouter, or to any
+  OpenAI-compatible service, including one on your own computer (LM Studio,
+  vLLM, llama.cpp). You bring your own key: none is included. Each service
+  has a key field, a model field and a "Test" button that really tests the
+  connection. Keys are stored encrypted, in the system keyring that your
+  login unlocks or, where no keyring is running, as systemd credentials
+  bound to this computer: only your user can read them, and they never
+  appear in logs or in web addresses. If the chosen service is not ready,
+  ZETA uses Ollama.
+  Each service starts with a fast, current model (checked on 7 October
+  2026: Claude Haiku 5.5, Gemini 3.8 Flash, GPT-6 Luna, DeepSeek Flash, Qwen
+  3.8 Flash, gpt-oss on Groq...). Models change often: if one disappears,
+  ZETA asks the service for its list and picks another one by itself, and
+  requests adapt to what each model accepts.
+
+  Each service starts with its fast model (Claude Haiku 4.5, Gemini 2.5
+  Flash, GPT-5 mini, Mistral Small, Sonar, Qwen Plus...); you can pick
+  another one. If the default model no longer exists, ZETA asks the service
+  for its list of models, picks a fast one and remembers it. If the service
+  cannot be reached, the local model answers instead, and ZETA says so.
+
+You always know what is happening
+  Under the sphere, ZETA shows which AI and which model are answering, for
+  example "Ollama . llama3.2:1b . local". While it works it says whether it
+  is loading the model, contacting the online service or carrying out a
+  command. Errors give the real reason in plain words: invalid key, service
+  not reachable, model not found, too many requests, no internet.
+
+
+8. NETWORK AND WI-FI
+-------------------------------------------------------------------------------
+
+Ethernet works as soon as the cable is in (DHCP, IPv4 and IPv6). Wi-Fi is in
+Settings > Wi-Fi & Network, in the Control Center, and through ZETA.
+
+  Security      WPA2, WPA3 and mixed WPA2/WPA3 networks (including WPA3 with
+                the newer "hash-to-element" method), open networks.
+  Bands         2.4 GHz and 5 GHz.
+  Hidden        "Hidden network" in Settings: type the name and the password.
+  Passwords     Spaces, symbols and accented letters are fine.
+  Region        The radio region is taken from the time zone you chose
+                (Europe/Rome gives IT), so every channel allowed in your
+                country, such as 12 and 13 on 2.4 GHz, can be used.
+
+Wrong password? ZETA RAYS says "Wrong password" only when the router has
+really refused it, and asks for it again at once: you are never stuck with a
+wrong password saved. If the connection fails for another reason (weak
+signal, a router that does not answer) it says so instead. A saved network
+whose password has changed can get the new one with the key button (Change
+password), or be forgotten with the bin button (Forget network).
+
+Also in Settings > Wi-Fi & Network: manual IPv4 and IPv6 addresses, DNS, VPN
+import (WireGuard, OpenVPN) and proxy.
+
+Remote access (SSH)
+  The SSH client and server are installed (with scp, sftp, sshfs, autossh,
+  ssh-import-id and netcat).
+    Installed system   the server is ON, reachable from your local network
+                       and from the internet (if your router forwards port
+                       22), with the password you chose while installing.
+    Live and OVA       the server is OFF, because they use the well-known
+                       password "zeta".
+  Turn it on or off in Settings > Wi-Fi & Network > Remote access, or in the
+  terminal:
+      sudo zeta-ssh on                local network only
+      sudo zeta-ssh remote on         also from the internet
+      sudo zeta-ssh remote off        back to the local network only
+      sudo zeta-ssh off               off
+      zeta-ssh status / zeta-ssh config / sudo zeta-ssh diagnose
+  (The Italian names of earlier versions, such as "attiva", still work.)
+  The choice stays after a restart and after a reload of the firewall, and
+  repeating a command never adds duplicate rules: the zeta-ssh-sincronizza
+  service puts it back into the firewall sets after every start and every
+  firewall reload (sudo zeta-ssh sync does the same by hand). From another
+  computer on the same network:  ssh yourname@<address shown by zeta-ssh
+  status>
+
+  From the internet: on by default on an installed system, off in the live
+  session and the OVAs (their password is known). Use the "Also from the
+  internet" switch, or sudo zeta-ssh remote on / remote off.
+  Check it with: sudo nft list set inet zeta accesso_remoto
+  (elements = { 22 }). Your router must also forward port 22 to this
+  computer. Protections: root cannot log in, 4 attempts per connection, and
+  more than 10 new connections a minute from the same address are dropped.
+  A key is safer than a password: ssh-copy-id yourname@<address>. Passwords
+  stay accepted until you decide otherwise, so you cannot lock yourself
+  out. The server keys are created on first start, unique to each
+  computer.
+
+Firewall: on by default, nftables, table "inet zeta". Every incoming
+service is in one of three classes:
+  LAN ONLY        local network only: name discovery (mDNS), ZETA Share,
+                  SSH when turned on
+  REMOTE ENABLED  also from the internet: SSH (on by default once
+                  installed, off in the live session and the OVAs)
+  DISABLED        everything else, dropped
+Replies to connections you started, ping, DHCP and IPv6 always work.
+Refused SSH attempts are logged (at most 3 a minute):
+journalctl -k -g zeta-fw. Diagnosis of the whole path, from the network
+card to sshd: sudo zeta-ssh diagnose. Do not add rules with "nft add rule":
+they are lost at the next restart. Extra rules go in a .nft file in
+/etc/nftables.d/.
+
+How the network is organized: one active firewall (nftables, table "inet
+zeta", saved in /etc/nftables.conf) and one network manager (NetworkManager,
+which also writes the DNS servers in /etc/resolv.conf). There is no
+firewalld and no systemd-resolved. The iptables command is there, but it
+writes into the same nftables. Instead of resolvectl: nmcli dev show (DNS in
+use) and cat /etc/resolv.conf.
+
+ufw is installed but OFF. If you prefer it, sudo ufw enable turns it on: it
+then filters together with the ZETA firewall, and its rules for SSH (written
+by zeta-ssh) and ZETA Share (local network only) are already there, so
+nothing is cut off. sudo ufw status shows them.
+
+
+9. TROUBLESHOOTING
+-------------------------------------------------------------------------------
+
+Wi-Fi says "Wrong password" but you are sure it is right
+  Check upper and lower case and the keyboard layout: the live session uses
+  the US layout, an installed system the one you chose (Settings > Language
+  & Region). If it still fails, forget the network (bin button) and connect
+  again. The full report: sudo zeta-diagnosi.
+
+Wi-Fi says "Could not join" the network
+  The router did not complete the connection: move closer, or restart the
+  router. If the network is hidden, use "Hidden network".
+
+No Wi-Fi at all
+  Settings > Wi-Fi & Network must show the Wi-Fi switch. If it does not, the
+  card is not recognized: run "rfkill list" in the terminal (a "Hard
+  blocked: yes" means a physical switch or a key on the laptop) and sudo
+  zeta-diagnosi.
+
+The first answer of ZETA is slow
+  The local model is being loaded into memory, which takes a few seconds the
+  first time; ZETA says so while it happens. With less than 8 GB of memory it
+  is loaded again each time.
+
+A program does not respond
+  Ctrl + Alt + Esc, then click its window. Or Ctrl + Alt + Delete.
+
+"grub rescue>" or the other system is missing from the boot menu
+  Start from the ZETA RAYS USB stick, open the terminal and run:
+      sudo zeta-ripara-avvio
+  It finds the installed systems, shows what it is about to do, asks for
+  confirmation, then reinstalls the boot loader and rebuilds the menu. It
+  never touches partitions or data. It also fixes installations made with
+  earlier test images, which hid the boot menu.
+
+Cannot connect with SSH from another computer
+  Run zeta-ssh status: it says whether the server is on, whether port 22 is
+  open and which address to use (it can change, for example when you move
+  from the cable to Wi-Fi: the router must forward port 22 to the address
+  shown now). sudo zeta-ssh diagnose checks everything: network cards,
+  routes, the chain SSH_REMOTE_ACCESS > accesso_remoto > nftables > sshd
+  line by line, other firewalls (iptables, ufw), sshd, open connections and
+  refused attempts.
+  From the internet: on this computer run sudo tcpdump -ni any 'tcp port 22'
+  and connect from outside. If nothing arrives, the router does not forward
+  port 22. If only [S] arrives and no [S.] goes out, access from the
+  internet is off (sudo zeta-ssh remote on). In the live session and
+  the OVAs the server is off: sudo zeta-ssh on. On the local network,
+  from the other computer, nc -vz <address> 22 tells whether the port
+  answers. A system installed with an earlier test image can be brought up
+  to date with the script aggiorna-rete-zeta-rays.sh released with these
+  images: sudo bash aggiorna-rete-zeta-rays.sh --prova analyzes and checks
+  without changing anything; then run it again without --prova. If SSH is
+  already open from the internet there, it stays open (--solo-lan closes
+  it, --remoto opens it).
+
+Kernel panic at boot in a virtual machine (VMware Fusion, Workstation...)
+  Fixed in these images: the boot no longer needs more memory than a small
+  virtual machine has. VMware creates Linux machines with only 768 MB:
+  give ZETA RAYS at least 4 GB of memory and turn on 3D acceleration
+  (Display settings), otherwise the desktop is slow or falls back to the
+  installer only.
+
+No sound
+  Settings > Sound: choose the right output device.
+
+Anything else
+  sudo zeta-diagnosi writes a full report (hardware, drivers, network,
+  services, errors) that you can send to info@zetarays.org.
+
+
+10. KNOWN LIMITATIONS
+-------------------------------------------------------------------------------
+
+  - The ZETA RAYS apps are translated into English and Italian only. With
+    another system language they stay in English, while the rest of the
+    system follows the language you chose.
+  - ZETA understands commands in English and Italian, written or spoken.
+    The local model can reply in other languages, but commands in other
+    languages go through the model and are slower and less reliable.
+  - Wi-Fi was tested with WPA2, WPA3 and mixed access points, 2.4 and 5 GHz,
+    hidden networks and slow DHCP, using simulated radios. Each real card
+    depends on its own driver: a few cards without a free driver (some
+    Broadcom models) are not supported.
+  - With WPA3, a wrong password and a router that does not answer look the
+    same to the system: ZETA RAYS then says that it could not join the
+    network, instead of "Wrong password".
+  - Suspend, Bluetooth and the microphone depend on the hardware and were
+    tested in virtual machines only.
+  - The local model (Llama 3.2 1B) is small, so that it runs on modest
+    computers: it is good for commands and short answers. For long or complex
+    work, connect a bigger local model or an online service in Settings > AI.
+  - Online AI services need your own key and a working internet connection.
+  - Some images on web pages exist only inside the page ("blob" images):
+    Firefox cannot hand them over by dragging. Right-click them and choose
+    "Save Image As...".
+  - The ZETA Share window shows its own name, LocalSend.
+
+
+11. LICENSE AND CREDITS
+-------------------------------------------------------------------------------
+
+ZETA RAYS OS is free software, released under the GNU General Public License
+version 3 or later (GPL-3.0-or-later). You may use it, study it, modify it and
+redistribute it.
+
+Every component keeps its own license. The full list, generated from the image
+component by component, is inside the system under Settings > About >
+Third-party software and licenses (and Full list of components), and in the
+files under /usr/share/zeta/legale/.
+
+Built on the work of Debian, Kali Linux, Mozilla, the GNU project, Linus
+Torvalds and the Linux kernel community, Hyprland, XFCE, GNOME, KDE, Ollama
+and Meta for Llama 3.2, and everyone who wrote the free software that is in
+here.
+
+Built with Llama.
+
+
+12. PRIVACY
+-------------------------------------------------------------------------------
+
+ZETA RAYS collects no data and sends no telemetry. The AI runs on your own
+computer and does not send what you write to it over the network, unless you
+choose an online AI service in Settings > AI: then what you write to ZETA goes
+to that service, and to no one else. The only things that leave your computer
+are the ones you ask for: package updates, pages you open in the browser,
+searches you start.
+
+The full details are inside the system, under Settings > About > Privacy.
+
+
+13. CONTACT
+-------------------------------------------------------------------------------
+
+  Website     https://zetarays.org
+  Email       info@zetarays.org
+  Author      Francesco Megna
+
+===============================================================================

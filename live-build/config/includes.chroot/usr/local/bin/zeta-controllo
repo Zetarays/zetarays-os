@@ -1,10 +1,19 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — Centro di controllo.
+"""ZETA RAYS — i pannelli della barra: Centro di controllo, Rete, Suono.
 
-Si apre dalle icone di rete, volume e batteria nella barra (e con Super+A).
-Volume e uscita audio, microfono, Wi-Fi, VPN, Bluetooth, non disturbare,
-luminosità e batteria, nello stile di ZETA RAYS. Stesso comando = apri/chiudi.
+Un solo processo residente con tre viste, ognuna con le sole cose sue:
+
+  controllo  (orologio, batteria, Super+A)  Wi-Fi, Bluetooth, Non disturbare,
+             VPN, tema, luminosità e batteria, Impostazioni, spegnimento
+  rete       (icona della rete)    stato, Internet, Wi-Fi e reti disponibili,
+             VPN, Impostazioni di rete
+  audio      (icona del volume)    volume e uscite, microfono e ingressi,
+             Impostazioni audio
+
+Fino alla 2.0 le icone di rete e volume aprivano lo stesso pannello, con
+suono e rete mescolati ai riquadri rapidi. Stesso comando = apri/chiudi;
+un'altra vista mentre il pannello è aperto passa a quella.
 """
 import sys
 import threading
@@ -20,12 +29,16 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gio, GLib, Gtk, Pango  # noqa: E402
 
 from system import audio, bluetooth, network, power, run, spawn  # noqa: E402
+from i18n import tr, trc  # noqa: E402
+
+VISTE = ("controllo", "rete", "audio")
 
 CSS = """
 .cc-percent { font-size: 12px; color: @ink_2; min-width: 34px; }
 .cc-tile-title { font-size: 12px; font-weight: 500; }
 .cc-tile-sub { font-size: 11px; color: @ink_dim; }
 button.zeta-tile.on .cc-tile-sub { color: @ink_2; }
+.cc-title { font-size: 14px; font-weight: 600; }
 """
 
 
@@ -39,6 +52,19 @@ def dnd_active():
 
 def set_dnd(on):
     run(["makoctl", "mode", "-a" if on else "-r", "do-not-disturb"])
+
+
+def caption(text):
+    return Gtk.Label(label=text, xalign=0, css_classes=["zeta-caption"])
+
+
+def section():
+    """Riquadro di sezione: (contenitore esterno, contenitore interno)."""
+    out = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["zeta-section"])
+    inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                    margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
+    out.append(inner)
+    return out, inner
 
 
 class Tile(Gtk.Button):
@@ -72,11 +98,13 @@ class Tile(Gtk.Button):
 
 
 class Control(Gtk.ApplicationWindow):
-    def __init__(self, app, section=None):
-        super().__init__(application=app, title="Centro di controllo", decorated=False)
+    def __init__(self, app, vista="controllo"):
+        super().__init__(application=app, title=tr("Control Center"), decorated=False)
         popup.make_overlay(self, "zeta-control")
         self.busy = False
         self._updating = False
+        self.vista = vista
+        self._giro = 0                  # scarta i dati letti per una vista precedente
 
         self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
                             css_classes=["zeta-card"], halign=Gtk.Align.END, valign=Gtk.Align.END,
@@ -86,95 +114,104 @@ class Control(Gtk.ApplicationWindow):
                         margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
         self.card.append(inner)
 
-        # --- riquadri rapidi ---
-        grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True)
+        # --- intestazione (Rete e Suono): titolo e, per il Wi-Fi, l'interruttore ---
+        self.head = Gtk.Box(spacing=8, margin_start=4, margin_end=2)
+        self.head_title = Gtk.Label(label="", xalign=0, hexpand=True, css_classes=["cc-title"])
+        self.head.append(self.head_title)
+        self.wifi_sw = Gtk.Switch(valign=Gtk.Align.CENTER, visible=False)
+        self.wifi_sw.connect("notify::active", self.on_wifi_switch)
+        self.head.append(self.wifi_sw)
+        inner.append(self.head)
+
+        # --- centro di controllo: riquadri rapidi ---
+        self.tiles = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True)
         self.t_net = Tile("zeta-wifi", "Wi-Fi", self.toggle_wifi)
         self.t_bt = Tile("zeta-bluetooth", "Bluetooth", self.toggle_bt)
-        self.t_dnd = Tile("zeta-bell-off", "Non disturbare", self.toggle_dnd)
+        self.t_dnd = Tile("zeta-bell-off", tr("Do Not Disturb"), self.toggle_dnd)
         self.t_vpn = Tile("zeta-vpn", "VPN", self.toggle_vpn)
-        self.t_tema = Tile("zeta-moon", "Tema", self.toggle_tema)
-        grid.attach(self.t_net, 0, 0, 1, 1)
-        grid.attach(self.t_bt, 1, 0, 1, 1)
-        grid.attach(self.t_dnd, 0, 1, 1, 1)
-        grid.attach(self.t_vpn, 1, 1, 1, 1)
+        self.t_tema = Tile("zeta-moon", tr("Theme"), self.toggle_tema)
+        self.tiles.attach(self.t_net, 0, 0, 1, 1)
+        self.tiles.attach(self.t_bt, 1, 0, 1, 1)
+        self.tiles.attach(self.t_dnd, 0, 1, 1, 1)
+        self.tiles.attach(self.t_vpn, 1, 1, 1, 1)
         # larga due colonne: le altre quattro accendono e spengono qualcosa,
         # questa alterna fra due stati e la riga intera lo rende evidente.
-        grid.attach(self.t_tema, 0, 2, 2, 1)
-        inner.append(grid)
+        self.tiles.attach(self.t_tema, 0, 2, 2, 1)
+        inner.append(self.tiles)
 
-        # --- suono ---
-        self.sound = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                             css_classes=["zeta-section"])
-        s_in = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                       margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
-        self.sound.append(s_in)
-        s_in.append(Gtk.Label(label="Suono", xalign=0, css_classes=["zeta-caption"]))
-        self.out_mute, self.out_scale, self.out_pct = self._volume_row(s_in, "zeta-volume",
+        # --- suono: uscita e ingresso ---
+        self.sound = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.out_sec, s_out = section()
+        s_out.append(caption(tr("Output")))
+        self.out_mute, self.out_scale, self.out_pct = self._volume_row(s_out, "zeta-volume",
                                                                        audio.DEFAULT_SINK)
-        self.out_button = Gtk.Button(css_classes=["zeta-row"])
-        ob = Gtk.Box(spacing=8)
-        ob.append(icon("zeta-speaker"))
-        self.out_label = Gtk.Label(label="", xalign=0, hexpand=True, css_classes=["zeta-small"],
-                                   ellipsize=Pango.EllipsizeMode.END)
-        ob.append(self.out_label)
-        self.out_chev = icon("zeta-chevron-down", 12)
-        ob.append(self.out_chev)
-        self.out_button.set_child(ob)
-        self.out_button.connect("clicked", lambda *_: self.out_list_rev.set_reveal_child(
-            not self.out_list_rev.get_reveal_child()))
-        s_in.append(self.out_button)
         self.out_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.out_list_rev = Gtk.Revealer(child=self.out_list)
-        s_in.append(self.out_list_rev)
-        self.mic_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        s_in.append(self.mic_row)
-        self.in_mute, self.in_scale, self.in_pct = self._volume_row(self.mic_row,
-                                                                    "zeta-mic",
+        s_out.append(self.out_list)
+        self.sound.append(self.out_sec)
+        self.in_sec, s_in = section()
+        s_in.append(caption(tr("Microphone")))
+        self.in_mute, self.in_scale, self.in_pct = self._volume_row(s_in, "zeta-mic",
                                                                     audio.DEFAULT_SOURCE)
-        self.no_audio = Gtk.Label(label="Nessuna scheda audio rilevata", xalign=0,
+        self.in_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        s_in.append(self.in_list)
+        self.sound.append(self.in_sec)
+        self.no_audio = Gtk.Label(label=tr("No sound card detected"), xalign=0, margin_start=4,
                                   css_classes=["zeta-dim", "zeta-small"], visible=False)
-        s_in.append(self.no_audio)
+        self.sound.append(self.no_audio)
         inner.append(self.sound)
 
-        # --- rete ---
-        self.netsec = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, css_classes=["zeta-section"])
-        n_in = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
-                       margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
-        self.netsec.append(n_in)
-        n_in.append(Gtk.Label(label="Rete", xalign=0, css_classes=["zeta-caption"]))
-        st = Gtk.Box(spacing=8, margin_top=2)
+        # --- rete: stato, reti Wi-Fi, VPN ---
+        self.netsec = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        stato_sec, st_in = section()
+        st = Gtk.Box(spacing=10)
         self.net_icon = icon("zeta-ethernet")
         st.append(self.net_icon)
-        self.net_label = Gtk.Label(label="", xalign=0, hexpand=True, css_classes=["zeta-small"],
+        st_txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        self.net_label = Gtk.Label(label="", xalign=0, css_classes=["zeta-small"],
                                    ellipsize=Pango.EllipsizeMode.END)
-        st.append(self.net_label)
-        n_in.append(st)
+        st_txt.append(self.net_label)
+        self.net_internet = Gtk.Label(label="", xalign=0, css_classes=["zeta-dim", "zeta-small"],
+                                      ellipsize=Pango.EllipsizeMode.END)
+        st_txt.append(self.net_internet)
+        st.append(st_txt)
+        st_in.append(st)
+        self.netsec.append(stato_sec)
+
+        self.wifi_sec, w_in = section()
+        w_in.append(caption(tr("Available Networks")))
         self.wifi_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        n_in.append(self.wifi_list)
-        self.pw_rev = Gtk.Revealer()
+        w_in.append(self.wifi_list)
+        self.wifi_vuoto = Gtk.Label(label="", xalign=0, css_classes=["zeta-dim", "zeta-small"],
+                                    visible=False)
+        w_in.append(self.wifi_vuoto)
+        self.pw_rev = Gtk.Revealer(visible=False)   # nascosto: niente spazio vuoto sotto le reti
         pwb = Gtk.Box(spacing=6, margin_top=4)
         self.pw_entry = Gtk.PasswordEntry(show_peek_icon=True, hexpand=True, css_classes=["zeta-entry"])
-        self.pw_entry.set_property("placeholder-text", "Password della rete")
+        self.pw_entry.set_property("placeholder-text", tr("Network password"))
         self.pw_entry.connect("activate", lambda *_: self.connect_pending())
         pwb.append(self.pw_entry)
-        cb = Gtk.Button(label="Connetti", css_classes=["zeta-primary"])
+        cb = Gtk.Button(label=tr("Connect"), css_classes=["zeta-primary"])
         cb.connect("clicked", lambda *_: self.connect_pending())
         pwb.append(cb)
         self.pw_rev.set_child(pwb)
-        n_in.append(self.pw_rev)
+        w_in.append(self.pw_rev)
+        # a capo entro la larghezza del pannello: un messaggio lungo non lo allarga
         self.net_msg = Gtk.Label(label="", xalign=0, css_classes=["zeta-dim", "zeta-small"],
-                                 wrap=True, visible=False)
-        n_in.append(self.net_msg)
+                                 wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR,
+                                 max_width_chars=36, width_chars=36, visible=False)
+        w_in.append(self.net_msg)
+        self.netsec.append(self.wifi_sec)
+
+        self.vpn_sec, v_in = section()
+        v_in.append(caption("VPN"))
         self.vpn_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        n_in.append(self.vpn_list)
+        v_in.append(self.vpn_list)
+        self.netsec.append(self.vpn_sec)
         inner.append(self.netsec)
 
-        # --- luminosità e batteria ---
-        self.extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                             css_classes=["zeta-section"], visible=False)
-        e_in = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                       margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
-        self.extra.append(e_in)
+        # --- luminosità e batteria (centro di controllo) ---
+        self.extra, e_in = section()
+        self.extra.set_visible(False)
         self.bright_row = Gtk.Box(spacing=8, visible=False)
         self.bright_row.append(icon("zeta-sun"))
         self.bright = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
@@ -197,22 +234,23 @@ class Control(Gtk.ApplicationWindow):
         sb = Gtk.Button(css_classes=["zeta-flat"])
         sbb = Gtk.Box(spacing=8)
         sbb.append(icon("zeta-settings"))
-        sbb.append(Gtk.Label(label="Impostazioni", css_classes=["zeta-small"]))
+        self.settings_label = Gtk.Label(label=tr("Settings"), css_classes=["zeta-small"])
+        sbb.append(self.settings_label)
         sb.set_child(sbb)
-        sb.connect("clicked", lambda *_: self.open_settings())
+        sb.connect("clicked", lambda *_: self.open_settings(
+            {"rete": "rete", "audio": "audio"}.get(self.vista)))
         foot.append(sb)
         foot.append(Gtk.Box(hexpand=True))
-        pb = Gtk.Button(css_classes=["zeta-round"], tooltip_text="Spegni, riavvia, esci…")
-        pb.set_child(icon("zeta-power"))
-        pb.connect("clicked", lambda *_: (spawn(["zeta-pannello", "energia"]), self.close_app()))
-        foot.append(pb)
+        self.power_b = Gtk.Button(css_classes=["zeta-round"], tooltip_text=tr("Shut down, restart, log out…"))
+        self.power_b.set_child(icon("zeta-power"))
+        self.power_b.connect("clicked", lambda *_: (spawn(["zeta-pannello", "energia"]), self.close_app()))
+        foot.append(self.power_b)
         inner.append(foot)
 
         self.set_child(self.card)
         popup.close_on_outside(self, self.card, self.close_app)
         self.pending_ssid = None
-        self.section = section
-        self.refresh_all()
+        self.imposta_vista(vista)
         GLib.timeout_add_seconds(3, self._periodic)
 
     # ---------- costruzione ----------
@@ -234,113 +272,164 @@ class Control(Gtk.ApplicationWindow):
         parent.append(row)
         return mute, scale, pct
 
-    # ---------- dati ----------
-    def refresh_all(self):
-        threading.Thread(target=self._gather, daemon=True).start()
+    def imposta_vista(self, vista):
+        """Mostra solo le parti della vista; i dati si rileggono subito."""
+        self.vista = vista if vista in VISTE else "controllo"
+        v = self.vista
+        self._giro += 1
+        self.head.set_visible(v != "controllo")
+        self.head_title.set_text({"rete": tr("Wi-Fi & Network"), "audio": tr("Sound")}.get(v, ""))
+        self.wifi_sw.set_visible(False)            # lo accende _apply se c'è il Wi-Fi
+        self.tiles.set_visible(v == "controllo")
+        self.sound.set_visible(v == "audio")
+        self.netsec.set_visible(v == "rete")
+        if v != "controllo":
+            self.extra.set_visible(False)
+        self.power_b.set_visible(v == "controllo")
+        self.settings_label.set_text({"rete": tr("Network Settings…"),
+                                      "audio": tr("Sound Settings…")}.get(v, tr("Settings")))
+        self.set_title({"rete": tr("Wi-Fi & Network"), "audio": tr("Sound")}.get(v, tr("Control Center")))
+        if v != "rete":
+            self._chiedi_password(False)
+            self._message("")
+        self.refresh_all()
+        if v == "rete":
+            # prima l'elenco già noto (subito), poi una nuova ricerca delle reti
+            self.refresh_all(rescan=True)
 
-    def _gather(self, rescan=False):
-        data = {
-            "out": audio.volume(audio.DEFAULT_SINK), "in": audio.volume(audio.DEFAULT_SOURCE),
-            "sinks": [x for x in audio.devices(audio.SINK) if x["name"] != "auto_null"],
-            "sources": [x for x in audio.devices(audio.SOURCE)
-                        if not x["name"].endswith(".monitor")],
-            "net": network.status(), "has_wifi": network.has_wifi(),
-            "wifi_on": network.wifi_enabled(), "vpns": network.vpns(),
-            "bt": bluetooth.adapter(), "dnd": dnd_active(),
-            "bright": power.backlight()[0], "bat": power.battery(),
-            "chiaro": tema.is_light(),
-        }
-        data["wifi"] = network.wifi_networks(rescan) if data["has_wifi"] and data["wifi_on"] else []
+    # ---------- dati ----------
+    def refresh_all(self, rescan=False):
+        threading.Thread(target=self._gather, args=(self.vista, self._giro, rescan),
+                         daemon=True).start()
+
+    def _gather(self, vista, giro, rescan=False):
+        data = {"vista": vista, "giro": giro}
+        if vista == "audio":
+            data.update(
+                out=audio.volume(audio.DEFAULT_SINK), inp=audio.volume(audio.DEFAULT_SOURCE),
+                sinks=[x for x in audio.devices(audio.SINK) if x["name"] != "auto_null"],
+                sources=[x for x in audio.devices(audio.SOURCE)
+                         if not x["name"].endswith(".monitor")])
+        else:
+            data.update(net=network.status(), has_wifi=network.has_wifi(),
+                        wifi_on=network.wifi_enabled(), vpns=network.vpns())
+            data["wifi"] = (network.wifi_networks(rescan)
+                            if data["has_wifi"] and data["wifi_on"] else [])
+            if vista == "rete":
+                data["internet"] = network.connectivity()
+            else:
+                data.update(bt=bluetooth.adapter(), dnd=dnd_active(),
+                            bright=power.backlight()[0], bat=power.battery(),
+                            chiaro=tema.is_light())
         GLib.idle_add(self._apply, data)
 
     def _periodic(self):
         # nascosto (residente) non si legge nulla: niente lavoro in sottofondo
         if not self.busy and self.get_visible():
-            threading.Thread(target=self._gather, daemon=True).start()
+            self.refresh_all()
         return True
 
     def _apply(self, d):
-        # compare subito (vedi App.alterna) e qui si aggiorna mentre e' aperto:
-        # prima si mostrava solo dopo aver letto tutto (reti Wi-Fi, audio,
-        # Bluetooth...), e il clic sembrava non fare niente per un attimo
+        # compare subito (vedi App.alterna) e qui si aggiorna mentre e' aperto
+        if d["giro"] != self._giro:
+            return False                 # letti per la vista di prima
         self._updating = True
-        # audio
+        try:
+            if d["vista"] == "audio":
+                self._apply_audio(d)
+            elif d["vista"] == "rete":
+                self._apply_rete(d)
+            else:
+                self._apply_controllo(d)
+        finally:
+            self._updating = False
+        return False
+
+    def _apply_audio(self, d):
         out_v, out_m = d["out"]
         has_audio = out_v is not None and bool(d["sinks"])
-        self.out_scale.get_parent().set_visible(has_audio)
-        self.out_button.set_visible(has_audio and len(d["sinks"]) > 0)
+        self.out_sec.set_visible(has_audio)
         self.no_audio.set_visible(not has_audio)
         if has_audio:
             self.out_scale.set_value(round(out_v * 100))
             self.out_pct.set_text("%d%%" % round(out_v * 100))
-            self._set_mute_icon(self.out_mute, out_m, out_v, "audio-volume")
-            cur = next((s for s in d["sinks"] if s["default"]), None)
-            self.out_label.set_text(cur["label"] if cur else "Uscita audio")
+            self._set_mute_icon(self.out_mute, out_m, out_v)
             self._fill(self.out_list, [self._choice_row(s["label"], s["default"],
-                                                        lambda s=s: self.pick_output(s["id"]))
+                                                        lambda s=s: self.pick_device(s["id"]))
                                        for s in d["sinks"]])
-            self.out_chev.set_visible(len(d["sinks"]) > 1)
-        in_v, in_m = d["in"]
+        in_v, in_m = d["inp"]
         has_mic = in_v is not None and bool(d["sources"])
-        self.mic_row.set_visible(has_mic)
+        self.in_sec.set_visible(has_mic)
         if has_mic:
             self.in_scale.set_value(round(in_v * 100))
             self.in_pct.set_text("%d%%" % round(in_v * 100))
-            self.in_mute.get_child().set_from_icon_name(
-                "zeta-mic-off" if in_m else "zeta-mic")
-        # rete
+            self.in_mute.get_child().set_from_icon_name("zeta-mic-off" if in_m else "zeta-mic")
+            self._fill(self.in_list, [self._choice_row(s["label"], s["default"],
+                                                       lambda s=s: self.pick_device(s["id"]))
+                                      for s in d["sources"]])
+
+    def _apply_rete(self, d):
         n = d["net"]
         if n["connected"]:
-            kind = "Wi-Fi" if n["kind"] == "wifi" else "Ethernet"
-            name = n["name"] if n["kind"] == "wifi" else kind
+            name = (n["label"] or n["name"]) if n["kind"] == "wifi" else "Ethernet"
             self.net_label.set_text("%s · %s" % (name, n["ip"]) if n["ip"] else name)
-            self.net_icon.set_from_icon_name("zeta-wifi"
-                                             if n["kind"] == "wifi" else "zeta-ethernet")
+            self.net_icon.set_from_icon_name("zeta-wifi" if n["kind"] == "wifi" else "zeta-ethernet")
         else:
-            self.net_label.set_text("Non connesso")
+            self.net_label.set_text(tr("Not connected"))
             self.net_icon.set_from_icon_name("zeta-offline")
+        self.net_internet.set_text({
+            "full": tr("Connected to the Internet"),
+            "limited": tr("Limited connection: no Internet access"),
+            "portal": tr("Sign-in required: open the browser"),
+            "none": tr("No Internet access"),
+        }.get(d["internet"], "") if n["connected"] else tr("No Internet access"))
+        self.wifi_sw.set_visible(d["has_wifi"])
+        self.wifi_sw.set_active(d["wifi_on"])
+        self.head_title.set_text("Wi-Fi" if d["has_wifi"] else tr("Network"))
+        self.wifi_sec.set_visible(d["has_wifi"])
+        if d["has_wifi"] and not self.busy:
+            self._fill(self.wifi_list, [self._wifi_row(w) for w in d["wifi"][:8]])
+            vuoto = (tr("Wi-Fi is off") if not d["wifi_on"]
+                     else tr("No networks found") if not d["wifi"] else "")
+            self.wifi_vuoto.set_text(vuoto)
+            self.wifi_vuoto.set_visible(bool(vuoto))
+        self.vpn_sec.set_visible(bool(d["vpns"]))
+        self._fill(self.vpn_list, [self._vpn_row(v) for v in d["vpns"]])
+
+    def _apply_controllo(self, d):
+        n = d["net"]
         if d["has_wifi"]:
             # la rete Wi-Fi attiva, anche quando la connessione principale e'
             # il cavo (prima il riquadro diceva «Non connesso»)
             attiva = next((w["ssid"] for w in d["wifi"] if w["active"]), None)
-            sub = attiva or ("Non connesso" if d["wifi_on"] else "Spento")
-            self.t_net.set_state(d["wifi_on"], sub, title="Wi-Fi",
-                                 icon_name="zeta-wifi")
+            sub = attiva or (tr("Not connected") if d["wifi_on"] else tr("Off"))
+            self.t_net.set_state(d["wifi_on"], sub, title="Wi-Fi", icon_name="zeta-wifi")
         else:
-            self.t_net.set_state(n["connected"], "Ethernet" if n["connected"] else "Non connesso",
-                                 title="Rete", icon_name="zeta-ethernet")
-        if not self.busy:
-            rows = [self._wifi_row(w) for w in d["wifi"][:6]]
-            self._fill(self.wifi_list, rows)
+            self.t_net.set_state(n["connected"], "Ethernet" if n["connected"] else tr("Not connected"),
+                                 title=tr("Network"), icon_name="zeta-ethernet")
         vp = d["vpns"]
         act = next((v for v in vp if v["active"]), None)
-        self.t_vpn.set_state(bool(act), act["name"] if act else ("Spenta" if vp else "Da configurare"))
-        self._fill(self.vpn_list, [self._vpn_row(v) for v in vp])
-        # bluetooth / non disturbare
+        self.t_vpn.set_state(bool(act), act["name"] if act else (trc("vpn", "Disconnected") if vp else tr("Not set up")))
         bt = d["bt"]
         self.t_bt.set_state(bool(bt and bt["powered"]),
-                            ("Acceso" if bt["powered"] else "Spento") if bt else "Non disponibile",
+                            (tr("On") if bt["powered"] else tr("Off")) if bt else tr("Unavailable"),
                             sensitive=bool(bt))
-        self.t_dnd.set_state(d["dnd"], "Attivo" if d["dnd"] else "Spento")
+        self.t_dnd.set_state(d["dnd"], tr("Active") if d["dnd"] else tr("Off"))
         self.t_tema.set_state(d["chiaro"], "SUPER + T",
-                              title="Tema chiaro" if d["chiaro"] else "Tema scuro",
+                              title=tr("Light theme") if d["chiaro"] else tr("Dark theme"),
                               icon_name="zeta-sun" if d["chiaro"] else "zeta-moon")
-        # luminosità / batteria
         self.bright_row.set_visible(d["bright"] is not None)
         if d["bright"] is not None:
             self.bright.set_value(d["bright"])
         b = d["bat"]
         self.bat_row.set_visible(b is not None)
         if b:
-            self.bat_label.set_text("Batteria %s%%%s" % (b["percent"] if b["percent"] is not None else "—",
-                                                         (" · " + b["state"]) if b["state"] else ""))
-            self.bat_icon.set_from_icon_name("zeta-battery" if b["charging"]
-                                             else "zeta-battery")
+            testo = tr("Battery {percent}%").format(
+                percent=b["percent"] if b["percent"] is not None else "—")
+            self.bat_label.set_text(testo + ((" · " + b["state"]) if b["state"] else ""))
         self.extra.set_visible(d["bright"] is not None or b is not None)
-        self._updating = False
-        return False
 
-    def _set_mute_icon(self, button, muted, vol, _base=None):
+    def _set_mute_icon(self, button, muted, vol):
         name = ("zeta-volume-mute" if muted or vol == 0
                 else "zeta-volume-low" if vol < 0.5 else "zeta-volume")
         button.get_child().set_from_icon_name(name)
@@ -404,18 +493,26 @@ class Control(Gtk.ApplicationWindow):
         pct = self.out_pct if scale is self.out_scale else self.in_pct
         pct.set_text("%d%%" % round(v * 100))
         if scale is self.out_scale:
-            self._set_mute_icon(self.out_mute, False, v, "audio-volume")
+            self._set_mute_icon(self.out_mute, False, v)
             audio.set_mute(False, scale.target)
+            spawn(["pkill", "-RTMIN+11", "-x", "waybar"])     # icona del volume nella barra
 
     def on_mute(self, button):
         _v, muted = audio.volume(button.target)
         audio.set_mute(not muted, button.target)
+        if button is self.out_mute:
+            spawn(["pkill", "-RTMIN+11", "-x", "waybar"])
         self.refresh_all()
 
-    def pick_output(self, node_id):
+    def pick_device(self, node_id):
         audio.set_default(node_id)
-        self.out_list_rev.set_reveal_child(False)
         self.refresh_all()
+
+    def on_wifi_switch(self, sw, _param):
+        if self._updating:
+            return
+        network.set_wifi(sw.get_active())
+        GLib.timeout_add(800, lambda: (self.refresh_all(rescan=sw.get_active()), False)[1])
 
     def toggle_wifi(self):
         if not network.has_wifi():
@@ -457,12 +554,18 @@ class Control(Gtk.ApplicationWindow):
         self.set_vpn(act or vp[0], act is None)
 
     def set_vpn(self, v, on):
-        self._message("Attivazione di %s…" % v["name"] if on else "Disattivazione di %s…" % v["name"])
+        self._message(tr("Turning on {name}…").format(name=v["name"]) if on
+                      else tr("Turning off {name}…").format(name=v["name"]))
 
         def work():
             ok = network.set_vpn(v["uuid"], on)
-            GLib.idle_add(self._message, "" if ok else "Impossibile %s la VPN %s" %
-                          ("attivare" if on else "disattivare", v["name"]))
+            if ok:
+                errore = ""
+            elif on:
+                errore = tr("Couldn't turn on the VPN {name}").format(name=v["name"])
+            else:
+                errore = tr("Couldn't turn off the VPN {name}").format(name=v["name"])
+            GLib.idle_add(self._message, errore)
             GLib.idle_add(self.refresh_all)
         threading.Thread(target=work, daemon=True).start()
         return False
@@ -473,9 +576,9 @@ class Control(Gtk.ApplicationWindow):
         if w["secure"] and not network.known_connection(w["ssid"]):
             self.pending_ssid = w["ssid"]
             self.pw_entry.set_text("")
-            self.pw_rev.set_reveal_child(True)
+            self._chiedi_password(True)
             self.pw_entry.grab_focus()
-            self._message("Password per «%s»" % w["ssid"])
+            self._message(tr("Password for “{network}”").format(network=w["ssid"]))
             return
         self.pending_ssid = w["ssid"]
         self.connect_pending(ask=False)
@@ -486,14 +589,14 @@ class Control(Gtk.ApplicationWindow):
             return
         pw = self.pw_entry.get_text() if ask else None
         if ask and not pw:
-            self._message("Scrivi la password di «%s»" % ssid)
+            self._message(tr("Enter the password for “{network}”").format(network=ssid))
             self.pw_entry.grab_focus()
             return
         if self.busy:
             return                          # un tentativo alla volta
         self.busy = True
-        self.pw_rev.set_reveal_child(False)
-        self._message("Connessione a «%s»…" % ssid)
+        self._chiedi_password(False)
+        self._message(tr("Connecting to “{network}”…").format(network=ssid))
 
         def work():
             ok, msg, motivo = network.connect_wifi_esito(ssid, pw or None)
@@ -508,9 +611,13 @@ class Control(Gtk.ApplicationWindow):
     def _richiedi_password(self, ssid):
         self.pending_ssid = ssid
         self.pw_entry.set_text("")
-        self.pw_rev.set_reveal_child(True)
+        self._chiedi_password(True)
         self.pw_entry.grab_focus()
         return False
+
+    def _chiedi_password(self, si):
+        self.pw_rev.set_visible(si)
+        self.pw_rev.set_reveal_child(si)
 
     def _message(self, text):
         self.net_msg.set_text(text)
@@ -538,26 +645,33 @@ class App(Gtk.Application):
         self.nascosto = popup.avvio_nascosto()
         popup.clean_env()
         popup.load_css(CSS)
-        popup.azione_mostra(self, self.alterna)
+        # zeta-pannello controllo|rete|audio manda l'azione della vista
+        popup.azione_mostra(self, lambda: self.alterna("controllo"))
+        for vista in ("rete", "audio"):
+            a = Gio.SimpleAction.new(vista, None)
+            a.connect("activate", lambda *_a, v=vista: self.alterna(v))
+            self.add_action(a)
         self.hold()                    # resta vivo anche a pannello nascosto
 
     def do_command_line(self, cmdline):
+        args = cmdline.get_arguments()[1:]
+        vista = args[0] if args and args[0] in VISTE else "controllo"
         if self.nascosto:              # avviato dalla sessione: dati letti, non visibile
             self.nascosto = False
-            self.win = Control(self)
+            self.win = Control(self, vista)
             return 0
-        self.alterna()
+        self.alterna(vista)
         return 0
 
-    def alterna(self):
-        """Clic sull'icona: apre subito (con gli ultimi dati, poi aggiornati) o chiude."""
-        if self.win is not None and self.win.get_visible():
+    def alterna(self, vista="controllo"):
+        """Clic su un'icona: apre subito la sua vista, la chiude, o passa a quella."""
+        if self.win is not None and self.win.get_visible() and self.win.vista == vista:
             self.win.close_app()
             return
         if self.win is None:
-            self.win = Control(self)
+            self.win = Control(self, vista)
         else:
-            self.win.refresh_all()
+            self.win.imposta_vista(vista)
         self.win.present()
 
 

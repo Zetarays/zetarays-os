@@ -5,7 +5,7 @@
 #      tools/vm-arm64.sh --headless -> senza finestra (controllo via QMP in .cache/vm)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISO="$ROOT/out/zetarays-1.7-arm64.iso"
+ISO="$ROOT/out/zetarays-2.0-arm64.iso"
 VM="$ROOT/.cache/vm"
 mkdir -p "$VM"
 [ -f "$ISO" ] || { echo "ISO non trovata: esegui prima ./build.sh arm64"; exit 1; }

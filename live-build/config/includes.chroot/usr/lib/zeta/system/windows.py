@@ -12,6 +12,8 @@ import signal
 import subprocess
 import time
 
+from i18n import ntr, tr
+
 HIDDEN = "special:zetamin"
 STATE = os.path.expanduser("~/.cache/zeta/finestre.json")
 
@@ -268,7 +270,7 @@ def minimized():
             changed = True
             continue
         out.append({"address": addr,
-                    "title": c.get("title") or info.get("title") or "Finestra",
+                    "title": c.get("title") or info.get("title") or tr("Window"),
                     "class": c.get("class") or info.get("class") or "",
                     "workspace": info.get("workspace") or "1"})
     if changed:
@@ -313,7 +315,7 @@ def open_windows():
         ws = str((c.get("workspace") or {}).get("name", ""))
         if ws.startswith("special:"):
             continue
-        out.append({"address": c.get("address"), "title": c.get("title") or "Finestra",
+        out.append({"address": c.get("address"), "title": c.get("title") or tr("Window"),
                     "class": c.get("class") or "", "workspace": ws,
                     "pid": c.get("pid") or 0})
     out.sort(key=lambda w: w["workspace"])
@@ -436,14 +438,14 @@ def force_quit(pid, attesa=3.0, forza=True):
     try:
         pid = int(pid)
     except (TypeError, ValueError):
-        return False, "Processo non valido."
+        return False, tr("Invalid process.")
     if protetto(pid):
-        return False, "Questo processo fa parte del desktop e non si termina da qui."
+        return False, tr("This process is part of the desktop and can't be ended from here.")
     tutti = [p for p in albero(pid) if not protetto(p)]
     if not tutti:
         if not _vivo(pid):
-            return True, "Era gia' terminato."
-        return False, "Serve un permesso che non hai per terminare questo processo."
+            return True, tr("It had already quit.")
+        return False, tr("You don't have permission to end this process.")
     # prima il principale (puo' chiudere lui i figli in ordine), poi gli altri
     for p in tutti:
         try:
@@ -455,10 +457,13 @@ def force_quit(pid, attesa=3.0, forza=True):
         time.sleep(0.15)
     rimasti = [p for p in tutti if _vivo(p)]
     if not rimasti:
-        return True, "Chiuso" + (" (con %d processi collegati)." % (len(tutti) - 1)
-                                 if len(tutti) > 1 else ".")
+        if len(tutti) > 1:
+            return True, ntr("Closed (with {n} related process).",
+                             "Closed (with {n} related processes).",
+                             len(tutti) - 1).format(n=len(tutti) - 1)
+        return True, tr("Closed.")
     if not forza:
-        return False, "Non si e' chiuso da solo."
+        return False, tr("It didn't close on its own.")
     for p in rimasti:
         try:
             os.kill(p, signal.SIGKILL)
@@ -469,13 +474,16 @@ def force_quit(pid, attesa=3.0, forza=True):
         time.sleep(0.1)
     ancora = [p for p in rimasti if _vivo(p)]
     if not ancora:
-        return True, "Terminato forzatamente" + (" (con %d processi collegati)." % (len(tutti) - 1)
-                                                if len(tutti) > 1 else ".")
+        if len(tutti) > 1:
+            return True, ntr("Forced to quit (with {n} related process).",
+                             "Forced to quit (with {n} related processes).",
+                             len(tutti) - 1).format(n=len(tutti) - 1)
+        return True, tr("Forced to quit.")
     if any(bloccato_su_disco(p) for p in ancora):
-        return False, ("Il processo non risponde nemmeno a una terminazione forzata: "
-                       "e' bloccato dal kernel in attesa del disco. Si chiudera' "
-                       "appena il disco risponde.")
-    return False, "Non e' stato possibile terminarlo."
+        return False, tr("The process doesn't respond even to a forced quit: the kernel "
+                         "is holding it while it waits for the disk. It will close as "
+                         "soon as the disk responds.")
+    return False, tr("Couldn't end it.")
 
 
 def finestra_al_punto(x, y):

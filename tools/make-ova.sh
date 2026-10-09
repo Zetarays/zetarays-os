@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Crea una macchina virtuale VirtualBox con ZETA RAYS già installato, come file .ova.
 #
-#   ZETA_ARCH=amd64  (predefinito)  -> out/zetarays-1.7-amd64.ova  (PC Intel/AMD)
-#   ZETA_ARCH=arm64                 -> out/zetarays-1.7-arm64.ova  (Mac Apple Silicon,
+#   ZETA_ARCH=amd64  (predefinito)  -> out/zetarays-2.0-amd64.ova  (PC Intel/AMD)
+#   ZETA_ARCH=arm64                 -> out/zetarays-2.0-arm64.ova  (Mac Apple Silicon,
 #                                       VirtualBox 7.2+ con supporto ARM)
 #
 # Parte dall'ISO corrispondente (./build.sh <arch>) e usa Docker + VBoxManage.
@@ -12,9 +12,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"
 ARCH="${ZETA_ARCH:-amd64}"
-ISO="${ZETA_ISO:-$OUT/zetarays-1.7-$ARCH.iso}"
+ISO="${ZETA_ISO:-$OUT/zetarays-2.0-$ARCH.iso}"
 DISK_GB="${ZETA_DISK_GB:-24}"
-VM_NAME="ZETA RAYS 1.7 ($ARCH)"
+VM_NAME="ZETA RAYS 2.0 ($ARCH)"
 
 # Parametri dipendenti dall'architettura
 if [ "$ARCH" = "arm64" ]; then
@@ -38,8 +38,8 @@ if [ "$ARCH" = "amd64" ] && [ "$(uname -m)" = "arm64" ] && command -v colima >/d
   trap 'colima ssh -- sudo sh -c "echo 1 > $BINFMT/rosetta; echo 0 > $BINFMT/qemu-x86_64"' EXIT
 fi
 
-VMDK="$OUT/zetarays-1.7-$ARCH.vmdk"
-OVA="$OUT/zetarays-1.7-$ARCH.ova"
+VMDK="$OUT/zetarays-2.0-$ARCH.vmdk"
+OVA="$OUT/zetarays-2.0-$ARCH.ova"
 
 if [ "${ZETA_ONLY_OVA:-}" != 1 ]; then
 rm -f "$VMDK"
@@ -70,6 +70,7 @@ docker run --rm --privileged --platform "linux/$ARCH" \
     rm -f $W/target/usr/share/zeta/ollama-runtime.tar.zst
     rm -rf $W/target/usr/share/zeta/hyprland-corretto
     rm -rf $W/target/usr/share/zeta/localsend
+    rm -rf $W/target/usr/share/zeta/piper-cache $W/target/usr/share/zeta/vosk-cache
     find $W/target/usr/lib/zeta $W/target/usr/local/bin -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
     chmod 755 $W/target/usr/local/bin/zeta-*
 
@@ -80,6 +81,15 @@ docker run --rm --privileged --platform "linux/$ARCH" \
     T=$W/target
     mount -t proc proc $T/proc; mount -t sysfs sys $T/sys; mount --bind /dev $T/dev; mount --bind /dev/pts $T/dev/pts
     rm -f $T/etc/resolv.conf; cp /etc/resolv.conf $T/etc/resolv.conf
+    # I file di ZETA appena ricopiati qui sopra arrivano senza bytecode (e le
+    # loro cartelle __pycache__ sono state tolte): si ricompilano, come fa la
+    # ISO, altrimenti ogni programma di ZETA ricompilerebbe a ogni avvio. E la
+    # cache delle icone si rifa sulle icone appena copiate.
+    chroot $T python3 -m compileall -q -j0 /usr/lib/zeta >/dev/null 2>&1 || true
+    for d in $T/usr/share/icons/*/; do
+      if [ -f "$d/index.theme" ]; then chroot $T gtk-update-icon-cache -q -f "${d#$T}" 2>/dev/null || true; fi
+    done
+    [ "$(find $T/usr/lib/zeta -name "*.pyc" | wc -l)" -ge 50 ] || { echo "ERRORE: Python di ZETA non precompilato nella OVA"; exit 1; }
 
     mkdir -p $T/boot/efi
     cat > $T/etc/fstab <<EOF
@@ -130,10 +140,12 @@ Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
     rm -f $T/etc/apt/sources.list.d/backports.list
     ln -sf /usr/share/zoneinfo/Europe/Rome $T/etc/localtime; echo "Europe/Rome" > $T/etc/timezone
-    [ -f $T/etc/default/keyboard ] && sed -i "s/^XKBLAYOUT=.*/XKBLAYOUT=\"it\"/" $T/etc/default/keyboard
-    # live-build riporta la lingua a C.UTF-8 (in live la imposta live-config al
-    # boot): nel sistema installato va fissata, altrimenti le app sono in inglese.
-    echo "LANG=it_IT.UTF-8" > $T/etc/default/locale; echo "LANGUAGE=it_IT:it" >> $T/etc/default/locale
+    # English and US keyboard, like the USB stick: the welcome window offers
+    # the language and keyboard at the first start (Settings > Language &
+    # Region), since an OVA does not go through the installer
+    [ -f $T/etc/default/keyboard ] && sed -i "s/^XKBLAYOUT=.*/XKBLAYOUT=\"us\"/" $T/etc/default/keyboard
+    echo "LANG=en_US.UTF-8" > $T/etc/default/locale
+    mkdir -p $T/etc/zeta && : > $T/etc/zeta/primo-avvio-lingua
     GPKG_ENV="$GPKG"
     chroot $T /bin/bash -euo pipefail -c "
       export DEBIAN_FRONTEND=noninteractive
@@ -202,16 +214,16 @@ EOF
     rm -f $W/root.img $W/esp.img
 
     echo "== Converto in VMDK"
-    qemu-img convert -O vmdk -o subformat=streamOptimized $W/disk.raw /out/zetarays-1.7-'"$ARCH"'.vmdk
+    qemu-img convert -O vmdk -o subformat=streamOptimized $W/disk.raw /out/zetarays-2.0-'"$ARCH"'.vmdk
     rm -rf $W/*
   '
 fi
 
 echo "== Creo la macchina virtuale e l'OVA ($ARCH)"
 # VM temporanea con nome univoco: non deve MAI coincidere con le VM dell'utente
-# (es. una "ZETA RAYS 1.7 (arm64)" già importata). Il nome finale lo dà --vmname.
+# (es. una "ZETA RAYS 2.0 (arm64)" già importata). Il nome finale lo dà --vmname.
 BUILD_VM="zeta-build-$ARCH-$$"
-for u in $(VBoxManage list hdds | awk -v f="zetarays-1.7-$ARCH.vmdk" '/^UUID:/{u=$2} $0 ~ f {print u}'); do
+for u in $(VBoxManage list hdds | awk -v f="zetarays-2.0-$ARCH.vmdk" '/^UUID:/{u=$2} $0 ~ f {print u}'); do
   VBoxManage closemedium disk "$u" >/dev/null 2>&1 || true
 done
 TMPVM="$(mktemp -d)"
@@ -248,7 +260,7 @@ VBoxManage storageattach "$BUILD_VM" --storagectl SATA --port 0 --device 0 --typ
 # di non perdere dati.
 rm -f "$OVA"
 VBoxManage export "$BUILD_VM" --output "$OVA" --ovf20 --manifest \
-  --vsys 0 --vmname "$VM_NAME" --product "ZETA RAYS OS" --version "1.7" --description "ZETA RAYS OS 1.7 ($ARCH)"
+  --vsys 0 --vmname "$VM_NAME" --product "ZETA RAYS OS" --version "2.0" --description "ZETA RAYS OS 2.0 ($ARCH)"
 VBoxManage unregistervm "$BUILD_VM" >/dev/null 2>&1 || true
 VBoxManage closemedium disk "$VMDK" >/dev/null 2>&1 || true
 rm -rf "$TMPVM" "$VMDK"

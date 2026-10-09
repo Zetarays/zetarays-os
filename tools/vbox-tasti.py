@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Scrive testo nella VM VirtualBox usando la mappatura della tastiera italiana.
+"""Scrive testo nella VM VirtualBox: tastiera americana (predefinita, come le
+immagini dal 7 ottobre) o italiana con TASTIERA=it.
 
 VBoxManage keyboardputstring assume la tastiera americana: in ZETA RAYS il layout è
 italiano, quindi «-», «/», «:» e simili finirebbero sbagliati. Qui ogni
@@ -8,6 +9,7 @@ carattere diventa lo scancode giusto per il layout italiano.
 
   vbox-tasti.py "nome vm" "testo da scrivere" [--invio]
 """
+import os
 import subprocess
 import sys
 
@@ -63,6 +65,14 @@ def codes_for(ch):
 
 def main():
     vm, text = sys.argv[1], sys.argv[2]
+    # images from 1.7 (7 October) start with the US layout: VirtualBox's own
+    # typing is already right for it (TASTIERA=it for older Italian images)
+    if os.environ.get("TASTIERA", "us") == "us":
+        if text:
+            subprocess.run([VBM, "controlvm", vm, "keyboardputstring", text], capture_output=True)
+        if "--invio" in sys.argv[3:]:
+            subprocess.run([VBM, "controlvm", vm, "keyboardputscancode", "1c", "9c"], capture_output=True)
+        return 0
     codes = []
     for ch in text:
         codes += codes_for(ch)

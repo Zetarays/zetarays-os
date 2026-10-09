@@ -10,11 +10,13 @@
 # direttamente da un dispositivo all'altro (HTTPS, cifrato), senza passare da
 # internet o da un servizio esterno. LocalSend non e' modificato: qui si sceglie
 # solo cosa passargli. Se e' gia' aperto, riceve i file nella finestra esistente.
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 APP=/opt/localsend_app/localsend_app
 [ -x "$APP" ] || APP=$(command -v localsend_app || command -v localsend || true)
 if [ -z "$APP" ]; then
-    notify-send -a "ZETA RAYS" -i zeta-share "ZETA Share non è installato" \
-        "Manca LocalSend, il programma che invia i file. Si reinstalla dal pacchetto ufficiale di localsend.org (localsend_*.deb)." \
+    notify-send -a "ZETA RAYS" -i zeta-share "$(gettext "ZETA Share is not installed")" \
+        "$(gettext "LocalSend, the app that sends the files, is missing. Reinstall it from the official package at localsend.org (localsend_*.deb).")" \
         2>/dev/null
     exit 1
 fi

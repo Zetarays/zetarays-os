@@ -78,12 +78,12 @@ echo "  avvio:             $(systemd-analyze 2>/dev/null | head -1)"
 
 titolo "Documenti legali"
 "$VM" sh '
-for f in LICENZE.md PRIVACY.md CONDIZIONI.md COMPONENTI.csv; do
+for f in LICENZE.md LICENZE.it.md PRIVACY.md PRIVACY.it.md CONDIZIONI.md CONDIZIONI.it.md COMPONENTI.csv; do
   p=/usr/share/zeta/legale/$f
   [ -f "$p" ] && printf "  %-16s %6s byte\n" "$f" "$(stat -c%s "$p")" || echo "  $f MANCA"
 done
 echo "  componenti elencati: $(($(wc -l < /usr/share/zeta/legale/COMPONENTI.csv) - 1))"
-grep -m1 "pacchetti\*\* installati" /usr/share/zeta/legale/LICENZE.md | sed "s/^/  /"
+grep -m1 "installed packages\*\*" /usr/share/zeta/legale/LICENZE.md | sed "s/^/  /"
 '
 
 titolo "Scrivania"

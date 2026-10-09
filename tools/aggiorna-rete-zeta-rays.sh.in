@@ -1,5 +1,5 @@
 #!/bin/bash
-# ZETA RAYS 1.7 — aggiorna rete, firewall e SSH su un sistema GIA' INSTALLATO
+# ZETA RAYS 2.0 — aggiorna rete, firewall e SSH su un sistema GIA' INSTALLATO
 # con un'immagine precedente.
 #
 #   sudo bash aggiorna-rete-zeta-rays.sh --prova      analizza e controlla, non cambia nulla

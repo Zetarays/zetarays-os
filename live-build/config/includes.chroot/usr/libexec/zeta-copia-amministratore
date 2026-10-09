@@ -15,9 +15,21 @@ togliere l'originale, perche' l'originale e' quasi sempre in un altro disco
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+
+# pkexec azzera l'ambiente: zeta-incolla-amministratore passa la lingua dei
+# messaggi come primo argomento facoltativo «--lang=CODICE». Si accetta solo
+# un codice di lingua ben formato (niente percorsi), prima di caricare i18n.
+if len(sys.argv) > 1 and sys.argv[1].startswith("--lang="):
+    _lingua = sys.argv.pop(1)[len("--lang="):]
+    if re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?", _lingua):
+        os.environ["LANGUAGE"] = _lingua
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 
 # Cartelle che non si sostituiscono mai per intero, nemmeno da amministratore:
 # un errore di trascinamento non deve poter cancellare il sistema.
@@ -53,27 +65,27 @@ def togli(percorso):
 
 def main(argv):
     if os.geteuid() != 0:
-        esci(2, errore="serve pkexec")
+        esci(2, errore="pkexec required")
     if len(argv) < 5 or argv[0] not in ("copia", "sposta") or \
             argv[1] not in ("sostituisci", "entrambi", "salta") or argv[3] != "--":
-        esci(2, errore="argomenti non validi")
+        esci(2, errore="invalid arguments")
     azione, conflitto, dest, sorgenti = argv[0], argv[1], argv[2], argv[4:]
     if not os.path.isabs(dest) or not os.path.isdir(dest):
-        esci(2, errore="la cartella di destinazione non esiste: %s" % dest)
+        esci(2, errore="destination folder does not exist: %s" % dest)
     dest = os.path.realpath(dest)
     fatti, saltati, errori = [], [], []
     for src in sorgenti:
         if not os.path.isabs(src) or not os.path.lexists(src):
-            errori.append("%s: non esiste" % src)
+            errori.append(tr("{name}: does not exist").format(name=src))
             continue
         src = os.path.normpath(src)
         nome = os.path.basename(src)
         if not nome or nome in (".", ".."):
-            errori.append("%s: nome non valido" % src)
+            errori.append(tr("{name}: invalid name").format(name=src))
             continue
         reale = os.path.realpath(src)
         if dest == reale or dest.startswith(reale.rstrip("/") + "/"):
-            errori.append("%s: non si copia una cartella dentro se stessa" % nome)
+            errori.append(tr("{name}: a folder cannot be copied into itself").format(name=nome))
             continue
         if os.path.dirname(reale) == dest and os.path.basename(reale) == nome:
             saltati.append(nome)          # gia' li': niente da fare
@@ -87,7 +99,7 @@ def main(argv):
                 bersaglio = os.path.join(dest, nome_libero(dest, nome))
             else:
                 if os.path.realpath(bersaglio) in INTOCCABILI:
-                    errori.append("%s: cartella di sistema, non si sostituisce" % nome)
+                    errori.append(tr("{name}: system folder, it cannot be replaced").format(name=nome))
                     continue
                 try:
                     togli(bersaglio)
@@ -99,13 +111,14 @@ def main(argv):
         r = subprocess.run(["cp", "-R", "-P", "--preserve=mode,timestamps,links",
                             "--", src, bersaglio], capture_output=True, text=True)
         if r.returncode != 0:
-            errori.append("%s: %s" % (nome, r.stderr.strip() or "copia non riuscita"))
+            errori.append("%s: %s" % (nome, r.stderr.strip() or tr("copy failed")))
             continue
         if azione == "sposta":
             try:
                 togli(src)
             except OSError as e:
-                errori.append("%s: copiato, ma l'originale non si toglie (%s)" % (nome, e.strerror))
+                errori.append(tr("{name}: copied, but the original could not be removed ({error})").format(
+                    name=nome, error=e.strerror))
         fatti.append(os.path.basename(bersaglio))
     esci(0 if not errori else 1, fatti=fatti, saltati=saltati, errori=errori)
 

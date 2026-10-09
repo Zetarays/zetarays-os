@@ -1,5 +1,5 @@
 [Unit]
-Description=ZETA RAYS — indicizzazione dei contenuti per la ricerca
+Description=ZETA RAYS — content indexing for search
 
 [Service]
 Type=oneshot

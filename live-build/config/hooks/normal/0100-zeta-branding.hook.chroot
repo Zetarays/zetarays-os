@@ -11,10 +11,10 @@ ACCENT="#3A8DFF"
 # (un file normale, non un collegamento): va riscritto anche quello.
 dpkg-divert --local --rename --divert /usr/lib/os-release.upstream --add /usr/lib/os-release >/dev/null
 cat > /usr/lib/os-release <<'EOF'
-PRETTY_NAME="ZETA RAYS OS 1.7"
+PRETTY_NAME="ZETA RAYS OS 2.0"
 NAME="ZETA RAYS OS"
-VERSION_ID="1.7"
-VERSION="1.7"
+VERSION_ID="2.0"
+VERSION="2.0"
 VERSION_CODENAME=trixie
 ID=zeta
 ID_LIKE=debian
@@ -23,17 +23,18 @@ ANSI_COLOR="1;34"
 EOF
 { cat /usr/lib/os-release; grep -E '^(IMAGE_ID|BUILD_ID)=' /etc/os-release 2>/dev/null || true; } > /etc/os-release.zeta
 mv /etc/os-release.zeta /etc/os-release
-printf 'ZETA RAYS OS 1.7 \\n \\l\n\n' > /etc/issue
-printf 'ZETA RAYS OS 1.7\n' > /etc/issue.net
+printf 'ZETA RAYS OS 2.0 \\n \\l\n\n' > /etc/issue
+printf 'ZETA RAYS OS 2.0\n' > /etc/issue.net
 
-# Messaggio della console (sostituisce quello della distribuzione di base)
+# Messaggio della console (sostituisce quello della distribuzione di base).
+# In inglese: il motd e' un file fisso, uguale per tutte le lingue.
 cat > /etc/motd <<'EOF'
 
-  ZETA RAYS OS 1.7
-  AI · Sicurezza · Controllo
+  ZETA RAYS OS 2.0
+  AI · Security · Control
 
-  Il software incluso in ZETA RAYS OS è libero: le licenze di ogni
-  componente sono in /usr/share/doc/*/copyright.
+  The software included in ZETA RAYS OS is free software: the license of
+  each component is in /usr/share/doc/*/copyright.
 
 EOF
 
@@ -45,6 +46,18 @@ if [ -f /usr/share/pixmaps/debian-logo.png ]; then
   rm -f /tmp/zeta-simbolo.svg
 fi
 
+# Riga del kernel al login testuale e via SSH («... Debian 6.12...»): il
+# messaggio di benvenuto e' gia' /etc/motd di ZETA RAYS
+if [ -f /etc/update-motd.d/10-uname ]; then
+  dpkg-divert --local --rename --divert /usr/share/zeta/10-uname.upstream \
+    --add /etc/update-motd.d/10-uname >/dev/null
+fi
+
+# Resti dell'installer di Debian (calamares-settings-debian): l'icona
+# «Install Debian» che si copierebbe sulla Scrivania e i preferiti di GNOME
+rm -f /etc/xdg/autostart/calamares-desktop-icon.desktop \
+      /usr/share/glib-2.0/schemas/96_calamares-settings-debian.gschema.override
+
 # --- Shell: prompt, titolo e benvenuto ZETA RAYS ---
 for rc in /etc/skel/.bashrc /root/.bashrc; do
   if [ -f "$rc" ] && ! grep -q zeta/shell/bashrc "$rc"; then
@@ -52,28 +65,28 @@ for rc in /etc/skel/.bashrc /root/.bashrc; do
   fi
 done
 
-# --- Lingua italiana e fuso orario ---
+# --- Time zone (the installer sets the user's own) ---
 ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
 echo "Europe/Rome" > /etc/timezone
-# Due lingue generate: italiano per il sistema, inglese perche l'installer
-# parte in inglese e perche chi installa puo scegliere di restare in inglese.
-sed -i 's/^# *it_IT.UTF-8 UTF-8/it_IT.UTF-8 UTF-8/' /etc/locale.gen
-sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-locale-gen
-update-locale LANG=it_IT.UTF-8
-# senza questo l'installer partirebbe in inglese ma con il locale mancante
-locale -a | grep -qi '^en_US.utf8$' || echo "ZETA RAYS: ATTENZIONE - locale en_US non generato" >&2
+# Languages: hook 0110-zeta-lingue generates them all and starts in English.
 
 # --- Script eseguibili ---
 chmod 755 /usr/local/bin/zeta-* /usr/local/bin/mpv /usr/local/bin/hyprlock /usr/libexec/zeta-installer /usr/libexec/zeta-vt-text /usr/libexec/zeta-vm-sleep
 find /usr/lib/zeta -name "*.py" -exec chmod 644 {} + 2>/dev/null || true
+# Python precompilato e cache delle icone: in 9996-zeta-velocita, dopo gli
+# hook di serie di live-build che li cancellano.
 
 # --- Servizi di sistema ---
 systemctl set-default graphical.target 2>/dev/null || true
+# blueman-mechanism parte da solo via D-Bus quando serve (Impostazioni ›
+# Bluetooth, l'applet): avviato al boot ritardava il desktop di ~0,6 s
+systemctl disable blueman-mechanism.service 2>/dev/null || true
 systemctl enable sddm.service 2>/dev/null || true
 systemctl enable zeta-live-password.service 2>/dev/null || true
 # Firewall attivo (regole in /etc/nftables.conf) e permessi dell'aiutante del Monitor
 systemctl enable nftables.service 2>/dev/null || true
+# la scelta SSH negli insiemi del firewall dopo ogni avvio e ricarica
+systemctl enable zeta-ssh-sincronizza.service 2>/dev/null || true
 systemctl enable zeta-vm-sleep.service 2>/dev/null || true
 # Una sola sessione grafica: ZETA RAYS. Le voci di Hyprland "nudo" (e quella per uwsm,
 # che non è installato) confondevano la schermata di accesso.
@@ -133,10 +146,28 @@ chmod 0644 /etc/ssh/sshd_config.d/zeta.conf /etc/systemd/system/ssh.service.d/ze
 sed "s/ACCENT/$ACCENT/g" /usr/share/zeta/brand/zeta-logo.svg.in > /tmp/zeta-logo.svg
 rsvg-convert -w 200 -o /usr/share/plymouth/themes/zeta/logo.png /tmp/zeta-logo.svg
 rm -f /tmp/zeta-logo.svg
+# campo della password del disco cifrato (vedi zeta.script)
+P=/usr/share/plymouth/themes/zeta
+printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="44"><rect x="0.5" y="0.5" width="319" height="43" rx="12" fill="#19191C" stroke="#FFFFFF" stroke-opacity="0.18"/></svg>' \
+  | rsvg-convert -o "$P/campo.png"
+printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4" fill="#EDEDEA"/></svg>' \
+  | rsvg-convert -o "$P/pallino.png"
+printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EDEDEA" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>' \
+  | rsvg-convert -o "$P/lucchetto.png"
+for f in logo campo pallino lucchetto; do
+  [ -s "$P/$f.png" ] || { echo "ZETA RAYS: ERRORE - manca $P/$f.png" >&2; exit 1; }
+done
 plymouth-set-default-theme zeta
 if [ -f /etc/default/grub ]; then
   sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="ZETA RAYS OS"/' /etc/default/grub
-  sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"/' /etc/default/grub
+  sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0"/' /etc/default/grub
+fi
+# Colori di riserva di Debian (azzurro su blu) quando il tema non si carica:
+# 05_debian_theme va fuori da grub.d, e i colori restano quelli di GRUB
+# (grigio su nero), come lo sfondo di ZETA RAYS.
+if [ -f /etc/grub.d/05_debian_theme ]; then
+  dpkg-divert --local --rename --divert /usr/share/zeta/05_debian_theme.upstream \
+    --add /etc/grub.d/05_debian_theme >/dev/null
 fi
 # Sistema installato: tema ZETA RAYS, nessuna voce di ripristino, risoluzione
 # che il kernel eredita sui framebuffer semplici.
@@ -147,7 +178,24 @@ fi
 mkdir -p /etc/default/grub.d
 cat > /etc/default/grub.d/zeta.cfg <<'CFG'
 GRUB_DISABLE_RECOVERY=true
-GRUB_GFXMODE=1280x800,1280x720,1024x768,auto
+# Risoluzione del menu: sui computer veri quella dello schermo (1920x1080 o
+# la piu' vicina), nitida e non stirata; nelle macchine virtuali 1280x800,
+# che il desktop eredita sui framebuffer semplici. Questo file e' letto da
+# update-grub sul computer stesso, quindi la scelta vale per quella macchina.
+# VirtualBox su arm64 non si fa riconoscere da systemd-detect-virt (niente
+# SMBIOS): valgono anche i dispositivi PCI virtuali (VirtualBox 80ee, VMware
+# 15ad, virtio 1af4, Hyper-V 1414, Parallels 1ab8) e l'architettura arm64,
+# che su un computer vero quasi sempre ha un driver grafico proprio.
+zeta_vm() {
+  systemd-detect-virt -q --vm 2>/dev/null && return 0
+  [ "$(uname -m)" = aarch64 ] && return 0
+  cat /sys/bus/pci/devices/*/vendor 2>/dev/null | grep -qE '^0x(80ee|15ad|1af4|1414|1ab8)$'
+}
+if zeta_vm; then
+  GRUB_GFXMODE=1280x800,1280x720,1024x768,auto
+else
+  GRUB_GFXMODE=1920x1080,1600x900,1366x768,1280x800,1280x720,1024x768,auto
+fi
 GRUB_GFXPAYLOAD_LINUX=keep
 GRUB_THEME=/usr/share/grub/themes/zeta/theme.txt
 CFG
@@ -157,6 +205,25 @@ CFG
 # con «Syntax error: word unexpected» (era il motivo del fallimento del
 # servizio di primo avvio).
 [ -f /etc/grub.d/10_linux ] && sed -i 's#Ubuntu|Kubuntu|\*GNU/Linux)#Ubuntu|Kubuntu|"ZETA RAYS"*|*GNU/Linux)#' /etc/grub.d/10_linux
+# Icone del tema anche per «Advanced options» e «UEFI Firmware Settings»
+# (GRUB le sceglie dalla classe della voce, che qui mancava)
+python3 - <<'PY'
+import os
+for p, vecchio, nuovo in (
+    ("/etc/grub.d/10_linux",
+     "| grub_quote)' \\$menuentry_id_option 'gnulinux-advanced-",
+     "| grub_quote)' --class submenu \\$menuentry_id_option 'gnulinux-advanced-"),
+    ("/etc/grub.d/30_uefi-firmware",
+     "menuentry '$LABEL' \\$menuentry_id_option 'uefi-firmware'",
+     "menuentry '$LABEL' --class efi \\$menuentry_id_option 'uefi-firmware'"),
+):
+    if os.path.exists(p):
+        s = open(p).read()
+        if vecchio in s:
+            open(p, "w").write(s.replace(vecchio, nuovo, 1))
+        elif nuovo not in s:
+            print("ZETA RAYS: avviso - %s non riconosciuto (classe della voce)" % p)
+PY
 
 # --- Installer ZETA RAYS (Calamares): logo su sfondo nero ---
 # La cartella si chiama «zeta», come dice settings.conf (branding: zeta).

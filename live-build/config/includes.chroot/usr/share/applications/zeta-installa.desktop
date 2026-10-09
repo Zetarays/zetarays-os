@@ -1,7 +1,10 @@
 [Desktop Entry]
-Name=Installa ZETA RAYS
-GenericName=Installazione di ZETA RAYS OS
-Comment=Installa ZETA RAYS OS su questo computer
+Name=Install ZETA RAYS
+Name[it]=Installa ZETA RAYS
+GenericName=ZETA RAYS OS installer
+GenericName[it]=Installazione di ZETA RAYS OS
+Comment=Install ZETA RAYS OS on this computer
+Comment[it]=Installa ZETA RAYS OS su questo computer
 Exec=zeta-installa
 Icon=zeta-installa
 Terminal=false

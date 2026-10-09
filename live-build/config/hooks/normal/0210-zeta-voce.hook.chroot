@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — voce naturale di ZETA: Piper, sintesi vocale neurale che gira
+# tutta sul computer (nessun testo lascia il computer). Voci: Paola per
+# l'italiano, Lessac (alta qualita') per l'inglese; per le altre lingue resta
+# espeak-ng. Runtime e voci arrivano con l'immagine (build.sh li prende da
+# cache/piper): la costruzione non dipende dalla rete.
+set -e
+INCLUSO=/usr/share/zeta/piper-cache
+case "$(uname -m)" in
+    aarch64|arm64) A=aarch64 ;;
+    x86_64|amd64)  A=x86_64 ;;
+    *) echo "ZETA RAYS: ERRORE - architettura non supportata da Piper" >&2; exit 1 ;;
+esac
+T="$INCLUSO/piper_linux_$A.tar.gz"
+if [ ! -s "$T" ] || ! ls "$INCLUSO"/voci/*.onnx >/dev/null 2>&1; then
+    echo "ZETA RAYS: ERRORE - Piper o le voci non sono nell'immagine ($T)" >&2
+    exit 1
+fi
+rm -rf /usr/lib/zeta-piper
+mkdir -p /usr/lib/zeta-piper /usr/share/zeta/voci
+tar -xzf "$T" -C /usr/lib/zeta-piper --strip-components=1
+cp -f "$INCLUSO"/voci/*.onnx "$INCLUSO"/voci/*.onnx.json /usr/share/zeta/voci/
+chmod -R a+rX /usr/lib/zeta-piper /usr/share/zeta/voci
+rm -rf "$INCLUSO"
+# prova vera: una frase per voce deve diventare audio
+for v in /usr/share/zeta/voci/*.onnx; do
+    echo "ZETA RAYS" | /usr/lib/zeta-piper/piper --model "$v" --output_file /tmp/zeta-voce.wav >/dev/null 2>&1 || true
+    if [ "$(stat -c %s /tmp/zeta-voce.wav 2>/dev/null || echo 0)" -lt 10000 ]; then
+        echo "ZETA RAYS: ERRORE - la voce $(basename "$v") non produce audio" >&2
+        exit 1
+    fi
+    rm -f /tmp/zeta-voce.wav
+done
+voci=""
+for v in /usr/share/zeta/voci/*.onnx; do voci="$voci ${v##*/}"; done
+echo "ZETA RAYS: voce naturale (Piper) installata:$voci"

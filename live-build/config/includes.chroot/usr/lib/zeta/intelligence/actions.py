@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Callable
 
 
+from i18n import tr, ntr
+
 from .providers.base import ToolSpec
 
 
@@ -40,6 +42,10 @@ def _popen(*a, **kw):
 
 
 LOG_FILE = Path(os.path.expanduser("~/.local/share/zeta/actions.log"))
+
+# wpctl scrive il volume con il separatore decimale della lingua (0,40 in
+# italiano): per leggerlo si chiede sempre la forma C (0.40)
+_ENV_C = dict(os.environ, LC_ALL="C")
 
 
 @dataclass
@@ -82,7 +88,7 @@ class ActionEngine:
     def run(self, name: str, args: dict, *, authorized: bool = False) -> ActionResult:
         action = self.actions.get(name)
         if action is None:
-            return ActionResult(False, "Azione sconosciuta: %s" % name)
+            return ActionResult(False, tr("Unknown action: {name}").format(name=name))
         self._log(name, args, action.level)
         # livelli 3/4: prima l'anteprima, poi l'esecuzione autorizzata
         if action.level >= 3 and not authorized:
@@ -92,12 +98,13 @@ class ActionEngine:
         try:
             return action.handler(args)
         except Exception as e:  # noqa: BLE001 — mai far cadere ZETA
-            return ActionResult(False, "Errore durante '%s': %s" % (name, e))
+            return ActionResult(False, tr("Error during “{action}”: {error}").format(action=name, error=e))
 
     def _preview(self, action: Action, args: dict) -> tuple[str, str]:
         arg_txt = ", ".join("%s=%s" % (k, v) for k, v in args.items())
         preview = "%s(%s)" % (action.name, arg_txt)
-        impact = "Livello %d — %s" % (action.level, action.description)
+        impact = tr("Level {level} — {description}").format(level=action.level,
+                                                          description=action.description)
         return preview, impact
 
     def _log(self, name: str, args: dict, level: int) -> None:
@@ -116,87 +123,88 @@ class ActionEngine:
     def _register_builtin(self) -> None:
         # LIVELLO 1 — sola lettura
         self.register(Action(
-            "system_info", 1, "Mostra le informazioni di ZETA RAYS OS (versione, kernel, CPU, memoria).",
+            "system_info", 1, tr("Shows information about ZETA RAYS OS (version, kernel, CPU, memory)."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _system_info())))
         self.register(Action(
-            "process_list", 1, "Elenca i processi che consumano più CPU.",
+            "process_list", 1, tr("Lists the processes using the most CPU."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _run(["sh", "-c",
                 "ps -eo pcpu,pmem,comm --sort=-pcpu | head -n 12"]))))
         self.register(Action(
-            "disk_usage", 1, "Mostra lo spazio usato e libero sui dischi.",
+            "disk_usage", 1, tr("Shows used and free disk space."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _run(["df", "-h", "--output=source,size,used,avail,pcent,target"]))))
         self.register(Action(
-            "network_status", 1, "Mostra lo stato delle connessioni di rete.",
+            "network_status", 1, tr("Shows the status of network connections."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _run(["sh", "-c",
                 "nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null || ip -brief addr"]))))
         self.register(Action(
-            "find_files", 1, "Cerca file nella cartella personale per nome o estensione, anche solo quelli modificati di recente.",
+            "find_files", 1, tr("Searches the home folder for files by name or extension, optionally only recently modified ones."),
             {"type": "object",
-             "properties": {"pattern": {"type": "string", "description": "es. *.pdf oppure *fattura*; più estensioni separate da virgola: *.jpg,*.png"},
-                            "oggi": {"type": "boolean", "description": "solo i file modificati oggi"},
-                            "giorni": {"type": "integer", "description": "solo i file modificati negli ultimi N giorni"}},
+             "properties": {"pattern": {"type": "string", "description": "e.g. *.pdf or *invoice*; several extensions separated by commas: *.jpg,*.png"},
+                            "oggi": {"type": "boolean", "description": "only files modified today"},
+                            "giorni": {"type": "integer", "description": "only files modified in the last N days"}},
              "required": ["pattern"]},
             _find_files))
         self.register(Action(
-            "read_file", 1, "Legge un file di testo nella cartella personale.",
+            "read_file", 1, tr("Reads a text file in the home folder."),
             {"type": "object",
              "properties": {"path": {"type": "string"}},
              "required": ["path"]},
             _read_file))
         self.register(Action(
-            "security_status", 1, "Riepilogo dello stato di sicurezza (firewall, aggiornamenti...).",
+            "security_status", 1, tr("Summary of the security status (firewall, updates…)."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _security_status())))
 
         self.register(Action(
-            "cpu_usage", 1, "Mostra l'uso attuale della CPU in percentuale.",
+            "cpu_usage", 1, tr("Shows the current CPU usage as a percentage."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _cpu_usage())))
         self.register(Action(
-            "memory_usage", 1, "Mostra quanta memoria (RAM) è in uso e quanta è libera.",
+            "memory_usage", 1, tr("Shows how much memory (RAM) is in use and how much is free."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _memory_usage())))
         self.register(Action(
-            "uptime", 1, "Da quanto tempo è acceso il sistema.",
+            "uptime", 1, tr("How long the system has been on."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _run(["sh", "-c", "uptime -p 2>/dev/null || uptime"]))))
         self.register(Action(
-            "ip_address", 1, "Mostra gli indirizzi IP locali del sistema.",
+            "ip_address", 1, tr("Shows the system's local IP addresses."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _ip_address())))
         self.register(Action(
-            "list_applications", 1, "Elenca le applicazioni grafiche installate che si possono aprire.",
+            "list_applications", 1, tr("Lists the installed graphical apps that can be opened."),
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _list_applications())))
 
         # LIVELLO 2 — azioni utente
         self.register(Action(
-            "open_application", 2, "Apre un'applicazione installata (nome comune o eseguibile).",
+            "open_application", 2, tr("Opens an installed app (common name or executable)."),
             {"type": "object",
              "properties": {"app": {"type": "string"}},
              "required": ["app"]},
             _open_application))
         self.register(Action(
-            "open_folder", 2, "Apre una cartella nel gestore file (es. documenti, download, immagini, o un percorso).",
+            "open_folder", 2, tr("Opens a folder in the file manager (e.g. documents, downloads, pictures, or a path)."),
             {"type": "object",
-             "properties": {"name": {"type": "string", "description": "documenti, download, immagini, musica, video, scrivania, home, o un percorso"}},
+             "properties": {"name": {"type": "string", "description": "documenti, download, immagini, musica, video, scrivania, home (or their English names), or a path"}},
              "required": ["name"]},
             _open_folder))
         self.register(Action(
-            "open_settings", 2, "Apre le Impostazioni di ZETA RAYS, eventualmente su una pagina precisa.",
+            "open_settings", 2, tr("Opens ZETA RAYS Settings, optionally on a specific page."),
             {"type": "object",
-             "properties": {"page": {"type": "string", "description": "aspetto, rete, bluetooth, audio, ai, sicurezza, pacchetti, informazioni"}}},
+             "properties": {"page": {"type": "string", "description": "page key: aspetto (appearance), rete (network), bluetooth, audio, ai, sicurezza (security), pacchetti (packages), informazioni (about)"}}},
             _open_settings))
         self.register(Action(
-            "open_system_monitor", 2, "Apre il Monitor di sistema di ZETA RAYS (CPU, rete, processi, firewall...).",
+            "open_system_monitor", 2, tr("Opens the ZETA RAYS System Monitor (CPU, network, processes, firewall…)."),
             {"type": "object", "properties": {"section": {"type": "string"}}},
-            lambda a: _launch("zeta-monitor", [a["section"]] if a.get("section") else [], "Monitor di sistema")))
+            lambda a: _launch("zeta-monitor", [a["section"]] if a.get("section") else [],
+                              tr("System Monitor"))))
         self.register(Action(
-            "open_security", 2, "Apre ZETA RAYS Security (firewall, strumenti di sicurezza, stato del sistema).",
+            "open_security", 2, tr("Opens ZETA RAYS Security (firewall, security tools, system status)."),
             {"type": "object", "properties": {}},
             lambda a: _launch("zeta-sicurezza", [], "ZETA RAYS Security")))
         # Quando nessuna delle azioni qui sopra basta, ZETA non si arrende:
@@ -206,105 +214,105 @@ class ActionEngine:
         # possa eseguire da solo qualcosa di irreversibile.
         # --- energia: livello 3, perche interrompono il lavoro dell utente ---
         self.register(Action(
-            "lock_screen", 2, "Blocca lo schermo.",
+            "lock_screen", 2, tr("Locks the screen."),
             {"type": "object", "properties": {}},
-            lambda a: _energia("lock", "Blocco lo schermo.")))
+            lambda a: _energia("lock", tr("Locking the screen."))))
         self.register(Action(
-            "log_out", 3, "Chiude la sessione e torna alla schermata di accesso.",
+            "log_out", 3, tr("Ends the session and returns to the login screen."),
             {"type": "object", "properties": {}},
-            lambda a: _energia("logout", "Chiudo la sessione.")))
+            lambda a: _energia("logout", tr("Logging out."))))
         self.register(Action(
-            "suspend", 3, "Sospende il computer.",
+            "suspend", 3, tr("Suspends the computer."),
             {"type": "object", "properties": {}},
-            lambda a: _energia("suspend", "Sospendo il computer.")))
+            lambda a: _energia("suspend", tr("Suspending the computer."))))
         self.register(Action(
-            "reboot", 4, "Riavvia il computer.",
+            "reboot", 4, tr("Restarts the computer."),
             {"type": "object", "properties": {}},
-            lambda a: _semplice(["systemctl", "reboot"], "Riavvio.")))
+            lambda a: _semplice(["systemctl", "reboot"], tr("Restarting."))))
         self.register(Action(
-            "power_off", 4, "Spegne il computer.",
+            "power_off", 4, tr("Shuts down the computer."),
             {"type": "object", "properties": {}},
-            lambda a: _semplice(["systemctl", "poweroff"], "Spengo.")))
+            lambda a: _semplice(["systemctl", "poweroff"], tr("Shutting down."))))
 
         # --- suono e schermo ---
         self.register(Action(
-            "set_volume", 2, "Imposta il volume (0-100), lo alza o abbassa di un passo, oppure silenzia.",
+            "set_volume", 2, tr("Sets the volume (0-100), raises or lowers it by a step, or mutes it."),
             {"type": "object",
-             "properties": {"level": {"type": "integer", "description": "da 0 a 100"},
+             "properties": {"level": {"type": "integer", "description": "from 0 to 100"},
                             "step": {"type": "string", "enum": ["su", "giu"],
-                                     "description": "alza o abbassa rispetto al volume attuale"},
-                            "amount": {"type": "integer", "description": "di quanti punti (predefinito 10)"},
+                                     "description": "su = up, giu = down, relative to the current volume"},
+                            "amount": {"type": "integer", "description": "by how many points (default 10)"},
                             "mute": {"type": "boolean"}}},
             _set_volume))
         self.register(Action(
-            "set_brightness", 2, "Imposta la luminosità dello schermo (0-100).",
+            "set_brightness", 2, tr("Sets the screen brightness (0-100)."),
             {"type": "object",
-             "properties": {"level": {"type": "integer", "description": "da 0 a 100"}},
+             "properties": {"level": {"type": "integer", "description": "from 0 to 100"}},
              "required": ["level"]},
             _set_brightness))
 
         # --- file e cartelle ---
         self.register(Action(
-            "create_folder", 2, "Crea una cartella nella cartella personale.",
+            "create_folder", 2, tr("Creates a folder in the home folder."),
             {"type": "object",
-             "properties": {"name": {"type": "string", "description": "nome o percorso della nuova cartella"}},
+             "properties": {"name": {"type": "string", "description": "name or path of the new folder"}},
              "required": ["name"]},
             _create_folder))
         self.register(Action(
-            "screen_off", 2, "Spegne lo schermo (non blocca e non spegne il computer).",
+            "screen_off", 2, tr("Turns off the screen (doesn't lock or shut down the computer)."),
             {"type": "object", "properties": {}},
             _screen_off))
         self.register(Action(
-            "close_application", 2, "Chiude un programma aperto, indicandolo per nome (es. Firefox).",
+            "close_application", 2, tr("Closes a running program by name (e.g. Firefox)."),
             {"type": "object",
-             "properties": {"app": {"type": "string", "description": "nome del programma"}},
+             "properties": {"app": {"type": "string", "description": "program name"}},
              "required": ["app"]},
             _close_application))
         self.register(Action(
-            "screenshot", 2, "Salva una schermata dello schermo nella cartella Immagini.",
+            "screenshot", 2, tr("Saves a screenshot in the Pictures folder."),
             {"type": "object", "properties": {}},
             _screenshot))
         self.register(Action(
             "search_content", 1,
-            "Cerca una parola dentro il contenuto dei file, compreso il testo dei PDF e quello nelle immagini.",
+            tr("Searches for a word inside files, including the text of PDFs and text in images."),
             {"type": "object",
-             "properties": {"text": {"type": "string", "description": "parola o frase da cercare"}},
+             "properties": {"text": {"type": "string", "description": "word or phrase to search for"}},
              "required": ["text"]},
             _search_content))
         self.register(Action(
-            "rename_file", 3, "Rinomina un file o una cartella.",
+            "rename_file", 3, tr("Renames a file or folder."),
             {"type": "object",
-             "properties": {"name": {"type": "string", "description": "nome o percorso attuale"},
-                            "new_name": {"type": "string", "description": "nome nuovo, senza percorsi"}},
+             "properties": {"name": {"type": "string", "description": "current name or path"},
+                            "new_name": {"type": "string", "description": "new name, without paths"}},
              "required": ["name", "new_name"]},
             _rename_file))
         self.register(Action(
-            "move_file", 3, "Sposta un file o una cartella in un'altra cartella.",
+            "move_file", 3, tr("Moves a file or folder into another folder."),
             {"type": "object",
-             "properties": {"name": {"type": "string", "description": "nome o percorso del file"},
-                            "folder": {"type": "string", "description": "cartella di destinazione (documenti, immagini...)"}},
+             "properties": {"name": {"type": "string", "description": "name or path of the file"},
+                            "folder": {"type": "string", "description": "destination folder (documents, pictures…)"}},
              "required": ["name", "folder"]},
             _move_file))
         self.register(Action(
-            "trash_file", 3, "Sposta un file o una cartella nel cestino (recuperabile).",
+            "trash_file", 3, tr("Moves a file or folder to the Trash (can be restored)."),
             {"type": "object",
-             "properties": {"name": {"type": "string", "description": "nome o percorso"}},
+             "properties": {"name": {"type": "string", "description": "name or path"}},
              "required": ["name"]},
             _trash_file))
         self.register(Action(
-            "empty_trash", 3, "Svuota il cestino. Non si torna indietro.",
+            "empty_trash", 3, tr("Empties the Trash. This can't be undone."),
             {"type": "object", "properties": {}},
-            lambda a: _semplice(["sh", "-c", "gio trash --empty"], "Cestino svuotato.")))
+            lambda a: _semplice(["sh", "-c", "gio trash --empty"], tr("Trash emptied."))))
 
         # --- programmi ---
         self.register(Action(
-            "install_package", 4, "Installa un programma dagli archivi del sistema.",
+            "install_package", 4, tr("Installs a program from the system repositories."),
             {"type": "object",
              "properties": {"name": {"type": "string"}},
              "required": ["name"]},
             lambda a: _pacchetto("install", a)))
         self.register(Action(
-            "remove_package", 4, "Rimuove un programma installato.",
+            "remove_package", 4, tr("Removes an installed program."),
             {"type": "object",
              "properties": {"name": {"type": "string"}},
              "required": ["name"]},
@@ -312,12 +320,12 @@ class ActionEngine:
 
         # --- rete ---
         self.register(Action(
-            "wifi_toggle", 3, "Accende o spegne il Wi-Fi.",
+            "wifi_toggle", 3, tr("Turns Wi-Fi on or off."),
             {"type": "object",
              "properties": {"on": {"type": "boolean"}},
              "required": ["on"]},
             lambda a: _semplice(["nmcli", "radio", "wifi", "on" if a.get("on") else "off"],
-                                "Wi-Fi %s." % ("acceso" if a.get("on") else "spento"))))
+                                tr("Wi-Fi on.") if a.get("on") else tr("Wi-Fi off."))))
 
         # Nessuna azione «esegui un comando qualunque»: c'era (livello 4, con
         # conferma e perfino come amministratore) e va contro una regola di
@@ -326,81 +334,81 @@ class ActionEngine:
         # terminale e lo lascia decidere a chi sta davanti allo schermo.
         self.register(Action(
             "propose_command", 2,
-            "Prepara un comando nel terminale per l utente, senza eseguirlo. "
-            "Da usare quando nessuna altra azione copre la richiesta.",
+            tr("Prepares a command in the terminal for the user, without running it. "
+               "Use it when no other action covers the request."),
             {"type": "object",
              "properties": {
                  "command": {"type": "string",
-                             "description": "il comando, come si scriverebbe nel terminale"},
+                             "description": "the command, as it would be typed in the terminal"},
                  "why": {"type": "string",
-                         "description": "a cosa serve, in una riga"}},
+                         "description": "what it is for, in one line"}},
              "required": ["command"]},
             _propose_command))
         self.register(Action(
-            "open_file", 2, "Apre un file con il programma predefinito (documento, immagine, video, archivio...).",
+            "open_file", 2, tr("Opens a file with the default app (document, image, video, archive…)."),
             {"type": "object",
              "properties": {"name": {"type": "string",
-                                     "description": "nome o percorso del file, dentro la cartella personale"}},
+                                     "description": "name or path of the file, inside the home folder"}},
              "required": ["name"]},
             _open_file))
         self.register(Action(
-            "open_url", 2, "Apre un indirizzo web nel navigatore.",
+            "open_url", 2, tr("Opens a web address in the browser."),
             {"type": "object",
-             "properties": {"url": {"type": "string", "description": "indirizzo http o https"}},
+             "properties": {"url": {"type": "string", "description": "http or https address"}},
              "required": ["url"]},
             _open_url))
         self.register(Action(
-            "set_wallpaper", 3, "Cambia lo sfondo della scrivania, o ripristina quello di ZETA RAYS.",
+            "set_wallpaper", 3, tr("Changes the desktop wallpaper, or restores the ZETA RAYS one."),
             {"type": "object",
              "properties": {"name": {"type": "string",
-                                     "description": "percorso dell'immagine, oppure «predefinito» per tornare a quello di ZETA RAYS"}}},
+                                     "description": "path of the image, or «predefinito» to go back to the ZETA RAYS one"}}},
             _set_wallpaper))
         self.register(Action(
-            "open_terminal", 2, "Apre il terminale.",
+            "open_terminal", 2, tr("Opens the terminal."),
             {"type": "object", "properties": {}},
-            lambda a: _launch("foot", [], "il terminale")))
+            lambda a: _launch("foot", [], tr("Terminal"), tr("Opening the terminal."))))
         self.register(Action(
-            "close_active_window", 2, "Chiude la finestra attiva sul desktop.",
+            "close_active_window", 2, tr("Closes the active window on the desktop."),
             {"type": "object", "properties": {}},
             lambda a: _close_active_window()))
         self.register(Action(
-            "minimize_window", 2, "Riduce a icona la finestra attiva.",
+            "minimize_window", 2, tr("Minimizes the active window."),
             {"type": "object", "properties": {}},
             lambda a: _minimize_window()))
         self.register(Action(
-            "maximize_window", 2, "Ingrandisce (o ripristina) la finestra attiva.",
+            "maximize_window", 2, tr("Maximizes (or restores) the active window."),
             {"type": "object", "properties": {}},
             lambda a: _maximize_window()))
         self.register(Action(
-            "list_windows", 1, "Elenca le finestre aperte e quelle ridotte a icona.",
+            "list_windows", 1, tr("Lists open and minimized windows."),
             {"type": "object", "properties": {}},
             lambda a: _list_windows()))
         self.register(Action(
-            "current_time", 1, "Dice l'ora attuale.",
+            "current_time", 1, tr("Tells the current time."),
             {"type": "object", "properties": {}},
             lambda a: _current_time()))
         self.register(Action(
-            "current_date", 1, "Dice la data di oggi.",
+            "current_date", 1, tr("Tells today's date."),
             {"type": "object", "properties": {}},
             lambda a: _current_date()))
         self.register(Action(
-            "battery_status", 1, "Stato della batteria.",
+            "battery_status", 1, tr("Battery status."),
             {"type": "object", "properties": {}},
             lambda a: _battery_status()))
         self.register(Action(
-            "volume_status", 1, "Volume attuale dell'audio.",
+            "volume_status", 1, tr("Current audio volume."),
             {"type": "object", "properties": {}},
             lambda a: _volume_status()))
 
         # LIVELLO 3 — configurazione (conferma richiesta)
         self.register(Action(
-            "set_theme", 3, "Passa al tema chiaro o scuro.",
+            "set_theme", 3, tr("Switches to the light or dark theme."),
             {"type": "object",
-             "properties": {"tema": {"type": "string", "description": "chiaro o scuro"}},
+             "properties": {"tema": {"type": "string", "description": "chiaro (light) or scuro (dark)"}},
              "required": ["tema"]},
             _set_theme))
         self.register(Action(
-            "set_accent", 3, "Cambia il colore d'accento del sistema (#RRGGBB).",
+            "set_accent", 3, tr("Changes the system accent color (#RRGGBB)."),
             {"type": "object",
              "properties": {"color": {"type": "string", "description": "#RRGGBB"}},
              "required": ["color"]},
@@ -409,12 +417,12 @@ class ActionEngine:
 
 # ------------------------------------------------------------------ helper
 
-def _run(cmd: list[str], timeout: float = 15.0) -> str:
+def _run(cmd: list[str], timeout: float = 15.0, env: dict | None = None) -> str:
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         return (p.stdout or p.stderr or "").strip()
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return "Comando non disponibile (%s)." % e
+        return tr("Command not available ({error}).").format(error=e)
 
 
 def _system_info() -> str:
@@ -428,19 +436,22 @@ def _system_info() -> str:
     except OSError:
         pass
     import platform
-    lines = [
-        "OS:            %s" % info.get("PRETTY_NAME", "ZETA RAYS OS"),
-        "Versione:      %s" % info.get("VERSION_ID", "1.7"),
-        "Architettura:  %s" % platform.machine(),
-        "Kernel:        Linux %s" % platform.release(),
-        "Ambiente:      ZETA RAYS Shell",
+    righe = [
+        ("OS:", info.get("PRETTY_NAME", "ZETA RAYS OS")),
+        (tr("Version:"), info.get("VERSION_ID", "2.0")),
+        (tr("Architecture:"), platform.machine()),
+        ("Kernel:", "Linux %s" % platform.release()),
+        (tr("Environment:"), "ZETA RAYS Shell"),
     ]
-    return "\n".join(lines)
+    largo = max(15, max(len(k) for k, _v in righe) + 2)
+    return "\n".join(k.ljust(largo) + v for k, v in righe)
 
 
 def _security_status() -> str:
-    fw = _run(["sh", "-c", "systemctl is-active nftables 2>/dev/null || echo inattivo"])
-    return "Firewall: %s" % (fw or "sconosciuto")
+    # «systemctl is-active» stampa sempre active/inactive/failed in inglese
+    fw = (_run(["systemctl", "is-active", "nftables"], env=_ENV_C).splitlines() or [""])[0].strip()
+    stati = {"active": tr("active"), "inactive": tr("inactive"), "failed": tr("failed")}
+    return tr("Firewall: {state}").format(state=stati.get(fw, fw or tr("unknown")))
 
 
 def _home() -> Path:
@@ -484,7 +495,7 @@ def _find_files(args: dict) -> ActionResult:
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
     except subprocess.TimeoutExpired:
-        return ActionResult(False, "La ricerca ci mette troppo: prova con un nome più preciso.")
+        return ActionResult(False, tr("The search is taking too long: try a more specific name."))
     righe = []
     for riga in out.splitlines():
         try:
@@ -492,46 +503,67 @@ def _find_files(args: dict) -> ActionResult:
             righe.append((float(t), tipo, percorso))
         except ValueError:
             continue
-    quando = " modificati oggi" if args.get("oggi") else (
-        " modificati negli ultimi %s giorni" % args.get("giorni") if args.get("giorni") else "")
+    oggi = bool(args.get("oggi"))
+    giorni = args.get("giorni") if not oggi else None
     if not righe:
-        return ActionResult(True, "Nessun file «%s»%s nella tua cartella." % (pattern, quando))
+        if oggi:
+            testo = tr("No “{pattern}” files modified today in your home folder.")
+        elif giorni:
+            testo = tr("No “{pattern}” files modified in the last {days} days in your home folder.")
+        else:
+            testo = tr("No “{pattern}” files in your home folder.")
+        return ActionResult(True, testo.format(pattern=pattern, days=giorni))
     righe.sort(reverse=True)
     elenco = ["~" + p[len(casa):] + ("/" if tipo == "d" else "") for _t, tipo, p in righe[:40]]
     n = len(righe)
-    quanti = "Trovato 1 file" if n == 1 else "Trovati %d file" % n
-    if quando and n == 1:
-        quando = quando.replace("modificati", "modificato")
-    testa = ("%s%s:" % (quanti, quando)) if n <= 40 else \
-            ("%s%s, ecco i 40 più recenti:" % (quanti, quando))
-    return ActionResult(True, testa + "\n" + "\n".join(elenco))
+    if n > 40:
+        if oggi:
+            testa = tr("Found {n} files modified today, here are the 40 most recent:")
+        elif giorni:
+            testa = tr("Found {n} files modified in the last {days} days, here are the 40 most recent:")
+        else:
+            testa = tr("Found {n} files, here are the 40 most recent:")
+    elif oggi:
+        testa = ntr("Found {n} file modified today:", "Found {n} files modified today:", n)
+    elif giorni:
+        testa = ntr("Found {n} file modified in the last {days} days:",
+                    "Found {n} files modified in the last {days} days:", n)
+    else:
+        testa = ntr("Found {n} file:", "Found {n} files:", n)
+    return ActionResult(True, testa.format(n=n, days=giorni) + "\n" + "\n".join(elenco))
 
 
 def _read_file(args: dict) -> ActionResult:
     p = _safe_path(args.get("path", ""))
     if p is None or not p.is_file():
-        return ActionResult(False, "File non accessibile nella cartella personale.")
+        return ActionResult(False, tr("The file isn't accessible in the home folder."))
     try:
         text = p.read_text(errors="replace")[:8000]
         return ActionResult(True, text)
     except OSError as e:
-        return ActionResult(False, "Impossibile leggere: %s" % e)
+        return ActionResult(False, tr("Couldn't read it: {error}").format(error=e))
 
 
 # nomi comuni -> eseguibile reale
 APP_ALIASES = {
     "browser": "firefox-esr", "internet": "firefox-esr", "web": "firefox-esr",
-    "firefox": "firefox-esr", "navigatore": "firefox-esr",
+    "firefox": "firefox-esr", "navigatore": "firefox-esr", "web browser": "firefox-esr",
     "terminale": "foot", "terminal": "foot", "console": "foot", "shell": "foot",
     "file": "thunar", "files": "thunar", "cartelle": "thunar", "gestore file": "thunar",
+    "file manager": "thunar", "folders": "thunar",
     "editor": "gnome-text-editor", "testo": "gnome-text-editor", "blocco note": "gnome-text-editor",
+    "text editor": "gnome-text-editor", "notepad": "gnome-text-editor",
     "impostazioni": "zeta-impostazioni", "settings": "zeta-impostazioni", "preferenze": "zeta-impostazioni",
+    "preferences": "zeta-impostazioni",
     "monitor": "zeta-monitor", "monitor di sistema": "zeta-monitor", "sistema": "zeta-monitor",
+    "system monitor": "zeta-monitor", "task manager": "zeta-monitor",
     "sicurezza": "zeta-sicurezza", "security": "zeta-sicurezza",
-    "calcolatrice": "gnome-calculator", "calcolatore": "gnome-calculator",
+    "calcolatrice": "gnome-calculator", "calcolatore": "gnome-calculator", "calculator": "gnome-calculator",
     "immagini": "eog", "foto": "eog", "documenti pdf": "evince", "pdf": "evince",
+    "images": "eog", "photos": "eog", "pictures": "eog",
     "musica": "mpv", "video": "mpv", "pacchetti": "synaptic-pkexec",
-    "core": "zeta-core", "assistente": "zeta-core",
+    "music": "mpv", "videos": "mpv", "packages": "synaptic-pkexec",
+    "core": "zeta-core", "assistente": "zeta-core", "assistant": "zeta-core",
 }
 
 
@@ -544,27 +576,27 @@ def _resolve_app(app: str) -> str | None:
     return shutil.which(app)
 
 
-def _launch(cmd: str, extra: list, label: str) -> ActionResult:
+def _launch(cmd: str, extra: list, label: str, aperto: str | None = None) -> ActionResult:
     exe = shutil.which(cmd)
     if not exe:
-        return ActionResult(False, "%s non è disponibile su questo sistema." % label)
+        return ActionResult(False, tr("{name} isn't available on this system.").format(name=label))
     try:
         _popen([exe] + [str(x) for x in extra], start_new_session=True)
-        return ActionResult(True, "Apro %s." % label)
+        return ActionResult(True, aperto or tr("Opening {name}.").format(name=label))
     except OSError as e:
-        return ActionResult(False, "Impossibile avviare %s: %s" % (label, e))
+        return ActionResult(False, tr("Couldn't start {name}: {error}").format(name=label, error=e))
 
 
 def _open_application(args: dict) -> ActionResult:
     app = args.get("app", "")
     exe = _resolve_app(app)
     if not exe:
-        return ActionResult(False, "Non trovo un'applicazione chiamata '%s'." % app)
+        return ActionResult(False, tr("Can't find an app called “{name}”.").format(name=app))
     try:
         _popen([exe], start_new_session=True)
-        return ActionResult(True, "Apro %s." % app)
+        return ActionResult(True, tr("Opening {name}.").format(name=app))
     except OSError as e:
-        return ActionResult(False, "Impossibile avviare: %s" % e)
+        return ActionResult(False, tr("Couldn't start it: {error}").format(error=e))
 
 
 # cartelle comuni -> directory reale (usa xdg-user-dir quando disponibile)
@@ -572,10 +604,12 @@ FOLDER_KEYS = {
     "documenti": "DOCUMENTS", "documents": "DOCUMENTS",
     "download": "DOWNLOAD", "scaricati": "DOWNLOAD", "downloads": "DOWNLOAD",
     "immagini": "PICTURES", "foto": "PICTURES", "pictures": "PICTURES",
+    "photos": "PICTURES", "images": "PICTURES",
     "musica": "MUSIC", "music": "MUSIC",
     "video": "VIDEOS", "filmati": "VIDEOS", "videos": "VIDEOS",
     "scrivania": "DESKTOP", "desktop": "DESKTOP",
     "pubblici": "PUBLICSHARE", "modelli": "TEMPLATES",
+    "public": "PUBLICSHARE", "templates": "TEMPLATES",
 }
 
 
@@ -589,31 +623,32 @@ def _xdg_dir(key: str) -> str:
 def _open_folder(args: dict) -> ActionResult:
     name = (args.get("name") or "").strip()
     low = name.lower()
-    if low in ("", "home", "personale", "casa", "cartella personale"):
+    if low in ("", "home", "personale", "casa", "cartella personale", "home folder"):
         target = str(_home())
-    elif low in ("cestino", "trash"):
+    elif low in ("cestino", "trash", "bin", "recycle bin"):
         # il cestino non e una cartella qualunque: il gestore file lo apre
         # come luogo speciale, da cui si possono ripristinare i file
         try:
             _popen(["thunar", "trash:///"], start_new_session=True)
-            return ActionResult(True, "Apro il cestino.")
+            return ActionResult(True, tr("Opening the Trash."))
         except OSError as e:
-            return ActionResult(False, "Impossibile aprire il cestino: %s" % e)
+            return ActionResult(False, tr("Couldn't open the Trash: {error}").format(error=e))
     elif low in FOLDER_KEYS:
         target = _xdg_dir(FOLDER_KEYS[low])
     else:
         p = _safe_path(name)
         target = str(p) if p and p.is_dir() else ""
     if not target or not os.path.isdir(target):
-        return ActionResult(False, "Cartella '%s' non trovata." % name)
+        return ActionResult(False, tr("Folder “{name}” not found.").format(name=name))
     fm = shutil.which("thunar") or shutil.which("xdg-open")
     if not fm:
-        return ActionResult(False, "Nessun gestore file disponibile.")
+        return ActionResult(False, tr("No file manager available."))
     try:
         _popen([fm, target], start_new_session=True)
-        return ActionResult(True, "Apro la cartella %s." % os.path.basename(target.rstrip("/")))
+        return ActionResult(True, tr("Opening the {name} folder.").format(
+            name=os.path.basename(target.rstrip("/"))))
     except OSError as e:
-        return ActionResult(False, "Impossibile aprire: %s" % e)
+        return ActionResult(False, tr("Couldn't open it: {error}").format(error=e))
 
 
 def _energia(azione: str, messaggio: str) -> ActionResult:
@@ -627,19 +662,19 @@ def _energia(azione: str, messaggio: str) -> ActionResult:
         getattr(power, azione)()
         return ActionResult(True, messaggio)
     except Exception as e:  # noqa: BLE001
-        return ActionResult(False, "Non riuscito: %s" % e)
+        return ActionResult(False, tr("Failed: {error}").format(error=e))
 
 
 def _semplice(cmd: list, messaggio: str) -> ActionResult:
     """Esegue un comando gia scritto qui dentro (non arriva dal modello)."""
     if not shutil.which(cmd[0]):
-        return ActionResult(False, "Comando non disponibile: %s" % cmd[0])
+        return ActionResult(False, tr("Command not available: {command}").format(command=cmd[0]))
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
-        return ActionResult(False, "Non riuscito: %s" % e)
+        return ActionResult(False, tr("Failed: {error}").format(error=e))
     if r.returncode != 0:
-        return ActionResult(False, (r.stderr or "").strip() or "Non riuscito.")
+        return ActionResult(False, (r.stderr or "").strip() or tr("Failed."))
     return ActionResult(True, messaggio)
 
 
@@ -648,20 +683,20 @@ def _set_volume(args: dict) -> ActionResult:
     # rotella sulla barra: cosi l'icona del volume si aggiorna subito anche
     # quando e ZETA a cambiarlo, invece di aspettare la lettura periodica.
     if not shutil.which("zeta-volume"):
-        return ActionResult(False, "Controllo del volume non disponibile.")
+        return ActionResult(False, tr("Volume control isn't available."))
     if args.get("mute") is not None:
         # «muto» e un interruttore: si legge lo stato e si agisce solo se serve
         atteso = bool(args.get("mute"))
         try:
             letto = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
-                                   capture_output=True, text=True, timeout=5).stdout
+                                   capture_output=True, text=True, timeout=5, env=_ENV_C).stdout
             gia_muto = "MUTED" in letto
         except Exception:
             gia_muto = not atteso
         if gia_muto != atteso:
             return _semplice(["zeta-volume", "muto"],
-                             "Audio %s." % ("silenziato" if atteso else "riattivato"))
-        return ActionResult(True, "Audio già %s." % ("silenziato" if atteso else "attivo"))
+                             tr("Audio muted.") if atteso else tr("Audio unmuted."))
+        return ActionResult(True, tr("Audio is already muted.") if atteso else tr("Audio is already on."))
     if args.get("step") in ("su", "giu"):
         # «alza il volume» e relativo: prima lo portava sempre all'80%,
         # cosi da 95 «alza» lo abbassava.
@@ -673,23 +708,26 @@ def _set_volume(args: dict) -> ActionResult:
         if not r.ok:
             return r
         ora = _volume_attuale()
-        verbo = "alzato" if args["step"] == "su" else "abbassato"
-        return ActionResult(True, "Volume %s%s." % (verbo, (": ora al %d%%" % ora) if ora is not None else ""))
+        if args["step"] == "su":
+            testo = tr("Volume up: now at {level}%.") if ora is not None else tr("Volume up.")
+        else:
+            testo = tr("Volume down: now at {level}%.") if ora is not None else tr("Volume down.")
+        return ActionResult(True, testo.format(level=ora))
     try:
         livello = int(args.get("level", -1))
     except (TypeError, ValueError):
-        return ActionResult(False, "Livello non valido.")
+        return ActionResult(False, tr("Invalid level."))
     if not 0 <= livello <= 100:
-        return ActionResult(False, "Il volume va da 0 a 100.")
+        return ActionResult(False, tr("Volume goes from 0 to 100."))
     return _semplice(["zeta-volume", "imposta", str(livello)],
-                     "Volume al %d%%." % livello)
+                     tr("Volume at {level}%.").format(level=livello))
 
 
 def _volume_attuale():
     """Volume in percentuale (None se non leggibile)."""
     try:
         out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
-                             capture_output=True, text=True, timeout=5).stdout
+                             capture_output=True, text=True, timeout=5, env=_ENV_C).stdout
         return round(float(out.split()[1]) * 100)
     except (OSError, subprocess.SubprocessError, IndexError, ValueError):
         return None
@@ -697,42 +735,42 @@ def _volume_attuale():
 
 def _set_brightness(args: dict) -> ActionResult:
     if not shutil.which("brightnessctl"):
-        return ActionResult(False, "Questo schermo non permette di regolare la luminosità.")
+        return ActionResult(False, tr("This screen doesn't support brightness control."))
     try:
         livello = int(args.get("level", -1))
     except (TypeError, ValueError):
-        return ActionResult(False, "Livello non valido.")
+        return ActionResult(False, tr("Invalid level."))
     if not 0 <= livello <= 100:
-        return ActionResult(False, "La luminosità va da 0 a 100.")
+        return ActionResult(False, tr("Brightness goes from 0 to 100."))
     return _semplice(["brightnessctl", "set", "%d%%" % livello],
-                     "Luminosita al %d%%." % livello)
+                     tr("Brightness at {level}%.").format(level=livello))
 
 
 def _create_folder(args: dict) -> ActionResult:
     nome = (args.get("name") or "").strip()
     if not nome:
-        return ActionResult(False, "Come si deve chiamare?")
+        return ActionResult(False, tr("What should it be called?"))
     p = _safe_path(nome)
     if p is None:
-        return ActionResult(False, "Posso creare cartelle solo dentro la tua cartella personale.")
+        return ActionResult(False, tr("I can only create folders inside your home folder."))
     if p.exists():
-        return ActionResult(False, "«%s» esiste già." % p.name)
+        return ActionResult(False, tr("“{name}” already exists.").format(name=p.name))
     try:
         p.mkdir(parents=True)
     except OSError as e:
-        return ActionResult(False, "Non riuscito: %s" % e)
-    return ActionResult(True, "Creata la cartella %s." % p.name)
+        return ActionResult(False, tr("Failed: {error}").format(error=e))
+    return ActionResult(True, tr("Created the folder {name}.").format(name=p.name))
 
 
 def _trash_file(args: dict) -> ActionResult:
     nome = (args.get("name") or "").strip()
     p = _safe_path(nome) if nome else None
     if p is None or not p.exists():
-        return ActionResult(False, "Non trovo «%s»." % nome)
+        return ActionResult(False, tr("Can't find “{name}”.").format(name=nome))
     if not shutil.which("gio"):
-        return ActionResult(False, "Il cestino non è disponibile.")
+        return ActionResult(False, tr("The Trash isn't available."))
     return _semplice(["gio", "trash", str(p)],
-                     "«%s» è nel cestino: si può ancora recuperare." % p.name)
+                     tr("“{name}” is in the Trash: you can still restore it.").format(name=p.name))
 
 
 def _screen_off(args: dict) -> ActionResult:
@@ -742,12 +780,12 @@ def _screen_off(args: dict) -> ActionResult:
     spegne e si riaccende al primo tasto. Serve a chi si allontana un momento.
     """
     if not shutil.which("hyprctl"):
-        return ActionResult(False, "Comando non disponibile fuori dalla scrivania.")
+        return ActionResult(False, tr("This isn't available outside the desktop."))
     r = subprocess.run(["hyprctl", "eval", 'hl.dsp.dpms({ action = "off" })'],
                        capture_output=True, text=True, timeout=10)
     if r.returncode != 0:
-        return ActionResult(False, (r.stderr or "").strip() or "Non riuscito.")
-    return ActionResult(True, "Schermo spento: premi un tasto per riaccenderlo.")
+        return ActionResult(False, (r.stderr or "").strip() or tr("Failed."))
+    return ActionResult(True, tr("Screen off: press any key to turn it back on."))
 
 
 def _rename_file(args: dict) -> ActionResult:
@@ -760,20 +798,20 @@ def _rename_file(args: dict) -> ActionResult:
     nome = (args.get("name") or "").strip()
     nuovo = (args.get("new_name") or "").strip()
     if not nome or not nuovo:
-        return ActionResult(False, "Servono il nome attuale e quello nuovo.")
+        return ActionResult(False, tr("I need both the current name and the new one."))
     if "/" in nuovo or nuovo in (".", ".."):
-        return ActionResult(False, "Il nome nuovo non può contenere percorsi.")
+        return ActionResult(False, tr("The new name can't contain paths."))
     p = _safe_path(nome)
     if p is None or not p.exists():
-        return ActionResult(False, "Non trovo «%s»." % nome)
+        return ActionResult(False, tr("Can't find “{name}”.").format(name=nome))
     dest = p.parent / nuovo
     if dest.exists():
-        return ActionResult(False, "«%s» esiste già." % nuovo)
+        return ActionResult(False, tr("“{name}” already exists.").format(name=nuovo))
     try:
         p.rename(dest)
     except OSError as e:
-        return ActionResult(False, "Non riuscito: %s" % e)
-    return ActionResult(True, "«%s» ora si chiama «%s»." % (p.name, nuovo))
+        return ActionResult(False, tr("Failed: {error}").format(error=e))
+    return ActionResult(True, tr("“{old}” is now called “{new}”.").format(old=p.name, new=nuovo))
 
 
 def _move_file(args: dict) -> ActionResult:
@@ -781,27 +819,28 @@ def _move_file(args: dict) -> ActionResult:
     nome = (args.get("name") or "").strip()
     dove = (args.get("folder") or "").strip()
     if not nome or not dove:
-        return ActionResult(False, "Servono il file e la cartella di destinazione.")
+        return ActionResult(False, tr("I need the file and the destination folder."))
     p = _safe_path(nome)
     low = dove.lower()
     if low in FOLDER_KEYS:
         d = Path(_xdg_dir(FOLDER_KEYS[low]))
-    elif low in ("", "home", "personale", "casa"):
+    elif low in ("", "home", "personale", "casa", "home folder"):
         d = _home()
     else:
         d = _safe_path(dove)
     if p is None or not p.exists():
-        return ActionResult(False, "Non trovo «%s»." % nome)
+        return ActionResult(False, tr("Can't find “{name}”.").format(name=nome))
     if d is None or not d.is_dir():
-        return ActionResult(False, "«%s» non è una cartella." % dove)
+        return ActionResult(False, tr("“{name}” isn't a folder.").format(name=dove))
     dest = d / p.name
     if dest.exists():
-        return ActionResult(False, "In «%s» c'è già un «%s»." % (d.name, p.name))
+        return ActionResult(False, tr("“{folder}” already contains “{name}”.").format(
+            folder=d.name, name=p.name))
     try:
         shutil.move(str(p), str(dest))
     except (OSError, shutil.Error) as e:
-        return ActionResult(False, "Non riuscito: %s" % e)
-    return ActionResult(True, "«%s» spostato in %s." % (p.name, d.name))
+        return ActionResult(False, tr("Failed: {error}").format(error=e))
+    return ActionResult(True, tr("Moved “{name}” to {folder}.").format(name=p.name, folder=d.name))
 
 
 def _close_application(args: dict) -> ActionResult:
@@ -817,21 +856,26 @@ def _close_application(args: dict) -> ActionResult:
 def _screenshot(args: dict) -> ActionResult:
     """Salva una schermata nella cartella Immagini."""
     if not shutil.which("grim"):
-        return ActionResult(False, "Lo strumento per le schermate non è disponibile.")
-    cartella = _home() / "Immagini"
+        return ActionResult(False, tr("The screenshot tool isn't available."))
+    # la cartella Immagini ha un nome diverso in ogni lingua (Pictures...):
+    # si chiede a xdg-user-dir, come per le altre cartelle
+    cartella = Path(_xdg_dir("PICTURES"))
+    if cartella == _home():
+        cartella = _home() / "Immagini"
     cartella.mkdir(parents=True, exist_ok=True)
-    dest = cartella / ("schermata-%s.png" % time.strftime("%Y%m%d-%H%M%S"))
+    dest = cartella / (tr("screenshot-{time}.png").format(time=time.strftime("%Y%m%d-%H%M%S")))
     # Con un limite di tempo: se il compositore non risponde alla richiesta di
     # copia dello schermo, meglio un messaggio dopo dodici secondi che una
     # finestra ferma per sempre.
     try:
         r = subprocess.run(["grim", str(dest)], capture_output=True, text=True, timeout=12)
     except subprocess.TimeoutExpired:
-        return ActionResult(False, "La schermata non è stata prodotta in tempo: "
-                                   "il compositore non ha risposto.")
+        return ActionResult(False, tr("The screenshot wasn't taken in time: "
+                                      "the compositor didn't respond."))
     if r.returncode != 0 or not dest.exists():
-        return ActionResult(False, (r.stderr or "").strip() or "Schermata non riuscita.")
-    return ActionResult(True, "Schermata salvata in Immagini: %s" % dest.name)
+        return ActionResult(False, (r.stderr or "").strip() or tr("Screenshot failed."))
+    return ActionResult(True, tr("Screenshot saved in {folder}: {name}").format(
+        folder=cartella.name, name=dest.name))
 
 
 def _search_content(args: dict) -> ActionResult:
@@ -843,28 +887,29 @@ def _search_content(args: dict) -> ActionResult:
     """
     testo = (args.get("text") or "").strip()
     if not testo:
-        return ActionResult(False, "Che cosa devo cercare?")
+        return ActionResult(False, tr("What should I search for?"))
     if not shutil.which("zeta-index"):
-        return ActionResult(False, "La ricerca nei contenuti non è disponibile.")
+        return ActionResult(False, tr("Content search isn't available."))
     try:
         r = subprocess.run(["zeta-index", "cerca", testo], capture_output=True,
                            text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
-        return ActionResult(False, "Ricerca non riuscita: %s" % e)
+        return ActionResult(False, tr("Search failed: {error}").format(error=e))
     righe = [x for x in (r.stdout or "").splitlines() if x.strip()][:15]
     if not righe:
-        return ActionResult(True, "Nessun file contiene «%s»." % testo)
-    return ActionResult(True, "Trovato in %d file:\n%s" % (len(righe), "\n".join(righe)))
+        return ActionResult(True, tr("No file contains “{text}”.").format(text=testo))
+    return ActionResult(True, ntr("Found in {n} file:", "Found in {n} files:", len(righe)).format(
+        n=len(righe)) + "\n" + "\n".join(righe))
 
 
 def _pacchetto(azione: str, args: dict) -> ActionResult:
     nome = (args.get("name") or "").strip()
     if not nome or not all(c.isalnum() or c in ".+-" for c in nome):
-        return ActionResult(False, "Nome del programma non valido.")
+        return ActionResult(False, tr("Invalid program name."))
     if not shutil.which("pkexec"):
-        return ActionResult(False, "Non posso chiedere i permessi di amministratore.")
-    return _semplice(["pkexec", "apt-get", "-y", azione, nome],
-                     "%s %s." % ("Installato" if azione == "install" else "Rimosso", nome))
+        return ActionResult(False, tr("I can't ask for administrator permissions."))
+    fatto = tr("Installed {name}.") if azione == "install" else tr("Removed {name}.")
+    return _semplice(["pkexec", "apt-get", "-y", azione, nome], fatto.format(name=nome))
 
 
 def _propose_command(args: dict) -> ActionResult:
@@ -875,7 +920,7 @@ def _propose_command(args: dict) -> ActionResult:
     """
     comando = (args.get("command") or "").strip()
     if not comando:
-        return ActionResult(False, "Nessun comando da proporre.")
+        return ActionResult(False, tr("No command to suggest."))
     perche = (args.get("why") or "").strip()
     copiato = False
     for strumento in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
@@ -892,12 +937,12 @@ def _propose_command(args: dict) -> ActionResult:
             _popen([terminale], start_new_session=True)
         except OSError:
             pass
-    testo = "Serve questo comando:\n\n    %s\n" % comando
+    testo = tr("You need this command:") + "\n\n    %s\n" % comando
     if perche:
         testo += "\n(%s)\n" % perche
-    testo += ("\nL'ho copiato negli appunti e ho aperto il terminale: incollalo "
-              "con Ctrl+Maiusc+V e premi Invio." if copiato
-              else "\nHo aperto il terminale: scrivilo lì e premi Invio.")
+    testo += "\n" + (tr("I copied it to the clipboard and opened the terminal: paste it "
+                        "with Ctrl+Shift+V and press Enter.") if copiato
+                     else tr("I opened the terminal: type it there and press Enter."))
     return ActionResult(True, testo)
 
 
@@ -909,7 +954,7 @@ def _open_file(args: dict) -> ActionResult:
     """
     nome = (args.get("name") or "").strip()
     if not nome:
-        return ActionResult(False, "Quale file?")
+        return ActionResult(False, tr("Which file?"))
     p = _safe_path(nome)
     if p is None or not p.is_file():
         # non è un percorso: si cerca per nome nella cartella personale
@@ -918,20 +963,20 @@ def _open_file(args: dict) -> ActionResult:
                         % (shlex.quote(str(_home())), shlex.quote("*%s*" % nome))])
         righe = [r for r in trovati.splitlines() if r.strip()]
         if not righe:
-            return ActionResult(False, "Non trovo nessun file che si chiami «%s»." % nome)
+            return ActionResult(False, tr("Can't find any file called “{name}”.").format(name=nome))
         if len(righe) > 1:
             elenco = "\n".join("  " + os.path.relpath(r, str(_home())) for r in righe)
-            return ActionResult(False, "Ce n'è più di uno, dimmi quale:\n%s" % elenco)
+            return ActionResult(False, tr("There's more than one, tell me which:") + "\n" + elenco)
         p = Path(righe[0])
     apri = shutil.which("gio") or shutil.which("xdg-open")
     if not apri:
-        return ActionResult(False, "Nessun programma per aprire i file.")
+        return ActionResult(False, tr("No app available to open files."))
     cmd = [apri, "open", str(p)] if os.path.basename(apri) == "gio" else [apri, str(p)]
     try:
         _popen(cmd, start_new_session=True)
-        return ActionResult(True, "Apro %s." % p.name)
+        return ActionResult(True, tr("Opening {name}.").format(name=p.name))
     except OSError as e:
-        return ActionResult(False, "Impossibile aprire: %s" % e)
+        return ActionResult(False, tr("Couldn't open it: {error}").format(error=e))
 
 
 def _open_url(args: dict) -> ActionResult:
@@ -943,80 +988,94 @@ def _open_url(args: dict) -> ActionResult:
     """
     url = (args.get("url") or "").strip()
     if not url:
-        return ActionResult(False, "Quale indirizzo?")
+        return ActionResult(False, tr("Which address?"))
     if "://" not in url:
         url = "https://" + url
     if not url.lower().startswith(("http://", "https://")):
-        return ActionResult(False, "Posso aprire solo indirizzi web (http o https).")
+        return ActionResult(False, tr("I can only open web addresses (http or https)."))
     browser = shutil.which("firefox-esr") or shutil.which("firefox") or shutil.which("xdg-open")
     if not browser:
-        return ActionResult(False, "Nessun navigatore disponibile.")
+        return ActionResult(False, tr("No browser available."))
     try:
         _popen([browser, url], start_new_session=True)
-        return ActionResult(True, "Apro %s nel navigatore." % url)
+        return ActionResult(True, tr("Opening {url} in the browser.").format(url=url))
     except OSError as e:
-        return ActionResult(False, "Impossibile aprire: %s" % e)
+        return ActionResult(False, tr("Couldn't open it: {error}").format(error=e))
 
 
 def _set_wallpaper(args: dict) -> ActionResult:
     """Cambia lo sfondo, o torna a quello generato da ZETA RAYS."""
     nome = (args.get("name") or "").strip()
     if not shutil.which("zeta-sfondo"):
-        return ActionResult(False, "Il comando dello sfondo non è disponibile.")
-    if not nome or nome.lower() in ("predefinito", "default", "zeta", "zeta rays", "originale"):
+        return ActionResult(False, tr("The wallpaper command isn't available."))
+    if not nome or nome.lower() in ("predefinito", "default", "zeta", "zeta rays", "originale", "original"):
         r = _run(["zeta-sfondo", "reset"])
-        return ActionResult(True, "Rimesso lo sfondo di ZETA RAYS." + (" " + r if r else ""))
+        return ActionResult(True, tr("Restored the ZETA RAYS wallpaper.") + (" " + r if r else ""))
     from system import sfondi
     ufficiale = sfondi.cerca(nome)
     if ufficiale:
         _run(["zeta-sfondo", "set", ufficiale])
         # si dice «fatto» solo se zeta-sfondo conferma davvero la scelta
         if _run(["zeta-sfondo", "get"]).split("\n")[0].strip() != ufficiale:
-            return ActionResult(False, "Non sono riuscito a cambiare lo sfondo.")
-        return ActionResult(True, "Sfondo cambiato: %s." % sfondi.nome_di(ufficiale))
+            return ActionResult(False, tr("I couldn't change the wallpaper."))
+        return ActionResult(True, tr("Wallpaper changed: {name}.").format(name=sfondi.nome_di(ufficiale)))
     p = _safe_path(nome)
     if p is None or not p.is_file():
-        return ActionResult(False, "Non trovo l'immagine «%s»." % nome)
+        return ActionResult(False, tr("Can't find the image “{name}”.").format(name=nome))
     r = _run(["zeta-sfondo", "set", str(p)])
-    return ActionResult(True, "Sfondo cambiato in %s." % p.name + (" " + r if r else ""))
+    return ActionResult(True, tr("Wallpaper changed to {name}.").format(name=p.name) + (" " + r if r else ""))
 
 
 SETTINGS_PAGES = {"aspetto", "rete", "bluetooth", "audio", "ai", "sicurezza", "pacchetti", "informazioni"}
 SETTINGS_ALIASES = {"wifi": "rete", "wi-fi": "rete", "network": "rete", "suono": "audio",
                     "intelligenza": "ai", "assistente": "ai", "tema": "aspetto", "colore": "aspetto",
-                    "info": "informazioni", "sistema": "informazioni"}
+                    "info": "informazioni", "sistema": "informazioni",
+                    "appearance": "aspetto", "theme": "aspetto", "color": "aspetto", "wallpaper": "aspetto",
+                    "sound": "audio", "assistant": "ai", "security": "sicurezza",
+                    "packages": "pacchetti", "about": "informazioni", "system": "informazioni"}
+
+
+def nome_pagina(page: str) -> str:
+    """Nome mostrato di una pagina delle Impostazioni (la chiave resta italiana)."""
+    nomi = {"aspetto": tr("Appearance"), "rete": tr("Network"), "bluetooth": "Bluetooth",
+            "audio": tr("Sound"), "ai": "AI", "sicurezza": tr("Security"),
+            "pacchetti": tr("Packages"), "informazioni": tr("About")}
+    return nomi.get(page, page)
 
 
 def _open_settings(args: dict) -> ActionResult:
     exe = shutil.which("zeta-impostazioni")
     if not exe:
-        return ActionResult(False, "Le Impostazioni non sono disponibili.")
+        return ActionResult(False, tr("Settings isn't available."))
     page = (args.get("page") or "").strip().lower()
     page = SETTINGS_ALIASES.get(page, page)
     cmd = [exe] + ([page] if page in SETTINGS_PAGES else [])
     try:
         _popen(cmd, start_new_session=True)
-        return ActionResult(True, "Apro le Impostazioni" + (" › %s." % page if page in SETTINGS_PAGES else "."))
+        if page in SETTINGS_PAGES:
+            return ActionResult(True, tr("Opening Settings › {page}.").format(page=nome_pagina(page)))
+        return ActionResult(True, tr("Opening Settings."))
     except OSError as e:
-        return ActionResult(False, "Impossibile aprire le Impostazioni: %s" % e)
+        return ActionResult(False, tr("Couldn't open Settings: {error}").format(error=e))
 
 
-_GIORNI = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
-_MESI = ("gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
-         "agosto", "settembre", "ottobre", "novembre", "dicembre")
+_GIORNI = (tr("Monday"), tr("Tuesday"), tr("Wednesday"), tr("Thursday"), tr("Friday"),
+           tr("Saturday"), tr("Sunday"))
+_MESI = (tr("January"), tr("February"), tr("March"), tr("April"), tr("May"), tr("June"),
+         tr("July"), tr("August"), tr("September"), tr("October"), tr("November"), tr("December"))
 
 
 def _current_time() -> ActionResult:
     import datetime
     ora = datetime.datetime.now()
-    return ActionResult(True, "Sono le %s." % ora.strftime("%H:%M"))
+    return ActionResult(True, tr("It's {time}.").format(time=ora.strftime("%H:%M")))
 
 
 def _current_date() -> ActionResult:
     import datetime
     o = datetime.date.today()
-    return ActionResult(True, "Oggi è %s %d %s %d."
-                        % (_GIORNI[o.weekday()], o.day, _MESI[o.month - 1], o.year))
+    return ActionResult(True, tr("Today is {weekday}, {month} {day}, {year}.").format(
+        weekday=_GIORNI[o.weekday()], day=o.day, month=_MESI[o.month - 1], year=o.year))
 
 
 def _battery_status() -> ActionResult:
@@ -1026,23 +1085,25 @@ def _battery_status() -> ActionResult:
     from system import power
     b = power.battery()
     if not b:
-        return ActionResult(True, "Questo computer non ha una batteria.")
+        return ActionResult(True, tr("This computer doesn't have a battery."))
     stato = b.get("state") or ""
-    return ActionResult(True, "Batteria al %s%%%s."
-                        % (b.get("percent", "?"), (" — " + stato) if stato else ""))
+    if stato:
+        return ActionResult(True, tr("Battery at {percent}% — {state}.").format(
+            percent=b.get("percent", "?"), state=stato))
+    return ActionResult(True, tr("Battery at {percent}%.").format(percent=b.get("percent", "?")))
 
 
 def _volume_status() -> ActionResult:
-    out = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], timeout=4)
+    out = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], timeout=4, env=_ENV_C)
     if not out or "Volume" not in out:
-        return ActionResult(False, "Non riesco a leggere il volume.")
+        return ActionResult(False, tr("I can't read the volume."))
     muto = "MUTED" in out
     try:
         valore = float(out.split()[1])
     except (IndexError, ValueError):
-        return ActionResult(False, "Non riesco a leggere il volume.")
-    return ActionResult(True, "Volume al %d%%%s." % (round(valore * 100),
-                                                     " (muto)" if muto else ""))
+        return ActionResult(False, tr("I can't read the volume."))
+    testo = tr("Volume at {level}% (muted).") if muto else tr("Volume at {level}%.")
+    return ActionResult(True, testo.format(level=round(valore * 100)))
 
 
 def _windows():
@@ -1055,53 +1116,57 @@ def _windows():
 
 def _minimize_window() -> ActionResult:
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-        return ActionResult(False, "Nessuna sessione desktop attiva.")
+        return ActionResult(False, tr("No desktop session is running."))
     if _windows().minimize():
-        return ActionResult(True, "Fatto: la trovi nella barra, in «ridotte».")
-    return ActionResult(False, "Non c'è una finestra da ridurre a icona.")
+        return ActionResult(True, tr("Done: you'll find it in the bar, under “minimized”."))
+    return ActionResult(False, tr("There's no window to minimize."))
 
 
 def _maximize_window() -> ActionResult:
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-        return ActionResult(False, "Nessuna sessione desktop attiva.")
+        return ActionResult(False, tr("No desktop session is running."))
     if _windows().toggle_maximize():
-        return ActionResult(True, "Ho ingrandito la finestra attiva.")
-    return ActionResult(False, "Non sono riuscito a ingrandire la finestra.")
+        return ActionResult(True, tr("I maximized the active window."))
+    return ActionResult(False, tr("I couldn't maximize the window."))
 
 
 def _list_windows() -> ActionResult:
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-        return ActionResult(False, "Nessuna sessione desktop attiva.")
+        return ActionResult(False, tr("No desktop session is running."))
     w = _windows()
     aperte = w.open_windows()
     ridotte = w.minimized()
-    righe = ["Finestre aperte:"]
-    righe += ["  • %s (scrivania %s)" % (x["title"][:50], x["workspace"]) for x in aperte] or ["  (nessuna)"]
-    righe.append("Ridotte a icona:")
-    righe += ["  • %s" % x["title"][:50] for x in ridotte] or ["  (nessuna)"]
+    nessuna = "  " + tr("(none)")
+    righe = [tr("Open windows:")]
+    righe += ["  • " + tr("{title} (workspace {n})").format(title=x["title"][:50], n=x["workspace"])
+              for x in aperte] or [nessuna]
+    righe.append(tr("Minimized:"))
+    righe += ["  • %s" % x["title"][:50] for x in ridotte] or [nessuna]
     return ActionResult(True, "\n".join(righe))
 
 
 def _set_theme(args: dict) -> ActionResult:
     tema = (args.get("tema") or "").strip().lower()
+    tema = {"light": "chiaro", "dark": "scuro"}.get(tema, tema)
     if tema not in ("chiaro", "scuro"):
-        return ActionResult(False, "Tema non valido: usa «chiaro» o «scuro».")
+        return ActionResult(False, tr("Invalid theme: use “light” or “dark”."))
     p = subprocess.run(["zeta-aspetto", "set", "tema", tema],
                        capture_output=True, text=True)
     if p.returncode == 0:
-        return ActionResult(True, "Tema %s applicato." % tema)
-    return ActionResult(False, "Non sono riuscito a cambiare tema.")
+        return ActionResult(True, tr("Light theme applied.") if tema == "chiaro"
+                            else tr("Dark theme applied."))
+    return ActionResult(False, tr("I couldn't change the theme."))
 
 
 def _close_active_window() -> ActionResult:
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-        return ActionResult(False, "Nessuna sessione desktop attiva.")
+        return ActionResult(False, tr("No desktop session is running."))
     # Hyprland di ZETA RAYS usa i dispatcher Lua: la forma classica non funziona.
     p = subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close()"],
                        capture_output=True, text=True)
     if p.returncode == 0 and "ok" in (p.stdout or "").lower():
-        return ActionResult(True, "Ho chiuso la finestra attiva.")
-    return ActionResult(False, "Non sono riuscito a chiudere la finestra.")
+        return ActionResult(True, tr("I closed the active window."))
+    return ActionResult(False, tr("I couldn't close the window."))
 
 
 def _cpu_usage() -> str:
@@ -1114,9 +1179,9 @@ def _cpu_usage() -> str:
         idle = (b[3] + b[4]) - (a[3] + a[4])
         total = sum(b) - sum(a)
         pct = 100.0 * (1 - idle / total) if total > 0 else 0.0
-        return "Uso della CPU: %.0f%%" % pct
+        return tr("CPU usage: {percent}%").format(percent="%.0f" % pct)
     except (OSError, ValueError, IndexError):
-        return "Non riesco a leggere l'uso della CPU."
+        return tr("I can't read the CPU usage.")
 
 
 def _memory_usage() -> str:
@@ -1127,20 +1192,21 @@ def _memory_usage() -> str:
                 k, _, v = line.partition(":")
                 info[k] = float(v.strip().split()[0]) * 1024
     except (OSError, ValueError):
-        return "Non riesco a leggere la memoria."
+        return tr("I can't read the memory usage.")
     total = info.get("MemTotal", 0)
     avail = info.get("MemAvailable", 0)
     used = total - avail
     g = 1024 ** 3
     pct = 100 * used / total if total else 0
-    return "Memoria: %.1f GB su %.1f GB in uso (%.0f%%), %.1f GB liberi." % (
-        used / g, total / g, pct, avail / g)
+    return tr("Memory: {used} GB of {total} GB in use ({percent}%), {free} GB free.").format(
+        used="%.1f" % (used / g), total="%.1f" % (total / g), percent="%.0f" % pct,
+        free="%.1f" % (avail / g))
 
 
 def _ip_address() -> str:
     out = _run(["sh", "-c",
                 "ip -brief -4 addr show scope global 2>/dev/null | awk '{print $1\": \"$3}'"])
-    return out or "Nessun indirizzo IP attivo."
+    return out or tr("No active IP address.")
 
 
 def _list_applications() -> str:
@@ -1150,15 +1216,15 @@ def _list_applications() -> str:
         sys.path.insert(0, "/usr/lib/zeta")
     from system import applicazioni
     nomi = [a.nome for a in applicazioni.menu()]
-    return "Applicazioni disponibili:\n" + ", ".join(nomi[:60]) if nomi else "Nessuna applicazione trovata."
+    return tr("Available apps:") + "\n" + ", ".join(nomi[:60]) if nomi else tr("No apps found.")
 
 
 def _set_accent(args: dict) -> ActionResult:
     color = args.get("color", "")
     exe = shutil.which("zeta-accent")
     if not exe:
-        return ActionResult(False, "Comando zeta-accent non disponibile.")
+        return ActionResult(False, tr("The {command} command isn't available.").format(command="zeta-accent"))
     p = subprocess.run([exe, color], capture_output=True, text=True)
     if p.returncode == 0:
-        return ActionResult(True, "Colore d'accento impostato su %s." % color)
-    return ActionResult(False, (p.stderr or "Colore non valido.").strip())
+        return ActionResult(True, tr("Accent color set to {color}.").format(color=color))
+    return ActionResult(False, (p.stderr or tr("Invalid color.")).strip())

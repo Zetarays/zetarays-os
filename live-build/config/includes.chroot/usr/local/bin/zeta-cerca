@@ -32,27 +32,33 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from search import indexer  # noqa: E402
 from system import applicazioni as reg  # noqa: E402
 from ui import menu_app  # noqa: E402
+from i18n import tr  # noqa: E402
 
 HOME = os.path.expanduser("~")
 
 # Azioni e impostazioni raggiungibili dalla ricerca: (titolo, sottotitolo, icona, parole, comando)
 ACTIONS = [
-    ("Impostazioni", "Preferenze di sistema", "zeta-impostazioni", "impostazioni settings preferenze", ["zeta-impostazioni"]),
-    ("Aspetto", "Colore, tema, sfondo", "zeta-palette", "aspetto tema colore sfondo wallpaper", ["zeta-impostazioni", "aspetto"]),
-    ("Dock", "Personalizza la barra", "zeta-dock", "dock barra taskbar", ["zeta-impostazioni", "dock"]),
-    ("Wi-Fi e rete", "Connessioni di rete", "zeta-wifi", "rete wifi network internet", ["zeta-impostazioni", "rete"]),
-    ("Connetti a un server", "Windows, Mac, NAS, SSH, FTP, WebDAV", "zeta-server-rete",
-     "server samba smb ssh sftp ftp webdav nfs nas condivisione cartella condivisa rete", ["zeta-server"]),
-    ("Audio", "Volume e dispositivi", "zeta-volume", "audio suono volume", ["zeta-impostazioni", "audio"]),
-    ("AI", "ZETA e provider", "zeta-ai", "ai intelligenza assistente", ["zeta-impostazioni", "ai"]),
-    ("Monitor di sistema", "CPU, rete, processi", "zeta-monitor", "monitor sistema cpu processi rete", ["zeta-monitor"]),
-    ("Sicurezza", "Firewall e strumenti", "zeta-sicurezza", "sicurezza firewall security", ["zeta-sicurezza"]),
-    ("Terminale", "Riga di comando", "foot", "terminale terminal console shell", ["foot"]),
-    ("ZETA", "Parla con ZETA", "zeta-core", "core assistente intelligenza voce zeta", ["zeta-core"]),
-    ("Blocca schermo", "Blocca la sessione", "zeta-lock", "blocca lock schermo", ["hyprlock"]),
-    ("Energia", "Spegni, riavvia, sospendi", "zeta-power", "energia spegni riavvia sospendi standby esci", ["zeta-pannello", "energia"]),
-    ("Finestre", "Aperte e ridotte a icona", "zeta-dock", "finestre window ridotte minimizzate aperte", ["zeta-finestre"]),
-    ("Scrivania", "Apri la cartella Scrivania", "system-file-manager", "scrivania desktop cartella", ["zeta-scrivania-apri"]),
+    (tr("Settings"), tr("System preferences"), "zeta-impostazioni", "impostazioni settings preferenze preferences", ["zeta-impostazioni"]),
+    (tr("Appearance"), tr("Color, theme, wallpaper"), "zeta-palette", "aspetto tema colore sfondo wallpaper appearance theme color colour background", ["zeta-impostazioni", "aspetto"]),
+    (tr("Dock"), tr("Customize the bar"), "zeta-dock", "dock barra taskbar bar", ["zeta-impostazioni", "dock"]),
+    (tr("Wi-Fi & Network"), tr("Network connections"), "zeta-wifi", "rete wifi network internet connection", ["zeta-impostazioni", "rete"]),
+    (tr("Connect to Server"), tr("Windows, Mac, NAS, SSH, FTP, WebDAV"), "zeta-server-rete",
+     "server samba smb ssh sftp ftp webdav nfs nas condivisione cartella condivisa rete "
+     "share shared folder network connect", ["zeta-server"]),
+    (tr("Sound"), tr("Volume and devices"), "zeta-volume", "audio suono volume sound speakers microphone", ["zeta-impostazioni", "audio"]),
+    (tr("AI"), tr("ZETA and providers"), "zeta-ai", "ai intelligenza assistente intelligence assistant", ["zeta-impostazioni", "ai"]),
+    (tr("System Monitor"), tr("CPU, network, processes"), "zeta-monitor",
+     "monitor sistema cpu processi rete system processes network task manager", ["zeta-monitor"]),
+    (tr("Security"), tr("Firewall and tools"), "zeta-sicurezza", "sicurezza firewall security", ["zeta-sicurezza"]),
+    (tr("Terminal"), tr("Command line"), "foot", "terminale terminal console shell command", ["foot"]),
+    ("ZETA", tr("Talk to ZETA"), "zeta-core", "core assistente intelligenza voce zeta assistant intelligence voice", ["zeta-core"]),
+    (tr("Lock Screen"), tr("Lock the session"), "zeta-lock", "blocca lock schermo screen", ["hyprlock"]),
+    (tr("Power"), tr("Shut down, restart, suspend"), "zeta-power",
+     "energia spegni riavvia sospendi standby esci power shut down shutdown restart reboot suspend sleep log out logout",
+     ["zeta-pannello", "energia"]),
+    (tr("Windows"), tr("Open and minimized"), "zeta-dock",
+     "finestre window ridotte minimizzate aperte windows minimized open", ["zeta-finestre"]),
+    (tr("Desktop"), tr("Open the Desktop folder"), "system-file-manager", "scrivania desktop cartella folder", ["zeta-scrivania-apri"]),
 ]
 
 CSS = """
@@ -216,9 +222,12 @@ def file_results(query, limit=8):
     return out
 
 
+
+SUGGERIMENTO = tr("Type to search apps, files, documents and settings.")
+
 class Cerca(Gtk.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Ricerca", decorated=False)
+        super().__init__(application=app, title=tr("Search"), decorated=False)
         self.add_css_class("zeta-cerca")
         self._timer = 0
 
@@ -235,7 +244,7 @@ class Cerca(Gtk.ApplicationWindow):
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                        margin_top=110, margin_bottom=110, halign=Gtk.Align.CENTER)
-        self.search = Gtk.SearchEntry(placeholder_text="Cerca app, file, impostazioni…")
+        self.search = Gtk.SearchEntry(placeholder_text=tr("Search apps, files, settings…"))
         self.search.add_css_class("sp-search")
         self.search.connect("search-changed", lambda *_: self._schedule())
         self.search.connect("activate", lambda *_: self._activate_selected())
@@ -249,7 +258,7 @@ class Cerca(Gtk.ApplicationWindow):
         scroller.set_child(self.listbox)
         root.append(scroller)
 
-        self.empty = Gtk.Label(label="Scrivi per cercare in app, file, documenti e impostazioni.",
+        self.empty = Gtk.Label(label=SUGGERIMENTO,
                                css_classes=["sp-empty"])
         root.append(self.empty)
         # menu del tasto destro sulle app: sopra i risultati, dentro la finestra
@@ -297,6 +306,7 @@ class Cerca(Gtk.ApplicationWindow):
         gen = self._gen
         ferma_ricerche()
         if not query:
+            self.empty.set_label(SUGGERIMENTO)
             self.empty.set_visible(True)
             return False
         rows = []
@@ -314,11 +324,11 @@ class Cerca(Gtk.ApplicationWindow):
         for _p, _n, app in sorted(trovate, key=lambda t: (t[0], t[1]))[:8]:
             dove = app.flatpak_id if app.fonte == "flatpak" else (app.appimage or app.eseguibile or app.desktop)
             sub = "%s · %s" % (reg.FONTI.get(app.fonte, app.fonte), (dove or "").replace(HOME, "~"))
-            rows.append(("App", app.nome, sub, app.icona, lambda a=app: self._launch_app(a), app))
+            rows.append((tr("App"), app.nome, sub, app.icona, lambda a=app: self._launch_app(a), app))
         # 2) azioni e impostazioni
         for title, sub, icon, words, cmd in ACTIONS:
             if all(any(w in field for field in (title.casefold(), words)) for w in low.split()):
-                rows.append(("Azione", title, sub, icon, lambda c=cmd: (spawn(c), self.close()), None))
+                rows.append((tr("Action"), title, sub, icon, lambda c=cmd: (spawn(c), self.close()), None))
 
         # App e azioni sono immediate: si mostrano subito.
         self._mostra(rows)
@@ -337,11 +347,11 @@ class Cerca(Gtk.ApplicationWindow):
             # l'indice si aggiorna ogni mezz'ora: un file appena cancellato non si mostra
             contenuti = [r for r in indexer.search(query, limit=6) if os.path.exists(r["path"])]
         except Exception as e:  # noqa: BLE001
-            print("cerca: ricerca nei contenuti non riuscita: %s" % e, file=sys.stderr)
+            print("cerca: content search failed: %s" % e, file=sys.stderr)
         try:
             percorsi = file_results(query, limit=8)
         except Exception as e:  # noqa: BLE001
-            print("cerca: ricerca dei file non riuscita: %s" % e, file=sys.stderr)
+            print("cerca: file search failed: %s" % e, file=sys.stderr)
         GLib.idle_add(self._file_pronti, gen, query, contenuti, percorsi)
 
     def _file_pronti(self, gen, query, contenuti, percorsi):
@@ -364,7 +374,7 @@ class Cerca(Gtk.ApplicationWindow):
             else:
                 nel_testo.append((r["path"], False, r["snippet"]))
         rows = []
-        for categoria, elenco in (("File", per_nome), ("Contenuto", nel_testo)):
+        for categoria, elenco in ((tr("File"), per_nome), (tr("Content"), nel_testo)):
             for path, cartella, estratto in elenco:
                 sub = estratto or os.path.dirname(path).replace(HOME, "~")
                 rows.append((categoria, os.path.basename(path), sub, self._icona_percorso(path, cartella),
@@ -383,6 +393,9 @@ class Cerca(Gtk.ApplicationWindow):
             self.listbox.append(self._make_row(cat, title, sub, icon, action, app))
         if aggiungi:
             # Solo ora si sa davvero se non c'è nulla: prima mancavano i file.
+            if gia == 0 and not rows:
+                self.empty.set_label(tr("No results for “{query}”.").format(
+                    query=self.search.get_text().strip()))
             self.empty.set_visible(gia == 0 and not rows)
         elif rows:
             self.empty.set_visible(False)
@@ -425,7 +438,7 @@ class Cerca(Gtk.ApplicationWindow):
             def menu(widget, x, y, a=app):
                 self.menu.apri(widget, x, y, menu_app.voci_app(a, self._launch_app, self.close))
             altro = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
-                               css_classes=["flat"], tooltip_text="Altre azioni")
+                               css_classes=["flat"], tooltip_text=tr("More actions"))
             altro.connect("clicked", lambda b: menu(b, b.get_width() / 2, b.get_height()))
             box.append(altro)
             destro = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)

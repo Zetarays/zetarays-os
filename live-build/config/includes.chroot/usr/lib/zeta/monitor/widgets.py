@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ZETA RAYS Monitor — widget riutilizzabili (grafici, tabelle, card)."""
 import collections
+import sys
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
 
 
 class Sparkline(Gtk.DrawingArea):
@@ -196,7 +200,7 @@ class TrafficChart(Gtk.DrawingArea):
             if sec > self.seconds:
                 continue
             x = left + cw - cw * sec / (self.seconds - 1)
-            txt = "ora" if sec == 0 else "-%ds" % sec
+            txt = tr("now") if sec == 0 else "-%ds" % sec
             ext = cr.text_extents(txt)
             cr.set_source_rgba(0.54, 0.54, 0.56, 1)
             cr.move_to(min(x - ext.width / 2, left + cw - ext.width), h - 6)

@@ -1,6 +1,8 @@
 [Desktop Entry]
-Name=Impostazioni
-Comment=Aspetto, rete, audio e informazioni di ZETA RAYS
+Name=Settings
+Name[it]=Impostazioni
+Comment=Appearance, network, sound and ZETA RAYS information
+Comment[it]=Aspetto, rete, audio e informazioni di ZETA RAYS
 Exec=zeta-impostazioni
 Icon=zeta-impostazioni
 Terminal=false

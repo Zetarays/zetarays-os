@@ -1,5 +1,5 @@
 [Unit]
-Description=ZETA RAYS - macchine virtuali: sospensione disattivata, audio che parte
+Description=ZETA RAYS - virtual machines: suspend disabled, working audio
 DefaultDependencies=no
 After=local-fs.target systemd-udev-settle.service
 Before=display-manager.service sddm.service

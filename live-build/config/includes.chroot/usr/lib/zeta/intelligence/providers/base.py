@@ -7,11 +7,15 @@ Nessuna dipendenza esterna: solo urllib della libreria standard.
 """
 from __future__ import annotations
 
+import errno
 import json
+import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, Iterator
+
+from i18n import tr
 
 
 class ProviderError(Exception):
@@ -117,18 +121,19 @@ class Provider:
         piu' piccola possibile e si riporta l'esito vero.
         """
         if self.config.kind == "cloud" and not self.config.api_key:
-            return False, "Manca la chiave API."
+            return False, tr("The API key is missing.")
         prec_tokens, prec_timeout = self.config.max_tokens, self.timeout
         self.config.max_tokens, self.timeout = 16, timeout
         try:
             self.chat([Message(role="user", content="ok")])
-            return True, "Collegato (modello %s)." % (self.config.model or "predefinito")
+            return True, tr("Connected (model {model}).").format(
+                model=self.config.model or tr("default"))
         except ProviderError as e:
             return False, str(e)
         except NotImplementedError:
-            return False, "Questo provider non è ancora utilizzabile."
+            return False, tr("This provider can't be used yet.")
         except Exception as e:  # noqa: BLE001 - la prova non deve mai far cadere l'interfaccia
-            return False, "Errore inatteso: %s" % e
+            return False, tr("Unexpected error: {error}").format(error=e)
         finally:
             self.config.max_tokens, self.timeout = prec_tokens, prec_timeout
 
@@ -136,18 +141,23 @@ class Provider:
     def _non_raggiungibile(self, motivo) -> "ProviderError":
         """Motivi di rete in italiano (prima arrivava «timed out», «Name or
         service not known»...)."""
+        # Prima il tipo e il codice dell'errore: il testo del sistema puo'
+        # essere tradotto (nelle app GTK la libc parla la lingua dell'utente).
         m = str(motivo).lower()
-        if "timed out" in m or "timeout" in m:
-            spiega = "non ha risposto in tempo"
-        elif "name or service" in m or "temporary failure in name resolution" in m or "nodename" in m:
-            spiega = "nessuna connessione a internet, o il DNS non risponde"
-        elif "refused" in m:
-            spiega = "connessione rifiutata"
-        elif "unreachable" in m:
-            spiega = "rete non raggiungibile"
+        num = getattr(motivo, "errno", None)
+        if isinstance(motivo, TimeoutError) or "timed out" in m or "timeout" in m:
+            spiega = tr("it didn't respond in time")
+        elif (isinstance(motivo, socket.gaierror) or "name or service" in m
+              or "temporary failure in name resolution" in m or "nodename" in m):
+            spiega = tr("no internet connection, or DNS isn't responding")
+        elif isinstance(motivo, ConnectionRefusedError) or num == errno.ECONNREFUSED or "refused" in m:
+            spiega = tr("connection refused")
+        elif num in (errno.ENETUNREACH, errno.EHOSTUNREACH) or "unreachable" in m:
+            spiega = tr("network unreachable")
         else:
             spiega = str(motivo)
-        return ProviderError("Impossibile contattare %s: %s." % (self.config.label, spiega), retryable=True)
+        return ProviderError(tr("Can't reach {name}: {reason}.").format(
+            name=self.config.label, reason=spiega), retryable=True)
 
     def _post(self, url: str, payload: dict, headers: dict,
               timeout: float = 120.0) -> dict:
@@ -200,29 +210,33 @@ class Provider:
             detail = body[:200]
         if code == 401 or (code == 400 and "api key" in detail.lower()):
             # Gemini risponde 400 «API key not valid» invece di 401
-            return "%s: chiave API non valida o assente." % self.config.label
+            return tr("{name}: invalid or missing API key.").format(name=self.config.label)
         if code == 403:
-            return "%s: accesso negato dalla chiave API." % self.config.label
+            return tr("{name}: access denied for this API key.").format(name=self.config.label)
         if code == 404:
-            return "%s: modello o endpoint non trovato (%s)." % (self.config.label, self.config.model)
+            # «model» / «modello» e «not found» servono ad assistant.py per
+            # riconoscere un modello che non esiste piu'
+            return tr("{name}: model or endpoint not found ({model}).").format(
+                name=self.config.label, model=self.config.model)
         if code == 429:
-            return "%s: troppe richieste, riprova tra poco." % self.config.label
+            return tr("{name}: too many requests, try again shortly.").format(name=self.config.label)
         if code >= 500:
-            return "%s: errore del servizio, riprova più tardi." % self.config.label
-        return "%s: %s" % (self.config.label, detail or ("errore %d" % code))
+            return tr("{name}: service error, try again later.").format(name=self.config.label)
+        return "%s: %s" % (self.config.label,
+                           detail or tr("error {code}").format(code=code))
 
 
 # Modelli preferiti quando il predefinito non esiste piu' (i nomi cambiano nel
 # tempo): prima quelli veloci. Si confrontano come parti del nome.
 PREFERITI = {
-    "claude": ["claude-haiku-4-5", "claude-sonnet-5", "haiku", "sonnet"],
-    "gemini": ["gemini-2.5-flash", "flash", "gemini"],
-    "openai": ["gpt-5-mini", "gpt-5", "gpt-4.1-mini", "gpt-4o-mini"],
-    "deepseek": ["deepseek-chat"],
-    "qwen": ["qwen-plus", "qwen-flash", "qwen-turbo", "qwen-max"],
+    "claude": ["claude-haiku-5", "claude-sonnet-5", "haiku", "sonnet"],
+    "gemini": ["gemini-3.8-flash", "gemini-3.5-flash", "flash", "gemini"],
+    "openai": ["gpt-6-luna", "gpt-5.6-terra", "gpt-6", "gpt-5", "gpt-4.1-mini"],
+    "deepseek": ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"],
+    "qwen": ["qwen3.8-flash", "flash", "qwen-plus", "plus", "qwen-turbo", "qwen-max"],
     "perplexity": ["sonar"],
     "mistral": ["mistral-small-latest", "mistral-medium-latest", "mistral-large-latest", "mistral"],
-    "groq": ["llama-3.3-70b", "llama", "gpt-oss", "qwen"],
+    "groq": ["gpt-oss-20b", "gpt-oss", "llama", "qwen"],
     "xai": ["grok-4", "grok"],
     "openrouter": ["openrouter/auto"],
 }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later
+     ZETA RAYS — editor di testo con lo sfondo bianco e il testo nero
+     (Impostazioni › Aspetto › Editor di testo: Chiaro). La sintassi viene da
+     Adwaita. La variante chiara e quella scura sono questo stesso schema:
+     l'editor non lo scambia mai, qualunque sia il tema della scrivania. -->
+<style-scheme id="zeta-carta" name="ZETA RAYS Paper" version="1.0" parent-scheme="Adwaita">
+  <author>ZETA RAYS</author>
+  <description>White background, black text</description>
+  <metadata>
+    <property name="variant">light</property>
+    <property name="light-variant">zeta-carta</property>
+    <property name="dark-variant">zeta-carta</property>
+  </metadata>
+  <style name="text" background="#FFFFFF" foreground="#1C1C1E"/>
+  <style name="background-pattern" background="#FFFFFF"/>
+  <style name="current-line" background="#F2F2F4"/>
+  <style name="current-line-number" background="#F2F2F4" foreground="#6E6E73"/>
+  <style name="line-numbers" background="#FFFFFF" foreground="#A1A1A6"/>
+  <style name="cursor" foreground="#1C1C1E"/>
+</style-scheme>

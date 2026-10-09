@@ -34,19 +34,20 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from ui import tema  # noqa: E402
+from i18n import tr  # noqa: E402
 
 PREFERITI = os.path.expanduser("~/.config/zeta/server.json")
 SEGNALIBRI = os.path.expanduser("~/.config/gtk-3.0/bookmarks")
 
 # (chiave, etichetta, schema, porta predefinita, suggerimento per la cartella)
 TIPI = [
-    ("smb", "Cartella condivisa Windows, Mac o NAS (SMB)", "smb", 445, "nome della condivisione, es. Documenti"),
-    ("sftp", "Server SSH (SFTP)", "sftp", 22, "cartella, es. /home/utente"),
-    ("ftp", "FTP", "ftp", 21, "cartella (facoltativa)"),
-    ("davs", "WebDAV sicuro (HTTPS, es. Nextcloud)", "davs", 443, "percorso, es. remote.php/dav/files/utente"),
-    ("dav", "WebDAV (HTTP)", "dav", 80, "percorso (facoltativo)"),
-    ("nfs", "NFS (server Linux e NAS)", "nfs", 2049, "percorso esportato, es. /srv/condivisa"),
-    ("afp", "Mac meno recenti (AFP)", "afp", 548, "nome del volume"),
+    ("smb", tr("Windows, Mac or NAS shared folder (SMB)"), "smb", 445, tr("share name, e.g. Documents")),
+    ("sftp", tr("SSH server (SFTP)"), "sftp", 22, tr("folder, e.g. /home/user")),
+    ("ftp", "FTP", "ftp", 21, tr("folder (optional)")),
+    ("davs", tr("Secure WebDAV (HTTPS, e.g. Nextcloud)"), "davs", 443, tr("path, e.g. remote.php/dav/files/user")),
+    ("dav", "WebDAV (HTTP)", "dav", 80, tr("path (optional)")),
+    ("nfs", tr("NFS (Linux servers and NAS)"), "nfs", 2049, tr("exported path, e.g. /srv/shared")),
+    ("afp", tr("Older Macs (AFP)"), "afp", 548, tr("volume name")),
 ]
 NOMI_SCHEMA = {"smb": "Windows/Mac/NAS", "sftp": "SSH", "ssh": "SSH", "ftp": "FTP", "dav": "WebDAV",
                "davs": "WebDAV", "nfs": "NFS", "afp": "Mac (AFP)"}
@@ -98,11 +99,11 @@ def normalizza(uri):
         u.port
     except ValueError as e:                          # i messaggi di Python sono in inglese
         motivo = str(e).casefold()
-        raise ValueError("indirizzo IPv6 incompleto (manca «]»)" if "ipv6" in motivo else
-                         "la porta va da 1 a 65535" if "port" in motivo else
-                         "indirizzo scritto male") from None
+        raise ValueError(tr("incomplete IPv6 address (missing “]”)") if "ipv6" in motivo else
+                         tr("the port must be between 1 and 65535") if "port" in motivo else
+                         tr("malformed address")) from None
     if not u.scheme or not u.hostname:
-        raise ValueError("manca il nome del server")
+        raise ValueError(tr("the server name is missing"))
     return urlunsplit(u._replace(path=quote(u.path, safe="/%~!$&'()*+,;=:@")))
 
 
@@ -198,7 +199,7 @@ def cerca_in_rete():
 
 class Finestra(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Connetti a un server",
+        super().__init__(application=app, title=tr("Connect to Server"),
                          default_width=640, default_height=640)
         self.toasts = Adw.ToastOverlay()
         view = Adw.ToolbarView()
@@ -211,11 +212,11 @@ class Finestra(Adw.ApplicationWindow):
 
         # --- nella rete locale
         self.g_rete = Adw.PreferencesGroup(
-            title="Nella rete locale",
-            description="PC Windows, Mac, NAS e server che si annunciano nella tua rete (Wi-Fi o cavo).")
+            title=tr("On the Local Network"),
+            description=tr("Windows PCs, Macs, NAS devices and servers announcing themselves on your network (Wi-Fi or cable)."))
         testa_rete = Gtk.Box(spacing=8)
         self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
-        self.cerca_btn = Gtk.Button(label="Cerca di nuovo", valign=Gtk.Align.CENTER)
+        self.cerca_btn = Gtk.Button(label=tr("Search Again"), valign=Gtk.Align.CENTER)
         self.cerca_btn.connect("clicked", lambda *_: self.cerca())
         testa_rete.append(self.spinner)
         testa_rete.append(self.cerca_btn)
@@ -225,30 +226,30 @@ class Finestra(Adw.ApplicationWindow):
 
         # --- con l'indirizzo
         g = Adw.PreferencesGroup(
-            title="Connetti",
-            description="Un computer della tua rete o un server su internet. Puoi anche incollare "
-                        "un indirizzo completo (smb://…, sftp://…) o «\\\\server\\cartella» di Windows.")
-        self.tipo = Adw.ComboRow(title="Tipo", model=Gtk.StringList.new([e for _k, e, _s, _p, _c in TIPI]))
+            title=tr("Connect"),
+            description=tr("A computer on your network or a server on the internet. You can also paste "
+                           "a full address (smb://…, sftp://…) or a Windows path like “\\\\server\\folder”."))
+        self.tipo = Adw.ComboRow(title=tr("Type"), model=Gtk.StringList.new([e for _k, e, _s, _p, _c in TIPI]))
         self.tipo.connect("notify::selected", lambda *_: self._aggiorna())
         g.add(self.tipo)
-        self.server = Adw.EntryRow(title="Server (nome o indirizzo IP)")
-        self.cartella = Adw.EntryRow(title="Cartella")
-        self.utente = Adw.EntryRow(title="Utente (facoltativo)")
-        self.porta = Adw.EntryRow(title="Porta (facoltativa)")
+        self.server = Adw.EntryRow(title=tr("Server (name or IP address)"))
+        self.cartella = Adw.EntryRow(title=tr("Folder"))
+        self.utente = Adw.EntryRow(title=tr("User (optional)"))
+        self.porta = Adw.EntryRow(title=tr("Port (optional)"))
         self.porta.set_input_purpose(Gtk.InputPurpose.DIGITS)
         for r in (self.server, self.cartella, self.utente, self.porta):
             r.connect("changed", lambda *_: self._aggiorna())
             r.connect("entry-activated", lambda *_: self.connetti())
             g.add(r)
-        self.anteprima = Adw.ActionRow(title="Indirizzo", use_markup=False)
+        self.anteprima = Adw.ActionRow(title=tr("Address"), use_markup=False)
         self.anteprima.add_css_class("property")
         g.add(self.anteprima)
         riga = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_top=12)
-        self.terminale = Gtk.Button(label="Apri il terminale SSH")
+        self.terminale = Gtk.Button(label=tr("Open SSH Terminal"))
         self.terminale.connect("clicked", lambda *_: self.apri_terminale())
-        salva = Gtk.Button(label="Salva tra i preferiti")
+        salva = Gtk.Button(label=tr("Save to Favorites"))
         salva.connect("clicked", lambda *_: self.salva())
-        vai = Gtk.Button(label="Connetti", css_classes=["suggested-action"])
+        vai = Gtk.Button(label=tr("Connect"), css_classes=["suggested-action"])
         vai.connect("clicked", lambda *_: self.connetti())
         for b in (self.terminale, salva, vai):
             riga.append(b)
@@ -256,12 +257,12 @@ class Finestra(Adw.ApplicationWindow):
         pagina.add(g)
 
         # --- preferiti
-        self.g_pref = Adw.PreferencesGroup(title="Preferiti")
+        self.g_pref = Adw.PreferencesGroup(title=tr("Favorites"))
         self.righe_pref = []
         pagina.add(self.g_pref)
 
         # --- collegati ora
-        self.g_ora = Adw.PreferencesGroup(title="Collegati ora")
+        self.g_ora = Adw.PreferencesGroup(title=tr("Connected Now"))
         self.righe_ora = []
         pagina.add(self.g_ora)
 
@@ -291,23 +292,23 @@ class Finestra(Adw.ApplicationWindow):
             if voce[2] == schema and i != self.tipo.get_selected():
                 self.tipo.set_selected(i)            # richiama _aggiorna con il tipo giusto
                 return
-        self.cartella.set_title("Cartella — " + TIPI[self.tipo.get_selected()][4])
+        self.cartella.set_title(tr("Folder — {hint}").format(hint=TIPI[self.tipo.get_selected()][4]))
         self.terminale.set_visible(k == "sftp" or server.startswith(("sftp://", "ssh://")))
         try:
             uri = costruisci_uri(k, server, cartella, utente, porta) if server.strip() else "—"
         except ValueError:
-            uri = "indirizzo incompleto"
+            uri = tr("incomplete address")
         self.anteprima.set_subtitle(uri)
 
     def _uri(self):
         k, server, cartella, utente, porta = self._campi()
         if not server.strip():
-            self.toasts.add_toast(Adw.Toast(title="Scrivi il nome o l'indirizzo del server", timeout=3, use_markup=False))
+            self.toasts.add_toast(Adw.Toast(title=tr("Enter the server name or address"), timeout=3, use_markup=False))
             return ""
         try:
             return costruisci_uri(k, server, cartella, utente, porta)
         except ValueError as e:
-            self.toasts.add_toast(Adw.Toast(title="Indirizzo non valido: %s" % e, timeout=5, use_markup=False))
+            self.toasts.add_toast(Adw.Toast(title=tr("Invalid address: {reason}").format(reason=e), timeout=5, use_markup=False))
             return ""
 
     def connetti(self, uri=None):
@@ -319,12 +320,12 @@ class Finestra(Adw.ApplicationWindow):
         # apre direttamente il gestore file, non c'e' nulla da montare
         u = analizza(uri)
         if u is None:
-            self.toasts.add_toast(Adw.Toast(title="Indirizzo non valido: %s" % uri, timeout=5, use_markup=False))
+            self.toasts.add_toast(Adw.Toast(title=tr("Invalid address: {reason}").format(reason=uri), timeout=5, use_markup=False))
             return
         if u.scheme == "smb" and u.path.strip("/") == "":
             self._apri(uri)
             return
-        self.toasts.add_toast(Adw.Toast(title="Collegamento a %s…" % (u.hostname or uri), timeout=3, use_markup=False))
+        self.toasts.add_toast(Adw.Toast(title=tr("Connecting to {server}…").format(server=u.hostname or uri), timeout=3, use_markup=False))
         op = Gtk.MountOperation(parent=self)
         f.mount_enclosing_volume(Gio.MountMountFlags.NONE, op, None, self._montato, uri)
 
@@ -336,7 +337,7 @@ class Finestra(Adw.ApplicationWindow):
                 if e.matches(Gio.io_error_quark(), Gio.IOErrorEnum.FAILED_HANDLED):
                     return                                   # annullato dall'utente
                 # resta finche' non lo si chiude: chi torna alla finestra deve vederlo
-                self.toasts.add_toast(Adw.Toast(title="Non riesco a collegarmi: %s" % e.message,
+                self.toasts.add_toast(Adw.Toast(title=tr("Could not connect: {error}").format(error=e.message),
                                                 timeout=0, use_markup=False))
                 return
         self._ricorda_recente(uri)
@@ -371,7 +372,7 @@ class Finestra(Adw.ApplicationWindow):
         scrivi_preferiti(elenco)
         segnalibro(uri, nome)
         self.mostra_preferiti()
-        self.toasts.add_toast(Adw.Toast(title="Salvato: lo trovi anche nel gestore file", timeout=3, use_markup=False))
+        self.toasts.add_toast(Adw.Toast(title=tr("Saved. You’ll also find it in the file manager"), timeout=3, use_markup=False))
 
     def _ricorda_recente(self, uri):
         elenco = leggi_preferiti()
@@ -388,8 +389,8 @@ class Finestra(Adw.ApplicationWindow):
         self.righe_pref = []
         elenco = leggi_preferiti()
         if not elenco:
-            r = Adw.ActionRow(title="Nessun preferito",
-                              subtitle="Scrivi un indirizzo qui sopra e premi «Salva tra i preferiti».")
+            r = Adw.ActionRow(title=tr("No favorites"),
+                              subtitle=tr("Enter an address above and press “Save to Favorites”."))
             self.g_pref.add(r)
             self.righe_pref.append(r)
         for p in elenco:
@@ -398,7 +399,7 @@ class Finestra(Adw.ApplicationWindow):
             r.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
             r.connect("activated", lambda _r, u=p["uri"]: self.connetti(u))
             via = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
-                             css_classes=["flat"], tooltip_text="Togli dai preferiti")
+                             css_classes=["flat"], tooltip_text=tr("Remove from Favorites"))
             via.connect("clicked", lambda _b, u=p["uri"]: self.togli(u))
             r.add_suffix(via)
             self.g_pref.add(r)
@@ -425,7 +426,7 @@ class Finestra(Adw.ApplicationWindow):
             r = Adw.ActionRow(title=m.get_name(), subtitle=uri, activatable=True, use_markup=False)
             r.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
             r.connect("activated", lambda _r, u=uri: self._apri(u))
-            b = Gtk.Button(label="Disconnetti", valign=Gtk.Align.CENTER)
+            b = Gtk.Button(label=tr("Disconnect"), valign=Gtk.Align.CENTER)
             b.connect("clicked", lambda _b, mm=m: mm.unmount_with_operation(
                 Gio.MountUnmountFlags.NONE, Gtk.MountOperation(parent=self), None,
                 lambda o, res: self._smontato(o, res)))
@@ -436,9 +437,9 @@ class Finestra(Adw.ApplicationWindow):
     def _smontato(self, m, res):
         try:
             m.unmount_with_operation_finish(res)
-            self.toasts.add_toast(Adw.Toast(title="Disconnesso", timeout=2, use_markup=False))
+            self.toasts.add_toast(Adw.Toast(title=tr("Disconnected"), timeout=2, use_markup=False))
         except GLib.Error as e:
-            self.toasts.add_toast(Adw.Toast(title="Non si scollega: %s" % e.message, timeout=5, use_markup=False))
+            self.toasts.add_toast(Adw.Toast(title=tr("Could not disconnect: {error}").format(error=e.message), timeout=5, use_markup=False))
 
     # ---- rete locale
     def cerca(self):
@@ -453,9 +454,9 @@ class Finestra(Adw.ApplicationWindow):
             self.g_rete.remove(r)
         self.righe_rete = []
         if not trovati:
-            r = Adw.ActionRow(title="Nessun server trovato",
-                              subtitle="Controlla che il computer o il NAS sia acceso e condivida "
-                                       "qualcosa, oppure scrivi il suo indirizzo qui sopra.")
+            r = Adw.ActionRow(title=tr("No servers found"),
+                              subtitle=tr("Make sure the computer or NAS is on and sharing "
+                                          "something, or enter its address above."))
             self.g_rete.add(r)
             self.righe_rete.append(r)
         for nome, uri, schema in trovati:
@@ -463,7 +464,7 @@ class Finestra(Adw.ApplicationWindow):
                               activatable=True, use_markup=False)
             r.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
             r.connect("activated", lambda _r, u=uri: self.connetti(u))
-            b = Gtk.Button(label="Connetti", valign=Gtk.Align.CENTER)
+            b = Gtk.Button(label=tr("Connect"), valign=Gtk.Align.CENTER)
             b.connect("clicked", lambda _b, u=uri: self.connetti(u))
             r.add_suffix(b)
             self.g_rete.add(r)

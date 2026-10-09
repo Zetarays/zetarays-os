@@ -1,5 +1,5 @@
 [Unit]
-Description=ZETA RAYS: controllo della salute del sistema
+Description=ZETA RAYS: system health check
 Documentation=file:/usr/local/libexec/zeta-salute
 After=multi-user.target
 

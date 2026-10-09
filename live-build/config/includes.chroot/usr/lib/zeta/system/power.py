@@ -3,6 +3,8 @@
 import glob
 import os
 
+from i18n import tr
+
 from . import run, spawn
 
 
@@ -89,6 +91,6 @@ def battery():
         st = open(b + "/status").read().strip()
     except OSError:
         st = "Unknown"
-    names = {"Charging": "In carica", "Discharging": "A batteria", "Full": "Carica",
-             "Not charging": "Collegata", "Unknown": ""}
+    names = {"Charging": tr("Charging"), "Discharging": tr("On battery"), "Full": tr("Charged"),
+             "Not charging": tr("Plugged in"), "Unknown": ""}
     return {"percent": cap, "charging": st == "Charging", "state": names.get(st, st)}

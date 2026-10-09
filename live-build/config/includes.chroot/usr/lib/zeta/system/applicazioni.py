@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -39,6 +40,8 @@ from dataclasses import dataclass, field
 import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
+
+from i18n import tr  # noqa: E402
 
 try:
     from ui.nomi_app import NOMI
@@ -56,13 +59,32 @@ ICONA_GENERICA = "/usr/share/icons/zeta/scalable/apps/zeta-app.svg"
 FLATPAK_EXPORTS = ["/var/lib/flatpak/exports/share",
                    os.path.join(HOME, ".local", "share", "flatpak", "exports", "share")]
 
-# Cartelle dove si cercano le AppImage (le piu' comuni: dove le mette il
-# browser, dove le mette chi le «installa», /opt per tutto il sistema).
-CARTELLE_APPIMAGE = [
-    os.path.join(HOME, "Applicazioni"), os.path.join(HOME, "Applications"),
-    os.path.join(HOME, "Scaricati"), os.path.join(HOME, "Downloads"),
-    os.path.join(HOME, "Scrivania"), os.path.join(HOME, ".local", "bin"), "/opt",
-]
+
+
+def _cartelle_appimage():
+    """Cartelle dove si cercano le AppImage (le piu' comuni: dove le mette il
+    browser, dove le mette chi le «installa», /opt per tutto il sistema).
+    Download e Scrivania sono quelle XDG (il nome cambia con la lingua);
+    ~/Applications e' la cartella standard delle AppImage. Restano anche le
+    cartelle italiane delle installazioni precedenti, se esistono."""
+    cartelle = [os.path.join(HOME, "Applications")]
+    for quale in (GLib.UserDirectory.DIRECTORY_DOWNLOAD, GLib.UserDirectory.DIRECTORY_DESKTOP):
+        d = GLib.get_user_special_dir(quale)
+        if d and os.path.normpath(d) != os.path.normpath(HOME):
+            cartelle.append(d)
+    cartelle += [os.path.join(HOME, n) for n in ("Downloads", "Desktop", "Applicazioni",
+                                                 "Scaricati", "Scrivania")]
+    cartelle += [os.path.join(HOME, ".local", "bin"), "/opt"]
+    visti, out = set(), []
+    for d in cartelle:
+        d = os.path.normpath(d)
+        if d not in visti:
+            visti.add(d)
+            out.append(d)
+    return out
+
+
+CARTELLE_APPIMAGE = _cartelle_appimage()
 
 # Voci di servizio: esistono per i programmi che le aprono, ma nel menu sono
 # doppioni o strumenti tecnici gia' raggiungibili dalle Impostazioni.
@@ -100,13 +122,13 @@ PACCHETTI_DI_SISTEMA = {
 }
 
 FONTI = {
-    "zeta": "Sistema ZETA RAYS",
-    "apt": "Pacchetto Debian (APT)",
+    "zeta": tr("ZETA RAYS system"),
+    "apt": tr("System package (APT)"),
     "flatpak": "Flatpak",
     "appimage": "AppImage",
-    "opt": "Installata a mano (/opt)",
-    "locale": "Installata a mano (/usr/local)",
-    "utente": "Collegamento dell'utente",
+    "opt": tr("Installed manually (/opt)"),
+    "locale": tr("Installed manually (/usr/local)"),
+    "utente": tr("User shortcut"),
 }
 
 # codici dei campi di Exec (%f %U...): si tolgono; «%%» vale un «%» (specifica .desktop)
@@ -214,13 +236,19 @@ def _argv(comando):
     return list(argv) if ok else []
 
 
-def _programma(argv, cartella_desktop=None):
-    """Percorso reale del programma lanciato (salta «env VAR=...»)."""
+def _indice_programma(argv):
+    """Posizione del programma in argv (salta «env VAR=...» e «env -u VAR»)."""
     i = 0
     if argv and os.path.basename(argv[0]) == "env":
         i = 1
         while i < len(argv) and ("=" in argv[i] or argv[i].startswith("-")):
-            i += 1
+            i += 2 if argv[i] in ("-u", "--unset") else 1
+    return i
+
+
+def _programma(argv, cartella_desktop=None):
+    """Percorso reale del programma lanciato (salta «env VAR=...»)."""
+    i = _indice_programma(argv)
     if i >= len(argv):
         return ""
     prog = argv[i]
@@ -239,6 +267,8 @@ def _programma(argv, cartella_desktop=None):
 def _fonte(app_id, desktop, kf_get):
     if kf_get("X-ZETA-AppImage"):
         return "appimage"
+    if kf_get("X-ZETA-Opt"):
+        return "opt"
     if kf_get("X-Flatpak") or "/flatpak/exports/" in desktop:
         return "flatpak"
     if app_id.startswith(("zeta-", "org.zetarays.")) and not app_id.startswith(PREFISSO_APPIMAGE):
@@ -549,16 +579,16 @@ def _arch_elf(percorso):
         return ""
     macchina = struct.unpack("<H", testa[18:20])[0]
     return {0x3E: "amd64 (x86-64)", 0xB7: "arm64 (aarch64)", 0x03: "i386",
-            0x28: "armhf"}.get(macchina, "altra (%#x)" % macchina)
+            0x28: "armhf"}.get(macchina) or tr("other ({code})").format(code="%#x" % macchina)
 
 
 def dettagli(app):
     """Le informazioni complete (piu' lente: interrogano dpkg o flatpak).
     Elenco di (etichetta, valore, percorso_da_aprire_o_None)."""
-    righe = [("Applicazione", app.nome, None)]
+    righe = [(tr("Application"), app.nome, None)]
     if app.descrizione:
-        righe.append(("Descrizione", app.descrizione, None))
-    righe.append(("Provenienza", FONTI.get(app.fonte, app.fonte), None))
+        righe.append((tr("Description"), app.descrizione, None))
+    righe.append((tr("Source"), FONTI.get(app.fonte, app.fonte), None))
     versione, arch, cartella, voce = "", "", "", None
     if app.fonte == "flatpak":
         out = _uscita(["flatpak", "info", app.flatpak_id or app.id[:-8]])
@@ -570,12 +600,13 @@ def dettagli(app):
         versione = campi.get("Version", "")
         arch = campi.get("Arch", "")
         cartella = campi.get("Location", "")
-        voce = ("ID Flatpak", app.flatpak_id or app.id[:-8], None)
+        voce = (tr("Flatpak ID"), app.flatpak_id or app.id[:-8], None)
         inst = campi.get("Installation", "")
         if inst:
-            righe.append(("Installazione", "per tutti" if inst == "system" else "solo per te", None))
+            righe.append((tr("Installation"),
+                          tr("For everyone") if inst == "system" else tr("Only for you"), None))
     elif app.fonte == "appimage":
-        voce = ("File AppImage", app.appimage, app.appimage)
+        voce = (tr("AppImage file"), app.appimage, app.appimage)
         arch = _arch_elf(app.appimage)
         cartella = os.path.dirname(app.appimage)
         try:
@@ -590,7 +621,7 @@ def dettagli(app):
             out = _uscita(["dpkg-query", "-W", "-f", "${Version}\t${Architecture}", pkg])
             if "\t" in out:
                 versione, arch = out.split("\t", 1)
-            voce = ("Pacchetto", pkg, None)
+            voce = (tr("Package"), pkg, None)
         if app.eseguibile:
             reale = os.path.realpath(app.eseguibile)
             cartella = os.path.dirname(reale)
@@ -598,20 +629,20 @@ def dettagli(app):
     if voce:
         righe.append(voce)
     if versione:
-        righe.append(("Versione", versione, None))
+        righe.append((tr("Version"), versione, None))
     if arch:
-        righe.append(("Architettura", arch, None))
+        righe.append((tr("Architecture"), arch, None))
     if app.eseguibile:
-        righe.append(("Eseguibile", app.eseguibile, app.eseguibile))
+        righe.append((tr("Executable"), app.eseguibile, app.eseguibile))
     if app.desktop:
-        righe.append(("Voce del menu (.desktop)", app.originale or app.desktop,
+        righe.append((tr("Menu entry (.desktop)"), app.originale or app.desktop,
                       app.originale or app.desktop))
     if app.icona_personale:
-        righe.append(("Icona scelta da te", app.icona, app.icona))
+        righe.append((tr("Icon you chose"), app.icona, app.icona))
     if cartella:
-        righe.append(("Cartella", cartella, cartella))
+        righe.append((tr("Folder"), cartella, cartella))
     if app.protetta:
-        righe.append(("Stato", "Componente del sistema (protetta)", None))
+        righe.append((tr("Status"), tr("System component (protected)"), None))
     return righe
 
 
@@ -701,11 +732,33 @@ def mostra_nel_gestore_file(percorso):
 
 
 # ------------------------------------------------------------- azioni
-def avvia(app, contesto=None):
-    """Avvia l'app come dal menu (stesso modo ovunque)."""
+def _attiva_dbus(info, timeout_ms=30000):
+    """Start a D-Bus-activatable app (DBusActivatable=true: many Flatpak and
+    GNOME apps) and wait for its answer, like "gio launch" does. Needed by
+    short-lived callers: if the caller exits before the reply, dbus-daemon
+    drops the pending activation and the app starts without a window."""
+    app_id = (info.get_id() or "")[:-len(".desktop")] if (info.get_id() or "").endswith(".desktop") else ""
+    if not app_id:
+        return False
+    path = "/" + app_id.replace(".", "/").replace("-", "_")
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        bus.call_sync(app_id, path, "org.freedesktop.Application", "Activate",
+                      GLib.Variant("(a{sv})", ({},)), None, Gio.DBusCallFlags.NONE, timeout_ms, None)
+        return True
+    except GLib.Error:
+        return False
+
+
+def avvia(app, contesto=None, attendi=False):
+    """Avvia l'app come dal menu (stesso modo ovunque).
+    attendi=True: the caller exits right after (zeta-app avvia, used by the
+    Dock): a D-Bus-activated app is started synchronously, see _attiva_dbus."""
     info = app.info()
     if info is None:
         return False
+    if attendi and info.get_boolean("DBusActivatable") and _attiva_dbus(info):
+        return True
     if contesto is None:
         contesto = Gio.AppLaunchContext()
     contesto.unsetenv("LD_PRELOAD")
@@ -728,7 +781,10 @@ def nascondi(app, nascosta=True):
 
 def cartella_scrivania():
     d = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DESKTOP)
-    return d or os.path.join(HOME, "Scrivania")
+    if d:
+        return d
+    vecchia = os.path.join(HOME, "Scrivania")       # installazioni precedenti
+    return vecchia if os.path.isdir(vecchia) else os.path.join(HOME, "Desktop")
 
 
 def sulla_scrivania(app):
@@ -739,16 +795,27 @@ def sulla_scrivania(app):
     except OSError:
         return ""
     reale = os.path.realpath(app.desktop) if app.desktop else ""
+    # un programma di /opt: anche il collegamento al suo .desktop originale
+    # (Invia a › Scrivania) o una copia con i percorsi completi e' «lui»
+    origine = ""
+    if app.fonte == "opt" and app.desktop:
+        kfa = GLib.KeyFile()
+        try:
+            kfa.load_from_file(app.desktop, GLib.KeyFileFlags.NONE)
+            origine = _kf_str(kfa, "X-ZETA-Opt")
+        except GLib.Error:
+            pass
     for n in nomi:
         if not n.endswith(".desktop"):
             continue
         p = os.path.join(d, n)
-        if n == app.id or (reale and os.path.realpath(p) == reale):
+        if n == app.id or (reale and os.path.realpath(p) == reale) \
+                or (origine and os.path.realpath(p) == origine):
             return p
         try:
             kf = GLib.KeyFile()
             kf.load_from_file(p, GLib.KeyFileFlags.NONE)
-            if kf.get_string("Desktop Entry", "X-ZETA-App") == app.id:
+            if _kf_str(kf, "X-ZETA-App") == app.id or (origine and _kf_str(kf, "X-ZETA-Origine") == origine):
                 return p
         except GLib.Error:
             continue
@@ -759,16 +826,16 @@ def aggiungi_scrivania(app):
     """Collegamento sulla Scrivania: una copia della voce del menu (stesso
     nome, stessa icona, stesso comando), che funziona anche dopo il riavvio e
     si toglie come un file qualsiasi. Mai due volte la stessa app."""
-    gia = sulla_scrivania(app)
+    gia = sulla_scrivania(app) or appimage_sulla_scrivania(app)
     if gia:
-        return False, "«%s» è già sulla Scrivania." % app.nome
+        return False, tr("“{name}” is already on the Desktop.").format(name=app.nome)
     d = cartella_scrivania()
     os.makedirs(d, exist_ok=True)
     kf = GLib.KeyFile()
     try:
         kf.load_from_file(app.desktop, GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
     except GLib.Error as e:
-        return False, "Non riesco a leggere %s: %s" % (app.desktop, e.message)
+        return False, tr("Can't read {path}: {error}").format(path=app.desktop, error=e.message)
     kf.set_string("Desktop Entry", "X-ZETA-App", app.id)
     if app.nome != (kf.get_string("Desktop Entry", "Name") if _ha(kf, "Desktop Entry", "Name") else ""):
         kf.set_string("Desktop Entry", "Name", app.nome)
@@ -795,7 +862,7 @@ def aggiungi_scrivania(app):
             "metadata::trusted", "true", Gio.FileQueryInfoFlags.NONE, None)
     except GLib.Error:
         pass
-    return True, "«%s» aggiunta alla Scrivania." % app.nome
+    return True, tr("“{name}” added to the Desktop.").format(name=app.nome)
 
 
 def _icona_accanto(app):
@@ -883,7 +950,7 @@ def cambia_icona(app, immagine):
     try:
         icona = _copia_icona(immagine, app.id[:-8] if app.id.endswith(".desktop") else app.id)
     except (OSError, GLib.Error) as e:
-        return False, "Quell'immagine non si può usare: %s" % e
+        return False, tr("That image can't be used: {error}").format(error=e)
     os.makedirs(APPS_UTENTE, exist_ok=True)
     g = "Desktop Entry"
     kf = GLib.KeyFile()
@@ -905,16 +972,16 @@ def cambia_icona(app, immagine):
         kf.set_string(g, "X-ZETA-Icona-Personale", "true")
         _scrivi_kf(kf, dest)
     except (GLib.Error, OSError) as e:
-        return False, "Non è stato possibile cambiare l'icona: %s" % e
+        return False, tr("Couldn't change the icon: {error}").format(error=e)
     _invalida()
     _icona_ovunque(app, icona)
-    return True, "Nuova icona per «%s»." % app.nome
+    return True, tr("New icon for “{name}”.").format(name=app.nome)
 
 
 def ripristina_icona(app):
     """Rimette l'icona originale dell'app."""
     if not app.icona_personale:
-        return False, "«%s» ha già la sua icona." % app.nome
+        return False, tr("“{name}” already has its own icon.").format(name=app.nome)
     g = "Desktop Entry"
     kf = GLib.KeyFile()
     try:
@@ -927,7 +994,7 @@ def ripristina_icona(app):
         try:
             os.unlink(app.desktop)
         except OSError as e:
-            return False, "Non è stato possibile ripristinarla: %s" % e.strerror
+            return False, tr("Couldn't restore it: {error}").format(error=e.strerror)
         info = Gio.DesktopAppInfo.new_from_filename(originale) if os.path.exists(originale) else None
         icona = ""
         if info is not None and info.get_icon() is not None:
@@ -943,7 +1010,7 @@ def ripristina_icona(app):
         _scrivi_kf(kf, app.desktop)
     _invalida()
     _icona_ovunque(app, icona)
-    return True, "«%s» ha di nuovo la sua icona." % app.nome
+    return True, tr("“{name}” has its own icon again.").format(name=app.nome)
 
 
 def _kf_str(kf, chiave):
@@ -1073,7 +1140,11 @@ def manutenzione():
                 continue
             aid = _kf_str(kf, "X-ZETA-App")
             if aid and aid not in ids:
-                scrivania[p] = (aid, _kf_str(kf, "Name") or aid)
+                try:
+                    nome = kf.get_locale_string("Desktop Entry", "Name", None)   # the user's language
+                except GLib.Error:
+                    nome = ""
+                scrivania[p] = (aid, nome or aid)
     except OSError:
         pass
     try:
@@ -1118,12 +1189,12 @@ def nel_dock(app):
 def aggiungi_dock(app):
     from system import dock
     if nel_dock(app):
-        return False, "«%s» è già nel Dock." % app.nome
+        return False, tr("“{name}” is already in the Dock.").format(name=app.nome)
     voci = dock.load_dock()
     voci.append(dock.voce_da_app(app))
     dock.save_dock(voci)
     dock.apply(voci)
-    return True, "«%s» aggiunta al Dock." % app.nome
+    return True, tr("“{name}” added to the Dock.").format(name=app.nome)
 
 
 def togli_dock(app):
@@ -1139,16 +1210,18 @@ def togli_dock(app):
                 continue
         resto.append(e)
     if len(resto) == len(voci):
-        return False, "«%s» non è nel Dock." % app.nome
+        return False, tr("“{name}” isn't in the Dock.").format(name=app.nome)
     if not resto:
-        return False, "Il Dock deve avere almeno un'app."
+        return False, tr("The Dock must have at least one app.")
     dock.save_dock(resto)
     dock.apply(resto)
-    return True, "«%s» tolta dal Dock." % app.nome
+    return True, tr("“{name}” removed from the Dock.").format(name=app.nome)
 
 
 # ------------------------------------------------------------- disinstallazione
-_ENV_APT = dict(os.environ, DEBIAN_FRONTEND="noninteractive", LANG="C.UTF-8", LC_ALL="C.UTF-8")
+# apt in inglese: l'uscita si legge (Inst/Remv); LANGUAGE vale piu' di LC_ALL
+_ENV_APT = dict({k: v for k, v in os.environ.items() if k != "LANGUAGE"},
+                DEBIAN_FRONTEND="noninteractive", LANG="C.UTF-8", LC_ALL="C.UTF-8")
 
 
 def pacchetto_di_sistema(pkg):
@@ -1174,26 +1247,30 @@ def simula_apt(argv):
 
 
 def disinstallabile(app):
-    """(si/no, perche') — cosa offrire nel menu."""
+    """(si/no, perche': frase intera da mostrare) — cosa offrire nel menu."""
     if app.protetta:
-        return False, "fa parte del sistema"
+        return False, tr("“{name}” is part of the system.").format(name=app.nome)
     if app.fonte in ("opt", "locale"):
-        return False, "installata a mano: si toglie cancellando la sua cartella"
+        return False, tr("“{name}” was installed manually: remove it by deleting its "
+                         "folder.").format(name=app.nome)
     return True, ""
 
 
 def togli_integrazione_appimage(app, ignora=True):
     """Toglie voce e icona di un'AppImage. ignora=True: il file resta e non
     va rimesso nel menu alla prossima scansione."""
-    for p in (app.desktop, os.path.join(CARTELLA_ICONE_APPIMAGE, os.path.basename(app.desktop)[:-8] + ".png"),
-              os.path.join(CARTELLA_ICONE_APPIMAGE, os.path.basename(app.desktop)[:-8] + ".svg")):
-        try:
-            if p and os.path.exists(p):
-                os.unlink(p)
-        except OSError:
-            pass
+    # the app's stable key is read before its entry is removed: it is
+    # ignored by app, not by path, so moving the file does not bring it back
+    chiave = ""
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(app.desktop, GLib.KeyFileFlags.NONE)
+        chiave = _kf_str(kf, "X-ZETA-AppImage-Chiave")
+    except GLib.Error:
+        pass
+    _togli_file_appimage(app.desktop, os.path.basename(app.desktop)[:-len(".desktop")])
     if ignora:
-        _ignora_appimage(app.appimage)
+        _ignora_appimage("app:" + chiave if chiave else app.appimage)
     _pulisci_collegamenti(app)
 
 
@@ -1223,7 +1300,6 @@ def dopo_disinstallazione(app):
 
 # ------------------------------------------------------------- AppImage
 FILE_IGNORATE = os.path.join(CFG, "appimage-ignorate.json")
-FILE_SUPERATE = os.path.join(HOME, ".cache", "zeta", "appimage-superate.json")
 
 
 def _ignora_appimage(percorso):
@@ -1270,20 +1346,21 @@ def _fine_elf(percorso):
 
 
 def _leggi_appimage(percorso, cartella):
-    """Estrae .desktop e icona dal file system interno senza eseguire
-    l'AppImage (unsquashfs). (KeyFile, percorso icona) o (None, None)."""
+    """Extract the desktop entry and the icon from the AppImage's own file
+    system without running it (unsquashfs).
+    Returns (KeyFile, icon path, desktop file name) or (None, None, None)."""
     try:
         off = _fine_elf(percorso)
     except (OSError, struct.error):
-        return None, None
+        return None, None, None
     unsq = shutil.which("unsquashfs")
     if not unsq:
-        return None, None
+        return None, None, None
     try:
         r = subprocess.run([unsq, "-o", str(off), "-l", "-d", "", percorso],
                            capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return None, None
+        return None, None, None
     # l'elenco arriva come «/nome» (o «squashfs-root/nome» con unsquashfs vecchi)
     nomi = []
     for x in r.stdout.splitlines():
@@ -1294,7 +1371,7 @@ def _leggi_appimage(percorso, cartella):
     radice = [n for n in nomi if n and "/" not in n]
     desktop = next((n for n in radice if n.endswith(".desktop")), None)
     if not desktop:
-        return None, None
+        return None, None, None
 
     def estrai(nomi):
         try:
@@ -1321,12 +1398,12 @@ def _leggi_appimage(percorso, cartella):
     estrai([desktop, ".DirIcon"] + [n for n in radice if n.endswith((".png", ".svg"))])
     file_desktop = reale(desktop)
     if not file_desktop:
-        return None, None
+        return None, None, None
     kf = GLib.KeyFile()
     try:
         kf.load_from_file(file_desktop, GLib.KeyFileFlags.KEEP_TRANSLATIONS)
     except GLib.Error:
-        return None, None
+        return None, None, None
     icona = None
     try:
         nome_icona = kf.get_string("Desktop Entry", "Icon")
@@ -1339,7 +1416,7 @@ def _leggi_appimage(percorso, cartella):
         if p and os.path.getsize(p) > 0:
             icona = p
             break
-    return kf, icona
+    return kf, icona, desktop
 
 
 def quota_exec(percorso):
@@ -1360,8 +1437,417 @@ def programma_exec(percorso):
     return ("env " if "%" in percorso else "") + quota_exec(percorso)
 
 
-def _id_appimage(percorso):
-    return PREFISSO_APPIMAGE + hashlib.sha1(percorso.encode()).hexdigest()[:12]
+# ------------------------------------------------------------- programmi fuori dal menu
+# Un programma scaricato e scompattato (Blender da blender.org in /opt o in
+# Download) porta un .desktop accanto a se' con «Exec=blender» e
+# «Icon=blender»: nomi che valgono solo in quella cartella. Copiato altrove
+# (trascinato sulla Scrivania, incollato, copiato dal gestore file) non
+# trovava piu' il programma e la Scrivania lo mostrava «Blender (missing)».
+# Ogni voce che esce dalla sua cartella viene quindi riscritta con i
+# percorsi completi, e ricorda da dove viene (X-ZETA-Origine).
+
+PREFISSO_OPT = "zeta-opt-"
+
+# Blender scaricato da blender.org (5.x) si apre su Wayland e misura
+# l'interfaccia solo con la scala dello schermo di Hyprland (1 su quasi tutti
+# gli schermi): su uno schermo con piu' di 96 DPI risultava piccolo. Il
+# Blender del pacchetto (Synaptic) passa da X11, dove Blender misura
+# l'interfaccia con i DPI veri dello schermo, e si vede della misura giusta.
+# Le sue voci (menu, Scrivania, Dock) lo avviano quindi allo stesso modo,
+# senza toccare la scala del resto del sistema.
+SENZA_WAYLAND = ("blender",)
+_PREFISSO_X11 = "env -u WAYLAND_DISPLAY "
+
+
+def _comando_adattato(comando, prog):
+    """Exec con le correzioni per i programmi che si vedono male su Wayland
+    (solo quelli scaricati a mano: i pacchetti del sistema restano come sono)."""
+    if os.path.basename(prog) in SENZA_WAYLAND and not prog.startswith("/usr/") \
+            and "WAYLAND_DISPLAY" not in comando:
+        return _PREFISSO_X11 + comando
+    return comando
+_TOKEN = r"(?:(?<=\s)|^)%s(?=\s|$)"
+
+
+def _sostituisci_programma(comando, vecchio, nuovo):
+    """Il programma dentro Exec= (solo la parola intera, la prima volta)."""
+    return re.sub(_TOKEN % re.escape(vecchio), lambda _m: nuovo, comando, count=1)
+
+
+
+def voce_risolta(sorgente):
+    """KeyFile di un .desktop con programma, icona e cartella resi assoluti
+    rispetto alla cartella del file vero (seguendo i collegamenti simbolici).
+    None se non e' un'applicazione o il programma non si trova."""
+    g = "Desktop Entry"
+    reale = os.path.realpath(sorgente)
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(reale, GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+    except GLib.Error:
+        return None
+    if (_kf_str(kf, "Type") or "Application") != "Application":
+        return None
+    comando = _kf_str(kf, "Exec")
+    argv = _argv(comando)
+    cartella = os.path.dirname(reale)
+    origine = _kf_str(kf, "X-ZETA-Origine")
+    i = _indice_programma(argv)
+    if i >= len(argv):
+        return None
+    token = argv[i]
+    prog = ""
+    # il programma accanto al .desktop prima di quello nel PATH: con Blender
+    # anche installato da Synaptic, «Exec=blender» del 5.2 in /opt avviava
+    # /usr/bin/blender, cioe' l'altro Blender
+    for base in [cartella] + ([os.path.dirname(origine)] if origine else []):
+        vicino = os.path.join(base, token)
+        if not os.path.isabs(token) and os.path.isfile(vicino) and os.access(vicino, os.X_OK):
+            prog, cartella = vicino, base
+            break
+    if not prog:
+        prog = _programma(argv, cartella)
+    if not prog:
+        return None
+    if not os.path.isabs(token) and prog != GLib.find_program_in_path(token):
+        kf.set_string(g, "Exec", _sostituisci_programma(comando, token, programma_exec(prog)))
+        if not _kf_str(kf, "Path"):
+            kf.set_string(g, "Path", os.path.dirname(prog))
+    kf.set_string(g, "Exec", _comando_adattato(_kf_str(kf, "Exec"), prog))
+    prova = _kf_str(kf, "TryExec")
+    if prova and not os.path.isabs(prova) and not GLib.find_program_in_path(prova):
+        vicino = os.path.join(cartella, prova)
+        kf.set_string(g, "TryExec", vicino if os.access(vicino, os.X_OK) else prog)
+    icona = _kf_str(kf, "Icon")
+    if icona and not os.path.isabs(icona) and icona_file(icona) == ICONA_GENERICA:
+        for base in (cartella, os.path.dirname(prog)):
+            trovata = next((os.path.join(base, icona + e) for e in (".svg", ".png", ".xpm")
+                            if os.path.isfile(os.path.join(base, icona + e))), "")
+            if trovata:
+                kf.set_string(g, "Icon", trovata)
+                break
+    if not origine:
+        kf.set_string(g, "X-ZETA-Origine", reale)
+    return kf
+
+
+def _scrivi_collegamento(kf, dest):
+    """Scrive il collegamento (eseguibile e «fidato», come quelli del menu)."""
+    tmp = dest + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(kf.to_data()[0])
+    os.chmod(tmp, 0o755)
+    os.replace(tmp, dest)
+    try:
+        Gio.File.new_for_path(dest).set_attribute_string(
+            "metadata::trusted", "true", Gio.FileQueryInfoFlags.NONE, None)
+    except GLib.Error:
+        pass
+
+
+def _nome_libero(cartella, nome):
+    dest = os.path.join(cartella, nome)
+    base, ext = os.path.splitext(nome)
+    base = re.sub(r" \(\d+\)$", "", base)          # «blender (3)», not «blender (2) (2)»
+    n = 2
+    while os.path.lexists(dest):
+        dest = os.path.join(cartella, "%s (%d)%s" % (base, n, ext))
+        n += 1
+    return dest
+
+
+def collegamento_esterno(sorgente, cartella=None, unico=True):
+    """Collegamento sulla Scrivania (o in cartella) per un .desktop che non
+    sta fra le applicazioni: una copia con i percorsi completi, che funziona
+    ovunque venga spostata o copiata. Con unico=True, se ce n'e' gia' uno per
+    lo stesso programma si restituisce quello. (percorso, "") o ("", errore)."""
+    kf = voce_risolta(sorgente)
+    nome = os.path.basename(sorgente)
+    if kf is None:
+        return "", tr("“{name}” doesn't start a program that can be found.").format(name=nome)
+    cartella = cartella or cartella_scrivania()
+    os.makedirs(cartella, exist_ok=True)
+    origine = _kf_str(kf, "X-ZETA-Origine")
+    if unico:
+        for n in os.listdir(cartella):
+            p = os.path.join(cartella, n)
+            if not n.endswith(".desktop"):
+                continue
+            if os.path.realpath(p) == origine:
+                return p, ""
+            altro = GLib.KeyFile()
+            try:
+                altro.load_from_file(p, GLib.KeyFileFlags.NONE)
+            except GLib.Error:
+                continue
+            if _kf_str(altro, "X-ZETA-Origine") == origine:
+                return p, ""
+    dest = _nome_libero(cartella, nome if nome.endswith(".desktop") else nome + ".desktop")
+    try:
+        _scrivi_collegamento(kf, dest)
+    except OSError as e:
+        return "", tr("Couldn't create the shortcut: {error}").format(error=e.strerror)
+    return dest, ""
+
+
+def voce_accanto(percorso):
+    """Il .desktop accanto a un programma (blender -> blender.desktop) che
+    lo avvia, o ""."""
+    reale = os.path.realpath(percorso)
+    cartella = os.path.dirname(reale)
+    try:
+        nomi = sorted(os.listdir(cartella))
+    except OSError:
+        return ""
+    for n in nomi:
+        if not n.endswith(".desktop"):
+            continue
+        kf = GLib.KeyFile()
+        try:
+            kf.load_from_file(os.path.join(cartella, n), GLib.KeyFileFlags.NONE)
+        except GLib.Error:
+            continue
+        prog = _programma(_argv(_kf_str(kf, "Exec")), cartella)
+        if prog and os.path.realpath(prog) == reale:
+            return os.path.join(cartella, n)
+    return ""
+
+
+def collegamento_programma(percorso, cartella=None):
+    """Un programma (binario ELF) trascinato sulla Scrivania: il collegamento
+    della sua voce .desktop se ne ha una accanto, altrimenti uno nuovo con il
+    suo nome. Mai una copia del programma: Blender ha bisogno delle sue
+    librerie accanto e una copia non partirebbe."""
+    voce = voce_accanto(percorso)
+    if voce:
+        return collegamento_esterno(voce, cartella)
+    reale = os.path.realpath(percorso)
+    g = "Desktop Entry"
+    kf = GLib.KeyFile()
+    nome = os.path.basename(reale)
+    kf.set_string(g, "Type", "Application")
+    kf.set_string(g, "Name", nome[:1].upper() + nome[1:])
+    kf.set_string(g, "Exec", _comando_adattato(programma_exec(reale), reale))
+    kf.set_string(g, "Path", os.path.dirname(reale))
+    kf.set_string(g, "Terminal", "false")
+    icona = next((os.path.join(os.path.dirname(reale), nome + e) for e in (".svg", ".png", ".xpm")
+                  if os.path.isfile(os.path.join(os.path.dirname(reale), nome + e))), "")
+    kf.set_string(g, "Icon", icona or "application-x-executable")
+    kf.set_string(g, "X-ZETA-Origine", reale)
+    cartella = cartella or cartella_scrivania()
+    for n in os.listdir(cartella) if os.path.isdir(cartella) else []:
+        p = os.path.join(cartella, n)
+        if n.endswith(".desktop"):
+            altro = GLib.KeyFile()
+            try:
+                altro.load_from_file(p, GLib.KeyFileFlags.NONE)
+            except GLib.Error:
+                continue
+            if _kf_str(altro, "X-ZETA-Origine") == reale:
+                return p, ""
+    dest = _nome_libero(cartella, re.sub(r"[^\w.+-]+", "-", nome) + ".desktop")
+    try:
+        _scrivi_collegamento(kf, dest)
+    except OSError as e:
+        return "", tr("Couldn't create the shortcut: {error}").format(error=e.strerror)
+    return dest, ""
+
+
+def _candidati_origine(prog):
+    """Le voci .desktop accanto a un programma con questo nome, nelle
+    cartelle dei programmi scompattati a mano (fino a due livelli)."""
+    basi = ["/opt", os.path.join(HOME, "Applications"), os.path.join(HOME, ".local", "opt")]
+    for quale in (GLib.UserDirectory.DIRECTORY_DOWNLOAD,):
+        d = GLib.get_user_special_dir(quale)
+        if d:
+            basi.append(d)
+    basi += [os.path.join(HOME, n) for n in ("Downloads", "Scaricati")]
+    visti = set()
+    for b in basi:
+        b = os.path.normpath(b)
+        if b in visti or not os.path.isdir(b):
+            continue
+        visti.add(b)
+        for radice, dirs, files in os.walk(b):
+            livello = radice[len(b):].count(os.sep)
+            if livello >= 2:
+                dirs[:] = []
+            if not os.path.isfile(os.path.join(radice, prog)):
+                continue
+            for f in sorted(files):
+                if f.endswith(".desktop"):
+                    yield os.path.join(radice, f)
+
+
+def ripara_collegamento(percorso):
+    """Un collegamento sulla Scrivania che non trova piu' il programma (copiato
+    dal gestore file prima di questa correzione, o con un Exec relativo):
+    si cerca la sua voce originale fra i programmi scompattati a mano e lo si
+    riscrive con i percorsi completi. Vero se ora funziona."""
+    if os.path.islink(percorso) or not percorso.endswith(".desktop"):
+        return False
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(percorso, GLib.KeyFileFlags.NONE)
+    except GLib.Error:
+        return False
+    argv = _argv(_kf_str(kf, "Exec"))
+    if not argv or _indice_programma(argv) >= len(argv) or _programma(argv, os.path.dirname(percorso)):
+        return False
+    nome = _kf_str(kf, "Name")
+    prog = argv[_indice_programma(argv)]
+    if os.sep in prog:
+        return False                     # percorso scritto e sparito: il programma e' stato tolto
+    trovate = []
+    for cand in _candidati_origine(prog):
+        altro = GLib.KeyFile()
+        try:
+            altro.load_from_file(cand, GLib.KeyFileFlags.NONE)
+        except GLib.Error:
+            continue
+        if _kf_str(altro, "Name") == nome and _kf_str(altro, "Exec") == _kf_str(kf, "Exec") \
+                and os.path.realpath(cand) not in trovate:
+            trovate.append(os.path.realpath(cand))
+    origine = _kf_str(kf, "X-ZETA-Origine")
+    if origine and os.path.isfile(origine):
+        trovate = [origine]
+    if len(trovate) > 1:
+        # lo stesso programma in Download (l'archivio scompattato) e in /opt
+        # (dove lo si e' messo per usarlo): vale quello in /opt
+        in_opt = [t for t in trovate if t.startswith("/opt/")]
+        if len(in_opt) == 1:
+            trovate = in_opt
+    if len(trovate) != 1:
+        return False                     # nessuna o piu' d'una: non si indovina
+    nuova = voce_risolta(trovate[0])
+    if nuova is None:
+        return False
+    # cio' che l'utente ha cambiato sul collegamento resta (icona scelta)
+    if _kf_str(kf, "X-ZETA-Icona-Personale"):
+        nuova.set_string("Desktop Entry", "Icon", _kf_str(kf, "Icon"))
+        nuova.set_string("Desktop Entry", "X-ZETA-Icona-Personale", "true")
+    try:
+        _scrivi_collegamento(nuova, percorso)
+    except OSError:
+        return False
+    return True
+
+
+def voci_opt():
+    """Le voci .desktop dei programmi scompattati in /opt (fino a due livelli:
+    /opt/blender-5.2.2/blender.desktop, /opt/blender/5.2/blender.desktop)."""
+    trovate = []
+    if not os.path.isdir("/opt"):
+        return trovate
+    for radice, dirs, files in os.walk("/opt"):
+        livello = radice[len("/opt"):].count(os.sep)
+        if livello >= 2:
+            dirs[:] = []
+        if livello == 0:
+            continue                       # /opt stesso: niente voci sciolte
+        for f in sorted(files):
+            if f.endswith(".desktop"):
+                trovate.append(os.path.join(radice, f))
+    return trovate
+
+
+def _integra_opt():
+    """Mette nel menu i programmi in /opt che hanno un .desktop accanto e non
+    sono gia' nel menu con una voce loro (Chrome, VS Code... la installano).
+    La voce generata ha i percorsi completi e sparisce con il programma.
+    Restituisce i nomi delle app nuove."""
+    g = "Desktop Entry"
+    os.makedirs(APPS_UTENTE, exist_ok=True)
+    attuali = {}
+    for n in os.listdir(APPS_UTENTE):
+        if n.startswith(PREFISSO_OPT) and n.endswith(".desktop"):
+            attuali[n] = os.path.join(APPS_UTENTE, n)
+    _invalida()
+    gia, altri_nomi = set(), set()
+    for a in tutte(rileggi=True):
+        if a.id.startswith(PREFISSO_OPT) or not a.eseguibile:
+            continue
+        gia.add(os.path.realpath(a.eseguibile))
+        altri_nomi.add(a.nome)
+    voci, nomi = {}, {}
+    for sorgente in voci_opt():
+        kf = voce_risolta(sorgente)
+        if kf is None or _kf_str(kf, "NoDisplay") == "true" or _kf_str(kf, "Hidden") == "true":
+            continue
+        prog = _programma(_argv(_kf_str(kf, "Exec")))
+        if not prog or os.path.realpath(prog) in gia:
+            continue
+        rel = os.path.relpath(os.path.realpath(sorgente), "/opt")
+        chiave = re.sub(r"[^a-z0-9._-]+", "-", rel[:-len(".desktop")].lower().replace(os.sep, "-")).strip(".-")
+        ident = PREFISSO_OPT + chiave + ".desktop"
+        kf.set_string(g, "TryExec", os.path.realpath(prog))
+        kf.set_string(g, "X-ZETA-Opt", os.path.realpath(sorgente))
+        voci[ident] = kf
+        nomi.setdefault(_kf_str(kf, "Name"), []).append(ident)
+    # due versioni dello stesso programma (o lo stesso nome di un pacchetto,
+    # come Blender di Synaptic): il nome dice quale
+    for nome, ids in nomi.items():
+        if len(ids) < 2 and nome not in altri_nomi:
+            continue
+        for ident in ids:
+            kf = voci[ident]
+            cartella = os.path.basename(os.path.dirname(_kf_str(kf, "X-ZETA-Opt")))
+            m = re.search(r"\d+(?:\.\d+)+", cartella)
+            kf.set_string(g, "Name", "%s %s" % (nome, m.group(0) if m else cartella))
+    aggiunte = []
+    for ident, kf in voci.items():
+        dest = os.path.join(APPS_UTENTE, ident)
+        vecchia = attuali.pop(ident, None)
+        testo = kf.to_data()[0]
+        if vecchia:
+            precedente = GLib.KeyFile()
+            try:
+                precedente.load_from_file(vecchia, GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+                if _kf_str(precedente, "X-ZETA-Icona-Personale"):
+                    kf.set_string(g, "Icon", _kf_str(precedente, "Icon"))
+                    kf.set_string(g, "X-ZETA-Icona-Personale", "true")
+                    testo = kf.to_data()[0]
+                with open(vecchia, encoding="utf-8") as f:
+                    if f.read() == testo:
+                        continue
+            except (GLib.Error, OSError):
+                pass
+        else:
+            aggiunte.append(_kf_str(kf, "Name"))
+        tmp = dest + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(testo)
+        os.replace(tmp, dest)
+    # programmi tolti da /opt: via anche la voce (Scrivania e Dock li pulisce
+    # manutenzione(), come per le app disinstallate)
+    for p in attuali.values():
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+    _invalida()
+    return aggiunte
+
+
+FILE_META_APPIMAGE = os.path.join(HOME, ".cache", "zeta", "appimage-meta.json")
+FILE_BLOCCO_APPIMAGE = os.path.join(HOME, ".cache", "zeta", "appimage.lock")
+_ID_VECCHIO = re.compile(r"^%s[0-9a-f]{12}\.desktop$" % re.escape(PREFISSO_APPIMAGE))
+
+
+def chiave_appimage(nome_desktop, nome_app=""):
+    """Stable identity of an AppImage application: the name of the desktop
+    entry it ships (blender.desktop -> "blender"). Never the path of the
+    file: moving, renaming or updating the AppImage keeps the same app, the
+    same menu entry and the same Desktop and Dock links."""
+    base = nome_desktop[:-len(".desktop")] if nome_desktop.endswith(".desktop") else nome_desktop
+    base = re.sub(r"[^a-z0-9._-]+", "-", base.lower()).strip(".-")
+    if not base:
+        base = re.sub(r"[^a-z0-9]+", "-", nome_app.lower()).strip("-") or "app"
+    return base
+
+
+def _id_appimage(chiave):
+    return PREFISSO_APPIMAGE + chiave
 
 
 def appimage_trovate():
@@ -1380,157 +1866,341 @@ def appimage_trovate():
     return sorted(set(trovate))
 
 
+def _impronta_file(st):
+    """Same file, even after a move or a rename on the same disk."""
+    return "%d:%d:%d:%d" % (st.st_dev, st.st_ino, st.st_size, int(st.st_mtime))
+
+
+def _firma_appimage(st):
+    # "v4": the format of the generated entry; changing it regenerates them
+    return "v4:%d:%d" % (st.st_size, int(st.st_mtime))
+
+
+def _ordine_versione(meta, mtime):
+    """Newest first: by the version the AppImage declares, then by date."""
+    numeri = tuple(int(x) for x in re.findall(r"\d+", meta.get("versione") or "")[:6])
+    return (numeri, mtime)
+
+
+class _Blocco:
+    """One AppImage scan at a time (the path unit, the session start and the
+    app menu can all ask for one at the same moment)."""
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(FILE_BLOCCO_APPIMAGE), exist_ok=True)
+        self.f = open(FILE_BLOCCO_APPIMAGE, "w")
+        import fcntl
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *_a):
+        self.f.close()
+
+
+def _leggi_json(percorso, vuoto):
+    try:
+        with open(percorso, encoding="utf-8") as f:
+            dati = json.load(f)
+        return dati if isinstance(dati, type(vuoto)) else vuoto
+    except (OSError, ValueError):
+        return vuoto
+
+
+def _scrivi_json(percorso, dati):
+    os.makedirs(os.path.dirname(percorso), exist_ok=True)
+    with open(percorso + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(dati, f, indent=1, ensure_ascii=False)
+    os.replace(percorso + ".tmp", percorso)
+
+
 def integra_appimage():
-    """Crea (o toglie) le voci del menu delle AppImage trovate nelle
-    cartelle comuni. Restituisce i nomi delle app aggiunte."""
+    """Create, update or remove the menu entries of the AppImages found in
+    the usual folders, and of the programs unpacked in /opt with a desktop
+    entry next to them. Returns the names of the apps that are new."""
+    with _Blocco():
+        nuove = _integra_appimage()
+        try:
+            nuove += _integra_opt()
+        except OSError:
+            pass                  # /opt illeggibile: le AppImage restano
+        return nuove
+
+
+def _integra_appimage():
+    g = "Desktop Entry"
     os.makedirs(APPS_UTENTE, exist_ok=True)
     os.makedirs(CARTELLA_ICONE_APPIMAGE, exist_ok=True)
     ignorate = _ignorate()
-    esistenti = {}
+
+    # entries written by earlier scans: current ones (stable id) and old ones
+    # named after a hash of the path (before 1.7), which are migrated
+    attuali, vecchie = {}, {}
     for n in os.listdir(APPS_UTENTE):
-        if n.startswith(PREFISSO_APPIMAGE) and n.endswith(".desktop"):
-            p = os.path.join(APPS_UTENTE, n)
-            kf = GLib.KeyFile()
-            try:
-                kf.load_from_file(p, GLib.KeyFileFlags.NONE)
-                esistenti[kf.get_string("Desktop Entry", "X-ZETA-AppImage")] = p
-            except GLib.Error:
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
-    trovate = [p for p in appimage_trovate() if p not in ignorate]
-    aggiunte = []
-    # versioni vecchie superate da una piu' recente ancora presente: non si
-    # rileggono a ogni download (ripartono se la nuova sparisce)
-    superate = {}
-    try:
-        with open(FILE_SUPERATE) as f:
-            superate = json.load(f)
-    except (OSError, ValueError):
-        pass
-    # stessa app in piu' versioni: resta solo la piu' recente
-    per_nome = {}
-    for p in trovate:
-        try:
-            # «v2»: cambia quando cambia il formato della voce, che allora si rifa'
-            firma = "v3:%d:%d" % (os.path.getsize(p), int(os.path.getmtime(p)))
-        except OSError:
-            continue                          # sparita mentre si guardava
-        sup = superate.get(p)
-        if sup and sup.get("firma") == firma and sup.get("da") in trovate:
+        if not (n.startswith(PREFISSO_APPIMAGE) and n.endswith(".desktop")):
             continue
-        vecchia = esistenti.get(p)
-        if vecchia:
-            kf = GLib.KeyFile()
-            try:
-                kf.load_from_file(vecchia, GLib.KeyFileFlags.NONE)
-                if kf.get_string("Desktop Entry", "X-ZETA-AppImage-Firma") == firma:
-                    per_nome.setdefault(kf.get_string("Desktop Entry", "Name"), []).append((p, vecchia))
-                    continue
-            except GLib.Error:
-                pass
-        # icona scelta dall'utente su una versione precedente: resta
-        personale = ""
-        if vecchia:
-            kv = GLib.KeyFile()
-            try:
-                kv.load_from_file(vecchia, GLib.KeyFileFlags.NONE)
-                if _kf_str(kv, "X-ZETA-Icona-Personale"):
-                    personale = _kf_str(kv, "Icon")
-            except GLib.Error:
-                pass
-        with tempfile.TemporaryDirectory(prefix="zeta-appimage-") as tmp:
-            kf, icona = _leggi_appimage(p, tmp)
-            ident = _id_appimage(p)
-            nome = os.path.splitext(os.path.basename(p))[0]
-            out = GLib.KeyFile()
-            g = "Desktop Entry"
-            out.set_string(g, "Type", "Application")
-            if kf is not None:
-                for chiave in ("Name", "GenericName", "Comment", "Categories", "Keywords",
-                               "StartupWMClass", "MimeType", "Terminal", "X-AppImage-Version"):
-                    try:
-                        out.set_string(g, chiave, kf.get_string(g, chiave))
-                    except GLib.Error:
-                        pass
-                try:
-                    for lingua in ("it", "en"):
-                        out.set_locale_string(g, "Name", lingua, kf.get_locale_string(g, "Name", lingua))
-                except GLib.Error:
-                    pass
-            if not _ha(out, g, "Name"):
-                out.set_string(g, "Name", nome)
-            if not _ha(out, g, "Categories"):
-                out.set_string(g, "Categories", "Utility;")
-            dest_icona = ""
-            if icona:
-                with open(icona, "rb") as fi:
-                    svg = icona.endswith(".svg") or fi.read(5).startswith(b"<")
-                ext = ".svg" if svg else ".png"
-                dest_icona = os.path.join(CARTELLA_ICONE_APPIMAGE, ident + ext)
-                shutil.copyfile(icona, dest_icona)
-            out.set_string(g, "Icon", dest_icona or "application-x-executable")
-            if personale:
-                out.set_string(g, "X-ZETA-Icona-Originale", out.get_string(g, "Icon"))
-                out.set_string(g, "Icon", personale)
-                out.set_string(g, "X-ZETA-Icona-Personale", "true")
-            out.set_string(g, "Exec", programma_exec(p) + " %U")
-            out.set_string(g, "TryExec", p)
-            out.set_string(g, "Path", os.path.dirname(p))
-            out.set_string(g, "X-ZETA-AppImage", p)
-            out.set_string(g, "X-ZETA-AppImage-Firma", firma)
-            out.set_string(g, "Comment", out.get_string(g, "Comment") if _ha(out, g, "Comment") else "AppImage")
-            dest = os.path.join(APPS_UTENTE, ident + ".desktop")
-            with open(dest + ".tmp", "w") as f:
-                f.write(out.to_data()[0])
-            os.replace(dest + ".tmp", dest)
-            # il file scaricato non e' eseguibile: lo diventa qui, perche'
-            # il menu possa avviarlo (solo i file dell'utente, mai di sistema)
-            try:
-                if not os.access(p, os.X_OK) and os.stat(p).st_uid == os.getuid():
-                    os.chmod(p, os.stat(p).st_mode | 0o100)
-            except OSError:
-                pass
-            per_nome.setdefault(out.get_string(g, "Name"), []).append((p, dest))
-            if p not in esistenti:
-                aggiunte.append(out.get_string(g, "Name"))
-    # doppioni (stesso nome, versioni diverse): si tiene la piu' recente
-    def eta(x):
+        p = os.path.join(APPS_UTENTE, n)
+        kf = GLib.KeyFile()
         try:
-            return os.path.getmtime(x[0])
-        except OSError:
-            return 0
-    tenute = set()
-    nuove_superate = {k: v for k, v in superate.items() if v.get("da") in trovate}
-    for _nome, elenco in per_nome.items():
-        elenco.sort(key=eta, reverse=True)
-        tenute.add(elenco[0][1])
-        for vecchio, d in elenco[1:]:
+            kf.load_from_file(p, GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+        except GLib.Error:
             try:
-                nuove_superate[vecchio] = {"da": elenco[0][0], "firma": "v3:%d:%d" % (
-                    os.path.getsize(vecchio), int(os.path.getmtime(vecchio)))}
-                os.unlink(d)
+                os.unlink(p)
             except OSError:
                 pass
+            continue
+        if _ID_VECCHIO.match(n) and not _kf_str(kf, "X-ZETA-AppImage-Chiave"):
+            vecchie[n] = (p, kf)
+        else:
+            attuali[n[:-len(".desktop")]] = (p, kf)
+
+    meta_cache = _leggi_json(FILE_META_APPIMAGE, {})
+    nuova_cache = {}
+    letti = {}                     # path -> (KeyFile, icon) read in this scan
+    per_chiave = {}                # key -> [(order, path, stat, meta)]
+    tmp_radice = tempfile.mkdtemp(prefix="zeta-appimage-")
     try:
-        os.makedirs(os.path.dirname(FILE_SUPERATE), exist_ok=True)
-        with open(FILE_SUPERATE, "w") as f:
-            json.dump(nuove_superate, f, indent=1)
+        for p in appimage_trovate():
+            if p in ignorate:
+                continue
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue                      # gone while we were looking
+            imp = _impronta_file(st)
+            meta = meta_cache.get(imp)
+            if not meta:
+                cartella = tempfile.mkdtemp(dir=tmp_radice)
+                kf, icona, desktop = _leggi_appimage(p, cartella)
+                if kf is None:
+                    continue                  # no desktop entry inside: not an app
+                nome = _kf_str(kf, "Name") or os.path.splitext(os.path.basename(p))[0]
+                meta = {"chiave": chiave_appimage(desktop, nome), "nome": nome,
+                        "versione": _kf_str(kf, "X-AppImage-Version")}
+                letti[p] = (kf, icona)
+            nuova_cache[imp] = meta
+            if "app:" + meta["chiave"] in ignorate:
+                continue
+            per_chiave.setdefault(meta["chiave"], []).append(
+                (_ordine_versione(meta, st.st_mtime), p, st, meta))
+        _scrivi_json(FILE_META_APPIMAGE, nuova_cache)
+
+        aggiunte, rinomina, tenuti = [], {}, set()
+        for chiave, versioni in per_chiave.items():
+            versioni.sort(key=lambda v: v[0], reverse=True)
+            _ordine, p, st, meta = versioni[0]
+            ident = _id_appimage(chiave)
+            tenuti.add(ident)
+            dest = os.path.join(APPS_UTENTE, ident + ".desktop")
+            firma = _firma_appimage(st)
+            esistente = attuali.get(ident)
+            # old entries of any version of this app point here now
+            percorsi = {v[1] for v in versioni}
+            for n, (_vp, vkf) in vecchie.items():
+                if _kf_str(vkf, "X-ZETA-AppImage") in percorsi:
+                    rinomina[n] = ident + ".desktop"
+            personale = ""
+            for _x, kfv in ([esistente] if esistente else []) + \
+                    [vecchie[n] for n in rinomina if rinomina[n] == ident + ".desktop"]:
+                if _kf_str(kfv, "X-ZETA-Icona-Personale"):
+                    personale = _kf_str(kfv, "Icon")
+                    break
+            if esistente:
+                ekf = esistente[1]
+                if _kf_str(ekf, "X-ZETA-AppImage-Firma") == firma:
+                    if _kf_str(ekf, "X-ZETA-AppImage") != p:
+                        # same file, moved or renamed: only the path changes
+                        ekf.set_string(g, "Exec", programma_exec(p) + " %U")
+                        ekf.set_string(g, "TryExec", p)
+                        ekf.set_string(g, "Path", os.path.dirname(p))
+                        ekf.set_string(g, "X-ZETA-AppImage", p)
+                        _scrivi_kf(ekf, dest)
+                    _rendi_eseguibile(p)
+                    continue
+            if p not in letti:
+                cartella = tempfile.mkdtemp(dir=tmp_radice)
+                kf, icona, _desktop = _leggi_appimage(p, cartella)
+                if kf is None:
+                    continue
+                letti[p] = (kf, icona)
+            kf, icona = letti[p]
+            out = _voce_appimage(kf, icona, p, ident, chiave, firma, personale)
+            _scrivi_kf(out, dest)
+            _rendi_eseguibile(p)
+            if not esistente and ident + ".desktop" not in rinomina.values():
+                aggiunte.append(out.get_string(g, "Name"))
+    finally:
+        shutil.rmtree(tmp_radice, ignore_errors=True)
+
+    # apps whose AppImage is gone: entry and icon go; Desktop and Dock links
+    # are removed later by manutenzione(), only if still missing (two phases)
+    for ident, (p, _kf) in attuali.items():
+        if ident not in tenuti:
+            _togli_file_appimage(p, ident)
+    for n, (p, _kf) in vecchie.items():
+        _togli_file_appimage(p, n[:-len(".desktop")])
+    if rinomina:
+        _rinomina_collegamenti(rinomina)
+    _invalida()
+    _allinea_collegamenti_appimage()
+    return aggiunte
+
+
+def _rendi_eseguibile(p):
+    """A downloaded file is not executable: it becomes so here, so the menu
+    can start it (only the user's own files, never system ones)."""
+    try:
+        st = os.stat(p)
+        if not os.access(p, os.X_OK) and st.st_uid == os.getuid():
+            os.chmod(p, st.st_mode | 0o100)
     except OSError:
         pass
-    # voci di AppImage spostate o cancellate
-    for p, d in esistenti.items():
-        if d not in tenute and os.path.exists(d) and (p not in trovate):
+
+
+def _voce_appimage(kf, icona, p, ident, chiave, firma, personale):
+    g = "Desktop Entry"
+    out = GLib.KeyFile()
+    out.set_string(g, "Type", "Application")
+    for k in ("Name", "GenericName", "Comment", "Categories", "Keywords",
+              "StartupWMClass", "MimeType", "Terminal", "X-AppImage-Version"):
+        if _ha(kf, g, k):
+            out.set_string(g, k, kf.get_string(g, k))
+    # translated names and descriptions shipped by the app
+    for k in ("Name", "GenericName", "Comment"):
+        try:
+            chiavi = kf.get_keys(g)[0]
+        except GLib.Error:
+            chiavi = []
+        for c in chiavi:
+            if c.startswith(k + "[") and c.endswith("]"):
+                out.set_string(g, c, kf.get_string(g, c))
+    if not _ha(out, g, "Name"):
+        out.set_string(g, "Name", os.path.splitext(os.path.basename(p))[0])
+    if not _ha(out, g, "Categories"):
+        out.set_string(g, "Categories", "Utility;")
+    if not _ha(out, g, "Comment"):
+        out.set_string(g, "Comment", "AppImage")
+    dest_icona = ""
+    if icona:
+        with open(icona, "rb") as fi:
+            svg = icona.endswith(".svg") or fi.read(5).startswith(b"<")
+        ext = ".svg" if svg else ".png"
+        dest_icona = os.path.join(CARTELLA_ICONE_APPIMAGE, ident + ext)
+        altra = os.path.join(CARTELLA_ICONE_APPIMAGE, ident + (".png" if svg else ".svg"))
+        shutil.copyfile(icona, dest_icona + ".tmp")
+        os.replace(dest_icona + ".tmp", dest_icona)
+        if os.path.exists(altra):
+            os.unlink(altra)
+    out.set_string(g, "Icon", dest_icona or "application-x-executable")
+    if personale:
+        out.set_string(g, "X-ZETA-Icona-Originale", out.get_string(g, "Icon"))
+        out.set_string(g, "Icon", personale)
+        out.set_string(g, "X-ZETA-Icona-Personale", "true")
+    out.set_string(g, "Exec", programma_exec(p) + " %U")
+    out.set_string(g, "TryExec", p)
+    out.set_string(g, "Path", os.path.dirname(p))
+    out.set_string(g, "X-ZETA-AppImage", p)
+    out.set_string(g, "X-ZETA-AppImage-Chiave", chiave)
+    out.set_string(g, "X-ZETA-AppImage-Firma", firma)
+    return out
+
+
+def _togli_file_appimage(p, ident):
+    for f in (p, os.path.join(CARTELLA_ICONE_APPIMAGE, ident + ".png"),
+              os.path.join(CARTELLA_ICONE_APPIMAGE, ident + ".svg")):
+        try:
+            os.unlink(f)
+        except OSError:
+            pass
+
+
+def _rinomina_collegamenti(rinomina):
+    """Old app id -> new app id in the Desktop links, the Dock and the list
+    of apps removed from the menu (migration of the pre-1.7 ids)."""
+    g = "Desktop Entry"
+    d = cartella_scrivania()
+    try:
+        nomi = os.listdir(d)
+    except OSError:
+        nomi = []
+    for n in nomi:
+        p = os.path.join(d, n)
+        if not n.endswith(".desktop") or os.path.islink(p):
+            continue
+        kf = GLib.KeyFile()
+        try:
+            kf.load_from_file(p, GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+        except GLib.Error:
+            continue
+        nuovo = rinomina.get(_kf_str(kf, "X-ZETA-App"))
+        if nuovo:
+            kf.set_string(g, "X-ZETA-App", nuovo)
+            _scrivi_kf(kf, p)
+    try:
+        from system import dock
+        voci = dock.load_dock()
+        cambiate = False
+        for e in voci:
+            if e.get("app") in rinomina:
+                e["app"] = rinomina[e["app"]]
+                e["cmd"] = "zeta-app avvia %s" % shlex.quote(e["app"])
+                cambiate = True
+        if cambiate:
+            dock.save_dock(voci)
+    except Exception:  # noqa: BLE001 - the Dock must not stop the migration
+        pass
+    s = _leggi_nascoste()
+    if s & set(rinomina):
+        _scrivi_nascoste({rinomina.get(x, x) for x in s})
+
+
+def appimage_sulla_scrivania(app):
+    """The AppImage file of this app, when the file itself is on the Desktop."""
+    if not app.appimage:
+        return ""
+    d = os.path.realpath(cartella_scrivania())
+    return app.appimage if os.path.dirname(os.path.realpath(app.appimage)) == d else ""
+
+
+def _allinea_collegamenti_appimage():
+    """Desktop links of AppImage apps follow the app: same command and icon
+    after the file moved or the app was updated. A link is redundant when the
+    AppImage file itself sits on the Desktop (two icons for one app): the
+    link made by ZETA goes to the Trash, the user's file stays."""
+    g = "Desktop Entry"
+    app_per_id = {a.id: a for a in tutte() if a.fonte == "appimage"}
+    d = cartella_scrivania()
+    try:
+        nomi = os.listdir(d)
+    except OSError:
+        return
+    for n in nomi:
+        p = os.path.join(d, n)
+        if not n.endswith(".desktop") or os.path.islink(p):
+            continue
+        kf = GLib.KeyFile()
+        try:
+            kf.load_from_file(p, GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+        except GLib.Error:
+            continue
+        app = app_per_id.get(_kf_str(kf, "X-ZETA-App"))
+        if not app:
+            continue
+        if appimage_sulla_scrivania(app):
             try:
-                os.unlink(d)
-            except OSError:
+                Gio.File.new_for_path(p).trash(None)
+            except GLib.Error:
                 pass
-            ident = os.path.basename(d)[:-8]
-            for ext in (".png", ".svg"):
-                try:
-                    os.unlink(os.path.join(CARTELLA_ICONE_APPIMAGE, ident + ext))
-                except OSError:
-                    pass
-    _invalida()
-    return aggiunte
+            continue
+        sorgente = GLib.KeyFile()
+        try:
+            sorgente.load_from_file(app.desktop, GLib.KeyFileFlags.NONE)
+        except GLib.Error:
+            continue
+        cambiato = False
+        for k in ("Exec", "TryExec", "Path", "Icon"):
+            v = _kf_str(sorgente, k)
+            if v and _kf_str(kf, k) != v:
+                kf.set_string(g, k, v)
+                cambiato = True
+        if cambiato:
+            _scrivi_kf(kf, p)

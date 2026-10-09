@@ -34,9 +34,13 @@ fi
 if [ -n "$__zeta_benvenuto" ] && [ -z "$ZETA_HELLO_SHOWN" ] && [ -t 1 ]; then
   export ZETA_HELLO_SHOWN=1
   __zeta_kernel=$(uname -r | sed -E 's/[+~-].*$//')
-  printf '\n  \e[1;38;2;%smZETA RAYS\e[0m \e[38;2;%smOS 1.7\e[0m\n' "$__ZETA_RGB" "$__ZETA_FG"
-  printf '  \e[38;2;%smKernel Linux %s · %s · digita \e[0mzeta\e[38;2;%sm per l\x27assistente\e[0m\n\n' "$__ZETA_DIM" "$__zeta_kernel" "$(uname -m)" "$__ZETA_DIM"
-  unset __zeta_kernel
+  printf '\n  \e[1;38;2;%smZETA RAYS\e[0m \e[38;2;%smOS 2.0\e[0m\n' "$__ZETA_RGB" "$__ZETA_FG"
+  # «digita zeta per l'assistente» nella lingua dell'utente (gettext, dominio zetarays)
+  __zeta_invito=$(TEXTDOMAIN=zetarays gettext 'type %s for the assistant' 2>/dev/null) || __zeta_invito='type %s for the assistant'
+  # shellcheck disable=SC2059
+  __zeta_invito=$(printf "$__zeta_invito" "$(printf '\e[0mzeta\e[38;2;%sm' "$__ZETA_DIM")")
+  printf '  \e[38;2;%smKernel Linux %s · %s · %s\e[0m\n\n' "$__ZETA_DIM" "$__zeta_kernel" "$(uname -m)" "$__zeta_invito"
+  unset __zeta_kernel __zeta_invito
 fi
 unset -f __zeta_accent
 unset __ZETA_DIM __ZETA_FG __zeta_benvenuto

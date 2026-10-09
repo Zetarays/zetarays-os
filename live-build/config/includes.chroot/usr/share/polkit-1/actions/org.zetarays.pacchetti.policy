@@ -4,8 +4,10 @@
 <policyconfig>
   <vendor>ZETA RAYS</vendor>
   <action id="org.zetarays.pacchetti">
-    <description>Installare o disinstallare un programma</description>
-    <message>Inserisci la password per installare o disinstallare il programma.</message>
+    <description>Install or remove an app</description>
+    <description xml:lang="it">Installare o disinstallare un programma</description>
+    <message>Enter your password to install or remove the app.</message>
+    <message xml:lang="it">Inserisci la password per installare o disinstallare il programma.</message>
     <icon_name>system-software-install</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>

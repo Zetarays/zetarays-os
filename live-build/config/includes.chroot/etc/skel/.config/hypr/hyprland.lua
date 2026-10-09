@@ -35,6 +35,27 @@ hl.monitor({
     scale    = monitor_scale,
 })
 
+-- Impostazioni › Schermi: risoluzione, frequenza, scala, rotazione, posizione,
+-- specchio e schermo principale, ricordati per ogni schermo (marca, modello,
+-- numero di serie). Le regole per uno schermo preciso valgono piu' di quella
+-- generale qui sopra, che resta per gli schermi mai configurati.
+-- Il file c'e' solo dopo il primo «Mantieni» nelle Impostazioni: un require
+-- di un modulo che non esiste Hyprland lo segnala come errore della
+-- configurazione (riquadro rosso) anche dentro pcall, quindi prima si guarda.
+local sch_file = io.open(os.getenv("HOME") .. "/.config/hypr/zeta_schermi.lua", "r")
+local sch_ok, schermi = false, nil
+if sch_file then
+    sch_file:close()
+    sch_ok, schermi = pcall(require, "zeta_schermi")
+end
+if sch_ok and type(schermi) == "function" then
+    local ok_s, err_s = pcall(schermi)
+    if not ok_s then hl.notification.create({ text = "zeta_schermi: " .. tostring(err_s), timeout = 5000 }) end
+    -- all'avvio gli schermi si collegano dopo la lettura della configurazione:
+    -- lo specchio, che vuole il nome della presa, si rimette quando compaiono
+    hl.on("monitor.added", function() pcall(schermi) end)
+end
+
 -------------------
 ---- AVVIO ----
 -------------------
@@ -44,6 +65,10 @@ hl.on("hyprland.start", function()
 end)
 
 -- Dimensione del puntatore scelta in Impostazioni > Aspetto (zeta-aspetto)
+-- Keyboard layout of the system (installer, Settings > Language & Region):
+-- zeta-desktop-session writes zeta_tastiera.lua from /etc/default/keyboard.
+local kb_ok, kb = pcall(require, "zeta_tastiera")
+if not kb_ok or type(kb) ~= "table" then kb = {} end
 local asp_ok, asp = pcall(require, "zeta_aspetto")
 local cursor_size = (asp_ok and type(asp) == "table" and asp.cursor) or 24
 local tema_chiaro = asp_ok and type(asp) == "table" and asp.tema == "chiaro"
@@ -98,7 +123,8 @@ hl.config({
         blur = {
             enabled  = trasparenza,
             size     = is_vm and 4 or 10,
-            passes   = is_vm and 1 or 3,
+            -- due passaggi: a vista quasi uguale a tre, un terzo di lavoro in meno
+            passes   = is_vm and 1 or 2,
             vibrancy = 0.17,
             -- non risfocare cio che sta gia dietro una finestra opaca
             new_optimizations = true,
@@ -127,7 +153,9 @@ hl.config({
     },
 
     input = {
-        kb_layout    = "it",
+        kb_layout    = kb.layout or "us",
+        kb_variant   = kb.variant or "",
+        kb_options   = kb.options or "",
         follow_mouse = 1,
         touchpad = {
             natural_scroll = true,
@@ -184,7 +212,9 @@ if hl.plugin.hyprbars then
                 bar_button_padding         = 8,
                 bar_part_of_window         = true,
                 bar_precedence_over_border = true,
-                bar_blur                   = true,
+                -- la barra e' opaca al 95%: la sfocatura dietro non si vedeva,
+                -- ma si calcolava per ogni finestra a ogni fotogramma
+                bar_blur                   = false,
                 icon_on_hover              = true,
                 on_double_click            = [[hyprctl dispatch 'hl.dsp.window.fullscreen({ mode = "maximized" })']],
             },
@@ -237,6 +267,18 @@ hl.window_rule({ name = "zeta-posta-misura",
 hl.window_rule({ name = "zeta-browser-misura",
                  match = { class = "^firefox-esr$", title = ".*Mozilla Firefox$" },
                  size = "(monitor_w*0.8) (monitor_h*0.78)" })
+-- Blender: la finestra principale sempre grande, come quella del pacchetto
+-- del sistema. Le versioni scaricate da blender.org (5.x) si aprono su
+-- Wayland con un altro nome (org.blender.Blender) e una misura di fabbrica
+-- piccola; quella del sistema passa da X11 come «Blender». Solo la finestra
+-- principale («Blender», «Blender [file]», «file - Blender 5.2», e anche
+-- «(Unsaved) - Blender 5.2.2 LTS»: senza il suffisso «LTS» la regola non
+-- scattava e il 5.2.2 avviato su Wayland nasceva a 320x240): Preferenze,
+-- Render e i dialoghi dei file restano della loro misura.
+hl.window_rule({ name = "zeta-blender-misura",
+                 match = { class = "^([Bb]lender|org\\.blender\\.Blender)$",
+                           title = "^(Blender|Blender\\*?( \\[.*\\])?|.* - Blender( [0-9.]+)?( [A-Za-z][A-Za-z ]*)?)$" },
+                 size = "(monitor_w*0.92) (monitor_h*0.84)" })
 hl.window_rule({ name = "zeta-posta-scrivi",
                  match = { class = "^thunderbird$", title = "^(Componi|Scrivi|Compose|Write): .*" },
                  size = "(monitor_w*0.62) (monitor_h*0.72)" })
@@ -268,25 +310,196 @@ local function zeta_finestra_principale(w)
     return altre == 0
 end
 
+-------------------
+---- FINESTRE SEMPRE RAGGIUNGIBILI ----
+-------------------
+
+-- Nessuna finestra deve finire dove non la si puo' prendere. Un programma
+-- X11 puo' spostarsi da solo dopo l'apertura (anche a coordinate negative)
+-- o chiedere una misura piu' grande dello schermo; staccando un monitor o
+-- cambiando risoluzione o scala una finestra puo' restare fuori. Qui, nello
+-- stesso compositore (nessun secondo gestore di finestre), ogni finestra
+-- mobile resta con la barra del titolo e i pulsanti (a sinistra) dentro
+-- l'area utile: lo schermo meno la barra di ZETA RAYS.
+-- La barra del titolo (hyprbars) sta SOPRA la posizione della finestra.
+local ZG_BARRA   = hl.plugin.hyprbars and 32 or 0
+local ZG_MARGINE = 8
+local ZG_VISIBILE = 160       -- quanta finestra resta almeno visibile a destra
+local zg_ultimo, zg_conti = {}, {}
+-- misura chiesta all'ultima correzione e misura minima di un programma che
+-- l'ha rifiutata (una finestra che non puo' diventare piu' piccola di cosi')
+local zg_chiesto, zg_minimo = {}, {}
+
+-- Area utile di un monitor, in coordinate logiche (come le finestre).
+-- Hyprland non da' l'area riservata al Lua: la si ricava dalla barra.
+local function zeta_area(m)
+    local sc = (m.scale and m.scale > 0) and m.scale or 1
+    local mw, mh = m.width / sc, m.height / sc
+    if m.transform % 2 == 1 then mw, mh = mh, mw end
+    local a = { x0 = m.x, y0 = m.y, x1 = m.x + mw, y1 = m.y + mh }
+    local ok, livelli = pcall(hl.get_layers, { monitor = m })
+    if ok and type(livelli) == "table" then
+        for _, l in ipairs(livelli) do
+            if l.mapped and l.namespace == "waybar" and l.w >= mw * 0.5 and l.h < mh * 0.3 then
+                if l.y + l.h >= a.y1 - 40 then
+                    a.y1 = math.min(a.y1, l.y)                   -- barra in basso
+                elseif l.y <= a.y0 + 40 then
+                    a.y0 = math.max(a.y0, l.y + l.h)             -- barra in alto
+                end
+            end
+        end
+    end
+    return a
+end
+
+-- Le finestre di cui occuparsi: mobili, visibili sullo schermo (non ridotte
+-- a icona, che stanno in un workspace speciale), non a tutto schermo. I menu
+-- e i suggerimenti X11 (senza titolo) si posizionano da se'.
+local function zeta_da_guardare(w)
+    if not w.mapped or not w.floating or w.fullscreen ~= 0 then return false end
+    if w.xwayland and (w.title or "") == "" then return false end
+    local ws = w.workspace
+    if not ws or ws.special then return false end
+    return w.monitor ~= nil
+end
+
+-- Dove dovrebbe stare la finestra: nil se va bene cosi'.
+-- «stretto»: tutta dentro (apertura, cambio di schermo, recupero a mano);
+-- altrimenti basta che la barra del titolo e i pulsanti siano raggiungibili.
+local function zeta_correzione(w, stretto)
+    local a = zeta_area(w.monitor)
+    local aw, ah = a.x1 - a.x0, a.y1 - a.y0
+    local x, y, W, H = w.at.x, w.at.y, w.size.x, w.size.y
+    local addr = w.address
+    -- il programma ha tenuto una misura piu' grande di quella chiesta: e' la
+    -- sua minima. Non la si chiede piu' (sarebbe un ciclo): la finestra resta
+    -- di quella misura, con la barra del titolo in alto dentro lo schermo.
+    local chiesto = zg_chiesto[addr]
+    if chiesto and (W > chiesto.w or H > chiesto.h) then
+        zg_minimo[addr] = { w = W, h = H }
+    end
+    zg_chiesto[addr] = nil
+    local nW, nH = W, H
+    if W > aw then nW = math.floor(aw - 2 * ZG_MARGINE) end
+    if H + ZG_BARRA > ah then nH = math.floor(ah - ZG_BARRA - 2 * ZG_MARGINE) end
+    local minimo = zg_minimo[addr]
+    if minimo then
+        nW, nH = math.max(nW, math.min(W, minimo.w)), math.max(nH, math.min(H, minimo.h))
+    end
+    local ymin = a.y0 + ZG_BARRA
+    local nx, ny
+    if nW ~= W or nH ~= H then
+        -- troppo grande: ridotta all'area utile e centrata
+        nx = a.x0 + (aw - nW) / 2
+        ny = ymin + (a.y1 - ymin - nH) / 2
+    elseif stretto then
+        nx = math.max(a.x0, math.min(x, a.x1 - nW))
+        ny = math.max(ymin, math.min(y, a.y1 - nH))
+    else
+        nx = math.max(a.x0, math.min(x, a.x1 - ZG_VISIBILE))
+        ny = math.max(ymin, math.min(y, a.y1 - 48))
+    end
+    nx, ny = math.floor(nx), math.floor(ny)
+    if nx == x and ny == y and nW == W and nH == H then return nil end
+    return { x = nx, y = ny, w = nW, h = nH, area = a }
+end
+
+local function zeta_sistema(w, stretto)
+    local c = zeta_correzione(w, stretto)
+    local addr = w.address
+    if not c then zg_conti[addr] = nil; return false end
+    -- un programma che si rimette fuori di continuo non va inseguito:
+    -- dopo 4 correzioni lo si lascia stare (il recupero a mano resta)
+    local n = (zg_conti[addr] or 0) + 1
+    if n > 4 then return false end
+    zg_conti[addr] = n
+    -- Hyprland calcola spostamento e misura come differenza dalla misura
+    -- della finestra, ma la applica al riquadro del layout: se un programma
+    -- X11 si e' ridimensionato o spostato da solo i due non coincidono, e il
+    -- primo comando arriva altrove (anche a misure negative, ridotte alla
+    -- minima). Dal secondo coincidono: si ripete finche' il risultato e'
+    -- quello chiesto.
+    if c.w ~= w.size.x or c.h ~= w.size.y then
+        for _ = 1, 3 do
+            hl.dispatch(hl.dsp.window.resize({ x = c.w, y = c.h, window = w }))
+            if w.size.x == c.w and w.size.y == c.h then break end
+        end
+        -- al prossimo controllo si vede se il programma l'ha accettata
+        zg_chiesto[addr] = { w = c.w, h = c.h }
+    end
+    for _ = 1, 3 do
+        hl.dispatch(hl.dsp.window.move({ x = c.x, y = c.y, window = w }))
+        if w.at.x == c.x and w.at.y == c.y then break end
+    end
+    return true
+end
+
+-- Controllo di tutte le finestre. Senza «stretto» si tocca solo una finestra
+-- ferma dall'ultimo giro: una finestra trascinata in quel momento si muove,
+-- e non le si fa la guerra mentre la si sposta.
+local function zeta_guarda_tutte(stretto)
+    local viste = {}
+    for _, w in ipairs(hl.get_windows()) do
+        if zeta_da_guardare(w) then
+            local addr = w.address
+            viste[addr] = true
+            local firma = string.format("%d,%d,%d,%d", w.at.x, w.at.y, w.size.x, w.size.y)
+            if stretto or zg_ultimo[addr] == firma then
+                zeta_sistema(w, stretto)
+            end
+            zg_ultimo[addr] = firma
+        end
+    end
+    for addr in pairs(zg_ultimo) do
+        if not viste[addr] then
+            zg_ultimo[addr] = nil; zg_conti[addr] = nil
+            zg_chiesto[addr] = nil; zg_minimo[addr] = nil
+        end
+    end
+end
+
+-- Recupero a mano (Super + Maiusc + W, «zeta-finestre recupera», Impostazioni
+-- › Schermi): tutte le finestre dentro lo schermo, anche quelle lasciate stare.
+function zeta_recupera()
+    zg_conti = {}
+    zeta_guarda_tutte(true)
+end
+
+hl.timer(function() zeta_guarda_tutte(false) end, { timeout = 1500, type = "repeat" })
+for _, ev in ipairs({ "monitor.added", "monitor.removed", "monitor.layout_changed" }) do
+    hl.on(ev, function()
+        hl.timer(function() zg_conti = {}; zeta_guarda_tutte(true) end, { timeout = 600, type = "oneshot" })
+    end)
+end
+
 hl.on("window.open", function(w)
+    -- un programma X11 si sposta spesso subito dopo essersi aperto
+    local addr = w.address
+    for _, t in ipairs({ 300, 1200 }) do
+        hl.timer(function()
+            for _, a in ipairs(hl.get_windows()) do
+                if a.address == addr and zeta_da_guardare(a) then zeta_sistema(a, true) end
+            end
+        end, { timeout = t, type = "oneshot" })
+    end
+
     if not w.floating or w.fullscreen ~= 0 or w.class == "" then return end
     for _, p in ipairs(ZETA_NON_ALLARGARE) do
         if w.class:find(p) then return end
     end
     local m = w.monitor
     if not m then return end
-    local sc = (m.scale and m.scale > 0) and m.scale or 1
-    local mw, mh = m.width / sc, m.height / sc
-    if m.transform % 2 == 1 then mw, mh = mh, mw end
+    local a = zeta_area(m)
+    local mw, mh = a.x1 - a.x0, a.y1 - a.y0
     local W, H = w.size.x, w.size.y
     if W * H >= mw * mh * 0.42 then return end           -- gia' grande
     if W < 560 or H < 380 then return end                -- misura da dialogo
     if not zeta_finestra_principale(w) then return end
     local nw, nh = math.floor(mw * 0.72), math.floor(mh * 0.76)
     -- stesso centro di prima (la regola «center» l'aveva gia' centrata),
-    -- dentro lo schermo
-    local nx = math.max(m.x, math.min(w.at.x - (nw - W) // 2, m.x + mw - nw))
-    local ny = math.max(m.y, math.min(w.at.y - (nh - H) // 2, m.y + mh - nh))
+    -- dentro l'area utile, con la barra del titolo sotto il bordo
+    local nx = math.max(a.x0, math.min(w.at.x - (nw - W) // 2, a.x1 - nw))
+    local ny = math.max(a.y0 + ZG_BARRA, math.min(w.at.y - (nh - H) // 2, a.y1 - nh))
     hl.dispatch(hl.dsp.window.resize({ x = nw, y = nh, window = w }))
     hl.dispatch(hl.dsp.window.move({ x = nx, y = ny, window = w }))
 end)
@@ -324,6 +537,8 @@ hl.bind(mod .. " + ESCAPE",      hl.dsp.exec_cmd("zeta-pannello energia"))
 hl.bind(mod .. " + L",           hl.dsp.exec_cmd("hyprlock"))
 hl.bind(mod .. " + A",           hl.dsp.exec_cmd("zeta-pannello controllo"))
 hl.bind(mod .. " + W",           hl.dsp.exec_cmd("zeta-finestre"))
+-- tutte le finestre di nuovo dentro lo schermo, con i pulsanti a portata
+hl.bind(mod .. " + SHIFT + W",   function() zeta_recupera() end)
 -- Uscita forzata, come Cmd+Alt+Esc su macOS e Ctrl+Shift+Esc su Windows:
 -- serve quando un programma non risponde piu', quindi non passa per il
 -- programma bloccato ne' per il suo menu.

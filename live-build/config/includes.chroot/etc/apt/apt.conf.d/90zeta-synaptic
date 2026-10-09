@@ -1,0 +1,4 @@
+// ZETA RAYS: Synaptic opens straight on the package list (no introduction
+// window at every start) and without the "supported by Debian" column.
+Synaptic::showWelcomeDialog "false";
+Synaptic::supportedColumnVisible "false";

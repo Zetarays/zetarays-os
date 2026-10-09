@@ -14,24 +14,35 @@ CFG="$HOME/.config/zeta"
 # si ricorda il pid di ciascun pezzo e si guarda solo se e' ancora vivo
 # (kill -0, interno alla shell); si cerca in /proc solo quando non lo e'.
 declare -A PID
+# Un processo morto ma non ancora raccolto dal padre («zombie», stato Z)
+# risponde ancora a kill -0: hyprlock morto a schermo bloccato sembrava vivo e
+# la sessione restava sulla schermata d'emergenza di Hyprland. Si guarda lo
+# stato vero in /proc/PID/status.
+vivente() {      # pid -> vero se esiste e non e' uno zombie
+    local k v
+    while read -r k v _; do
+        [ "$k" = State: ] && { [ "$v" != Z ]; return; }
+    done < "/proc/$1/status" 2>/dev/null
+    return 1
+}
 trova() {        # nome (come in /proc/PID/comm) -> PID[nome], 0 se non c'e'
     local d n
     for d in /proc/[0-9]*; do
         read -r n < "$d/comm" 2>/dev/null || continue
-        [ "$n" = "$1" ] && { PID[$1]=${d#/proc/}; return 0; }
+        [ "$n" = "$1" ] && vivente "${d#/proc/}" && { PID[$1]=${d#/proc/}; return 0; }
     done
     PID[$1]=0; return 1
 }
 vivo() {
     local p=${PID[$1]:-0}
-    [ "$p" != 0 ] && kill -0 "$p" 2>/dev/null && return 0
+    [ "$p" != 0 ] && vivente "$p" && return 0
     trova "$1"
 }
 # le icone della scrivania girano come «python3» (per la shell a strati si
 # rilanciano con l'interprete): si riconoscono dalla riga di comando
 vivo_scrivania() {
     local p=${PID[scrivania]:-0} d n arg
-    [ "$p" != 0 ] && kill -0 "$p" 2>/dev/null && return 0
+    [ "$p" != 0 ] && vivente "$p" && return 0
     for d in /proc/[0-9]*; do
         read -r n < "$d/comm" 2>/dev/null || continue
         [ "$n" = python3 ] || continue
@@ -69,8 +80,9 @@ while true; do
     # Blocco schermo: se il programma di blocco muore mentre lo schermo è
     # bloccato, Hyprland mostra una schermata d'emergenza in inglese e
     # l'utente resta chiuso fuori dalla propria sessione. Qui torna su.
+    # (misc.allow_session_lock_restore e' gia' acceso in hyprland.lua: con la
+    # configurazione Lua «hyprctl keyword» non vale piu')
     if bloccata && ! vivo hyprlock; then
-        hyprctl keyword misc:allow_session_lock_restore 1 >/dev/null 2>&1
         setsid hyprlock >/dev/null 2>&1 </dev/null &
         dormi 2
         continue
@@ -79,9 +91,10 @@ while true; do
     # sfondo
     vivo swaybg || zeta-sfondo apply >/dev/null 2>&1
 
-    # la barra in basso dev'essere UNA: ogni 12 s si contano barre e processi
-    # (Waybar a volte si duplica, per esempio quando lo schermo si riaccende)
-    if [ $(( giro % 2 )) -eq 0 ]; then
+    # la barra in basso dev'essere UNA: ogni minuto si contano barre e processi
+    # (Waybar a volte si duplica, per esempio quando lo schermo si riaccende;
+    # i ricaricamenti e i cambi di schermo controllano gia' da soli)
+    if [ $(( giro % 10 )) -eq 0 ]; then
         zeta-barra controlla >/dev/null 2>&1
     fi
 

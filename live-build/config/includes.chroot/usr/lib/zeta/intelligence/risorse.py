@@ -9,6 +9,8 @@ si può osare.
 """
 from __future__ import annotations
 
+from i18n import tr
+
 # Soglie in GB di memoria di targa (vedi memoria_nominale_gb).
 # Il modello si carica a freddo in 1-2 s (misurato): basta cominciare quando si
 # apre ZETA (lo fa zeta-core) e intanto si scrive la domanda. Caricarlo gia'
@@ -105,7 +107,7 @@ def memoria_per_il_modello() -> bool:
 
 def motivo_memoria() -> str:
     """Spiegazione da mostrare a chi chiede, quando la memoria non basta."""
-    return ("Non c'è abbastanza memoria libera per il modello locale "
-            "(servono circa %.1f GB, liberi %.1f GB). Chiudi qualche "
-            "applicazione e riprova." % (MODELLO_GB + MARGINE_GB,
-                                         memoria_disponibile_gb()))
+    return tr("There isn't enough free memory for the local model "
+              "(it needs about {needed} GB, {free} GB free). Close some "
+              "apps and try again.").format(needed="%.1f" % (MODELLO_GB + MARGINE_GB),
+                                            free="%.1f" % memoria_disponibile_gb())
