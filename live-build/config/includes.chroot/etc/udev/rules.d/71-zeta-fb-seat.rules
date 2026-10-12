@@ -1,5 +1,6 @@
-# ZETA RAYS — schede grafiche senza driver DRM (es. VirtualBox "QemuRamFB", firmware
-# EFI generico): il kernel offre solo il framebuffer /dev/fb0. Senza questa regola
-# logind non considera il posto "grafico" (CanGraphical=no), SDDM aspetta per
-# sempre e lo schermo resta nero. Con il tag Xorg parte sul framebuffer.
+# ZETA RAYS — graphics adapters without a DRM driver (e.g. VirtualBox "QemuRamFB",
+# generic EFI firmware): the kernel offers only the /dev/fb0 framebuffer. Without
+# this rule logind doesn't consider the seat "graphical" (CanGraphical=no), SDDM
+# waits forever and the screen stays black. With the tag, Xorg starts on the
+# framebuffer.
 SUBSYSTEM=="graphics", KERNEL=="fb[0-9]*", TAG+="seat", TAG+="master-of-seat"

@@ -1,7 +1,7 @@
-# ZETA RAYS — fish interattiva
+# ZETA RAYS — interactive fish
 status is-interactive; or exit
 set -g fish_greeting ''
-# comandi con password, chiavi o token: fuori dalla cronologia di fish
+# commands with passwords, keys or tokens: kept out of the fish history
 function fish_should_add_to_history
     string match -qri '(password|passwd|token|secret|api_key|api-key)=' -- $argv; and return 1
     string match -qri -- '--(password|passwd|token|api-key|apikey)' $argv; and return 1
@@ -19,6 +19,6 @@ set -gx LESS '-R -F -X -i -M'
 if not test -f ~/.config/starship.toml; and test -f ~/.cache/zeta/starship.toml
     set -gx STARSHIP_CONFIG ~/.cache/zeta/starship.toml
 end
-set -q ZETA_SHELL_SEMPLICE; and exit
+set -q ZETA_SHELL_SIMPLE; and exit
 type -q atuin; and atuin init fish --disable-up-arrow | source
 type -q starship; and starship init fish | source

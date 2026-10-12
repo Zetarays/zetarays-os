@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ZETA RAYS — Bluetooth (BlueZ).
 
-Lo stato si legge da D-Bus con `busctl` (risposta immediata). `bluetoothctl`
-si usa solo per le azioni (associa, connetti, cerca) e mai se non c'è un
-adattatore: senza adattatore `bluetoothctl show` resta in attesa per sempre.
+The state is read from D-Bus with `busctl` (immediate answer). `bluetoothctl`
+is only used for actions (pair, connect, scan) and never when there is no
+adapter: without an adapter `bluetoothctl show` waits forever.
 """
 import glob
 import json
@@ -28,7 +28,7 @@ def _prop(path, iface, name):
 
 
 def adapter():
-    """None se non c'è un adattatore, altrimenti {powered, name}."""
+    """None if there is no adapter, otherwise {powered, name}."""
     path = _adapter_path()
     if not path:
         return None
@@ -50,7 +50,7 @@ def set_power(on):
 
 
 def devices():
-    """Dispositivi noti: [{mac, name, paired, connected, icon}]."""
+    """Known devices: [{mac, name, paired, connected, icon}]."""
     if not _adapter_path():
         return []
     out = run(["busctl", "--system", "--json=short", "call", "org.bluez", "/",

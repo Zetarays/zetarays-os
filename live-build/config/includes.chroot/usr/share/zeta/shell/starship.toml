@@ -1,6 +1,6 @@
-# ZETA RAYS — prompt del terminale (starship). @ACCENT@ lo sostituisce
-# zeta-terminale con il colore d'accento del tema in uso.
-# Veloce anche su computer lenti: git con limite di tempo, niente moduli di rete.
+# ZETA RAYS — terminal prompt (starship). zeta-terminal replaces @ACCENT@
+# with the accent color of the current theme.
+# Fast even on slow computers: git with a time limit, no network modules.
 add_newline = false
 command_timeout = 400
 scan_timeout = 20

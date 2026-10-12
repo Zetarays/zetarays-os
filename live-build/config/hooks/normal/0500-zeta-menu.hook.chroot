@@ -1,24 +1,24 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — pulizia del menù delle applicazioni.
+# ZETA RAYS — application menu cleanup.
 #
-# Alcuni pacchetti installano voci di menù che non hanno senso per l'utente:
-# strumenti interni (ImageMagick), doppioni (tre voci per lo stesso terminale),
-# pannelli che ZETA RAYS sostituisce con i propri, e soprattutto l'installer di
-# Calamares che si presenta come «Install Debian».
+# Some packages install menu entries that make no sense to the user: internal
+# tools (ImageMagick), duplicates (three entries for the same terminal), panels
+# that ZETA RAYS replaces with its own, and above all the Calamares installer,
+# which presents itself as "Install Debian".
 #
-# Non si modificano i file dei pacchetti: si scrivono copie in
-# /usr/local/share/applications, che nello standard XDG hanno la precedenza.
-# Così la voce sparisce ovunque (launcher, ricerca, dock, «apri con») e un
-# aggiornamento del pacchetto non riporta indietro la modifica.
+# Package files are not modified: copies are written to
+# /usr/local/share/applications, which takes precedence under the XDG spec.
+# That way the entry disappears everywhere (launcher, search, dock, "open
+# with") and a package upgrade does not undo the change.
 set +e
 
 SRC=/usr/share/applications
 DST=/usr/local/share/applications
 mkdir -p "$DST"
 
-# id delle voci da nascondere (si accettano anche i caratteri jolly)
-NASCONDI="
+# ids of the entries to hide (wildcards are accepted too)
+HIDE="
 calamares-install-debian.desktop calamares.desktop
 display-im*.desktop
 footclient.desktop foot-server.desktop
@@ -36,21 +36,21 @@ xfce4-about.desktop qv4l2.desktop qvidcap.desktop
 org.fcitx.*.desktop fcitx5-configtool.desktop fcitx5-wayland-launcher.desktop kbd-layout-viewer5.desktop
 "
 
-nascosti=0
-for pattern in $NASCONDI; do
+hidden=0
+for pattern in $HIDE; do
     for f in $SRC/$pattern; do
         [ -f "$f" ] || continue
         id=$(basename "$f")
-        # copia con NoDisplay=true subito dopo [Desktop Entry] (mai in fondo:
-        # finirebbe dentro un gruppo [Desktop Action] e non varrebbe)
+        # copy with NoDisplay=true right after [Desktop Entry] (never at the
+        # end: it would land inside a [Desktop Action] group and not apply)
         awk '
             /^NoDisplay[ \t]*=/ { next }
             { print }
-            /^\[Desktop Entry\]/ && !fatto { print "NoDisplay=true"; fatto = 1 }
-        ' "$f" > "$DST/$id" 2>/dev/null && nascosti=$((nascosti + 1))
+            /^\[Desktop Entry\]/ && !done { print "NoDisplay=true"; done = 1 }
+        ' "$f" > "$DST/$id" 2>/dev/null && hidden=$((hidden + 1))
     done
 done
-echo "ZETA RAYS: nascoste $nascosti voci di menù non pertinenti"
+echo "ZETA RAYS: hid $hidden irrelevant menu entries"
 
 update-desktop-database "$DST" >/dev/null 2>&1
 update-desktop-database "$SRC" >/dev/null 2>&1

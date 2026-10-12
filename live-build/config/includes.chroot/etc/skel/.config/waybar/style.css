@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* ZETA RAYS — stile della barra */
+/* ZETA RAYS — bar style */
 @import "colors.css";
 
 * {
@@ -24,17 +24,17 @@ tooltip {
   border-radius: 10px;
 }
 
-/* Pulsante del launcher: solo il simbolo, senza riquadro.
-   Niente sfondo, bordo o alone — il marchio deve stare sul nero della barra
-   come un elemento intenzionale, non dentro una scatola grigia. Il colore del
-   simbolo lo dà launcher.svg (accento adattato al tema, quindi leggibile sia
-   in scuro sia in chiaro). Un velo appena percettibile compare solo al
-   passaggio del mouse, per dire che è cliccabile. */
+/* Launcher button: just the symbol, no box.
+   No background, border or glow — the logo must sit on the black of the bar
+   as an intentional element, not inside a gray box. The symbol's color comes
+   from launcher.svg (accent adapted to the theme, so it is readable in both
+   dark and light). A barely visible veil appears only on mouse hover, to
+   signal that it is clickable. */
 #image.launcher {
   background: transparent;
   border: none;
   border-radius: 12px;
-  /* 42 px di simbolo + 9 sopra e sotto = 60, l'altezza della barra */
+  /* 42 px of symbol + 9 above and below = 60, the height of the bar */
   padding: 0 8px;
   margin: 9px 4px 9px 9px;
   transition: background 120ms ease;
@@ -43,11 +43,11 @@ tooltip {
   background: @hover;
 }
 
-/* Spazi di lavoro: pulsanti numerati, quello attivo evidenziato */
-#spazi {
+/* Workspaces: numbered buttons, the active one highlighted */
+#workspaces {
   margin-left: 6px;
 }
-#custom-spazio1, #custom-spazio2, #custom-spazio3 {
+#custom-workspace1, #custom-workspace2, #custom-workspace3 {
   min-width: 26px;
   min-height: 26px;
   padding: 0 2px;
@@ -58,18 +58,18 @@ tooltip {
   background: @hover;
   transition: all 120ms ease;
 }
-#custom-spazio1.active, #custom-spazio2.active, #custom-spazio3.active {
+#custom-workspace1.active, #custom-workspace2.active, #custom-workspace3.active {
   background: @accent;
   color: @accent_ink;
 }
-#custom-spazio1.occupied, #custom-spazio2.occupied, #custom-spazio3.occupied {
+#custom-workspace1.occupied, #custom-workspace2.occupied, #custom-workspace3.occupied {
   color: @ink;
 }
-#custom-spazio1:hover, #custom-spazio2:hover, #custom-spazio3:hover {
+#custom-workspace1:hover, #custom-workspace2:hover, #custom-workspace3:hover {
   background: @hover_2;
   color: @ink;
 }
-#custom-spazio1.empty, #custom-spazio2.empty, #custom-spazio3.empty {
+#custom-workspace1.empty, #custom-workspace2.empty, #custom-workspace3.empty {
   color: @ink_dim;
 }
 
@@ -83,7 +83,7 @@ tooltip {
   margin-top: -4px;
 }
 
-/* Ricerca: separata dal gruppo di stato */
+/* Search: separate from the status group */
 #image.search {
   padding: 0 10px;
   margin-right: 10px;
@@ -93,7 +93,7 @@ tooltip {
   background: @hover;
 }
 
-/* Stato di sistema */
+/* System status */
 #image.net,
 #image.vol,
 #image.bat {
@@ -112,8 +112,8 @@ tooltip {
   border-radius: 10px;
   color: @ink;
 }
-/* Tastiera in uso (solo con piu' layout): sigla cliccabile */
-#custom-tastiera {
+/* Current keyboard layout (only with several layouts): clickable code */
+#custom-keyboard {
   padding: 0 10px;
   margin-right: 2px;
   border-radius: 10px;
@@ -121,30 +121,30 @@ tooltip {
   font-weight: 600;
   color: @ink_2;
 }
-#custom-tastiera:hover {
+#custom-keyboard:hover {
   background: @hover;
 }
-/* Energia: in fondo a destra, separato dall'orologio */
+/* Power: at the far right, separate from the clock */
 #image.power {
   padding: 0 14px 0 12px;
   margin-right: 6px;
   border-radius: 10px;
 }
 
-/* Finestre ridotte a icona: miniature accanto al dock (come su macOS) */
-#image.ridotta0 {
+/* Minimized windows: thumbnails next to the dock (as on macOS) */
+#image.minimized0 {
   margin-left: 14px;
 }
-#ridotte image {
+#minimized image {
   margin: 0 4px;
   padding: 0;
   transition: all 150ms ease;
 }
-#ridotte image:hover {
+#minimized image:hover {
   margin-top: -4px;
 }
-#ridotte .empty,
-#image.ridotta0.empty {
+#minimized .empty,
+#image.minimized0.empty {
   margin: 0;
   padding: 0;
 }

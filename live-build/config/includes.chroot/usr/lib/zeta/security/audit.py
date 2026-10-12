@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Security — raccolta dello stato di sicurezza del sistema.
+"""ZETA RAYS Security — collects the security status of the system.
 
-Legge lo stato reale (firewall, aggiornamenti, cifratura, avvio sicuro...) e
-lo classifica in modo onesto. Non dichiara mai "sicuro" a priori:
+Reads the real state (firewall, updates, encryption, secure boot...) and
+classifies it honestly. It never declares "secure" up front:
 
-  ATTIVO           la protezione è attiva
-  CONFIGURATO      presente e configurato
-  NON CONFIGURATO  disponibile ma non attivo
-  ATTENZIONE       richiede intervento
+  ACTIVE           the protection is active
+  CONFIGURED       present and configured
+  NOT CONFIGURED   available but not active
+  ATTENTION        needs action
 
-Nessuna dipendenza esterna: solo comandi di sistema e file di /proc, /sys.
+No external dependencies: only system commands and files in /proc, /sys.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import ntr, tr  # noqa: E402
 
-# stati: chiavi stabili; il testo da mostrare e' state_label()
+# states: stable keys; the text to display is state_label()
 ACTIVE = "active"
 CONFIGURED = "configured"
 NOT_CONFIGURED = "not-configured"
@@ -59,8 +59,8 @@ def _service_active(name: str) -> bool:
 
 def check_firewall() -> Check:
     if _service_active("nftables"):
-        # Le regole si leggono solo con privilegi: si usa l'aiutante del Monitor
-        # (lettura senza password per gli amministratori).
+        # The rules can only be read with privileges: the Monitor helper is
+        # used (password-less read access for administrators).
         raw = _run(["sudo", "-n", "/usr/libexec/zeta-monitor-helper", "firewall"], timeout=8)
         try:
             items = json.loads(raw).get("ruleset", {}).get("nftables", [])

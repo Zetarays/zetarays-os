@@ -1,14 +1,14 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Prova l'ISO arm64 di ZETA RAYS in una macchina virtuale veloce sul Mac (QEMU + HVF).
-# Uso: tools/vm-arm64.sh            -> apre una finestra con ZETA RAYS
-#      tools/vm-arm64.sh --headless -> senza finestra (controllo via QMP in .cache/vm)
+# Test the ZETA RAYS arm64 ISO in a fast virtual machine on the Mac (QEMU + HVF).
+# Usage: tools/vm-arm64.sh            -> opens a window with ZETA RAYS
+#        tools/vm-arm64.sh --headless -> no window (control via QMP in .cache/vm)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ISO="$ROOT/out/zetarays-2.0-arm64.iso"
 VM="$ROOT/.cache/vm"
 mkdir -p "$VM"
-[ -f "$ISO" ] || { echo "ISO non trovata: esegui prima ./build.sh arm64"; exit 1; }
+[ -f "$ISO" ] || { echo "ISO not found: run ./build.sh arm64 first"; exit 1; }
 [ -f "$VM/vars.fd" ] || cp /opt/homebrew/share/qemu/edk2-arm-vars.fd "$VM/vars.fd"
 
 DISPLAY_OPTS=(-display cocoa -device virtio-gpu-pci,xres=1440,yres=900)

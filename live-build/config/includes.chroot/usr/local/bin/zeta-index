@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""zeta-index — aggiorna l'indice dei contenuti per la ricerca di ZETA RAYS.
+"""zeta-index — updates the content index used by ZETA RAYS search.
 
-  zeta-index            aggiornamento incrementale (solo i file cambiati)
-  zeta-index --full     ricostruisce l'indice da zero
-  zeta-index --search Q cerca nell'indice (uso diagnostico)
+  zeta-index            incremental update (only the files that changed)
+  zeta-index --full     rebuilds the index from scratch
+  zeta-index --search Q searches the index (for diagnostics)
 
-Pensato per girare a bassa priorità (nice/ionice) da un timer utente.
+Meant to run at low priority (nice/ionice) from a user timer.
 """
 import sys
 

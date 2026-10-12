@@ -1,12 +1,12 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Crea una macchina virtuale VirtualBox con ZETA RAYS già installato, come file .ova.
+# Builds a VirtualBox virtual machine with ZETA RAYS preinstalled, as an .ova file.
 #
-#   ZETA_ARCH=amd64  (predefinito)  -> out/zetarays-2.0-amd64.ova  (PC Intel/AMD)
-#   ZETA_ARCH=arm64                 -> out/zetarays-2.0-arm64.ova  (Mac Apple Silicon,
-#                                       VirtualBox 7.2+ con supporto ARM)
+#   ZETA_ARCH=amd64  (default)      -> out/zetarays-2.0-amd64.ova  (Intel/AMD PC)
+#   ZETA_ARCH=arm64                 -> out/zetarays-2.0-arm64.ova  (Apple Silicon Mac,
+#                                       VirtualBox 7.2+ with ARM support)
 #
-# Parte dall'ISO corrispondente (./build.sh <arch>) e usa Docker + VBoxManage.
+# Starts from the matching ISO (./build.sh <arch>) and uses Docker + VBoxManage.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,22 +16,22 @@ ISO="${ZETA_ISO:-$OUT/zetarays-2.0-$ARCH.iso}"
 DISK_GB="${ZETA_DISK_GB:-24}"
 VM_NAME="ZETA RAYS 2.0 ($ARCH)"
 
-# Parametri dipendenti dall'architettura
+# Architecture-dependent parameters
 if [ "$ARCH" = "arm64" ]; then
   GRUB_TGT="arm64-efi"; EFI_NAME="BOOTAA64.EFI"
   GBIN="grub-efi-arm64-bin"; GPKG="grub-efi-arm64"
-  VBOX_PLAT="arm"; VBOX_OSTYPE="Linux_arm64"      # «Other Linux»: nessun marchio di base nella VM
+  VBOX_PLAT="arm"; VBOX_OSTYPE="Linux_arm64"      # "Other Linux": no base distro branding in the VM
 else
   GRUB_TGT="x86_64-efi"; EFI_NAME="BOOTX64.EFI"
   GBIN="grub-efi-amd64-bin"; GPKG="grub-efi-amd64"
-  VBOX_PLAT="x86"; VBOX_OSTYPE="Linux26_64"        # «Linux generico»: nessun marchio di base nella VM
+  VBOX_PLAT="x86"; VBOX_OSTYPE="Linux26_64"        # "generic Linux": no base distro branding in the VM
 fi
 
-[ -f "$ISO" ] || { echo "ISO non trovata: esegui prima ./build.sh $ARCH"; exit 1; }
-command -v VBoxManage >/dev/null || { echo "VBoxManage non trovato: installa VirtualBox"; exit 1; }
+[ -f "$ISO" ] || { echo "ISO not found: run ./build.sh $ARCH first"; exit 1; }
+command -v VBoxManage >/dev/null || { echo "VBoxManage not found: install VirtualBox"; exit 1; }
 
-# Su Mac Apple Silicon, per amd64 serve l'emulatore QEMU (il chroot non può usare
-# Rosetta perché manca /proc). Per arm64 il container è nativo: nessuno scambio.
+# On Apple Silicon Macs, amd64 needs the QEMU emulator (the chroot can't use
+# Rosetta because /proc is missing). For arm64 the container is native: no switch.
 BINFMT=/proc/sys/fs/binfmt_misc
 if [ "$ARCH" = "amd64" ] && [ "$(uname -m)" = "arm64" ] && command -v colima >/dev/null; then
   colima ssh -- sudo sh -c "echo 0 > $BINFMT/rosetta; echo 1 > $BINFMT/qemu-x86_64"
@@ -58,17 +58,17 @@ docker run --rm --privileged --platform "linux/$ARCH" \
       $GBIN grub-common qemu-utils uuid-runtime ca-certificates >/dev/null
 
     W=/work; rm -rf $W/*; mkdir -p $W/iso $W/target
-    echo "== Estraggo il sistema dall ISO ($ARCH)"
+    echo "== Extracting the system from the ISO ($ARCH)"
     xorriso -osirrox on -indev /iso/zeta.iso -extract /live/filesystem.squashfs $W/iso/filesystem.squashfs >/dev/null 2>&1
     unsquashfs -q -f -d $W/target $W/iso/filesystem.squashfs
     rm -f $W/iso/filesystem.squashfs
 
     cp -a /zeta/. $W/target/
-    # Artefatti che servono solo alla costruzione dell ISO: non devono finire
-    # nel disco. L archivio del runtime Ollama (1,3 GB) vi era entrato una
-    # volta, gonfiando la OVA amd64 da 3,3 a 4,7 GB.
+    # Artifacts needed only to build the ISO: they must not end up on the
+    # disk. The Ollama runtime archive (1.3 GB) slipped in once, bloating
+    # the amd64 OVA from 3.3 to 4.7 GB.
     rm -f $W/target/usr/share/zeta/ollama-runtime.tar.zst
-    rm -rf $W/target/usr/share/zeta/hyprland-corretto
+    rm -rf $W/target/usr/share/zeta/hyprland-patched
     rm -rf $W/target/usr/share/zeta/localsend
     rm -rf $W/target/usr/share/zeta/piper-cache $W/target/usr/share/zeta/vosk-cache
     find $W/target/usr/lib/zeta $W/target/usr/local/bin -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -77,19 +77,19 @@ docker run --rm --privileged --platform "linux/$ARCH" \
     ROOT_UUID=$(uuidgen); ESP_ID=$(printf "%08X" $((RANDOM * RANDOM)))
     ESP_UUID="${ESP_ID:0:4}-${ESP_ID:4:4}"
 
-    echo "== Configuro il sistema installato"
+    echo "== Configuring the installed system"
     T=$W/target
     mount -t proc proc $T/proc; mount -t sysfs sys $T/sys; mount --bind /dev $T/dev; mount --bind /dev/pts $T/dev/pts
     rm -f $T/etc/resolv.conf; cp /etc/resolv.conf $T/etc/resolv.conf
-    # I file di ZETA appena ricopiati qui sopra arrivano senza bytecode (e le
-    # loro cartelle __pycache__ sono state tolte): si ricompilano, come fa la
-    # ISO, altrimenti ogni programma di ZETA ricompilerebbe a ogni avvio. E la
-    # cache delle icone si rifa sulle icone appena copiate.
+    # The ZETA files just copied above come without bytecode (and their
+    # __pycache__ folders were removed): recompile them, as the ISO does,
+    # otherwise every ZETA program would recompile at every start. The icon
+    # cache is also rebuilt over the icons that were just copied.
     chroot $T python3 -m compileall -q -j0 /usr/lib/zeta >/dev/null 2>&1 || true
     for d in $T/usr/share/icons/*/; do
       if [ -f "$d/index.theme" ]; then chroot $T gtk-update-icon-cache -q -f "${d#$T}" 2>/dev/null || true; fi
     done
-    [ "$(find $T/usr/lib/zeta -name "*.pyc" | wc -l)" -ge 50 ] || { echo "ERRORE: Python di ZETA non precompilato nella OVA"; exit 1; }
+    [ "$(find $T/usr/lib/zeta -name "*.pyc" | wc -l)" -ge 50 ] || { echo "ERROR: ZETA Python code not precompiled in the OVA"; exit 1; }
 
     mkdir -p $T/boot/efi
     cat > $T/etc/fstab <<EOF
@@ -111,7 +111,7 @@ EOF
     chmod 755 $T/usr/local/sbin/zeta-firstboot
     cat > $T/etc/systemd/system/zeta-firstboot.service <<"EOF"
 [Unit]
-Description=ZETA RAYS - configurazione del primo avvio
+Description=ZETA RAYS - first boot configuration
 ConditionPathExists=!/var/lib/zeta/firstboot-done
 After=local-fs.target
 
@@ -145,7 +145,7 @@ EOF
     # Region), since an OVA does not go through the installer
     [ -f $T/etc/default/keyboard ] && sed -i "s/^XKBLAYOUT=.*/XKBLAYOUT=\"us\"/" $T/etc/default/keyboard
     echo "LANG=en_US.UTF-8" > $T/etc/default/locale
-    mkdir -p $T/etc/zeta && : > $T/etc/zeta/primo-avvio-lingua
+    mkdir -p $T/etc/zeta && : > $T/etc/zeta/first-boot-language
     GPKG_ENV="$GPKG"
     chroot $T /bin/bash -euo pipefail -c "
       export DEBIAN_FRONTEND=noninteractive
@@ -188,7 +188,7 @@ EOF
     umount $T/dev/pts $T/dev $T/sys $T/proc
     rm -f $T/etc/resolv.conf; ln -s ../run/NetworkManager/resolv.conf $T/etc/resolv.conf 2>/dev/null || true
 
-    echo "== Creo il disco da ${DISK_GB} GB"
+    echo "== Creating the ${DISK_GB} GB disk"
     SECTORS=$(( DISK_GB * 1024 * 1024 * 1024 / 512 ))
     ESP_START=2048; ESP_SIZE=524288
     ROOT_START=$(( ESP_START + ESP_SIZE ))
@@ -213,15 +213,15 @@ EOF
     dd if=$W/root.img of=$W/disk.raw bs=4M oflag=seek_bytes seek=$(( ROOT_START * 512 )) conv=notrunc,sparse status=none
     rm -f $W/root.img $W/esp.img
 
-    echo "== Converto in VMDK"
+    echo "== Converting to VMDK"
     qemu-img convert -O vmdk -o subformat=streamOptimized $W/disk.raw /out/zetarays-2.0-'"$ARCH"'.vmdk
     rm -rf $W/*
   '
 fi
 
-echo "== Creo la macchina virtuale e l'OVA ($ARCH)"
-# VM temporanea con nome univoco: non deve MAI coincidere con le VM dell'utente
-# (es. una "ZETA RAYS 2.0 (arm64)" già importata). Il nome finale lo dà --vmname.
+echo "== Creating the virtual machine and the OVA ($ARCH)"
+# Temporary VM with a unique name: it must NEVER clash with the user's VMs
+# (e.g. an already imported "ZETA RAYS 2.0 (arm64)"). --vmname sets the final name.
 BUILD_VM="zeta-build-$ARCH-$$"
 for u in $(VBoxManage list hdds | awk -v f="zetarays-2.0-$ARCH.vmdk" '/^UUID:/{u=$2} $0 ~ f {print u}'); do
   VBoxManage closemedium disk "$u" >/dev/null 2>&1 || true
@@ -229,35 +229,34 @@ done
 TMPVM="$(mktemp -d)"
 VBoxManage createvm --name "$BUILD_VM" --platform-architecture="$VBOX_PLAT" --ostype "$VBOX_OSTYPE" --basefolder "$TMPVM" --register
 
-# Accelerazione 3D sempre attiva: il desktop ZETA RAYS (Hyprland) la richiede.
-# 8 GB e 4 processori: con 8 GB la macchina e nella fascia in cui ZETA tiene il
-# modello AI gia pronto all'accesso (risposte immediate invece di attendere il
-# caricamento) e il desktop non va mai in scambio su disco. Sono i valori
-# proposti all'importazione: su un computer ospite con meno memoria si
-# abbassano nella finestra di VirtualBox prima di avviare.
+# 3D acceleration always on: the ZETA RAYS desktop (Hyprland) requires it.
+# 8 GB and 4 CPUs: with 8 GB the machine falls in the range where ZETA keeps the
+# AI model preloaded at login (instant answers instead of waiting for it to
+# load) and the desktop never swaps to disk. These are the values offered at
+# import time: on a host with less memory, lower them in the VirtualBox window
+# before starting.
 VBoxManage modifyvm "$BUILD_VM" --memory 8192 --cpus 4 --firmware efi \
   --graphicscontroller vmsvga --vram 128 --accelerate-3d on \
   --nic1 nat --mouse usbtablet --usb-xhci on --rtc-use-utc on \
   --audio-enabled on --audio-controller hda --audio-out on --audio-in on \
   --ioapic on --paravirtprovider kvm
-# --paravirtprovider kvm: il sistema ospite riconosce di girare dentro una
-#   macchina virtuale e usa le scorciatoie previste per l orologio e per
-#   l attesa fra processori. Senza, con quattro processori virtuali il kernel
-#   perde tempo in attese che nessuno gli dice essere inutili.
-# --ioapic on: necessario con piu di un processore. VirtualBox lo accende da
-#   se, ma scriverlo evita che una modifica a mano nella finestra lo spenga e
-#   lasci la macchina con un processore solo senza dirlo.
-# Audio HDA: il kernel arm64 non ha il driver dell'AC'97 (predefinito su ARM).
+# --paravirtprovider kvm: the guest knows it is running inside a virtual
+#   machine and uses the paravirtual shortcuts for the clock and for waiting
+#   between CPUs. Without it, with four virtual CPUs the kernel wastes time
+#   in waits that nobody tells it are pointless.
+# --ioapic on: required with more than one CPU. VirtualBox turns it on by
+#   itself, but setting it explicitly prevents a manual change in the window
+#   from turning it off and silently leaving the machine with a single CPU.
+# HDA audio: the arm64 kernel has no AC'97 driver (the default on ARM).
 VBoxManage storagectl "$BUILD_VM" --name SATA --add sata --controller IntelAhci --portcount 1
-# --nonrotational on: il disco si presenta come un SSD. Il kernel allora non
-# applica le astuzie pensate per i dischi a piatti (letture in anticipo,
-# riordino delle richieste per ridurre gli spostamenti della testina), che su
-# un file dell ospite sono solo lavoro sprecato e attese in piu.
+# --nonrotational on: the disk presents itself as an SSD. The kernel then skips
+# the tricks meant for spinning disks (read-ahead, reordering requests to
+# reduce head movement), which on a file on the host are just wasted work and
+# extra waiting.
 VBoxManage storageattach "$BUILD_VM" --storagectl SATA --port 0 --device 0 --type hdd --nonrotational=on --medium "$VMDK"
-# La cache del disco sull ospitante resta SPENTA, com e di serie: accendendola
-# la macchina andrebbe piu veloce, ma un blocco del computer ospitante
-# perderebbe le ultime scritture. Fra velocita e non perdere dati si sceglie
-# di non perdere dati.
+# The host-side disk cache stays OFF, as by default: turning it on would make
+# the machine faster, but a host crash would lose the latest writes. Between
+# speed and not losing data, we choose not losing data.
 rm -f "$OVA"
 VBoxManage export "$BUILD_VM" --output "$OVA" --ovf20 --manifest \
   --vsys 0 --vmname "$VM_NAME" --product "ZETA RAYS OS" --version "2.0" --description "ZETA RAYS OS 2.0 ($ARCH)"
@@ -266,4 +265,4 @@ VBoxManage closemedium disk "$VMDK" >/dev/null 2>&1 || true
 rm -rf "$TMPVM" "$VMDK"
 chmod 644 "$OVA"
 
-echo "OVA pronta: $OVA"
+echo "OVA ready: $OVA"

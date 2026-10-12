@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!-- ZETA RAYS — cornici scure per le finestre di dialogo dell'installer (matchbox) -->
+<!-- ZETA RAYS — dark frames for the installer's dialog windows (matchbox) -->
 <theme name="ZETA RAYS" author="ZETA RAYS" desc="" version="1.0" engine_version="1" >
 
 <color id="bg"      def="#19191C" />

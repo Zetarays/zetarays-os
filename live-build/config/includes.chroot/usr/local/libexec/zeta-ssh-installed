@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — remote access enabled by default on the installed system.
+#
+# Runs inside the freshly installed system (an installer step). Here the
+# password is the one the user chose in the installer, not "zeta" as in the
+# live session and the OVAs (where SSH stays off): the server is enabled and
+# port 22 is opened to the local network AND THE INTERNET (REMOTE ENABLED),
+# just like "zeta-ssh remote on". From the internet the router still has
+# to forward port 22 to this computer. Protections: no root login, 4
+# attempts per connection, more than 10 new connections per minute from the
+# same address are dropped (see /etc/nftables.conf).
+# To go back to local network only: sudo zeta-ssh remote off
+# (or Settings › Wi-Fi & network › "From the internet too").
+# The server host keys are not generated here: the service creates them on
+# first boot (ssh.service.d/zeta-host-keys.conf), unique to this computer.
+set -e
+systemctl enable ssh.service >/dev/null 2>&1
+mkdir -p /etc/nftables.d
+# same file, same content that "zeta-ssh remote on" writes: it survives
+# a reboot and "systemctl restart nftables"
+cat > /etc/nftables.d/zeta-ssh.nft <<'EOF'
+# ZETA RAYS — written by zeta-ssh, do not edit by hand.
+# SSH on: port 22 REMOTE ENABLED (local network and internet)
+add element inet zeta lan_access { 22 }
+add element inet zeta remote_access { 22 }
+EOF
+chmod 0644 /etc/nftables.d/zeta-ssh.nft
+# rules are also preloaded in ufw (disabled), so whoever enables it is not locked out
+if command -v ufw >/dev/null 2>&1; then
+    for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fc00::/7 fe80::/10; do
+        ufw allow from "$net" to any port 22 proto tcp comment 'ZETA RAYS SSH (LAN)' >/dev/null 2>&1 || true
+    done
+    ufw limit 22/tcp comment 'ZETA RAYS SSH (internet)' >/dev/null 2>&1 || true
+fi
+echo "remote access (SSH): on, local network and internet"

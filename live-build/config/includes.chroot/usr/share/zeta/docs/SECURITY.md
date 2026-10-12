@@ -1,6 +1,6 @@
 # ZETA RAYS Security
 
-The security center of ZETA RAYS OS (the Security app, `zeta-sicurezza`) and
+The security center of ZETA RAYS OS (the Security app, `zeta-security`) and
 its collection of tools. ZETA RAYS is built for information security work
 **with authorization**: authorized penetration testing, defense, research,
 CTF, forensics, administration.

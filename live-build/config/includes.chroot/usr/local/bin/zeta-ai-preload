@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-ai-preload — quietly loads the local AI model into memory.
+
+From cold, the model takes tens of seconds to load: whoever opens ZETA and
+asks the first question would wait all that time. Here it is loaded shortly
+after login, at low priority, so the first answer is immediate.
+
+It does nothing if:
+  • the computer does not have plenty of memory (the model takes ~1.8 GB);
+  • Ollama is not running;
+  • the user disabled preloading (~/.config/zeta/ai-preload = 0).
+
+On a small machine the model is loaded only when actually needed and unloaded
+shortly afterwards: 1.8 GB held for nothing slows everything else down.
+Users who want preloading anyway can force it from Settings.
+"""
+import os
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+
+from intelligence import resources
+
+
+def user_choice():
+    """'1' forces preloading, '0' forbids it, missing = ZETA RAYS decides."""
+    try:
+        with open(os.path.expanduser("~/.config/zeta/ai-preload")) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def main():
+    choice = user_choice()
+    if choice == "0":
+        return 0
+    if choice != "1" and not resources.preload_allowed():
+        # Memory is not plentiful: the model will load on the first question
+        # and unload shortly afterwards (see intelligence/resources.py).
+        return 0
+    try:
+        from intelligence.registry import Registry
+        reg = Registry()
+        prov = reg.get("ollama")
+    except Exception:  # noqa: BLE001
+        return 0
+    if prov is None or not hasattr(prov, "preload"):
+        return 0
+    try:
+        if not prov.available():
+            return 0
+        prov.preload()
+    except Exception:  # noqa: BLE001
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

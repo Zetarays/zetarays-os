@@ -1,0 +1,38 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — folder accent colors.
+
+  zeta-folder-color red|white|green|blue|purple FOLDER...
+  zeta-folder-color default FOLDER...      back to the standard folder
+  zeta-folder-color get FOLDER             print the color (empty if none)
+
+Used by the right-click menu of the file manager (Thunar custom actions,
+"Folder Color") and of the Desktop. The color is GIO metadata of the folder:
+nothing inside the folder changes. See /usr/lib/zeta/system/folder_colors.py.
+"""
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import folder_colors  # noqa: E402
+
+
+def main(argv):
+    if len(argv) < 3 or argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0 if len(argv) > 1 else 2
+    cmd, paths = argv[1], argv[2:]
+    if cmd == "get":
+        print(folder_colors.get(paths[0]) or "")
+        return 0
+    key = None if cmd in ("default", "reset", "none") else cmd
+    failed = 0
+    for p in paths:
+        ok, err = folder_colors.set_color(p, key)
+        if not ok:
+            print("zeta-folder-color: %s" % err, file=sys.stderr)
+            failed += 1
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

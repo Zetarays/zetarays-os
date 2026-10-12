@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sceglie il fattore di scala dello schermo principale per Hyprland.
+"""Pick the scale factor of the main screen for Hyprland.
 
-La scala "auto" di Hyprland sbaglia quando l'EDID manca o non è valido (tipico
-delle macchine virtuali: uno schermo 1280x800 finisce a 2x e tutto appare
-enorme). Qui la scala si ricava dai DPI reali letti dall'EDID; senza un EDID
-valido si usa 1. Il risultato è sempre una scala che divide esattamente la
-risoluzione, così Hyprland non mostra avvisi.
+Hyprland's "auto" scale gets it wrong when the EDID is missing or invalid
+(typical of virtual machines: a 1280x800 screen ends up at 2x and everything
+looks huge). Here the scale is derived from the real DPI read from the EDID;
+without a valid EDID, 1 is used. The result is always a scale that divides
+the resolution exactly, so Hyprland shows no warnings.
 """
 import glob
 
@@ -32,7 +32,7 @@ def scale_for(connector):
         edid = b""
     if len(edid) < 128 or edid[:8] != EDID_HEADER or edid[21] == 0:
         return 1.0
-    dpi = w / (edid[21] / 2.54)          # byte 21 = larghezza fisica in cm
+    dpi = w / (edid[21] / 2.54)          # byte 21 = physical width in cm
     want = 2.0 if dpi >= 200 else 1.5 if dpi >= 150 else 1.25 if dpi >= 125 else 1.0
     return next(s for s in CANDIDATES if s <= want and exact(w, h, s))
 

@@ -1,0 +1,49 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-recovery — brings back the normal desktop after a Hyprland crash.
+#
+# After a crash, start-hyprland relaunches Hyprland with --safe-mode and an
+# emergency configuration: the computer works, but with nothing from ZETA
+# RAYS (bar, shortcuts, theme). This script notices safe mode, leaves a
+# marker for zeta-desktop-session and shuts Hyprland down cleanly: the
+# session relaunches it normally within a few seconds.
+# Never more than 3 recoveries in 10 minutes: if Hyprland keeps crashing, it
+# stays in safe mode, which is designed precisely to avoid crash loops.
+set -u
+RUN="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+HISTORY="$RUN/zeta-recoveries"
+warned=0
+# Watch Hyprland's instance directory: a new instance (after a crash) creates
+# its own folder there. Only then does pgrep check whether it started in safe
+# mode. Previously pgrep and sleep ran every 3 seconds, all the time: 40
+# processes a minute on an idle computer. The wait is a read with a timeout
+# on a fifo (a shell builtin, no process).
+FIFO="$RUN/zeta-recovery.$$"
+mkfifo -m 600 "$FIFO" && exec 9<>"$FIFO" && rm -f "$FIFO"
+nap() { read -r -t "$1" -u 9 _ 2>/dev/null || true; }
+instances() { local d; INSTANCES=""; for d in "$RUN"/hypr/*/; do INSTANCES+="$d "; done; }
+instances; previous="$INSTANCES"; check=1
+while nap 3; do
+    instances
+    if [ "$INSTANCES" != "$previous" ]; then previous="$INSTANCES"; check=1; fi
+    [ "$check" = 1 ] || continue
+    if ! pgrep -u "$(id -u)" -f "Hyprland .*--safe-mode" >/dev/null; then
+        warned=0; check=0; continue
+    fi
+    now=$(date +%s)
+    recent=$(awk -v a="$now" 'a - $1 < 600' "$HISTORY" 2>/dev/null | wc -l)
+    if [ "$recent" -ge 3 ]; then
+        if [ "$warned" = 0 ]; then
+            logger -t zeta-recovery "Hyprland crashed 3 times in 10 minutes: staying in safe mode"
+            warned=1
+        fi
+        continue
+    fi
+    echo "$now" >> "$HISTORY"
+    logger -t zeta-recovery "Hyprland in safe mode after a crash: restarting it normally"
+    touch "$RUN/zeta-recovery"
+    SIGNATURE=$(ls -t "$RUN/hypr" 2>/dev/null | head -1)
+    # Hyprland 0.55 Lua syntax: the old "dispatch exit" is rejected
+    HYPRLAND_INSTANCE_SIGNATURE="$SIGNATURE" hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1
+    nap 15
+done

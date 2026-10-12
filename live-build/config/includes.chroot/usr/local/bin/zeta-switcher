@@ -1,0 +1,594 @@
+#!/usr/bin/python3 -S
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — app switcher (Ctrl+Tab), like Cmd+Tab on macOS.
+
+  Ctrl+Tab              opens the switcher on the app used before the current one
+  Tab (Ctrl held)       next            Shift+Tab    previous
+  release Ctrl          brings the selected app to the front
+  Esc                   closes without changing anything
+  Ctrl+Q                quits the selected app (normal close, not killed)
+  click on an icon      brings it to the front;  scroll wheel: next/previous
+
+How it works:
+  - the keyboard is handled by Hyprland (submap «zeta-switcher» in
+    hyprland.lua): each key runs «zeta-switcher <command>», a minimal client
+    that sends the command to the resident process and exits within a few
+    milliseconds;
+  - the resident process (--daemon) keeps the window ready, hidden: it shows
+    up immediately, without loading GTK on every Ctrl+Tab. When idle it uses
+    no CPU: it waits on the socket, with no periodic polling;
+  - the apps and their order (most recently used first) are requested from
+    Hyprland every time it opens: no list to maintain, no stale entries.
+"""
+import os
+import socket
+import sys
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+SOCK = os.path.join(RUNTIME, "zeta-switcher.sock")
+COMMANDS = ("open", "open_back", "next", "back", "activate", "cancel", "close")
+
+
+def _send(cmd):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.sendto(cmd.encode(), SOCK)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+# ---------------------------------------------------------------- client
+if len(sys.argv) > 1 and sys.argv[1] in COMMANDS:
+    if _send(sys.argv[1]):
+        sys.exit(0)
+    if not sys.argv[1].startswith("open"):
+        sys.exit(0)
+    # no resident process (first use, or it crashed): start it, and the
+    # «open» command is passed to it as an argument
+    os.execv("/usr/bin/python3", ["/usr/bin/python3", os.path.abspath(__file__), "--daemon", sys.argv[1]])
+
+if len(sys.argv) < 2 or sys.argv[1] != "--daemon":
+    sys.path.insert(0, "/usr/lib/zeta")
+    from i18n import tr
+    print(tr("""ZETA RAYS app switcher (Ctrl+Tab), like Cmd+Tab on macOS.
+
+  Ctrl+Tab              opens the switcher on the app used before the current one
+  Tab (Ctrl held)       next          Shift+Tab    previous
+  release Ctrl          brings the selected app to the front
+  Esc                   closes without changing anything
+  Ctrl+Q                quits the selected app (normal close, not killed)
+  click on an icon      brings it to the front;  scroll wheel: next/previous"""))
+    sys.exit(0 if len(sys.argv) < 2 else 1)
+
+# ---------------------------------------------------------------- daemon
+import site  # noqa: E402  (started with -S: system modules are needed from here on)
+site.main()
+import glob  # noqa: E402
+import json  # noqa: E402
+import time  # noqa: E402
+
+# gtk4-layer-shell must be loaded before libwayland
+if "ZETA_SWITCHER_PRELOADED" not in os.environ:
+    libs = glob.glob("/usr/lib/*/libgtk4-layer-shell.so.0")
+    if libs:
+        env = dict(os.environ, ZETA_SWITCHER_PRELOADED="1",
+                   LD_PRELOAD=(libs[0] + " " + os.environ.get("LD_PRELOAD", "")).strip())
+        os.execve("/usr/bin/python3", ["/usr/bin/python3", os.path.abspath(__file__)] + sys.argv[1:], env)
+
+sys.path.insert(0, "/usr/lib/zeta")
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+try:
+    gi.require_version("Gtk4LayerShell", "1.0")
+    from gi.repository import Gtk4LayerShell as LayerShell
+except (ValueError, ImportError):
+    LayerShell = None
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
+from ui import theme  # noqa: E402
+from ui.app_names import NAMES  # noqa: E402
+from system import windows  # noqa: E402
+
+HIDDEN_WORKSPACE = windows.HIDDEN          # minimized windows
+ICON = 72                          # icon size (logical px)
+DEBUG = bool(os.environ.get("ZETA_SWITCHER_DEBUG"))
+
+CSS = """
+.sw-background {
+    background-color: alpha(@surface, 0.86);
+    border: 1px solid @line;
+    border-radius: 26px;
+    padding: 18px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+}
+.sw-app {
+    padding: 12px 10px 8px 10px;
+    border-radius: 18px;
+    border: 2px solid transparent;
+    min-width: 96px;
+}
+.sw-app:hover { background-color: @hover; }
+.sw-app.chosen {
+    background-color: @accent_soft;
+    border-color: @accent;
+}
+.sw-name { color: @ink_2; font-size: 12px; margin-top: 6px; }
+.sw-app.chosen .sw-name { color: @ink; font-weight: 700; }
+.sw-count {
+    background-color: @accent; color: @accent_ink;
+    border-radius: 999px; font-size: 10px; font-weight: 700;
+    padding: 0 6px; min-width: 10px;
+}
+.sw-title { color: @ink_dim; font-size: 11px; margin-top: 10px; }
+"""
+
+
+# ------------------------------------------------------------ Hyprland
+def _hypr(msg, timeout=1.0):
+    """Direct request to the Hyprland socket: no hyprctl process, so it
+    takes a few milliseconds even when the computer is busy."""
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not sig:
+        try:
+            sig = sorted(os.listdir(os.path.join(RUNTIME, "hypr")),
+                         key=lambda d: os.path.getmtime(os.path.join(RUNTIME, "hypr", d)))[-1]
+        except (OSError, IndexError):
+            return None
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(os.path.join(RUNTIME, "hypr", sig, ".socket.sock"))
+        s.sendall(msg.encode())
+        pieces = []
+        while True:
+            b = s.recv(65536)
+            if not b:
+                break
+            pieces.append(b)
+        return b"".join(pieces).decode(errors="replace")
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def _json(msg):
+    r = _hypr("j/" + msg)
+    try:
+        return json.loads(r) if r else None
+    except ValueError:
+        return None
+
+
+def _dispatch(lua):
+    return _hypr("dispatch " + lua)
+
+
+# ----------------------------------------------------------- icons and names
+class Catalog:
+    """Window class -> (name, icon), from the installed .desktop files.
+    Rebuilt only when a class is not found (freshly installed app), at most
+    every 10 seconds: no continuous scanning."""
+
+    def __init__(self):
+        self._app_map = {}
+        self._built_at = 0
+
+    def _build(self):
+        m = {}
+        for info in Gio.AppInfo.get_all():
+            if not isinstance(info, Gio.DesktopAppInfo):
+                continue
+            aid = info.get_id() or ""
+            keys = {aid[:-8].lower() if aid.endswith(".desktop") else aid.lower()}
+            wm = info.get_startup_wm_class()
+            if wm:
+                keys.add(wm.lower())
+            exe = info.get_executable()
+            if exe:
+                keys.add(os.path.basename(exe).lower())
+            for k in keys:
+                # a «real» .desktop entry is not replaced by a hidden one
+                if k and (k not in m or not info.get_nodisplay()):
+                    m[k] = info
+        self._app_map, self._built_at = m, time.monotonic()
+
+    def find(self, class_name):
+        k = (class_name or "").lower()
+        candidates = [k, k.rsplit(".", 1)[-1]]
+        for attempt in (0, 1):
+            if attempt and time.monotonic() - self._built_at < 10:
+                break
+            if attempt or not self._app_map:
+                self._build()
+            for p in candidates:
+                if p in self._app_map:
+                    info = self._app_map[p]
+                    app_name = NAMES.get(info.get_id(), info.get_display_name())
+                    return app_name, info.get_icon()
+        return None, None
+
+
+# ----------------------------------------------------------- the list
+def open_apps(catalog):
+    """The apps with open windows, most recently used first.
+
+    One entry per app (as on macOS): several windows of the same app, or
+    several instances, are a single entry with the window count; the most
+    recently used one is brought to the front. Minimized windows are
+    included: they get restored. The desktop itself (bar, desktop icons) does
+    not appear: it is not a Hyprland window.
+    """
+    clients = _json("clients") or []
+    app, order = {}, []
+    for c in sorted(clients, key=lambda c: c.get("focusHistoryID", 1 << 30)):
+        if not c.get("mapped", True) or not c.get("address"):
+            continue
+        ws = str((c.get("workspace") or {}).get("name", ""))
+        if ws.startswith("special:") and ws != HIDDEN_WORKSPACE:
+            continue                    # other special workspaces: not open apps
+        class_name = c.get("class") or c.get("initialClass") or ""
+        if not class_name and not c.get("title"):
+            continue
+        key = class_name.lower() or ("window-%s" % c["address"])
+        if key not in app:
+            app_name, icon = catalog.find(class_name)
+            app[key] = {"name": app_name or class_name or c.get("title") or tr("Window"),
+                        "icon": icon, "windows": []}
+            order.append(key)
+        app[key]["windows"].append({
+            "address": c["address"], "title": c.get("title") or "",
+            "minimized": ws == HIDDEN_WORKSPACE, "monitor": c.get("monitor"),
+            "pid": c.get("pid") or 0})
+    return [app[k] for k in order]
+
+
+# ----------------------------------------------------------- the window
+class AppSwitcher(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("App Switcher"))
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.add_css_class("zeta-switcher")
+        if LayerShell and LayerShell.is_supported():
+            LayerShell.init_for_window(self)
+            LayerShell.set_namespace(self, "zeta-switcher")
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            # the keyboard stays with Hyprland (submap): the window does not steal focus
+            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.NONE)
+            LayerShell.set_exclusive_zone(self, -1)
+        background_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["sw-background"])
+        self.row = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        self.title = Gtk.Label(css_classes=["sw-title"], ellipsize=Pango.EllipsizeMode.END,
+                                max_width_chars=60, halign=Gtk.Align.CENTER)
+        background_box.append(self.row)
+        background_box.append(self.title)
+        self.set_child(background_box)
+        scroll_ctrl = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL
+                                            | Gtk.EventControllerScrollFlags.DISCRETE)
+        scroll_ctrl.connect("scroll", self._on_scroll)
+        self.add_controller(scroll_ctrl)
+        self.entries, self.choice, self.tiles = [], 0, []
+        self.shown_at = 0.0
+
+    def reveal(self, entries, choice, monitor_name):
+        self.entries, self.choice = entries, choice
+        while (c := self.row.get_first_child()) is not None:
+            self.row.remove(c)
+        self.tiles = []
+        for i, v in enumerate(entries):
+            self.tiles.append(self._tile(i, v))
+            self.row.append(self.tiles[-1])
+        self._highlight()
+        if LayerShell and LayerShell.is_supported():
+            mon = self._monitor(monitor_name)
+            if mon is not None:
+                LayerShell.set_monitor(self, mon)
+        self.shown_at = time.monotonic()
+        self.set_visible(True)
+
+    def _monitor(self, connector):
+        """The monitor of the active window: the switcher shows up there, once."""
+        if not connector:
+            return None
+        listing = Gdk.Display.get_default().get_monitors()
+        for i in range(listing.get_n_items()):
+            m = listing.get_item(i)
+            if m.get_connector() == connector:
+                return m
+        return None
+
+    def _tile(self, i, v):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["sw-app"])
+        above = Gtk.Overlay()
+        img = Gtk.Image(pixel_size=ICON)
+        if v["icon"] is not None:
+            img.set_from_gicon(v["icon"])
+        else:
+            img.set_from_icon_name("application-x-executable")
+        above.set_child(img)
+        n = len(v["windows"])
+        if n > 1:
+            count_label = Gtk.Label(label=str(n), css_classes=["sw-count"],
+                              halign=Gtk.Align.END, valign=Gtk.Align.START)
+            above.add_overlay(count_label)
+        box.append(above)
+        name_label = Gtk.Label(label=v["name"], css_classes=["sw-name"],
+                               ellipsize=Pango.EllipsizeMode.END, max_width_chars=12)
+        box.append(name_label)
+        box.set_tooltip_text(v["name"])
+        click = Gtk.GestureClick()
+        click.connect("released", lambda *_a, idx=i: self._click(idx))
+        box.add_controller(click)
+        hover = Gtk.EventControllerMotion()
+        hover.connect("motion", lambda _c, x, y, idx=i: self._mouse(idx, x, y))
+        box.add_controller(hover)
+        return box
+
+    def _highlight(self):
+        for i, c in enumerate(self.tiles):
+            if i == self.choice:
+                c.add_css_class("chosen")
+            else:
+                c.remove_css_class("chosen")
+        if self.entries:
+            v = self.entries[self.choice]
+            f = v["windows"][0]
+            text = f["title"] or v["name"]
+            if f["minimized"]:
+                text += "  " + tr("(minimized)")
+            n = len(v["windows"])
+            if n > 1:
+                text += "  -  " + ntr("{n} window", "{n} windows", n).format(n=n)
+            self.title.set_text(text)
+
+    def move_selection(self, step):
+        if self.entries:
+            self.choice = (self.choice + step) % len(self.entries)
+            self._highlight()
+
+    def _mouse(self, idx, x, y):
+        """Hovering selects an icon only if the pointer really moved: if the
+        switcher appears under a still pointer, the selection made with the
+        keyboard must not change."""
+        if DEBUG:
+            print("mouse over %d (%.0f,%.0f)" % (idx, x, y), file=sys.stderr, flush=True)
+        if time.monotonic() - self.shown_at < 0.25:
+            return
+        self.move_to(idx)
+
+    def move_to(self, idx):
+        if 0 <= idx < len(self.entries):
+            self.choice = idx
+            self._highlight()
+
+    def _click(self, idx):
+        if DEBUG:
+            print("click on %d" % idx, file=sys.stderr, flush=True)
+        self.get_application().activate_entry(idx)
+
+    def _on_scroll(self, _c, _dx, dy):
+        self.move_selection(1 if dy > 0 else -1)
+        return True
+
+
+class App(Gtk.Application):
+    def __init__(self, first):
+        super().__init__(application_id="org.zetarays.Switcher",
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+        self.first = first
+        self.window = None
+        self.catalog = Catalog()
+        self._quick_release = 0.0
+        self._opened_at = 0.0              # when it opened (for duplicates)
+        self._colors_mtime = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        # LD_PRELOAD was only needed by this process: apps must not inherit it
+        pre = " ".join(p for p in os.environ.get("LD_PRELOAD", "").split()
+                       if "gtk4-layer-shell" not in p)
+        if pre:
+            os.environ["LD_PRELOAD"] = pre
+        else:
+            os.environ.pop("LD_PRELOAD", None)
+        os.environ.pop("ZETA_SWITCHER_PRELOADED", None)
+        theme.apply(CSS)
+        self._colors_mtime = self._colors_stamp()
+        self.hold()                       # stays alive even with the window hidden
+        self._listen()
+
+    def do_activate(self):
+        if self.window is None:
+            self.window = AppSwitcher(self)
+        if self.first:
+            GLib.idle_add(self.command, self.first)
+            self.first = None
+
+    # --- socket: one datagram per command, no periodic polling
+    def _listen(self):
+        try:
+            os.unlink(SOCK)
+        except FileNotFoundError:
+            pass
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.sock.bind(SOCK)
+        os.chmod(SOCK, 0o600)
+        self.sock.setblocking(False)
+        GLib.io_add_watch(self.sock.fileno(), GLib.PRIORITY_HIGH, GLib.IO_IN, self._receive)
+
+    def _receive(self, *_a):
+        try:
+            while True:
+                data = self.sock.recv(64)
+                self.command(data.decode(errors="replace").strip())
+        except BlockingIOError:
+            pass
+        except OSError:
+            pass
+        return True
+
+    def command(self, cmd):
+        if DEBUG:
+            print("%.3f command %s" % (time.monotonic(), cmd), file=sys.stderr, flush=True)
+        try:
+            getattr(self, "c_" + cmd)()
+        except AttributeError:
+            pass
+        except Exception as e:      # never let an error bring the switcher down
+            print("zeta-switcher: %s: %s" % (cmd, e), file=sys.stderr)
+            self._close_all()
+        return False
+
+    # --- state
+    def _colors_stamp(self):
+        try:
+            return os.path.getmtime(theme.COLORS_FILE)
+        except OSError:
+            return None
+
+    def _update_theme(self):
+        m = self._colors_stamp()
+        if m != self._colors_mtime:
+            self._colors_mtime = m
+            theme.reload()
+
+    def _visible(self):
+        return self.window is not None and self.window.get_visible()
+
+    def _reset_submap(self):
+        _dispatch('hl.dsp.submap("reset")')
+
+    def _close_all(self):
+        if self.window is not None:
+            self.window.set_visible(False)
+        self._reset_submap()
+
+    # --- commands
+    def c_open_back(self):
+        self.c_open(backward=True)
+
+    # The same Ctrl+Tab that opens the switcher also triggers the shortcut of
+    # the submap that was just activated: «open» and «next» (or «back»)
+    # arrive together, in any order. The second of the two is ignored.
+    DUPLICATE_INTERVAL = 0.15
+
+    def _is_duplicate(self):
+        return time.monotonic() - self._opened_at < self.DUPLICATE_INTERVAL
+
+    def c_open(self, backward=False):
+        if self._visible():
+            if self._is_duplicate():
+                return
+            return self.c_back() if backward else self.c_next()
+        # Ctrl+Tab pressed and released at once: the release can arrive before
+        # the opening (two processes started almost together). The quick
+        # switch has already happened: do not reopen.
+        if time.monotonic() - self._quick_release < 0.4:
+            return
+        self._update_theme()
+        entries = open_apps(self.catalog)
+        if not entries:
+            self._reset_submap()
+            return
+        activate = _json("activewindow") or {}
+        mon = None
+        monitor = _json("monitors") or []
+        for m in monitor:
+            if activate.get("monitor") is not None and m.get("id") == activate.get("monitor"):
+                mon = m.get("name")
+        if mon is None:
+            mon = next((m.get("name") for m in monitor if m.get("focused")), None)
+        if len(entries) < 2:
+            choice = 0
+        else:
+            choice = len(entries) - 1 if backward else 1
+        self.window.reveal(entries, choice, mon)
+        self._opened_at = time.monotonic()
+
+    def c_next(self):
+        if not self._visible():
+            return self.c_open()          # arrived before «open»
+        if not self._is_duplicate():
+            self.window.move_selection(1)
+
+    def c_back(self):
+        if not self._visible():
+            return self.c_open(backward=True)
+        if not self._is_duplicate():
+            self.window.move_selection(-1)
+
+    def c_cancel(self):
+        self._close_all()
+
+    def c_activate(self):
+        if not self._visible():
+            # release arrived before the opening: quick switch to the previous
+            # app, like a fast Ctrl+Tab on macOS
+            entries = open_apps(self.catalog)
+            self._quick_release = time.monotonic()
+            self._reset_submap()
+            if len(entries) > 1:
+                self._bring_to_front(entries[1])
+            return
+        self.activate_entry(self.window.choice)
+
+    def activate_entry(self, idx):
+        entries = self.window.entries if self.window else []
+        if DEBUG and 0 <= idx < len(entries):
+            print("activating %d = %s (list: %s)" % (idx, entries[idx]["name"],
+                  ", ".join(v["name"] for v in entries)), file=sys.stderr, flush=True)
+        self.window.set_visible(False)
+        self._reset_submap()
+        if 0 <= idx < len(entries):
+            self._bring_to_front(entries[idx])
+
+    def _bring_to_front(self, entry):
+        # When the switcher disappears, Hyprland (follow_mouse) gives focus to
+        # the window under the pointer: wait until it has done so, then bring
+        # the selected app to the front. Same reason and same delay as the
+        # windows panel (zeta-windows).
+        GLib.timeout_add(120, self._bring_to_front_now, entry)
+
+    def _bring_to_front_now(self, entry):
+        f = entry["windows"][0]
+        if f["minimized"]:
+            windows.restore(f["address"])     # from the hidden workspace back to its place
+        else:
+            _dispatch('hl.dsp.focus({ window = "address:%s" })' % f["address"])
+        return False
+
+    def c_close(self):
+        """Ctrl+Q: normal close of every window of the selected app (like the
+        close button: the app may ask to save). No signal is sent to the
+        process: for frozen apps there is Force Quit."""
+        if not self._visible():
+            return
+        entry = self.window.entries[self.window.choice]
+        for f in entry["windows"]:
+            _dispatch('hl.dsp.window.close({ window = "address:%s" })' % f["address"])
+        GLib.timeout_add(350, self._after_close)
+
+    def _after_close(self):
+        if not self._visible():
+            return False
+        entries = open_apps(self.catalog)
+        if not entries:
+            self._close_all()
+            return False
+        choice = min(self.window.choice, len(entries) - 1)
+        self.window.reveal(entries, choice, None)
+        return False
+
+
+def main():
+    first = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] in COMMANDS else None
+    return App(first).run([sys.argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,14 +1,14 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Identità e impostazioni di sistema di ZETA RAYS OS (eseguito dentro il chroot)
+# ZETA RAYS OS identity and system settings (run inside the chroot)
 set -e
 
 ACCENT="#3A8DFF"
 
-# --- Nome del sistema ---
-# Il file vero è /usr/lib/os-release: lo deviamo, così gli aggiornamenti di sistema
-# non lo sostituiscono. live-build ha già copiato l'originale in /etc/os-release
-# (un file normale, non un collegamento): va riscritto anche quello.
+# --- System name ---
+# The real file is /usr/lib/os-release: we divert it, so system updates do not
+# replace it. live-build has already copied the original to /etc/os-release
+# (a regular file, not a symlink): that one must be rewritten too.
 dpkg-divert --local --rename --divert /usr/lib/os-release.upstream --add /usr/lib/os-release >/dev/null
 cat > /usr/lib/os-release <<'EOF'
 PRETTY_NAME="ZETA RAYS OS 2.0"
@@ -26,8 +26,8 @@ mv /etc/os-release.zeta /etc/os-release
 printf 'ZETA RAYS OS 2.0 \\n \\l\n\n' > /etc/issue
 printf 'ZETA RAYS OS 2.0\n' > /etc/issue.net
 
-# Messaggio della console (sostituisce quello della distribuzione di base).
-# In inglese: il motd e' un file fisso, uguale per tutte le lingue.
+# Console message (replaces the one from the base distribution).
+# In English: the motd is a static file, the same for every language.
 cat > /etc/motd <<'EOF'
 
   ZETA RAYS OS 2.0
@@ -38,27 +38,27 @@ cat > /etc/motd <<'EOF'
 
 EOF
 
-# Logo della distribuzione di base usato da alcune app: sostituito dal simbolo ZETA RAYS
+# Base distribution logo used by some apps: replaced by the ZETA RAYS symbol
 if [ -f /usr/share/pixmaps/debian-logo.png ]; then
   dpkg-divert --local --rename --divert /usr/share/pixmaps/upstream-logo.png --add /usr/share/pixmaps/debian-logo.png >/dev/null
-  sed "s/ACCENT/#FFFFFF/g" /usr/share/zeta/brand/zeta-simbolo.svg.in > /tmp/zeta-simbolo.svg
-  rsvg-convert -w 128 -h 110 -o /usr/share/pixmaps/debian-logo.png /tmp/zeta-simbolo.svg
-  rm -f /tmp/zeta-simbolo.svg
+  sed "s/ACCENT/#FFFFFF/g" /usr/share/zeta/brand/zeta-symbol.svg.in > /tmp/zeta-symbol.svg
+  rsvg-convert -w 128 -h 110 -o /usr/share/pixmaps/debian-logo.png /tmp/zeta-symbol.svg
+  rm -f /tmp/zeta-symbol.svg
 fi
 
-# Riga del kernel al login testuale e via SSH («... Debian 6.12...»): il
-# messaggio di benvenuto e' gia' /etc/motd di ZETA RAYS
+# Kernel line on text and SSH logins («... Debian 6.12...»): the welcome
+# message is already the ZETA RAYS /etc/motd
 if [ -f /etc/update-motd.d/10-uname ]; then
   dpkg-divert --local --rename --divert /usr/share/zeta/10-uname.upstream \
     --add /etc/update-motd.d/10-uname >/dev/null
 fi
 
-# Resti dell'installer di Debian (calamares-settings-debian): l'icona
-# «Install Debian» che si copierebbe sulla Scrivania e i preferiti di GNOME
+# Leftovers from the Debian installer (calamares-settings-debian): the
+# «Install Debian» icon that would be copied to the desktop and the GNOME favorites
 rm -f /etc/xdg/autostart/calamares-desktop-icon.desktop \
       /usr/share/glib-2.0/schemas/96_calamares-settings-debian.gschema.override
 
-# --- Shell: prompt, titolo e benvenuto ZETA RAYS ---
+# --- Shell: ZETA RAYS prompt, title and welcome ---
 for rc in /etc/skel/.bashrc /root/.bashrc; do
   if [ -f "$rc" ] && ! grep -q zeta/shell/bashrc "$rc"; then
     printf '\n# ZETA RAYS OS\n[ -f /usr/share/zeta/shell/bashrc ] && . /usr/share/zeta/shell/bashrc\n' >> "$rc"
@@ -68,124 +68,124 @@ done
 # --- Time zone (the installer sets the user's own) ---
 ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
 echo "Europe/Rome" > /etc/timezone
-# Languages: hook 0110-zeta-lingue generates them all and starts in English.
+# Languages: hook 0110-zeta-languages generates them all and starts in English.
 
-# --- Script eseguibili ---
+# --- Executable scripts ---
 chmod 755 /usr/local/bin/zeta-* /usr/local/bin/mpv /usr/local/bin/hyprlock /usr/libexec/zeta-installer /usr/libexec/zeta-vt-text /usr/libexec/zeta-vm-sleep
 find /usr/lib/zeta -name "*.py" -exec chmod 644 {} + 2>/dev/null || true
-# Python precompilato e cache delle icone: in 9996-zeta-velocita, dopo gli
-# hook di serie di live-build che li cancellano.
+# Precompiled Python and icon caches: in 9996-zeta-speed, after the
+# stock live-build hooks that delete them.
 
-# --- Servizi di sistema ---
+# --- System services ---
 systemctl set-default graphical.target 2>/dev/null || true
-# blueman-mechanism parte da solo via D-Bus quando serve (Impostazioni ›
-# Bluetooth, l'applet): avviato al boot ritardava il desktop di ~0,6 s
+# blueman-mechanism starts on its own via D-Bus when needed (Settings ›
+# Bluetooth, the applet): started at boot it delayed the desktop by ~0.6 s
 systemctl disable blueman-mechanism.service 2>/dev/null || true
 systemctl enable sddm.service 2>/dev/null || true
 systemctl enable zeta-live-password.service 2>/dev/null || true
-# Firewall attivo (regole in /etc/nftables.conf) e permessi dell'aiutante del Monitor
+# Firewall enabled (rules in /etc/nftables.conf) and Monitor helper permissions
 systemctl enable nftables.service 2>/dev/null || true
-# la scelta SSH negli insiemi del firewall dopo ogni avvio e ricarica
-systemctl enable zeta-ssh-sincronizza.service 2>/dev/null || true
+# the SSH choice in the firewall sets after every boot and reload
+systemctl enable zeta-ssh-sync.service 2>/dev/null || true
 systemctl enable zeta-vm-sleep.service 2>/dev/null || true
-# Una sola sessione grafica: ZETA RAYS. Le voci di Hyprland "nudo" (e quella per uwsm,
-# che non è installato) confondevano la schermata di accesso.
-mkdir -p /usr/share/zeta/sessioni-nascoste
+# A single graphical session: ZETA RAYS. The "bare" Hyprland entries (and the
+# uwsm one, which is not installed) confused the login screen.
+mkdir -p /usr/share/zeta/hidden-sessions
 for f in hyprland.desktop hyprland-uwsm.desktop; do
   if [ -e /usr/share/wayland-sessions/$f ]; then
-    dpkg-divert --local --rename --divert /usr/share/zeta/sessioni-nascoste/$f \
+    dpkg-divert --local --rename --divert /usr/share/zeta/hidden-sessions/$f \
         --add /usr/share/wayland-sessions/$f >/dev/null
   fi
 done
 chmod 0440 /etc/sudoers.d/zeta-monitor
 chmod 0755 /usr/libexec/zeta-monitor-helper
-# NetworkManager esegue solo script di root non scrivibili da altri
-chown root:root /etc/NetworkManager/dispatcher.d/90-zeta-barra
-chmod 0755 /etc/NetworkManager/dispatcher.d/90-zeta-barra
-# regione radio del Wi-Fi dal fuso orario (lanciata da udev)
-chown root:root /usr/local/libexec/zeta-regione-radio /etc/udev/rules.d/60-zeta-regione-radio.rules
-chmod 0755 /usr/local/libexec/zeta-regione-radio
-chmod 0644 /etc/udev/rules.d/60-zeta-regione-radio.rules
-# sorgenti dei pacchetti del sistema installato (passo di Calamares)
-chown root:root /usr/local/libexec/zeta-sorgenti-apt /etc/calamares/modules/shellprocess-sorgenti.conf
-chmod 0755 /usr/local/libexec/zeta-sorgenti-apt
-chown root:root /usr/local/libexec/zeta-ssh-installato /etc/calamares/modules/shellprocess-ssh.conf
-chmod 0755 /usr/local/libexec/zeta-ssh-installato
-# SSH: server installato ma spento di serie (si accende con zeta-ssh attiva)
-# e nessuna chiave del server nell'immagine: sarebbero uguali su ogni
-# computer. Si creano al primo avvio del servizio (ssh.service.d/zeta-chiavi).
+# NetworkManager only runs root scripts that others cannot write to
+chown root:root /etc/NetworkManager/dispatcher.d/90-zeta-bar
+chmod 0755 /etc/NetworkManager/dispatcher.d/90-zeta-bar
+# Wi-Fi radio region from the time zone (launched by udev)
+chown root:root /usr/local/libexec/zeta-radio-region /etc/udev/rules.d/60-zeta-radio-region.rules
+chmod 0755 /usr/local/libexec/zeta-radio-region
+chmod 0644 /etc/udev/rules.d/60-zeta-radio-region.rules
+# package sources of the installed system (Calamares step)
+chown root:root /usr/local/libexec/zeta-apt-sources /etc/calamares/modules/shellprocess-aptsources.conf
+chmod 0755 /usr/local/libexec/zeta-apt-sources
+chown root:root /usr/local/libexec/zeta-ssh-installed /etc/calamares/modules/shellprocess-ssh.conf
+chmod 0755 /usr/local/libexec/zeta-ssh-installed
+# SSH: server installed but off by default (turned on with «zeta-ssh on»)
+# and no server keys in the image: they would be the same on every computer.
+# They are created on the first start of the service (ssh.service.d/zeta-host-keys).
 systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true
 rm -f /etc/ssh/ssh_host_*
-# Pagina iniziale di Firefox e sua politica: senza, Firefox aprirebbe la pagina
-# d'errore quando non c'e' rete. La costruzione si ferma se mancano.
+# Firefox start page and its policy: without them, Firefox would open the
+# error page when there is no network. The build stops if they are missing.
 for f in /usr/share/zetarays/start/index.html /usr/lib/firefox-esr/distribution/policies.json; do
-  [ -s "$f" ] || { echo "manca $f" >&2; exit 1; }
+  [ -s "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
 grep -q '"URL": "file:///usr/share/zetarays/start/index.html"' /usr/lib/firefox-esr/distribution/policies.json \
-  || { echo "policies.json senza la pagina iniziale" >&2; exit 1; }
+  || { echo "policies.json without the start page" >&2; exit 1; }
 chown -R root:root /usr/share/zetarays /usr/share/firefox-esr/distribution/policies.json
 chmod -R u=rwX,go=rX /usr/share/zetarays
 chmod 0644 /usr/share/firefox-esr/distribution/policies.json
-# ufw installato ma spento (il firewall attivo e' nftables, tabella inet zeta).
-# Regole gia' pronte per ZETA Share, solo rete locale: chi accende ufw non
-# perde la condivisione. Quelle per SSH le scrive zeta-ssh quando lo si accende.
-# user.rules/user6.rules arrivano gia' scritti (generati con ufw vero, vedi
-# includes.chroot/etc/ufw): «ufw allow» qui dentro non funziona nella
-# costruzione amd64 emulata.
+# ufw installed but off (the active firewall is nftables, table inet zeta).
+# Rules already prepared for ZETA Share, local network only: whoever turns
+# ufw on does not lose sharing. The SSH ones are written by zeta-ssh when SSH
+# is turned on. user.rules/user6.rules ship already written (generated with
+# the real ufw, see includes.chroot/etc/ufw): «ufw allow» in here does not
+# work in the emulated amd64 build.
 if command -v ufw >/dev/null 2>&1; then
   sed -i 's/^ENABLED=.*/ENABLED=no/' /etc/ufw/ufw.conf
   chown root:root /etc/ufw/user.rules /etc/ufw/user6.rules
   chmod 0640 /etc/ufw/user.rules /etc/ufw/user6.rules
   grep -q 'dport 53317' /etc/ufw/user.rules && grep -q 'dport 53317' /etc/ufw/user6.rules \
-    || { echo "ufw: regole di ZETA Share mancanti" >&2; exit 1; }
+    || { echo "ufw: ZETA Share rules missing" >&2; exit 1; }
 fi
 chown -R root:root /etc/ssh/sshd_config.d /etc/systemd/system/ssh.service.d /etc/nftables.d
-chmod 0644 /etc/ssh/sshd_config.d/zeta.conf /etc/systemd/system/ssh.service.d/zeta-chiavi.conf
+chmod 0644 /etc/ssh/sshd_config.d/zeta.conf /etc/systemd/system/ssh.service.d/zeta-host-keys.conf
 
-# --- Avvio grafico (Plymouth) ---
+# --- Graphical boot (Plymouth) ---
 sed "s/ACCENT/$ACCENT/g" /usr/share/zeta/brand/zeta-logo.svg.in > /tmp/zeta-logo.svg
 rsvg-convert -w 200 -o /usr/share/plymouth/themes/zeta/logo.png /tmp/zeta-logo.svg
 rm -f /tmp/zeta-logo.svg
-# campo della password del disco cifrato (vedi zeta.script)
+# encrypted disk password field (see zeta.script)
 P=/usr/share/plymouth/themes/zeta
 printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="44"><rect x="0.5" y="0.5" width="319" height="43" rx="12" fill="#19191C" stroke="#FFFFFF" stroke-opacity="0.18"/></svg>' \
-  | rsvg-convert -o "$P/campo.png"
+  | rsvg-convert -o "$P/field.png"
 printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4" fill="#EDEDEA"/></svg>' \
-  | rsvg-convert -o "$P/pallino.png"
+  | rsvg-convert -o "$P/dot.png"
 printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EDEDEA" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>' \
-  | rsvg-convert -o "$P/lucchetto.png"
-for f in logo campo pallino lucchetto; do
-  [ -s "$P/$f.png" ] || { echo "ZETA RAYS: ERRORE - manca $P/$f.png" >&2; exit 1; }
+  | rsvg-convert -o "$P/lock.png"
+for f in logo field dot lock; do
+  [ -s "$P/$f.png" ] || { echo "ZETA RAYS: ERROR - missing $P/$f.png" >&2; exit 1; }
 done
 plymouth-set-default-theme zeta
 if [ -f /etc/default/grub ]; then
   sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="ZETA RAYS OS"/' /etc/default/grub
   sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0"/' /etc/default/grub
 fi
-# Colori di riserva di Debian (azzurro su blu) quando il tema non si carica:
-# 05_debian_theme va fuori da grub.d, e i colori restano quelli di GRUB
-# (grigio su nero), come lo sfondo di ZETA RAYS.
+# Debian fallback colors (light blue on blue) when the theme does not load:
+# 05_debian_theme is moved out of grub.d, and the colors stay GRUB's own
+# (gray on black), like the ZETA RAYS background.
 if [ -f /etc/grub.d/05_debian_theme ]; then
   dpkg-divert --local --rename --divert /usr/share/zeta/05_debian_theme.upstream \
     --add /etc/grub.d/05_debian_theme >/dev/null
 fi
-# Sistema installato: tema ZETA RAYS, nessuna voce di ripristino, risoluzione
-# che il kernel eredita sui framebuffer semplici.
-# Attesa e stile del menu NON stanno qui ma in zeta-avvio.cfg (menu sempre
-# visibile, per scegliere l'altro sistema nel doppio avvio). Qui c'erano
-# «hidden» e 2 secondi: grub-mkconfig legge i file in ordine alfabetico,
-# «zeta.cfg» viene dopo «zeta-avvio.cfg», e il menu restava nascosto.
+# Installed system: ZETA RAYS theme, no recovery entries, a resolution the
+# kernel inherits on simple framebuffers.
+# The menu timeout and style are NOT set here but in zeta-boot.cfg (menu
+# always visible, to choose the other system when dual booting). This used to
+# set «hidden» and 2 seconds: grub-mkconfig reads the files in alphabetical
+# order, «zeta.cfg» comes after «zeta-boot.cfg», and the menu stayed hidden.
 mkdir -p /etc/default/grub.d
 cat > /etc/default/grub.d/zeta.cfg <<'CFG'
 GRUB_DISABLE_RECOVERY=true
-# Risoluzione del menu: sui computer veri quella dello schermo (1920x1080 o
-# la piu' vicina), nitida e non stirata; nelle macchine virtuali 1280x800,
-# che il desktop eredita sui framebuffer semplici. Questo file e' letto da
-# update-grub sul computer stesso, quindi la scelta vale per quella macchina.
-# VirtualBox su arm64 non si fa riconoscere da systemd-detect-virt (niente
-# SMBIOS): valgono anche i dispositivi PCI virtuali (VirtualBox 80ee, VMware
-# 15ad, virtio 1af4, Hyper-V 1414, Parallels 1ab8) e l'architettura arm64,
-# che su un computer vero quasi sempre ha un driver grafico proprio.
+# Menu resolution: on real computers the screen's own (1920x1080 or the
+# closest), sharp and not stretched; in virtual machines 1280x800, which the
+# desktop inherits on simple framebuffers. This file is read by update-grub
+# on the computer itself, so the choice applies to that machine.
+# VirtualBox on arm64 is not recognized by systemd-detect-virt (no SMBIOS):
+# virtual PCI devices also count (VirtualBox 80ee, VMware 15ad, virtio 1af4,
+# Hyper-V 1414, Parallels 1ab8), as does the arm64 architecture, which on a
+# real computer almost always has its own graphics driver.
 zeta_vm() {
   systemd-detect-virt -q --vm 2>/dev/null && return 0
   [ "$(uname -m)" = aarch64 ] && return 0
@@ -199,17 +199,17 @@ fi
 GRUB_GFXPAYLOAD_LINUX=keep
 GRUB_THEME=/usr/share/grub/themes/zeta/theme.txt
 CFG
-# Le voci si chiamano "ZETA RAYS OS" e non "ZETA RAYS OS GNU/Linux".
-# Il nome ha uno spazio: dentro un pattern «case» della shell va messo fra
-# virgolette, altrimenti lo spazio spezza il termine e grub-mkconfig si ferma
-# con «Syntax error: word unexpected» (era il motivo del fallimento del
-# servizio di primo avvio).
+# The entries are called "ZETA RAYS OS" and not "ZETA RAYS OS GNU/Linux".
+# The name contains a space: inside a shell «case» pattern it must be quoted,
+# otherwise the space splits the term and grub-mkconfig stops with
+# «Syntax error: word unexpected» (that was why the first-boot service
+# failed).
 [ -f /etc/grub.d/10_linux ] && sed -i 's#Ubuntu|Kubuntu|\*GNU/Linux)#Ubuntu|Kubuntu|"ZETA RAYS"*|*GNU/Linux)#' /etc/grub.d/10_linux
-# Icone del tema anche per «Advanced options» e «UEFI Firmware Settings»
-# (GRUB le sceglie dalla classe della voce, che qui mancava)
+# Theme icons for «Advanced options» and «UEFI Firmware Settings» too
+# (GRUB picks them from the entry's class, which was missing here)
 python3 - <<'PY'
 import os
-for p, vecchio, nuovo in (
+for p, old, new in (
     ("/etc/grub.d/10_linux",
      "| grub_quote)' \\$menuentry_id_option 'gnulinux-advanced-",
      "| grub_quote)' --class submenu \\$menuentry_id_option 'gnulinux-advanced-"),
@@ -219,70 +219,68 @@ for p, vecchio, nuovo in (
 ):
     if os.path.exists(p):
         s = open(p).read()
-        if vecchio in s:
-            open(p, "w").write(s.replace(vecchio, nuovo, 1))
-        elif nuovo not in s:
-            print("ZETA RAYS: avviso - %s non riconosciuto (classe della voce)" % p)
+        if old in s:
+            open(p, "w").write(s.replace(old, new, 1))
+        elif new not in s:
+            print("ZETA RAYS: warning - %s not recognized (entry class)" % p)
 PY
 
-# --- Installer ZETA RAYS (Calamares): logo su sfondo nero ---
-# La cartella si chiama «zeta», come dice settings.conf (branding: zeta).
-# Qui c'era scritto «zetarays», rimasto da un cambio di nome: la condizione
-# era sempre falsa, il logo non veniva mai generato e Calamares si rifiutava
-# di partire con «Image file .../logo.png does not exist» — cioe l'installer
-# non si apriva affatto. Ora il percorso e uno solo e, se qualcosa non
-# riesce, la costruzione si ferma invece di consegnare un sistema che non si
-# puo installare.
+# --- ZETA RAYS installer (Calamares): logo on a black background ---
+# The folder is called «zeta», as settings.conf says (branding: zeta).
+# This used to say «zetarays», left over from a rename: the condition was
+# always false, the logo was never generated and Calamares refused to start
+# with «Image file .../logo.png does not exist» — that is, the installer did
+# not open at all. Now there is a single path and, if something fails, the
+# build stops instead of shipping a system that cannot be installed.
 CAL=/etc/calamares/branding/zeta
 if [ ! -d "$CAL" ]; then
-  echo "ZETA RAYS: ERRORE - manca $CAL (branding dell'installer)." >&2
+  echo "ZETA RAYS: ERROR - $CAL is missing (installer branding)." >&2
   exit 1
 fi
 sed 's/ACCENT/#EDEDEA/g' /usr/share/zeta/brand/zeta-logo.svg.in > /tmp/zeta-cal.svg
 rsvg-convert -h 88 -o "$CAL/logo.png" /tmp/zeta-cal.svg
 rm -f /tmp/zeta-cal.svg
 if [ ! -s "$CAL/logo.png" ]; then
-  echo "ZETA RAYS: ERRORE - logo dell'installer non generato: Calamares non partirebbe." >&2
+  echo "ZETA RAYS: ERROR - installer logo not generated: Calamares would not start." >&2
   exit 1
 fi
-echo "ZETA RAYS: logo dell'installer generato ($(wc -c < "$CAL/logo.png") byte)"
+echo "ZETA RAYS: installer logo generated ($(wc -c < "$CAL/logo.png") byte)"
 
-# --- Impostazioni GTK3 predefinite (GSettings: Roboto, tema scuro, icone ZETA RAYS) ---
+# --- Default GTK3 settings (GSettings: Roboto, dark theme, ZETA RAYS icons) ---
 for c in /usr/lib/*/glib-2.0/glib-compile-schemas; do
   [ -x "$c" ] && "$c" /usr/share/glib-2.0/schemas
 done
 fc-cache -f >/dev/null 2>&1 || true
 
-# --- Versione nella schermata di accesso (sempre allineata a os-release) ---
+# --- Version on the login screen (always in sync with os-release) ---
 VER=$(. /etc/os-release; echo "$VERSION_ID")
 if [ -n "$VER" ] && [ -f /usr/share/sddm/themes/zeta/Main.qml ]; then
   sed -i "s/text: \"[0-9]\+\.[0-9]\+\"/text: \"$VER\"/" /usr/share/sddm/themes/zeta/Main.qml
 fi
 
-# --- Tema di icone ---
+# --- Icon theme ---
 gtk-update-icon-cache -f /usr/share/icons/zeta 2>/dev/null || true
 
-# Rigenera l'initramfs con il tema di avvio
+# Regenerate the initramfs with the boot theme
 update-initramfs -u -k all || true
 
-# --- Stabilità: niente blocchi quando la memoria finisce -------------------
-# earlyoom ferma il programma più affamato prima che il sistema si impianti;
-# zram aggiunge swap compressa in RAM (decisivo nelle macchine virtuali).
+# --- Stability: no freezes when memory runs out ----------------------------
+# earlyoom stops the hungriest program before the system grinds to a halt;
+# zram adds compressed swap in RAM (decisive in virtual machines).
 systemctl enable earlyoom.service >/dev/null 2>&1 || true
 systemctl enable zramswap.service >/dev/null 2>&1 || true
-# controllo leggero della salute del sistema (zeta-salute), ogni due minuti
-systemctl enable zeta-salute.timer >/dev/null 2>&1 || true
-# ripresa del desktop normale dopo un crash di Hyprland (per ogni utente)
-systemctl --global enable zeta-ripresa.service >/dev/null 2>&1 || true
+# lightweight system health check (zeta-health), every two minutes
+systemctl enable zeta-health.timer >/dev/null 2>&1 || true
+# resume the normal desktop after a Hyprland crash (for every user)
+systemctl --global enable zeta-recovery.service >/dev/null 2>&1 || true
 
-# --- Portali del desktop: NON disattivarli -----------------------------------
-# Qui prima si mascheravano xdg-document-portal e xdg-permission-store, pensando
-# che servissero solo a Flatpak. Invece xdg-desktop-portal non parte senza di
-# loro («No permission store» / «No document portal» sono errori fatali): il
-# portale moriva appena avviato, e con lui il dialogo dei file di Firefox,
-# «Apri con», la condivisione dello schermo e il tema chiaro/scuro delle app.
-# Una chiamata a un portale che muore resta appesa fino al timeout di D-Bus
-# (25 s): la finestra sembra congelata. Si tolgono eventuali mascherature
-# rimaste da immagini precedenti.
+# --- Desktop portals: do NOT disable them ------------------------------------
+# This used to mask xdg-document-portal and xdg-permission-store, assuming
+# they were only needed by Flatpak. In fact xdg-desktop-portal does not start
+# without them («No permission store» / «No document portal» are fatal
+# errors): the portal died right after starting, taking with it Firefox's
+# file dialog, «Open with», screen sharing and the apps' light/dark theme.
+# A call to a dying portal hangs until the D-Bus timeout (25 s): the window
+# looks frozen. Any masks left over from previous images are removed.
 rm -f /etc/systemd/user/xdg-document-portal.service \
       /etc/systemd/user/xdg-permission-store.service

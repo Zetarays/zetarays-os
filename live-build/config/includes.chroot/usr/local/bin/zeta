@@ -1,22 +1,21 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""zeta — ZETA, l intelligenza di ZETA RAYS OS (riga di comando).
+"""zeta — ZETA, the intelligence of ZETA RAYS OS (command line).
 
-Uso:
-  zeta                      apre una conversazione interattiva
-  zeta <domanda>            una domanda singola
-  zeta --provider claude    forza un provider per questa sessione
-  zeta --stato              mostra i provider configurati
-  zeta --oblio              cancella la memoria della conversazione
-  zeta -- <domanda>         una domanda che comincia come un comando qui sotto
+Usage:
+  zeta                      start an interactive conversation
+  zeta <question>           a single question
+  zeta --provider claude    force a provider for this session
+  zeta --status             show the configured providers
+  zeta --forget             clear the conversation memory
+  zeta -- <question>        a question that starts like a command below
 
-Comandi di sistema (sola lettura):
+System commands (read only):
   zeta system · memory · processes · repositories · diagnose
-  zeta ai status · ai test [servizio] · shell status
-  (anche in italiano: sistema, memoria, processi, repository, diagnosi)
+  zeta ai status · ai test [service] · shell status
 
-ZETA può eseguire azioni di sistema tramite un elenco chiuso di
-strumenti; le azioni che modificano il sistema chiedono conferma.
+ZETA can perform system actions through a closed list of tools; actions
+that modify the system ask for confirmation.
 """
 import sys
 
@@ -43,28 +42,28 @@ def _confirm(res: ActionResult) -> bool:
         ans = input("  " + tr("Allow? [y/N] ")).strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
-    return ans in ("s", "si", "sì", "y", "yes")
+    return ans in ("s", "si", "sì", "y", "yes")  # i18n-data: Italian and English "yes"
 
 
 def cmd_status() -> int:
     reg = Registry()
     print("%s%s%s\n" % (BOLD, tr("ZETA RAYS Intelligence AI providers"), R))
-    righe = reg.status()
-    largo = max((len(r["label"]) for r in righe), default=9)
-    for row in righe:
+    lines = reg.status()
+    wide = max((len(r["label"]) for r in lines), default=9)
+    for row in lines:
         mark = "%s●%s" % (ACCENT, R) if row["ready"] else "%s○%s" % (DIM, R)
         extra = ""
         if row["id"] == "ollama" and row.get("local_models"):
             extra = "  " + tr("models: {models}").format(models=", ".join(row["local_models"]))
-        stato = tr("ready") if row["ready"] else tr("not set up")
-        print("  %s %s %s%s%s%s" % (mark, row["label"].ljust(largo), DIM, stato, R, extra))
+        state = tr("ready") if row["ready"] else tr("not set up")
+        print("  %s %s %s%s%s%s" % (mark, row["label"].ljust(wide), DIM, state, R, extra))
     print("\n%s%s%s" % (DIM, tr("Enter keys in Settings › AI (they are encrypted)."), R))
     print("%s%s%s" % (DIM, tr("For details: zeta ai status · zeta ai test"), R))
     return 0
 
 
 def not_configured() -> int:
-    """Nessun modello disponibile: spiega cosa fare invece di mostrare errori."""
+    """No model available: explain what to do instead of showing errors."""
     from intelligence.assistant import NOT_CONFIGURED
     print("%s%sZETA%s %s— ZETA RAYS OS%s\n" % (BOLD, ACCENT, R, DIM, R))
     import shutil
@@ -77,9 +76,9 @@ def not_configured() -> int:
         ans = input("%s%s%s" % (DIM, tr("Press Enter to open Settings › AI, or type 'exit': "), R))
     except (EOFError, KeyboardInterrupt):
         return 0
-    if ans.strip().lower() not in ("esci", "exit", "quit", "q"):
+    if ans.strip().lower() not in ("esci", "exit", "quit", "q"):  # i18n-data: Italian "exit"
         import subprocess
-        subprocess.Popen(["zeta-impostazioni", "ai"], start_new_session=True,
+        subprocess.Popen(["zeta-settings", "ai"], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return 0
 
@@ -101,16 +100,15 @@ def interactive(assistant: Assistant) -> int:
             break
         if not text:
             continue
-        if text.lower() in ("esci", "exit", "quit"):
+        if text.lower() in ("esci", "exit", "quit"):  # i18n-data: Italian "exit"
             break
         answer = assistant.respond(text, confirm=_confirm)
         print("%s\n" % answer)
     return 0
 
 
-SISTEMA = {"system", "sistema", "status", "stato", "memory", "memoria", "processes",
-           "processi", "ps", "repositories", "repository", "repo", "ai", "shell",
-           "diagnose", "diagnosi"}
+SYSTEM_WORDS = {"system", "status", "memory", "processes", "ps", "repositories",
+                "repository", "repo", "ai", "shell", "diagnose"}
 
 
 def cmd_help() -> int:
@@ -134,16 +132,16 @@ change the system ask for confirmation first."""))
 
 def main(argv: list[str]) -> int:
     args = argv[1:]
-    if args and args[0] in ("-h", "--help", "--aiuto"):
+    if args and args[0] in ("-h", "--help"):
         return cmd_help()
     if args and args[0] == "--":
-        args = args[1:]                  # tutto il resto e' una domanda
-    elif args and args[0] in SISTEMA:
+        args = args[1:]                  # everything else is a question
+    elif args and args[0] in SYSTEM_WORDS:
         import os
-        os.execvp("zeta-sistema", ["zeta-sistema"] + args)
-    if args and args[0] in ("--stato", "--status"):
+        os.execvp("zeta-system", ["zeta-system"] + args)
+    if args and args[0] == "--status":
         return cmd_status()
-    if args and args[0] in ("--oblio", "--forget"):
+    if args and args[0] == "--forget":
         Memory().clear()
         print(tr("Conversation memory cleared."))
         return 0

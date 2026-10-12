@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ZETA RAYS Intelligence — ZETA.
 
-Unisce provider, motore azioni e memoria. Gestisce il giro di conversazione con
-strumenti (allowlist) e la conferma per le azioni di livello 3/4.
+Ties together the provider, the action engine and memory. Handles the
+conversation turn with tools (allowlist) and confirmation for level 3/4 actions.
 """
 from __future__ import annotations
 
@@ -12,23 +12,23 @@ from typing import Callable
 from i18n import tr
 
 from . import intents
-from .providers.ollama import MemoriaInsufficiente
+from .providers.ollama import InsufficientMemoryError
 from .actions import ActionEngine, ActionResult
 from .memory import Memory
 from .providers.base import ProviderError, Message, Provider, Reply, ToolCall
 from .registry import Registry
-from .agente import agente as _agente
-from .agente.capire import capire as _capire
+from .agent import agent as _agent
+from .agent.understanding import understanding as _understand
 
-# Azioni del vecchio riconoscimento che restano utili e sicure (le altre le fa
-# il nuovo agente, con la verifica): ricerca sul web e nei file, colore
-# d'accento, schermo spento, informazioni. Risposte «di conoscenza» (action
-# None, es. «come apro il terminale») restano valide.
-_VECCHIE_OK = {"open_url", "search_content", "set_accent", "screen_off", "system_info", "uptime",
+# Actions from the old recognizer that are still useful and safe (the new
+# agent handles the rest, with verification): web and file search, accent
+# color, screen off, information. "Knowledge" answers (action None, e.g.
+# «come apro il terminale») remain valid.
+_LEGACY_OK = {"open_url", "search_content", "set_accent", "screen_off", "system_info", "uptime",
                "current_date", "open_system_monitor", "open_security", "volume_status",
                "battery_status", "disk_usage", "ip_address", "cpu_usage", "memory_usage"}
 
-# azioni la cui uscita testuale È la risposta (informazioni), non un semplice "fatto"
+# actions whose text output IS the answer (information), not just a "done"
 _INFO_ACTIONS = {"cpu_usage", "memory_usage", "disk_usage", "ip_address",
                  "uptime", "system_info", "network_status", "list_applications",
                  "security_status", "process_list", "list_windows",
@@ -46,20 +46,20 @@ class Assistant:
     def __init__(self, provider: Provider | None = None):
         self.registry = Registry()
         self.provider = provider or self.registry.resolve_default()
-        # strumenti per i modelli che sanno chiamarli: le capacita' dell'agente
-        self.engine = _agente.MotoreAgente()
-        self.vecchio = ActionEngine()
+        # tools for the models that can call them: the agent's capabilities
+        self.engine = _agent.AgentEngine()
+        self.old = ActionEngine()
         self.memory = Memory()
-        self.history: list[Message] = self._pulisci(self.memory.load_history())
+        self.history: list[Message] = self._clean(self.memory.load_history())
 
     @classmethod
-    def _pulisci(cls, storia: list[Message]) -> list[Message]:
-        """Toglie dalla cronologia le risposte che erano chiamate di funzione
-        scritte come testo (e la domanda che le aveva causate): rilette dal
-        modello, lo spingevano a rispondere di nuovo cosi'."""
+    def _clean(cls, history: list[Message]) -> list[Message]:
+        """Remove from the history the replies that were function calls written
+        as text (and the question that caused them): when the model read them
+        back, they pushed it to answer that way again."""
         out: list[Message] = []
-        for m in storia:
-            if m.role == "assistant" and cls._chiamata_grezza(m.content):
+        for m in history:
+            if m.role == "assistant" and cls._is_raw_tool_call(m.content):
                 if out and out[-1].role == "user":
                     out.pop()
                 continue
@@ -68,27 +68,27 @@ class Assistant:
 
     def local_command(self, text: str,
                       confirm: Callable[[ActionResult], bool] | None = None) -> str | None:
-        """Esegue un comando riconosciuto localmente, senza modello AI.
+        """Run a command recognized locally, without an AI model.
 
-        Prima il nuovo agente (azione vera + verifica); poi, per poche cose
-        rimaste solo li', il vecchio riconoscimento. None = non e' un comando.
+        First the new agent (real action + verification); then, for the few
+        things that only exist there, the old recognizer. None = not a command.
         """
-        azioni = _capire(text)
-        if azioni:
-            return _agente.esegui_tutte(azioni, confirm, origine="locale")
+        actions = _understand(text)
+        if actions:
+            return _agent.run_all(actions, confirm, origin="local")
         intent = intents.parse(text)
-        if intent is None or (intent.action is not None and intent.action not in _VECCHIE_OK):
+        if intent is None or (intent.action is not None and intent.action not in _LEGACY_OK):
             return None
         if intent.action is None:
-            # domanda con una risposta certa (dove si trova, come si fa):
-            # si risponde e basta, senza eseguire nulla
+            # a question with a definite answer (where something is, how to do
+            # something): just answer it, without running anything
             return intent.reply
-        res = self.vecchio.run(intent.action, intent.args)
+        res = self.old.run(intent.action, intent.args)
         if res.needs_confirmation:
             approved = confirm(res) if confirm else False
             if not approved:
                 return tr("Operation canceled.")
-            res = self.vecchio.run(intent.action, intent.args, authorized=True)
+            res = self.old.run(intent.action, intent.args, authorized=True)
         if not res.ok:
             return tr("It didn't work: {error}").format(error=res.output)
         out = (res.output or "").strip()
@@ -100,34 +100,33 @@ class Assistant:
                 confirm: Callable[[ActionResult], bool] | None = None,
                 allow_ai: bool = True,
                 on_text: Callable[[str], None] | None = None) -> str:
-        """Un turno completo: prima i comandi locali, poi (se serve) il modello AI."""
-        vuoto = self._non_dice_nulla(text)
-        if vuoto is not None:
-            return vuoto
+        """A full turn: local commands first, then (if needed) the AI model."""
+        empty = self._says_nothing(text)
+        if empty is not None:
+            return empty
         local = self.local_command(text, confirm)
         if local is not None:
-            self.memory.save_turn(text, local, azione=True)
+            self.memory.save_turn(text, local, operation=True)
             return local
         if not allow_ai:
             return tr("I didn't understand the command. Try, for example: “open documents”, "
                       "“how much RAM am I using”, “open the terminal”, “close the window”.")
-        # modello locale: sceglie un'azione dal catalogo (se la frase ne chiede
-        # una), altrimenti si conversa. I servizi in rete usano gli strumenti.
-        if not getattr(self.provider, "usa_strumenti", True):
-            azioni = _agente.scegli_con_modello(text, self.provider)
-            if azioni:
-                risposta = _agente.esegui_tutte(azioni, confirm, origine="modello")
-                self.memory.save_turn(text, risposta, azione=True)
-                return risposta
+        # local model: it picks an action from the catalog (if the sentence asks
+        # for one), otherwise we just chat. Online services use the tools.
+        if not getattr(self.provider, "uses_tools", True):
+            actions = _agent.choose_with_model(text, self.provider)
+            if actions:
+                answer = _agent.run_all(actions, confirm, origin="model")
+                self.memory.save_turn(text, answer, operation=True)
+                return answer
         return self.ask(text, on_text=on_text, confirm=confirm)
 
     @staticmethod
-    def _non_dice_nulla(text: str) -> str | None:
-        """Scarta subito ciò su cui non c'è nulla da rispondere.
+    def _says_nothing(text: str) -> str | None:
+        """Immediately discard input there is nothing to answer to.
 
-        Senza questo controllo una riga vuota o fatta di soli simboli finiva al
-        modello linguistico: decine di secondi di attesa per una risposta senza
-        senso.
+        Without this check an empty line, or one made only of symbols, went to
+        the language model: tens of seconds of waiting for a meaningless reply.
         """
         t = (text or "").strip()
         if not t:
@@ -146,25 +145,25 @@ class Assistant:
 
     def ask(self, text: str, on_text: Callable[[str], None] | None = None,
             confirm: Callable[[ActionResult], bool] | None = None) -> str:
-        """Un turno completo: invio, eventuali strumenti, risposta finale.
+        """A full turn: send, any tool calls, final reply.
 
-        `on_text` riceve i pezzi della risposta man mano che arrivano, quando
-        il fornitore lo permette (streaming); altrimenti una volta sola, alla
-        fine.
+        `on_text` receives the pieces of the reply as they arrive, when the
+        provider supports it (streaming); otherwise it is called once, at the
+        end.
         """
-        inizio = len(self.history)
+        start = len(self.history)
         self.history.append(Message("user", text))
-        if (on_text and not getattr(self.provider, "usa_strumenti", True)
+        if (on_text and not getattr(self.provider, "uses_tools", True)
                 and getattr(self.provider.config, "stream", True)):
             final = self._stream_turn(on_text).strip()
-            return self._chiudi_turno(text, final, inizio)
+            return self._close_turn(text, final, start)
         tools = self.engine.tool_specs()
 
-        # primo giro (con strumenti; senza streaming perché può servire un tool)
+        # first round (with tools; no streaming because a tool may be needed)
         reply = self._turn(tools)
-        # eventuali azioni richieste
+        # any requested actions
         guard = 0
-        eseguite = bool(reply.tool_calls)
+        executed = bool(reply.tool_calls)
         while reply.tool_calls and guard < 6:
             guard += 1
             results = self._execute_tools(reply.tool_calls, confirm)
@@ -173,25 +172,26 @@ class Assistant:
             reply = self._turn(tools)
 
         final = reply.text.strip()
-        if on_text and final and not self._chiamata_grezza(final):
+        if on_text and final and not self._is_raw_tool_call(final):
             on_text(final)
-        return self._chiudi_turno(text, final, inizio, eseguite)
+        return self._close_turn(text, final, start, executed)
 
-    # Un modello piccolo, a volte, invece di rispondere scrive una chiamata di
-    # funzione come testo: {"type":"function","name":...}. Mostrarla non
-    # serve a nessuno, e salvarla nella cronologia e' peggio: il modello la
-    # rilegge e continua a imitarla nelle risposte successive (visto davvero).
+    # A small model sometimes writes a function call as text instead of
+    # answering: {"type":"function","name":...}. Showing it helps nobody, and
+    # saving it in the history is worse: the model reads it back and keeps
+    # imitating it in later replies (actually observed).
     @staticmethod
-    def _chiamata_grezza(testo: str) -> bool:
-        t = testo.lstrip()[:120].replace(" ", "")
+    def _is_raw_tool_call(text: str) -> bool:
+        t = text.lstrip()[:120].replace(" ", "")
         return t.startswith("{") and ('"function"' in t or t.startswith('{"name":'))
 
-    # «Ho aperto Firefox» detto dal modello senza che nessuna azione sia
-    # partita e' una bugia: il modello non tocca il computer. Si lascia la
-    # risposta ma si dice chiaramente che non e' successo nulla.
-    # Le stesse frasi in inglese («I've opened», «Done»): il modello risponde
-    # nella lingua di chi scrive.
-    _PROMESSA = re.compile(
+    # «Ho aperto Firefox» ("I opened Firefox") said by the model when no
+    # action ran is a lie: the model doesn't touch the computer. The reply is
+    # kept, but we say clearly that nothing happened.
+    # The same phrases in English («I've opened», «Done»): the model answers
+    # in the user's language.
+    # i18n-data-begin: Italian and English "I did it" phrases
+    _PROMISE = re.compile(
         r"(?i)(?:^\s*fatto\b|\b(?:ho|l'ho|li ho|le ho)\s+(?:gia'?\s+|appena\s+)?(?:aperto|chiuso|"
         r"eliminato|cancellato|creato|spostato|copiato|installato|disinstallato|spento|acceso|"
         r"riavviato|avviato|impostato|attivato|disattivato|collegato|scollegato|bloccato|"
@@ -200,25 +200,28 @@ class Assistant:
         r"removed|created|moved|copied|installed|uninstalled|turned\s+(?:off|on)|switched\s+(?:off|on)|"
         r"restarted|rebooted|started|launched|enabled|disabled|connected|disconnected|locked|saved|"
         r"downloaded|renamed|raised|lowered|changed|muted)\b)")
+    # i18n-data-end
 
     @classmethod
-    def _onesta(cls, final: str, eseguite: bool) -> str:
-        if eseguite or not final:
+    def _honest(cls, final: str, executed: bool) -> str:
+        if executed or not final:
             return final
-        # «non ho aperto nulla» e' onesto: contano solo le frasi affermative
-        promesse = [m for m in cls._PROMESSA.finditer(final)
+        # «non ho aperto nulla» ("I didn't open anything") is honest: only
+        # affirmative sentences count
+        # i18n-data: the Italian negation «non» before the verb
+        promises = [m for m in cls._PROMISE.finditer(final)
                     if not re.search(r"(?i)\bnon\s+(?:l'|li\s+|le\s+|lo\s+)?$", final[max(0, m.start() - 8):m.start()])]
-        if not promesse:
+        if not promises:
             return final
         return (final + "\n\n" + tr("(Note: I didn't perform any action on the computer. "
                                       "If you want me to, ask for it as a command, for example "
                                       "“open Firefox”.)"))
 
-    def _chiudi_turno(self, text: str, final: str, inizio: int, eseguite: bool = False) -> str:
-        final = self._onesta(final, eseguite)
-        if self._chiamata_grezza(final):
-            # tutto il turno resta fuori dalla cronologia: non ha avuto risposta
-            del self.history[inizio:]
+    def _close_turn(self, text: str, final: str, start: int, executed: bool = False) -> str:
+        final = self._honest(final, executed)
+        if self._is_raw_tool_call(final):
+            # the whole turn stays out of the history: it got no answer
+            del self.history[start:]
             return tr("I couldn't understand the request. Try saying it another "
                       "way, or with a command: “open the terminal”, "
                       "“how much RAM am I using”.")
@@ -226,48 +229,47 @@ class Assistant:
         self.memory.save_turn(text, final)
         return final
 
-    # --- interni ---
+    # --- internals ---
     def _stream_turn(self, on_text: Callable[[str], None]) -> str:
-        """Un giro in streaming. Gli errori diventano una risposta leggibile,
-        come in `_turn`; se lo streaming si interrompe a meta' si tiene quello
-        che e' gia' arrivato e si dice che manca il resto."""
-        ricevuto: list[str] = []
+        """A streaming round. Errors become a readable reply, as in `_turn`;
+        if streaming breaks off halfway, keep what has already arrived and
+        say the rest is missing."""
+        received: list[str] = []
 
-        def pezzo(c: str) -> None:
-            ricevuto.append(c)
+        def chunk(c: str) -> None:
+            received.append(c)
             on_text(c)
         try:
-            return self.provider.stream(self.history, pezzo).text
-        except MemoriaInsufficiente as e:
+            return self.provider.stream(self.history, chunk).text
+        except InsufficientMemoryError as e:
             return str(e)
         except Exception:  # noqa: BLE001
-            if ricevuto:
-                return "".join(ricevuto) + "\n\n" + tr("(The reply was cut off.)")
+            if received:
+                return "".join(received) + "\n\n" + tr("(The reply was cut off.)")
             return self._turn([]).text
 
     def _turn(self, tools) -> Reply:
         try:
             return self.provider.chat(self.history, tools)
-        except MemoriaInsufficiente as e:
-            # Caso tipico del sistema live: poca memoria e niente scambio su
-            # disco. Si dice com'è, invece di far arrancare il computer.
+        except InsufficientMemoryError as e:
+            # Typical on the live system: little memory and no swap on disk.
+            # Say so plainly, instead of making the computer crawl.
             return Reply(text=str(e))
         except ProviderError as e:
-            # 1) modello predefinito che non esiste piu': se ne sceglie uno
-            #    fra quelli che il servizio offre davvero e si riprova
-            if self._ripiega_su_altro_modello(e):
+            # 1) default model that no longer exists: pick one of those the
+            #    service really offers and retry
+            if self._fall_back_to_other_model(e):
                 try:
                     return self.provider.chat(self.history, tools)
                 except ProviderError as e2:
                     e = e2
-            # 2) servizio in rete irraggiungibile: risponde il modello locale
-            locale = self._risposta_locale(e)
-            if locale is not None:
-                return locale
-            # 3) altrimenti il motivo VERO (chiave non valida, modello non
-            #    trovato, troppe richieste...): prima diventava sempre «non
-            #    riesco a contattare… controlla la connessione», anche con la
-            #    chiave sbagliata
+            # 2) online service unreachable: the local model answers
+            local = self._local_answer(e)
+            if local is not None:
+                return local
+            # 3) otherwise the REAL reason (invalid key, model not found, too
+            #    many requests...): it used to always become "I can't reach…
+            #    check your connection", even with a wrong key
             return Reply(text=str(e))
         except Exception:  # noqa: BLE001
             if not self.provider.available():
@@ -275,36 +277,36 @@ class Assistant:
             return Reply(text=tr("I can't reach {provider} right now. Check your Internet connection "
                                  "or the setup in Settings › AI.").format(provider=self.provider_label()))
 
-    def _ripiega_su_altro_modello(self, e: "ProviderError") -> bool:
-        """Solo se l'utente non ha scelto un modello (si usa il predefinito) e il
-        servizio dice che il modello non c'e'. Il modello trovato si salva."""
+    def _fall_back_to_other_model(self, e: "ProviderError") -> bool:
+        """Only if the user hasn't picked a model (the default is in use) and
+        the service says the model doesn't exist. The model found is saved."""
         msg = str(e).lower()
         if self.provider.config.model or e.status not in (400, 404):
             return False
-        if not any(k in msg for k in ("model", "modello", "not found", "non trovato")):
+        if not any(k in msg for k in ("model", "modello", "not found", "non trovato")):  # i18n-data
             return False
-        from .providers.base import scegli_modello
-        nome = self.provider.config.name
-        scelto = scegli_modello(nome, self.provider.modelli_offerti())
-        if not scelto:
+        from .providers.base import choose_model
+        name = self.provider.config.name
+        chosen = choose_model(name, self.provider.offered_models())
+        if not chosen:
             return False
-        self.provider.config.model = scelto
+        self.provider.config.model = chosen
         try:
-            self.registry.set_option(nome, "model", scelto)
-        except Exception:  # noqa: BLE001 - vale comunque per questa sessione
+            self.registry.set_option(name, "model", chosen)
+        except Exception:  # noqa: BLE001 - it still applies to this session
             pass
         return True
 
-    def _risposta_locale(self, e: "ProviderError") -> Reply | None:
-        """Rete assente o servizio fuori uso (non: chiave sbagliata, limiti): se
-        il modello locale c'e', risponde lui e lo si dice."""
+    def _local_answer(self, e: "ProviderError") -> Reply | None:
+        """No network or service down (not: wrong key, rate limits): if the
+        local model is there, it answers, and we say so."""
         if self.provider.config.kind != "cloud" or not e.retryable or e.status == 429:
             return None
         try:
-            locale = self.registry.get("ollama")
-            if not locale.available():
+            local = self.registry.get("ollama")
+            if not local.available():
                 return None
-            r = locale.chat(self.history, None)
+            r = local.chat(self.history, None)
         except Exception:  # noqa: BLE001
             return None
         r.text = (tr("({provider} isn't responding: {reason} The local model answered instead.)").format(

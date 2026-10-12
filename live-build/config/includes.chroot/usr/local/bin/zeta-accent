@@ -1,10 +1,10 @@
 #!/bin/bash
-# shellcheck disable=SC2059  # i formati di printf vengono dalle traduzioni (gettext)
+# shellcheck disable=SC2059  # the printf formats come from the translations (gettext)
 # SPDX-License-Identifier: GPL-3.0-or-later
 # zeta-accent [#RRGGBB]
-# Imposta il colore d'accento di ZETA RAYS e lo applica a tutta l'interfaccia:
-# bordi delle finestre, barra, launcher, notifiche, terminale, app GTK e sfondo.
-# Il launcher (zeta-launcher) legge ~/.config/zeta/colors.css a ogni apertura.
+# Sets the ZETA RAYS accent color and applies it to the whole interface:
+# window borders, bar, launcher, notifications, terminal, GTK apps and wallpaper.
+# The launcher (zeta-launcher) reads ~/.config/zeta/colors.css every time it opens.
 set -e
 export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
 command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
@@ -22,56 +22,56 @@ if [ -n "$1" ]; then
   echo "#${hex^^}" > "$CFG/accent"
 fi
 
-# L'immagine dell'account che segue l'accento (il cerchio di serie) cambia
-# colore con lui; una foto o un colore scelto apposta restano (avatar.py).
+# An account picture that follows the accent (the default circle) changes
+# color with it; a photo or a deliberately chosen color stays (avatar.py).
 if [ -n "$1" ]; then
-  ( /usr/bin/python3 -c 'import sys; sys.path.insert(0, "/usr/lib/zeta"); from system import avatar; avatar.segui_accento()' >/dev/null 2>&1 & )
+  ( /usr/bin/python3 -c 'import sys; sys.path.insert(0, "/usr/lib/zeta"); from system import avatar; avatar.follow_accent()' >/dev/null 2>&1 & )
 fi
 
-SCELTO=$(cat "$CFG/accent" 2>/dev/null || echo "#3A8DFF")
+CHOSEN=$(cat "$CFG/accent" 2>/dev/null || echo "#3A8DFF")
 
-# --- Tema chiaro o scuro (scelto in Impostazioni > Aspetto) ---
-TEMA=$(cat "$CFG/tema" 2>/dev/null || echo scuro)
+# --- Light or dark theme (chosen in Settings > Appearance) ---
+THEME=$(cat "$CFG/theme" 2>/dev/null || echo dark)
 
-# --- Il colore scelto, reso visibile sul fondo del tema ---
-# Il colore che l utente sceglie viene usato dappertutto: bordo della finestra,
-# pastiglia dello spazio di lavoro, simbolo nella barra, sfondo, bordo delle
-# notifiche, terminale. Preso alla lettera, però, il bianco su un tema chiaro
-# sparisce — e così un colore molto scuro sul tema scuro. Qui si tiene il tono
-# scelto e si sposta solo la luminosità finché si vede: la scelta resta quella
-# dell utente (nel file «accent»), cambia solo come viene disegnata.
-scala_luminosita() {
-    local hex="${1#\#}" limite="$2" verso="$3"
+# --- The chosen color, made visible on the theme background ---
+# The color the user picks is used everywhere: window border, workspace pill,
+# bar symbol, wallpaper, notification border, terminal. Taken literally,
+# though, white disappears on a light theme — and so does a very dark color
+# on the dark theme. Here the chosen hue is kept and only the luminance is
+# shifted until it is visible: the user's choice stays as it is (in the
+# «accent» file), only the way it is drawn changes.
+scale_luminance() {
+    local hex="${1#\#}" limit="$2" direction="$3"
     local r=$((16#${hex:0:2})) g=$((16#${hex:2:2})) b=$((16#${hex:4:2}))
     local L=$(( (299 * r + 587 * g + 114 * b) / 1000 ))
     [ "$L" -eq 0 ] && L=1
-    if { [ "$verso" = su ] && [ "$L" -ge "$limite" ]; } ||
-       { [ "$verso" = giu ] && [ "$L" -le "$limite" ]; }; then
+    if { [ "$direction" = up ] && [ "$L" -ge "$limit" ]; } ||
+       { [ "$direction" = down ] && [ "$L" -le "$limit" ]; }; then
         printf "#%s" "${hex^^}"; return
     fi
-    # stessa tinta, luminosità portata al limite (i grigi restano grigi)
-    local k=$(( limite * 1000 / L ))
+    # same hue, luminance moved to the limit (grays stay gray)
+    local k=$(( limit * 1000 / L ))
     local nr=$(( r * k / 1000 )) ng=$(( g * k / 1000 )) nb=$(( b * k / 1000 ))
     [ $nr -gt 255 ] && nr=255; [ $ng -gt 255 ] && ng=255; [ $nb -gt 255 ] && nb=255
     printf "#%02X%02X%02X" "$nr" "$ng" "$nb"
 }
 
-if [ "$TEMA" = "chiaro" ]; then
-    # sopra questa luminosità il colore si perde sul fondo chiaro
-    ACCENT=$(scala_luminosita "$SCELTO" 120 giu)
+if [ "$THEME" = "light" ]; then
+    # above this luminance the color gets lost on the light background
+    ACCENT=$(scale_luminance "$CHOSEN" 120 down)
 else
-    # sotto questa luminosità il colore si perde sul nero
-    ACCENT=$(scala_luminosita "$SCELTO" 70 su)
+    # below this luminance the color gets lost on black
+    ACCENT=$(scale_luminance "$CHOSEN" 70 up)
 fi
 
 H="${ACCENT#\#}"
 r=$((16#${H:0:2})); g=$((16#${H:2:2})); b=$((16#${H:4:2}))
-# Il colore come viene effettivamente disegnato: lo leggono la shell e chi
-# altro deve dipingere qualcosa senza rifare il calcolo del contrasto.
-# «accent» resta la scelta dell utente, che non va mai riscritta.
-echo "$ACCENT" > "$CFG/accent-reso"
+# The color as it is actually drawn: read by the shell and by anything else
+# that needs to paint something without redoing the contrast calculation.
+# «accent» stays the user's choice, which must never be rewritten.
+echo "$ACCENT" > "$CFG/accent-rendered"
 if [ $(( (299 * r + 587 * g + 114 * b) / 1000 )) -gt 140 ]; then INK="#000000"; else INK="#FFFFFF"; fi
-if [ "$TEMA" = "chiaro" ]; then
+if [ "$THEME" = "light" ]; then
   SURFACE="rgba(255,255,255,0.96)"; SURFACE2="rgba(0,0,0,0.045)"
   INKC="#1C1C1E";  INK2="#48484C"; INKDIM="#6E6E73"; LINE="rgba(0,0,0,0.12)"
   HOVER="rgba(0,0,0,0.06)"; HOVER2="rgba(0,0,0,0.11)"
@@ -89,8 +89,8 @@ else
   PREFER_DARK=1; SCHEME="prefer-dark"; WALL_BG="#000000"; BAR_INK="#A1A1A6"
 fi
 
-# --- Colori condivisi (GTK CSS) ---
-COLORS="/* Generato da zeta-accent */
+# --- Shared colors (GTK CSS) ---
+COLORS="/* Generated by zeta-accent */
 @define-color accent $ACCENT;
 @define-color accent_ink $INK;
 @define-color accent_soft rgba($r,$g,$b,0.14);
@@ -111,17 +111,17 @@ for d in "$CFG" ~/.config/waybar; do
   printf '%s\n' "$COLORS" > "$d/colors.css"
 done
 
-# --- App GTK4 / libadwaita ---
-# Ogni sfondo ridefinito qui DEVE avere accanto il colore del testo.
-# Ridefinendo solo gli sfondi, se libadwaita restava in chiaro il testo
-# rimaneva nero sopra un fondo scuro: la calcolatrice e le altre app GTK4
-# diventavano illeggibili. Sfondo e testo vanno sempre in coppia.
-# Una tavolozza sola, quella del tema della scrivania: GTK 4.18 non applica
-# «@media (prefers-color-scheme)» nel gtk.css dell'utente (provato), quindi
-# nessuna app deve forzare un modo diverso (l'editor di testo cambia solo lo
-# schema dei colori del testo, vedi zeta-aspetto apply_editor).
+# --- GTK4 / libadwaita apps ---
+# Every background redefined here MUST have the text color next to it.
+# When only the backgrounds were redefined and libadwaita stayed in light
+# mode, the text remained black on a dark background: the calculator and the
+# other GTK4 apps became unreadable. Background and text always go in pairs.
+# A single palette, the desktop theme's: GTK 4.18 does not apply
+# «@media (prefers-color-scheme)» in the user's gtk.css (tested), so no app
+# must force a different mode (the text editor only changes its text color
+# scheme, see zeta-appearance apply_editor).
 cat > ~/.config/gtk-4.0/gtk.css <<EOF
-/* Generato da zeta-accent */
+/* Generated by zeta-accent */
 @define-color accent_color $ACCENT;
 @define-color accent_bg_color $ACCENT;
 @define-color accent_fg_color $INK;
@@ -141,16 +141,16 @@ cat > ~/.config/gtk-4.0/gtk.css <<EOF
 @define-color popover_fg_color $INKC;
 @define-color dialog_bg_color $GTK_WINDOW;
 @define-color dialog_fg_color $INKC;
-/* testo secondario e disabilitato, coerenti col tema */
+/* secondary and disabled text, consistent with the theme */
 @define-color dimmed_fg_color $INKDIM;
 @define-color disabled_fg_color $INKDIM;
 EOF
 
-# --- App GTK3 ---
-# Come per GTK4: ogni sfondo va accompagnato dal colore del testo, altrimenti
-# il testo resta quello del tema chiaro sopra sfondi scuri.
+# --- GTK3 apps ---
+# As with GTK4: every background must come with its text color, otherwise
+# the text stays the light theme's on dark backgrounds.
 cat > ~/.config/gtk-3.0/gtk.css <<EOF
-/* Generato da zeta-accent */
+/* Generated by zeta-accent */
 @define-color theme_selected_bg_color $ACCENT;
 @define-color theme_selected_fg_color $INK;
 @define-color theme_bg_color $GTK_WINDOW;
@@ -161,27 +161,27 @@ cat > ~/.config/gtk-3.0/gtk.css <<EOF
 @define-color accent_bg_color $ACCENT;
 EOF
 
-# --- Tema GTK di sistema (app non ZETA RAYS: Gestore file, editor, Pacchetti...) ---
-# Il nome del tema resta SEMPRE "Adwaita": "Adwaita-dark" esiste solo per GTK4,
-# in GTK3 non c'è e la libreria ripiegherebbe sul tema chiaro (era il motivo
-# per cui il gestore file restava bianco). Il buio si sceglie con
-# gtk-application-prefer-dark-theme, che GTK3 legge da settings.ini.
+# --- System GTK theme (non-ZETA RAYS apps: file manager, editor, Packages...) ---
+# The theme name is ALWAYS "Adwaita": "Adwaita-dark" only exists for GTK4; it
+# does not exist in GTK3 and the library would fall back to the light theme
+# (that is why the file manager stayed white). Dark mode is chosen with
+# gtk-application-prefer-dark-theme, which GTK3 reads from settings.ini.
 for d in "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"; do
   mkdir -p "$d"
-  # gtk-application-prefer-dark-theme vale solo per GTK3: nelle app GTK4 con
-  # libadwaita è ignorato e fa comparire un avviso, quindi lì non si scrive.
-  SCURO=""
-  [ "$d" = "$HOME/.config/gtk-3.0" ] && SCURO="gtk-application-prefer-dark-theme=$PREFER_DARK"
+  # gtk-application-prefer-dark-theme only applies to GTK3: in GTK4 apps with
+  # libadwaita it is ignored and triggers a warning, so it is not written there.
+  DARK_PREF=""
+  [ "$d" = "$HOME/.config/gtk-3.0" ] && DARK_PREF="gtk-application-prefer-dark-theme=$PREFER_DARK"
   cat > "$d/settings.ini" <<EOF
 [Settings]
-$SCURO
+$DARK_PREF
 gtk-theme-name=Adwaita
 gtk-icon-theme-name=zeta
 gtk-font-name=Roboto $(cat "$CFG/font-size" 2>/dev/null || echo 10)
 gtk-cursor-theme-name=Adwaita
 gtk-cursor-theme-size=$(cat "$CFG/cursor-size" 2>/dev/null || echo 24)
 gtk-decoration-layout=:
-gtk-enable-animations=$(cat "$CFG/animazioni" 2>/dev/null || echo 1)
+gtk-enable-animations=$(cat "$CFG/animations" 2>/dev/null || echo 1)
 EOF
 done
 
@@ -190,51 +190,51 @@ if command -v gsettings >/dev/null 2>&1; then
   gsettings set org.gnome.desktop.interface gtk-theme "Adwaita" 2>/dev/null || true
   gsettings set org.gnome.desktop.interface cursor-theme "Adwaita" 2>/dev/null || true
   gsettings set org.gnome.desktop.interface enable-animations \
-      "$([ "$(cat "$CFG/animazioni" 2>/dev/null || echo 1)" = 0 ] && echo false || echo true)" 2>/dev/null || true
+      "$([ "$(cat "$CFG/animations" 2>/dev/null || echo 1)" = 0 ] && echo false || echo true)" 2>/dev/null || true
 fi
 # --- Hyprland ---
 echo "return { accent = \"rgb($H)\" }" > ~/.config/hypr/zeta_colors.lua
 
-# --- Icone della barra ricolorate per il tema ---
-# Sono file SVG: Waybar non le ricolora, quindi ne teniamo una copia con il
-# colore giusto. Senza questo, nel tema chiaro sparirebbero sul fondo chiaro.
-# Si rifanno solo se cambia qualcosa (colori, tema o icone del sistema dopo
-# un aggiornamento): prima si riscrivevano tutte a ogni accesso, oltre 170
-# processi prima che comparisse la barra.
-UTEMA="$HOME/.local/share/icons/zeta"
-UICONE="$UTEMA/scalable/tema"
-STAMPO="$BAR_INK $INKC $INKDIM $(stat -c %Y "$SHARE/status" /usr/share/icons/zeta/scalable/apps 2>/dev/null | tr '\n' ' ')"
-ICONE_PRONTE=0
-if [ "$(cat "$CFG/.icone-stampo" 2>/dev/null)" = "$STAMPO" ] && [ -f "$UTEMA/index.theme" ] \
-   && ls "$CFG/barra/"*.svg >/dev/null 2>&1; then
-  ICONE_PRONTE=1
+# --- Bar icons recolored for the theme ---
+# They are SVG files: Waybar does not recolor them, so we keep a copy with the
+# right color. Without this, in the light theme they would vanish on the light
+# background. They are regenerated only if something changes (colors, theme or
+# system icons after an update): previously they were all rewritten at every
+# login, more than 170 processes before the bar appeared.
+USER_ICONS="$HOME/.local/share/icons/zeta"
+RECOLORED="$USER_ICONS/scalable/theme"
+STAMP="$BAR_INK $INKC $INKDIM $(stat -c %Y "$SHARE/status" /usr/share/icons/zeta/scalable/apps 2>/dev/null | tr '\n' ' ')"
+ICONS_READY=0
+if [ "$(cat "$CFG/.icons-stamp" 2>/dev/null)" = "$STAMP" ] && [ -f "$USER_ICONS/index.theme" ] \
+   && ls "$CFG/bar/"*.svg >/dev/null 2>&1; then
+  ICONS_READY=1
 fi
-mkdir -p "$CFG/barra"
-[ "$ICONE_PRONTE" = 1 ] || for f in "$SHARE"/status/*.svg; do
+mkdir -p "$CFG/bar"
+[ "$ICONS_READY" = 1 ] || for f in "$SHARE"/status/*.svg; do
   [ -f "$f" ] || continue
-  sed -e "s/#A1A1A6/$BAR_INK/g" -e "s/#EDEDEA/$BAR_INK/g" "$f" > "$CFG/barra/$(basename "$f")"
+  sed -e "s/#A1A1A6/$BAR_INK/g" -e "s/#EDEDEA/$BAR_INK/g" "$f" > "$CFG/bar/$(basename "$f")"
 done
 
-# --- Icone dei pannelli ricolorate per il tema ---
-# Le icone delle applicazioni hanno la loro piastrella scura e si leggono su
-# qualunque sfondo. Quelle disegnate a solo tratto (i pulsanti dentro il centro
-# di controllo, il menù di spegnimento, le Impostazioni) no: sono di un grigio
-# chiaro fisso e sul tema chiaro sparivano sul bianco. Se ne tiene una copia
-# ricolorata in ~/.local/share/icons, che GTK consulta prima di /usr/share.
-# Le copie stanno in una cartella loro, «scalable/tema», elencata PRIMA di
-# «scalable/apps»: con lo stesso nome di cartella GTK preferiva comunque la
-# copia di sistema e la ricolorazione non si vedeva.
-if [ "$ICONE_PRONTE" != 1 ]; then
-mkdir -p "$UICONE"
-rm -f "$UICONE"/*.svg
-cat > "$UTEMA/index.theme" <<'EOF'
+# --- Panel icons recolored for the theme ---
+# Application icons have their own dark tile and are readable on any
+# background. Outline-only icons (the buttons inside the control center, the
+# power menu, Settings) are not: they are a fixed light gray and on the light
+# theme they vanished on white. A recolored copy is kept in
+# ~/.local/share/icons, which GTK checks before /usr/share.
+# The copies live in their own folder, «scalable/theme», listed BEFORE
+# «scalable/apps»: with the same folder name GTK still preferred the system
+# copy and the recoloring did not show.
+if [ "$ICONS_READY" != 1 ]; then
+mkdir -p "$RECOLORED"
+rm -f "$RECOLORED"/*.svg
+cat > "$USER_ICONS/index.theme" <<'EOF'
 [Icon Theme]
 Name=ZETA RAYS
-Comment=Icone di ZETA RAYS (generato da zeta-accent: non modificare a mano)
+Comment=ZETA RAYS icons (generated by zeta-accent: do not edit by hand)
 Inherits=Adwaita,hicolor
-Directories=scalable/tema,scalable/apps
+Directories=scalable/theme,scalable/apps,scalable/emblems
 
-[scalable/tema]
+[scalable/theme]
 Size=64
 MinSize=16
 MaxSize=512
@@ -247,32 +247,39 @@ MinSize=16
 MaxSize=512
 Type=Scalable
 Context=Applications
+
+[scalable/emblems]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Emblems
 EOF
 for f in /usr/share/icons/zeta/scalable/apps/*.svg; do
   [ -f "$f" ] || continue
-  grep -q "#19191C" "$f" && continue      # ha già la piastrella scura: va bene così
-  # a colori fissi (il simbolo ZETA di Synaptic): niente inchiostro da cambiare
+  grep -q "#19191C" "$f" && continue      # already has the dark tile: fine as is
+  # fixed colors (the ZETA symbol of Synaptic): no ink to change
   grep -q -e "#EDEDEA" -e "#A1A1A6" "$f" || continue
-  sed -e "s/#EDEDEA/$INKC/g" -e "s/#A1A1A6/$INKDIM/g" "$f" > "$UICONE/$(basename "$f")"
+  sed -e "s/#EDEDEA/$INKC/g" -e "s/#A1A1A6/$INKDIM/g" "$f" > "$RECOLORED/$(basename "$f")"
 done
-echo "$STAMPO" > "$CFG/.icone-stampo"
+echo "$STAMP" > "$CFG/.icons-stamp"
 fi
 
-# --- Simbolo del launcher e sfondo ---
-sed "s/ACCENT/$ACCENT/g" "$SHARE/brand/zeta-simbolo.svg.in" > "$CFG/launcher.svg" 2>/dev/null || true
-if [ "$(cat "$CFG/.wallpaper-accent" 2>/dev/null)" != "$ACCENT-$TEMA" ] || [ ! -f "$CFG/wallpaper.png" ]; then
-  sed -e "s/ACCENT/$ACCENT/g" -e "s/SFONDO/$WALL_BG/g" "$SHARE/brand/zeta-wallpaper.svg.in" > "$CFG/wallpaper.svg"
-  # non fatale: senza lo sfondo generato il resto del tema deve comunque applicarsi
+# --- Launcher symbol and wallpaper ---
+sed "s/ACCENT/$ACCENT/g" "$SHARE/brand/zeta-symbol.svg.in" > "$CFG/launcher.svg" 2>/dev/null || true
+if [ "$(cat "$CFG/.wallpaper-accent" 2>/dev/null)" != "$ACCENT-$THEME" ] || [ ! -f "$CFG/wallpaper.png" ]; then
+  sed -e "s/ACCENT/$ACCENT/g" -e "s/BGCOLOR/$WALL_BG/g" "$SHARE/brand/zeta-wallpaper.svg.in" > "$CFG/wallpaper.svg"
+  # non-fatal: without the generated wallpaper the rest of the theme must still apply
   if rsvg-convert -o "$CFG/wallpaper.png" "$CFG/wallpaper.svg" 2>/dev/null; then
-    echo "$ACCENT-$TEMA" > "$CFG/.wallpaper-accent"
+    echo "$ACCENT-$THEME" > "$CFG/.wallpaper-accent"
   fi
 fi
 
-# --- Notifiche e terminale ---
+# --- Notifications and terminal ---
 [ -f ~/.config/mako/config ] && sed -i "s/^border-color=.*/border-color=$ACCENT/" ~/.config/mako/config
-# il terminale è rigenerato dal modello del tema scelto (file generato: non
-# modificarlo a mano, le modifiche andrebbero perse al cambio di colore/tema)
-FOOT_TPL="$SHARE/terminale/$([ "$TEMA" = chiaro ] && echo chiaro || echo scuro).ini.in"
+# the terminal config is regenerated from the chosen theme's template (generated
+# file: do not edit it by hand, changes would be lost on a color/theme change)
+FOOT_TPL="$SHARE/terminal/$([ "$THEME" = light ] && echo light || echo dark).ini.in"
 MONO_SIZE=$(cat "$CFG/font-size" 2>/dev/null || echo 10)
 case "$MONO_SIZE" in ''|*[!0-9]*) MONO_SIZE=10 ;; esac
 if [ -f "$FOOT_TPL" ]; then
@@ -280,91 +287,91 @@ if [ -f "$FOOT_TPL" ]; then
   sed -e "s/ACCENT/$H/g" -e "s/FONTSIZE/$MONO_SIZE/g" "$FOOT_TPL" > ~/.config/foot/foot.ini.new &&
     mv ~/.config/foot/foot.ini.new ~/.config/foot/foot.ini
 fi
-# prompt, schede di tmux e tema scelto del terminale seguono il nuovo accento
-command -v zeta-shell >/dev/null && zeta-shell applica >/dev/null 2>&1
+# prompt, tmux tabs and the chosen terminal theme follow the new accent
+command -v zeta-shell >/dev/null && zeta-shell apply >/dev/null 2>&1
 
-# --- Disegno di fastfetch ---
-# Il simbolo di ZETA RAYS nel terminale si stampa in bianco: è il marchio, e sul
-# nero di ZETA RAYS è così che deve vedersi. In tema chiaro il bianco sparirebbe,
-# quindi lì si usa l inchiostro scuro. Il disegno non cambia mai: cambia solo
-# il colore con cui fastfetch lo stampa.
-if [ "$TEMA" = chiaro ]; then
+# --- fastfetch logo ---
+# The ZETA RAYS symbol in the terminal is printed in white: it is the logo, and
+# on the ZETA RAYS black that is how it must look. On the light theme white
+# would vanish, so the dark ink is used there. The drawing never changes: only
+# the color fastfetch prints it with does.
+if [ "$THEME" = light ]; then
   LOGOCOLOR="38;2;28;28;30"
 else
   LOGOCOLOR="38;2;255;255;255"
 fi
-# Etichette e titolo seguono invece il colore d accento, come tutto il resto.
+# Labels and title, instead, follow the accent color, like everything else.
 ACCENTCOLOR="38;2;$r;$g;$b"
 mkdir -p ~/.config/fastfetch
-# Etichette nella lingua dell'utente, allineate alla piu' lunga (i modelli
-# hanno segnaposti @K_...@; /etc/fastfetch resta in inglese).
-FF_NOMI=(OS KERNEL UPTIME PACKAGES SHELL TERMINAL WM CPU GPU MEMORY DISK IP LOCALE)
-FF_TESTI=("$(gettext "System")" "Kernel" "$(gettext "Uptime")" "$(gettext "Packages")" "Shell"
+# Labels in the user's language, aligned to the longest one (the templates
+# have @K_...@ placeholders; /etc/fastfetch stays in English).
+FF_KEYS=(OS KERNEL UPTIME PACKAGES SHELL TERMINAL WM CPU GPU MEMORY DISK IP LOCALE)
+FF_LABELS=("$(gettext "System")" "Kernel" "$(gettext "Uptime")" "$(gettext "Packages")" "Shell"
           "$(gettext "Terminal")" "$(gettext "Environment")" "CPU" "GPU" "$(gettext "Memory")"
           "$(gettext "Disk")" "IP" "$(gettext "Language")")
-FF_LARGO=9
-for t in "${FF_TESTI[@]}"; do if [ "${#t}" -gt "$FF_LARGO" ]; then FF_LARGO=${#t}; fi; done
+FF_WIDTH=9
+for t in "${FF_LABELS[@]}"; do if [ "${#t}" -gt "$FF_WIDTH" ]; then FF_WIDTH=${#t}; fi; done
 FF_SED=()
-for i in "${!FF_NOMI[@]}"; do
-  t=${FF_TESTI[$i]}
-  while [ "${#t}" -lt "$FF_LARGO" ]; do t="$t "; done
+for i in "${!FF_KEYS[@]}"; do
+  t=${FF_LABELS[$i]}
+  while [ "${#t}" -lt "$FF_WIDTH" ]; do t="$t "; done
   t=${t//\\/\\\\}; t=${t//\"/\\\"}           # JSON
   t=${t//\\/\\\\}; t=${t//&/\\&}; t=${t//|/\\|}    # sed
-  FF_SED+=(-e "s|@K_${FF_NOMI[$i]}@|$t|")
+  FF_SED+=(-e "s|@K_${FF_KEYS[$i]}@|$t|")
 done
-for n in config compatto minuto; do
-  MOD="$SHARE/fastfetch/$n.jsonc.in"
-  [ -f "$MOD" ] || continue
-  sed -e "s/LOGOCOLOR/$LOGOCOLOR/" -e "s/ACCENTCOLOR/$ACCENTCOLOR/g" "${FF_SED[@]}" "$MOD" \
+for n in config compact tiny; do
+  TPL="$SHARE/fastfetch/$n.jsonc.in"
+  [ -f "$TPL" ] || continue
+  sed -e "s/LOGOCOLOR/$LOGOCOLOR/" -e "s/ACCENTCOLOR/$ACCENTCOLOR/g" "${FF_SED[@]}" "$TPL" \
       > ~/.config/fastfetch/$n.jsonc.new &&
     mv ~/.config/fastfetch/$n.jsonc.new ~/.config/fastfetch/$n.jsonc
 done
 
-# --- Applica subito se la sessione è attiva ---
+# --- Apply immediately if the session is running ---
 if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-  # Si aggiornano SOLO i valori che dipendono da colore e tema, uno per uno.
-  # Un «hyprctl reload» completo rifarebbe leggere tutta la configurazione, e
-  # nel farlo toglierebbe la barra del titolo a ogni finestra già aperta:
-  # l'utente si ritroverebbe senza i pulsanti chiudi/riduci/ingrandisci fino a
-  # riaprire ogni programma. Con «eval» le finestre restano intatte.
-  if [ "$TEMA" = chiaro ]; then
-    BORDO_SPENTO="rgba(00000018)"; BARRA="rgba(F2F2F4F2)"; BARRA_TESTO="rgb(1C1C1E)"
+  # ONLY the values that depend on color and theme are updated, one by one.
+  # A full «hyprctl reload» would re-read the whole configuration and, in
+  # doing so, remove the title bar from every window already open: the user
+  # would be left without the close/minimize/maximize buttons until every
+  # program was reopened. With «eval» the windows stay intact.
+  if [ "$THEME" = light ]; then
+    INACTIVE_BORDER="rgba(00000018)"; TITLEBAR="rgba(F2F2F4F2)"; TITLEBAR_TEXT="rgb(1C1C1E)"
   else
-    BORDO_SPENTO="rgba(ffffff14)"; BARRA="rgba(1C1C1EF2)"; BARRA_TESTO="rgb(EDEDEA)"
+    INACTIVE_BORDER="rgba(ffffff14)"; TITLEBAR="rgba(1C1C1EF2)"; TITLEBAR_TEXT="rgb(EDEDEA)"
   fi
-  ANGOLI=$(cat "$CFG/angoli" 2>/dev/null || echo 14)
-  case "$ANGOLI" in ''|*[!0-9]*) ANGOLI=14 ;; esac
-  [ "$(cat "$CFG/animazioni" 2>/dev/null || echo 1)" = "0" ] && ANIM=false || ANIM=true
-  [ "$(cat "$CFG/trasparenza" 2>/dev/null || echo 1)" = "0" ] && TRASP=false || TRASP=true
+  CORNERS=$(cat "$CFG/corners" 2>/dev/null || echo 14)
+  case "$CORNERS" in ''|*[!0-9]*) CORNERS=14 ;; esac
+  [ "$(cat "$CFG/animations" 2>/dev/null || echo 1)" = "0" ] && ANIM=false || ANIM=true
+  [ "$(cat "$CFG/transparency" 2>/dev/null || echo 1)" = "0" ] && BLUR=false || BLUR=true
 
   hyprctl eval "hl.config({
-      general = { col = { active_border = \"rgb($H)\", inactive_border = \"$BORDO_SPENTO\" } },
-      decoration = { rounding = $ANGOLI,
-                     blur = { enabled = $TRASP }, shadow = { enabled = $TRASP } },
+      general = { col = { active_border = \"rgb($H)\", inactive_border = \"$INACTIVE_BORDER\" } },
+      decoration = { rounding = $CORNERS,
+                     blur = { enabled = $BLUR }, shadow = { enabled = $BLUR } },
       animations = { enabled = $ANIM },
   })" >/dev/null 2>&1 || true
   hyprctl eval "if hl.plugin.hyprbars then hl.config({ plugin = { hyprbars = {
-      bar_color = \"$BARRA\", col = { text = \"$BARRA_TESTO\" } } } }) end" >/dev/null 2>&1 || true
-  # rispetta l'eventuale sfondo scelto dall'utente
-  zeta-sfondo apply >/dev/null 2>&1 || {
+      bar_color = \"$TITLEBAR\", col = { text = \"$TITLEBAR_TEXT\" } } } }) end" >/dev/null 2>&1 || true
+  # respect the wallpaper chosen by the user, if any
+  zeta-wallpaper apply >/dev/null 2>&1 || {
     pkill -x swaybg 2>/dev/null || true
     setsid swaybg -m fill -i "$CFG/wallpaper.png" >/dev/null 2>&1 &
   }
-  # Una sola ricarica della barra, e dopo che Hyprland ha finito: Waybar
-  # reinizializza il modulo degli spazi di lavoro quando Hyprland ricarica, e
-  # una seconda ricarica in quel momento la fa cadere.
-  # Con ZETA_NO_BAR_RELOAD=1 la ricarica la fa chi ci ha chiamato (zeta-aspetto).
-  # All'accesso la barra non c'e' ancora: niente attesa (un secondo in meno
-  # prima che compaia il desktop).
+  # A single bar reload, and only after Hyprland is done: Waybar
+  # reinitializes the workspaces module when Hyprland reloads, and a second
+  # reload at that moment makes it crash.
+  # With ZETA_NO_BAR_RELOAD=1 the caller (zeta-appearance) does the reload.
+  # At login the bar is not there yet: no waiting (one second less before
+  # the desktop appears).
   if [ -z "${ZETA_NO_BAR_RELOAD:-}" ] || pgrep -x -u "$(id -u)" waybar >/dev/null 2>&1; then
     sleep 1
   fi
-  # la barra si ricarica solo da zeta-barra: una alla volta, e poi si controlla
-# che sia rimasta una sola (le ricariche ravvicinate la duplicavano)
-[ -n "${ZETA_NO_BAR_RELOAD:-}" ] || { setsid zeta-barra ricarica >/dev/null 2>&1 </dev/null & } 
-  # Solo se le notifiche sono già attive: altrimenti makoctl farebbe partire
-  # mako via D-Bus, fuori dalla sorveglianza di zeta-session, e quello
-  # sorvegliato troverebbe il posto occupato e riproverebbe all'infinito.
+  # the bar is reloaded only through zeta-bar: one at a time, then it checks
+# that only one is left (reloads close together used to duplicate it)
+[ -n "${ZETA_NO_BAR_RELOAD:-}" ] || { setsid zeta-bar reload >/dev/null 2>&1 </dev/null & } 
+  # Only if notifications are already running: otherwise makoctl would start
+  # mako via D-Bus, outside zeta-session's supervision, and the supervised one
+  # would find the slot taken and retry forever.
   if pgrep -x -u "$(id -u)" mako >/dev/null 2>&1; then
     makoctl reload 2>/dev/null || true
   fi

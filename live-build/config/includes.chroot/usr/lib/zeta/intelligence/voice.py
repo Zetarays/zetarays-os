@@ -1,22 +1,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence — riconoscimento vocale offline.
+"""ZETA RAYS Intelligence — offline speech recognition.
 
-Usa Vosk con un modello italiano. Tutto avviene in locale: nessun audio lascia
-il computer. Se manca qualcosa, `status()` dice esattamente cosa, e ZETA
-lo spiega invece di fingere che funzioni.
+Uses Vosk with a model for the selected language. Everything happens
+locally: no audio leaves the computer. If something is missing, `status()`
+says exactly what, and ZETA explains it instead of pretending it works.
 
-Punti a cui si è prestata attenzione:
-  • il modello si carica UNA volta sola e resta in memoria (caricarlo a ogni
-    frase costava secondi di attesa);
-  • la lettura dal microfono non può mai bloccarsi: si usa una scadenza, così
-    un microfono che non produce dati non pianta ZETA;
-  • si smette di registrare appena la persona ha finito di parlare, invece di
-    aspettare sempre lo stesso numero di secondi;
-  • il processo di registrazione viene chiuso in ogni caso.
+Points that were given special care:
+  • the model is loaded ONCE and stays in memory (loading it for every
+    sentence cost seconds of waiting);
+  • reading from the microphone can never block: a timeout is used, so a
+    microphone that produces no data does not hang ZETA;
+  • recording stops as soon as the person has finished speaking, instead of
+    always waiting the same number of seconds;
+  • the recording process is closed in every case.
 
-Attivazione:
-  1. installare Vosk        (pip install vosk, oppure pacchetto di ZETA RAYS)
-  2. scaricare un modello   in ~/.local/share/zeta/vosk/  o  /usr/share/vosk/
+Setup:
+  1. install Vosk           (pip install vosk, or the ZETA RAYS package)
+  2. download a model       into ~/.local/share/zeta/vosk/  or  /usr/share/vosk/
 """
 from __future__ import annotations
 
@@ -31,85 +31,85 @@ import time
 
 from i18n import language, tr
 
-# Un modello per lingua. Vosk ne carica uno solo e non riconosce da se' quale
-# lingua stia sentendo: la scelta la fa il sistema (vedi lingua_scelta), non
-# l'indovinello.
-MODELLI = {
+# One model per language. Vosk loads only one and cannot tell by itself which
+# language it is hearing: the system makes the choice (see chosen_language),
+# not guesswork.
+MODELS = {
     "it": ["/usr/share/vosk/model-it"],
     "en": ["/usr/share/vosk/model-en"],
 }
-# Cartelle dove cercare comunque, per chi ne aggiunge uno a mano.
+# Folders searched anyway, for those who add a model by hand.
 MODEL_DIRS = [
     os.path.expanduser("~/.local/share/zeta/vosk"),
     "/usr/share/vosk/model-it",
     "/usr/share/vosk/model-en",
     "/usr/share/vosk",
 ]
-LINGUA_FILE = os.path.expanduser("~/.config/zeta/voce-lingua")
+LANGUAGE_FILE = os.path.expanduser("~/.config/zeta/voice-language")
 
 RATE = 16000
-CHUNK = 3200                 # 0,1 s di audio a 16 kHz mono 16 bit
-SOGLIA_VOCE = 450            # livello medio sopra il quale c'è voce
-ATTESA_INIZIALE = 6.0        # secondi di pazienza prima che si parli
-DURATA_MASSIMA = 15.0        # limite assoluto: non si registra all'infinito
-SILENZIO_FINE = 1.1          # silenzio dopo la voce = frase finita
+CHUNK = 3200                 # 0.1 s of audio at 16 kHz mono 16 bit
+SPEECH_THRESHOLD = 450            # average level above which there is speech
+INITIAL_WAIT = 6.0        # seconds of patience before someone speaks
+MAX_DURATION = 15.0        # hard limit: never record forever
+END_SILENCE = 1.1          # silence after speech = sentence finished
 
-_modello = None
-_lingua_modello = None       # lingua del modello caricato (per la seconda lettura)
+_model = None
+_model_language = None       # language of the loaded model (for the second pass)
 _lock = threading.Lock()
 
 
-# --------------------------------------------------------------- disponibilità
-def _valido(d: str) -> bool:
+# --------------------------------------------------------------- availability
+def _is_valid(d: str) -> bool:
     return os.path.isdir(d) and os.path.isfile(os.path.join(d, "conf", "model.conf"))
 
 
-def lingue_disponibili() -> list:
-    """Le lingue per cui c'e' davvero un modello installato."""
-    return [lang for lang, dirs in MODELLI.items() if any(_valido(d) for d in dirs)]
+def available_languages() -> list:
+    """The languages for which a model is actually installed."""
+    return [lang for lang, dirs in MODELS.items() if any(_is_valid(d) for d in dirs)]
 
 
-def lingua_scelta() -> str:
-    """La lingua da ascoltare: quella scelta, altrimenti quella del sistema.
+def chosen_language() -> str:
+    """The language to listen for: the chosen one, otherwise the system's.
 
-    Chi usa il sistema in inglese si aspetta che il microfono capisca
-    l'inglese, senza doverlo dire. Chi vuole il contrario lo scrive una volta
-    in ~/.config/zeta/voce-lingua. La lingua del sistema e' quella in cui
-    ZETA e' mostrato (i18n.language()); senza un modello per quella, si
-    preferisce l'inglese.
+    Someone using the system in English expects the microphone to understand
+    English without having to say so. Anyone who wants otherwise writes it
+    once in ~/.config/zeta/voice-language. The system language is the one ZETA
+    is displayed in (i18n.language()); without a model for it, English is
+    preferred.
     """
     try:
-        with open(LINGUA_FILE) as f:
-            scelta = f.read().strip().lower()[:2]
-        if scelta in MODELLI and any(_valido(d) for d in MODELLI[scelta]):
-            return scelta
+        with open(LANGUAGE_FILE) as f:
+            choice = f.read().strip().lower()[:2]
+        if choice in MODELS and any(_is_valid(d) for d in MODELS[choice]):
+            return choice
     except OSError:
         pass
-    sistema = language()
-    if sistema in MODELLI and any(_valido(d) for d in MODELLI[sistema]):
-        return sistema
-    disponibili = lingue_disponibili()
-    if "en" in disponibili:
+    system_language = language()
+    if system_language in MODELS and any(_is_valid(d) for d in MODELS[system_language]):
+        return system_language
+    available = available_languages()
+    if "en" in available:
         return "en"
-    return disponibili[0] if disponibili else sistema
+    return available[0] if available else system_language
 
 
 def _model_path() -> str | None:
-    for d in MODELLI.get(lingua_scelta(), []):
-        if _valido(d):
+    for d in MODELS.get(chosen_language(), []):
+        if _is_valid(d):
             return d
     for d in MODEL_DIRS:
-        if _valido(d):
+        if _is_valid(d):
             return d
     return None
 
 
-def _lingua_di(percorso: str | None) -> str:
-    """La lingua di un modello, dalla sua cartella."""
-    for lang, dirs in MODELLI.items():
-        if percorso in dirs:
+def _language_of(path: str | None) -> str:
+    """The language of a model, from its folder."""
+    for lang, dirs in MODELS.items():
+        if path in dirs:
             return lang
-    return lingua_scelta()
+    return chosen_language()
 
 
 def _has_vosk() -> bool:
@@ -121,10 +121,10 @@ def _has_vosk() -> bool:
 
 
 def _recorder() -> list | None:
-    """Comando che scrive audio grezzo mono 16 kHz 16 bit su stdout."""
+    """Command that writes raw mono 16 kHz 16-bit audio to stdout."""
     if shutil.which("pw-record"):
-        # --raw: senza, scriverebbe un'intestazione WAV che il riconoscitore
-        # interpreterebbe come rumore.
+        # --raw: without it, a WAV header would be written, which the
+        # recognizer would interpret as noise.
         return ["pw-record", "--raw", "--rate=%d" % RATE, "--channels=1",
                 "--format=s16", "-"]
     if shutil.which("parec"):
@@ -134,37 +134,37 @@ def _recorder() -> list | None:
     return None
 
 
-def _microfono_presente() -> bool:
-    """Vero se il sistema audio espone almeno una sorgente."""
+def _microphone_present() -> bool:
+    """True if the audio system exposes at least one source."""
     try:
-        # LC_ALL=C: si cercano le intestazioni «Sources:», «Sinks»...
+        # LC_ALL=C: we look for the "Sources:", "Sinks"... headers
         out = subprocess.run(["wpctl", "status"], capture_output=True, text=True,
                              timeout=4, env=dict(os.environ, LC_ALL="C")).stdout
     except (OSError, subprocess.SubprocessError):
-        return True          # senza wpctl non possiamo dirlo: non blocchiamo
-    dentro = False
-    for riga in out.splitlines():
-        if "Sources:" in riga:
-            dentro = True
+        return True          # without wpctl we cannot tell: do not block
+    inside = False
+    for line in out.splitlines():
+        if "Sources:" in line:
+            inside = True
             continue
-        if dentro:
-            if "Filters" in riga or "Sinks" in riga:
-                dentro = False
+        if inside:
+            if "Filters" in line or "Sinks" in line:
+                inside = False
                 continue
-            if riga.strip(" │├─└\t") and any(c.isdigit() for c in riga):
+            if line.strip(" │├─└\t") and any(c.isdigit() for c in line):
                 return True
     return False
 
 
 def status() -> dict:
-    """Perché il riconoscimento vocale è o non è disponibile."""
+    """Why speech recognition is or is not available."""
     mic = _recorder() is not None
     return {
         "vosk": _has_vosk(),
         "model": _model_path(),
         "mic": mic,
-        "sorgente": mic and _microfono_presente(),
-        "caricato": _modello is not None,
+        "source": mic and _microphone_present(),
+        "loaded": _model is not None,
         "available": _has_vosk() and _model_path() is not None and mic,
     }
 
@@ -184,66 +184,67 @@ def why_unavailable() -> str:
     if not s["model"]:
         return tr("The speech model for your language is missing. Copy it to "
                   "~/.local/share/zeta/vosk/ to enable voice commands.")
-    if not s["sorgente"]:
+    if not s["source"]:
         return tr("No microphone connected.")
     return tr("Speech recognition isn't available.")
 
 
-# ------------------------------------------------------------------- modello
+# --------------------------------------------------------------------- model
 def preload() -> bool:
-    """Carica il modello in memoria. Si può chiamare da un thread di sfondo."""
-    global _modello, _lingua_modello
-    if _modello is not None:
+    """Load the model into memory. Can be called from a background thread."""
+    global _model, _model_language
+    if _model is not None:
         return True
     if not available():
         return False
     with _lock:
-        if _modello is not None:
+        if _model is not None:
             return True
         try:
             import vosk
-            vosk.SetLogLevel(-1)          # niente rumore sul terminale
-            percorso = _model_path()
-            _modello = vosk.Model(percorso)
-            _lingua_modello = _lingua_di(percorso)
+            vosk.SetLogLevel(-1)          # no noise on the terminal
+            path = _model_path()
+            _model = vosk.Model(path)
+            _model_language = _language_of(path)
         except Exception:  # noqa: BLE001
-            _modello = None
+            _model = None
             return False
     return True
 
 
-def _livello(dati: bytes) -> int:
-    """Livello medio del pezzo di audio (0 = silenzio)."""
-    if len(dati) < 2:
+def _level(data: bytes) -> int:
+    """Average level of the audio chunk (0 = silence)."""
+    if len(data) < 2:
         return 0
-    campioni = array.array("h")
-    campioni.frombytes(dati[: len(dati) // 2 * 2])
-    if not campioni:
+    samples = array.array("h")
+    samples.frombytes(data[: len(data) // 2 * 2])
+    if not samples:
         return 0
-    return int(sum(abs(c) for c in campioni) / len(campioni))
+    return int(sum(abs(c) for c in samples) / len(samples))
 
 
-def _confidenza(risultato: dict) -> float:
-    """Quanto il motore è sicuro di ciò che ha capito (0 = per niente)."""
-    parole = risultato.get("result") or []
-    if not parole:
+def _confidence(result: dict) -> float:
+    """How confident the engine is about what it understood (0 = not at all)."""
+    words = result.get("result") or []
+    if not words:
         return 0.0
-    valori = [p.get("conf", 0.0) for p in parole]
-    return sum(valori) / len(valori)
+    values = [p.get("conf", 0.0) for p in words]
+    return sum(values) / len(values)
 
 
-class ErroreMicrofono(Exception):
+class MicrophoneError(Exception):
     pass
 
 
-# ------------------------------------------------ seconda lettura dei comandi
-# Il modello piccolo, a vocabolario libero, sbaglia spesso proprio le parole
-# dei comandi («apri firefox» -> «app di firefox», «alza il volume» -> «al
-# volume»: provato). Quando la prima trascrizione non e' un comando, lo stesso
-# audio si rilegge con un vocabolario ridotto alle parole dei comandi e ai
-# nomi delle app installate. Si usa solo se ne esce un comando valido.
-# Un vocabolario per lingua: si usa quello del modello caricato.
-_PAROLE_IT = """
+# ------------------------------------------------ second pass for commands
+# The small free-vocabulary model often gets precisely the command words
+# wrong ("apri firefox" -> "app di firefox", "alza il volume" -> "al volume":
+# verified). When the first transcription is not a command, the same audio is
+# re-read with a vocabulary restricted to command words and the names of
+# installed apps. It is used only if a valid command comes out of it.
+# One vocabulary per language: the one of the loaded model is used.
+# i18n-data-begin: Italian command vocabulary
+_WORDS_IT = """
 apri aprimi avvia lancia chiudi esci riavvia riapri passa vai torna mostrami mostra fammi vedere
 crea nuova nuovo cerca trova dove elimina cancella sposta copia rinomina metti togli aggiungi
 accendi spegni attiva disattiva alza abbassa aumenta diminuisci blocca sospendi riduci icona
@@ -258,7 +259,8 @@ sito pagina posta email browser editor testo calcolatrice
 zero uno due tre quattro cinque sei sette otto nove dieci venti trenta quaranta cinquanta
 sessanta settanta ottanta novanta cento percento
 """.split()
-_PAROLE_EN = """
+# i18n-data-end
+_WORDS_EN = """
 open launch start run close quit exit restart reopen switch go back show me let see
 create new make search find where delete remove move copy rename put take add
 turn on off enable disable raise lower increase decrease up down lock suspend sleep minimize
@@ -272,167 +274,167 @@ quieter brightness site page mail email browser editor text calculator
 zero one two three four five six seven eight nine ten twenty thirty forty fifty
 sixty seventy eighty ninety hundred percent
 """.split()
-_PAROLE_COMANDI = {"it": _PAROLE_IT, "en": _PAROLE_EN}
+_COMMAND_WORDS = {"it": _WORDS_IT, "en": _WORDS_EN}
 
 
-def _vocabolario() -> list:
-    parole = set(_PAROLE_COMANDI.get(_lingua_modello or lingua_scelta(), _PAROLE_EN))
+def _vocabulary() -> list:
+    words = set(_COMMAND_WORDS.get(_model_language or chosen_language(), _WORDS_EN))
     try:
-        from .agente import stato
-        for a in stato.app_installate():
-            if a.nascosta:
+        from .agent import state
+        for a in state.installed_apps():
+            if a.is_hidden:
                 continue
-            for n in list(a.nomi) + [a.nome, a.binario]:
+            for n in list(a.names) + [a.name, a.binary]:
                 for w in (n or "").lower().replace("-", " ").split():
                     if w.isalpha() and len(w) > 2:
-                        parole.add(w)
-    except Exception:  # noqa: BLE001 - senza nomi delle app si usano solo i comandi
+                        words.add(w)
+    except Exception:  # noqa: BLE001 - without app names only the commands are used
         pass
-    return sorted(parole) + ["[unk]"]
+    return sorted(words) + ["[unk]"]
 
 
-# Solo comandi con argomenti «chiusi» (un'app installata, una cartella nota,
-# un numero): la seconda lettura sostituisce le parole che non conosce con
-# quelle del vocabolario, e un nome di file come «viaggi» diventava «avvia»
-# (provato). Creare, spostare, cercare o eliminare file: mai da qui.
-_DA_VOCE = {"open_application", "close_application", "restart_application", "focus_application",
+# Only commands with "closed" arguments (an installed app, a known folder, a
+# number): the second pass replaces words it does not know with vocabulary
+# words, and a file name like "viaggi" became "avvia" (verified). Creating,
+# moving, searching or deleting files: never from here.
+_VOICE_ACTIONS = {"open_application", "close_application", "restart_application", "focus_application",
             "minimize_window", "maximize_window", "fullscreen_window", "open_folder", "open_settings",
             "set_volume", "set_brightness", "set_theme", "wifi_on", "wifi_off", "wifi_list",
             "network_status", "bluetooth_on", "bluetooth_off", "bluetooth_devices", "system_status",
             "list_processes", "list_running_applications", "current_time", "screenshot", "lock_screen"}
 
 
-def _comando_valido(azioni) -> bool:
-    """Ogni app nominata esiste davvero («chiudi video fox» no)."""
-    from .agente import stato
-    for _nome, args in azioni:
+def _valid_command(actions) -> bool:
+    """Every app mentioned actually exists (not "chiudi video fox")."""
+    from .agent import state
+    for _name, args in actions:
         app = args.get("app")
-        if app and not stato.trova_app(app):
+        if app and not state.find_app(app):
             return False
     return True
 
 
-def _rileggi_comando(audio: bytes, rate: int, prima: str) -> tuple:
-    """(testo, confidenza) se lo stesso audio, riletto con le sole parole dei
-    comandi, da' un comando che ZETA capisce; altrimenti ("", 0)."""
-    if not audio or _modello is None:
+def _reread_command(audio: bytes, rate: int, first: str) -> tuple:
+    """(text, confidence) if the same audio, re-read with only the command
+    words, yields a command ZETA understands; otherwise ("", 0)."""
+    if not audio or _model is None:
         return "", 0.0
     try:
         import vosk
-        from .agente.capire import capire
-        from .agente import capacita
-        vosk.SetLogLevel(-2)        # le parole che il modello non ha: avvisi inutili
-        k = vosk.KaldiRecognizer(_modello, rate, json.dumps(_vocabolario(), ensure_ascii=False))
+        from .agent.understanding import understanding
+        from .agent import capabilities
+        vosk.SetLogLevel(-2)        # words missing from the model: useless warnings
+        k = vosk.KaldiRecognizer(_model, rate, json.dumps(_vocabulary(), ensure_ascii=False))
         k.SetWords(True)
         k.AcceptWaveform(bytes(audio))
         r = json.loads(k.FinalResult())
     except Exception:  # noqa: BLE001
         return "", 0.0
-    testo = (r.get("text") or "").strip()
-    conf = _confidenza(r)
-    if not testo or "[unk]" in testo or conf < 0.6:
+    text = (r.get("text") or "").strip()
+    conf = _confidence(r)
+    if not text or "[unk]" in text or conf < 0.6:
         return "", 0.0
-    azioni = capire(testo)
-    if not azioni or any(n not in _DA_VOCE for n, _a in azioni) or not _comando_valido(azioni):
+    actions = understanding(text)
+    if not actions or any(n not in _VOICE_ACTIONS for n, _a in actions) or not _valid_command(actions):
         return "", 0.0
-    # Dev'esserci un legame con cio' che si e' sentito prima (una parola in
-    # comune), a meno che il comando sia una semplice lettura («che ore sono»).
-    comuni = {w for w in testo.split() if len(w) > 3} & {w for w in prima.lower().split() if len(w) > 3}
-    solo_lettura = all(capacita.REGISTRO[n].rischio == "lettura" for n, _a in azioni if n in capacita.REGISTRO)
-    if not comuni and not solo_lettura:
+    # There must be a link with what was heard first (a word in common),
+    # unless the command is a simple read-only query ("che ore sono").
+    common_words = {w for w in text.split() if len(w) > 3} & {w for w in first.lower().split() if len(w) > 3}
+    read_only = all(capabilities.REGISTRY[n].risk == "read" for n, _a in actions if n in capabilities.REGISTRY)
+    if not common_words and not read_only:
         return "", 0.0
-    return testo, conf
+    return text, conf
 
 
-def trascrivi(audio: bytes, rate: int = RATE) -> tuple:
-    """(testo, confidenza) di un audio gia' registrato (16 bit mono)."""
+def transcribe(audio: bytes, rate: int = RATE) -> tuple:
+    """(text, confidence) of already recorded audio (16-bit mono)."""
     if not preload():
         return "", 0.0
     import vosk
-    k = vosk.KaldiRecognizer(_modello, rate)
+    k = vosk.KaldiRecognizer(_model, rate)
     k.SetWords(True)
     k.AcceptWaveform(bytes(audio))
     try:
         r = json.loads(k.FinalResult())
     except ValueError:
         return "", 0.0
-    return _scegli(r, audio, rate)
+    return _choose(r, audio, rate)
 
 
-def _scegli(risultato: dict, audio: bytes, rate: int) -> tuple:
-    testo = (risultato.get("text") or "").strip()
-    conf = _confidenza(risultato)
+def _choose(result: dict, audio: bytes, rate: int) -> tuple:
+    text = (result.get("text") or "").strip()
+    conf = _confidence(result)
     try:
-        from .agente.capire import capire
-        azioni = capire(testo) if testo else None
-        # un comando valido si tiene; «al volume» (senza «alza») e' quasi
-        # sempre un verbo perso: si rilegge
-        if azioni and _comando_valido(azioni) and not (
-                len(azioni) == 1 and azioni[0][0] in ("set_volume", "set_brightness") and not azioni[0][1]):
-            return testo, conf
+        from .agent.understanding import understanding
+        actions = understanding(text) if text else None
+        # a valid command is kept; "al volume" (without "alza") is almost
+        # always a lost verb: re-read it
+        if actions and _valid_command(actions) and not (
+                len(actions) == 1 and actions[0][0] in ("set_volume", "set_brightness") and not actions[0][1]):
+            return text, conf
     except Exception:  # noqa: BLE001
-        return testo, conf
-    alt, conf_alt = _rileggi_comando(audio, rate, testo)
-    return (alt, conf_alt) if alt else (testo, conf)
+        return text, conf
+    alt, conf_alt = _reread_command(audio, rate, text)
+    return (alt, conf_alt) if alt else (text, conf)
 
 
 class Recognizer:
-    """Registra una frase e la trascrive. Non blocca mai a tempo indefinito."""
+    """Record a sentence and transcribe it. Never blocks indefinitely."""
 
-    def __init__(self, attesa: float = ATTESA_INIZIALE,
-                 massimo: float = DURATA_MASSIMA,
-                 silenzio: float = SILENZIO_FINE):
-        self.attesa = attesa
-        self.massimo = massimo
-        self.silenzio = silenzio
+    def __init__(self, wait: float = INITIAL_WAIT,
+                 maximum: float = MAX_DURATION,
+                 silence: float = END_SILENCE):
+        self.wait = wait
+        self.maximum = maximum
+        self.silence = silence
 
-    def listen(self, on_stato=None) -> str:
-        """Restituisce il testo riconosciuto ("" se non si è capito nulla).
+    def listen(self, on_state=None) -> str:
+        """Return the recognized text ("" if nothing was understood).
 
-        on_stato, se passato, riceve "attesa" | "ascolto" | "elaborazione".
+        on_state, if given, receives "idle" | "listening" | "processing".
         """
         if not preload():
-            raise ErroreMicrofono(why_unavailable())
+            raise MicrophoneError(why_unavailable())
         import vosk
 
-        comando = _recorder()
+        command = _recorder()
         try:
-            proc = subprocess.Popen(comando, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(command, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL)
         except OSError as e:
-            raise ErroreMicrofono(tr("Can't open the microphone: {error}").format(error=e)) from e
+            raise MicrophoneError(tr("Can't open the microphone: {error}").format(error=e)) from e
 
-        kaldi = vosk.KaldiRecognizer(_modello, RATE)
-        kaldi.SetWords(True)        # serve per sapere quanto è sicuro il risultato
-        audio = bytearray()         # per la seconda lettura (vedi _rileggi_comando)
-        inizio = time.monotonic()
-        ultima_voce = None
-        ha_parlato = False
-        if on_stato:
-            on_stato("attesa")
+        kaldi = vosk.KaldiRecognizer(_model, RATE)
+        kaldi.SetWords(True)        # needed to know how confident the result is
+        audio = bytearray()         # for the second pass (see _reread_command)
+        start = time.monotonic()
+        last_speech = None
+        has_spoken = False
+        if on_state:
+            on_state("idle")
         try:
             while True:
-                adesso = time.monotonic()
-                if adesso - inizio > self.massimo:
+                now = time.monotonic()
+                if now - start > self.maximum:
                     break
-                if not ha_parlato and adesso - inizio > self.attesa:
-                    break                      # nessuno ha parlato
-                if ha_parlato and ultima_voce and adesso - ultima_voce > self.silenzio:
-                    break                      # frase finita
-                # lettura con scadenza: un microfono muto non deve bloccarci
-                pronto, _, _ = select.select([proc.stdout], [], [], 0.25)
-                if not pronto:
+                if not has_spoken and now - start > self.wait:
+                    break                      # nobody spoke
+                if has_spoken and last_speech and now - last_speech > self.silence:
+                    break                      # sentence finished
+                # read with a timeout: a silent microphone must not block us
+                ready, _, _ = select.select([proc.stdout], [], [], 0.25)
+                if not ready:
                     continue
-                dati = proc.stdout.read(CHUNK)
-                if not dati:
+                data = proc.stdout.read(CHUNK)
+                if not data:
                     break
-                if _livello(dati) >= SOGLIA_VOCE:
-                    if not ha_parlato and on_stato:
-                        on_stato("ascolto")
-                    ha_parlato = True
-                    ultima_voce = time.monotonic()
-                kaldi.AcceptWaveform(dati)
-                audio.extend(dati)
+                if _level(data) >= SPEECH_THRESHOLD:
+                    if not has_spoken and on_state:
+                        on_state("listening")
+                    has_spoken = True
+                    last_speech = time.monotonic()
+                kaldi.AcceptWaveform(data)
+                audio.extend(data)
         finally:
             try:
                 proc.terminate()
@@ -443,15 +445,15 @@ class Recognizer:
                 except OSError:
                     pass
 
-        if not ha_parlato:
+        if not has_spoken:
             return ""
-        if on_stato:
-            on_stato("elaborazione")
+        if on_state:
+            on_state("processing")
         try:
-            risultato = json.loads(kaldi.FinalResult())
+            result = json.loads(kaldi.FinalResult())
         except ValueError:
             return ""
-        testo, self.ultima_confidenza = _scegli(risultato, audio, RATE)
-        return testo
+        text, self.last_confidence = _choose(result, audio, RATE)
+        return text
 
-    ultima_confidenza = 0.0
+    last_confidence = 0.0

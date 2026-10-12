@@ -1,0 +1,43 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-keyboard — the keyboard layout in use, shown in the bar (IT, US, GB...).
+#
+#   zeta-keyboard status     the code for Waybar (empty with a single layout:
+#                            in that case the indicator doesn't appear)
+#   zeta-keyboard next       switches to the next layout (like Alt+Shift)
+#
+# Refreshed by the SIGRTMIN+14 signal, which zeta-workspaces sends when Hyprland
+# switches layout (activelayout event): no continuous polling.
+set -u
+LUA="$HOME/.config/hypr/zeta_keyboard.lua"
+EVDEV=/usr/share/X11/xkb/rules/evdev.lst
+
+layout() {   # the session's layouts: those in the file read at login
+    sed -n 's/.*layout = "\([^"]*\)".*/\1/p' "$LUA" 2>/dev/null | head -1
+}
+
+case "${1:-}" in
+    status)
+        lay=$(layout); lay=${lay:-us}
+        case "$lay" in *,*) ;; *) echo '{"text": ""}'; exit 0 ;; esac
+        name=$(hyprctl -j devices 2>/dev/null \
+               | jq -r '([.keyboards[] | select(.main)] + .keyboards)[0].active_keymap // empty' 2>/dev/null)
+        code=""
+        IFS=, read -ra codes <<<"$lay"
+        for c in "${codes[@]}"; do
+            n=$(awk -v c="$c" '/^! layout/{s=1;next} /^!/{s=0} s && $1==c {sub(/^ *[^ ]+ +/,""); print; exit}' "$EVDEV")
+            [ -n "$n" ] && [ "$n" = "$name" ] && { code=$c; break; }
+        done
+        [ -n "$code" ] || code=${codes[0]}
+        printf '{"text": "%s", "tooltip": "%s"}\n' \
+            "$(printf '%s' "$code" | tr '[:lower:]' '[:upper:]')" "${name:-$code}"
+        ;;
+    next)
+        hyprctl switchxkblayout all next >/dev/null 2>&1
+        pkill -RTMIN+14 -x waybar 2>/dev/null
+        ;;
+    *)
+        echo "usage: zeta-keyboard status | next" >&2
+        exit 2
+        ;;
+esac

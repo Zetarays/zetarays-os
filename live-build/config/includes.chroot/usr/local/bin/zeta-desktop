@@ -1,0 +1,2346 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-desktop — the ZETA RAYS desktop: files, folders and icons on the wallpaper.
+
+It behaves like the desktop of any ordinary operating system: double-click to
+open, single or multiple selection, drag to move, copy/cut/paste, trash, and a
+right-click menu with everything needed.
+
+  zeta-desktop            start (launched by zeta-session)
+  zeta-desktop --status   print the state in readable form (for tests)
+
+The folder shown is the system one (xdg-user-dir DESKTOP), usually
+~/Desktop or its name in the user's language. The «Home» and «Trash» icons are always present and can be moved
+like the others.
+
+Keyboard note: this is a full-screen compositor surface. If it requested
+keyboard focus, no window could receive keystrokes any more and the desktop
+would look frozen. So it never requests it, and every action is reachable
+with the mouse and from the right-click menu.
+"""
+import json
+import os
+import threading
+import re
+import shutil
+import subprocess
+import sys
+import urllib.parse
+
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import popup  # noqa: E402
+from system import download  # noqa: E402
+from system import folder_colors  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
+
+
+# drag-and-drop formats the desktop can use, besides files
+MIME_URI = ("text/uri-list", "text/x-moz-url")
+MIME_TEXT = ("text/plain;charset=utf-8", "text/plain", "UTF8_STRING")
+IMAGE_MIME_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp",
+                 "image/avif", "image/svg+xml")
+
+
+_CHILDREN = set()
+
+
+def _spawn(cmd, **kw):
+    """Starts a program and reaps it when it exits: fired and forgotten,
+    «gio open» lingered as a zombie process (observed)."""
+    p = subprocess.Popen(cmd, **kw)
+    from gi.repository import GLib as _G
+    _CHILDREN.add(p)                  # so Python does not reap it a second time
+
+    def finished(_pid, state, proc=p):
+        proc.returncode = state
+        _CHILDREN.discard(proc)
+    _G.child_watch_add(_G.PRIORITY_DEFAULT_IDLE, p.pid, finished)
+    return p
+
+popup.preload_layer_shell()
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import (Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk,  # noqa: E402
+                           Pango)
+
+CFG = os.path.expanduser("~/.config/zeta")
+STATE = os.path.join(CFG, "desktop.json")
+MARGIN = 18          # distance from the screen edges
+CLIP_MIME = "x-special/gnome-copied-files"   # format shared with file managers
+
+CSS = """
+window.zeta-desktop { background: transparent; }
+.desk-item { border-radius: 12px; padding: 6px 4px; }
+.desk-item:hover { background: @hover_2; }
+.desk-item.selected { background: @accent_soft; border: 1px solid @accent_line; }
+/* Names sit on the wallpaper, not on a panel: theme color with a halo of
+   the opposite color, so they stay readable on light and dark. */
+.desk-name { font-size: 11.5px; color: @ink; text-shadow: 0 1px 3px @scrim_strong; }
+.desk-item.selected .desk-name { text-shadow: none; }
+.desk-item.cut { opacity: 0.45; }
+.desk-item.moving { opacity: 0.8; background: @hover_2; }
+.desk-band { background: @accent_soft; border: 1px solid @accent; border-radius: 4px; }
+"""
+
+SORT_MODES = [("name", tr("Name")), ("type", tr("Type")), ("date", tr("Date Modified")),
+              ("size", tr("Size"))]
+# desktop icon size (View menu); None follows Settings › Appearance
+ICON_SIZES = [(None, tr("Default Icon Size")), (32, tr("Small Icons")),
+              (48, tr("Medium Icons")), (64, tr("Large Icons"))]
+
+
+# -------------------------------------------------------------- preferences
+def pref(name, default):
+    try:
+        with open(os.path.join(CFG, name)) as f:
+            return f.read().strip() or default
+    except OSError:
+        return default
+
+
+def icons_enabled():
+    return pref("desktop-icons", "1") != "0"
+
+
+def spacing():
+    """Spacing between icons (Settings › Appearance)."""
+    try:
+        v = int(pref("icon-spacing", "14"))
+    except ValueError:
+        return 14
+    return v if 0 <= v <= 48 else 14
+
+
+def icon_size():
+    try:
+        v = int(pref("icon-size", "42"))
+    except ValueError:
+        return 42
+    return v if 28 <= v <= 64 else 42
+
+
+def desktop_dir():
+    # The desktop folder in the user's language (XDG_DESKTOP_DIR in
+    # ~/.config/user-dirs.dirs: ~/Desktop or its translation), never a name
+    # hard-coded here. If it is not configured, the standard one: ~/Desktop.
+    home = os.path.expanduser("~")
+    out = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DESKTOP) or ""
+    if not out or os.path.abspath(out) == os.path.abspath(home):
+        out = os.path.join(home, "Desktop")
+    try:
+        os.makedirs(out, exist_ok=True)
+    except OSError:
+        pass
+    return out
+
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(d):
+    try:
+        os.makedirs(CFG, exist_ok=True)
+        tmp = STATE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(d, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, STATE)
+    except OSError:
+        pass
+
+
+# -------------------------------------------------------------------- trash
+def trash_dir():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "Trash")
+
+
+# Above 40 MB no thumbnail is generated: the time and memory are not worth
+# the result, and the file-type icon stays.
+PREVIEW_MAX_BYTES = 40 * 1024 * 1024
+
+ICONS_DIR = os.path.expanduser("~/.local/share/zeta/icons")
+ICON_MAX = 256       # maximum side: an icon larger than this is never seen
+# Line that remembers a launcher's original icon, so it can be restored.
+# X- keys are the only place the freedesktop specification allows for a
+# program's own values.
+ORIGINAL_KEY = "X-ZETA-Original-Icon"
+
+
+def _custom_icon(source, base_name):
+    """Copies the chosen image to ~/.local/share/zeta/icons and returns its path.
+
+    It is copied instead of pointing at the original file because that file
+    may be in Downloads, on a USB stick or in the Trash: moving it would leave
+    the launcher without an icon. Large images (a 4000-pixel photo) are scaled
+    down: at 42 pixels the difference is invisible, but keeping them full size
+    costs memory on every desktop redraw. SVGs are copied as they are, since
+    they scale on their own without losing anything.
+    """
+    os.makedirs(ICONS_DIR, exist_ok=True)
+    ext = os.path.splitext(source)[1].lower()
+    if base_name.endswith(".desktop"):
+        base_name = base_name[:-len(".desktop")]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", base_name) or "icon"
+    if ext in (".svg", ".svgz"):
+        dest = os.path.join(ICONS_DIR, cleaned + ext)
+        shutil.copyfile(source, dest)
+        return dest
+    pix = GdkPixbuf.Pixbuf.new_from_file(source)
+    side = max(pix.get_width(), pix.get_height())
+    if side > ICON_MAX:
+        k = ICON_MAX / side
+        pix = pix.scale_simple(max(1, int(pix.get_width() * k)),
+                               max(1, int(pix.get_height() * k)),
+                               GdkPixbuf.InterpType.BILINEAR)
+    dest = os.path.join(ICONS_DIR, cleaned + ".png")
+    pix.savev(dest, "png", [], [])
+    return dest
+
+
+def _desktop_write_icon(path, icon):
+    """Changes Icon= in a .desktop file, preserving everything else.
+
+    It is rewritten line by line instead of using GKeyFile because GKeyFile
+    reorders and rewrites the whole file: a hand-made launcher would lose
+    comments and lines it does not know. With icon=None the original icon is
+    restored.
+    """
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    original = None
+    for r in lines:
+        if r.startswith(ORIGINAL_KEY + "="):
+            original = r.split("=", 1)[1]
+    if icon is None:
+        if original is None:
+            return False
+        icon, original = original, None
+    else:
+        if original is None:
+            current = next((r.split("=", 1)[1] for r in lines
+                            if r.startswith("Icon=")), "")
+            original = current
+    new_items, icon_seen = [], False
+    for r in lines:
+        if r.startswith("Icon="):
+            new_items.append("Icon=" + icon)
+            icon_seen = True
+        elif r.startswith(ORIGINAL_KEY + "="):
+            continue
+        else:
+            new_items.append(r)
+    if not icon_seen:
+        # no Icon= line: put it right after the header
+        i = next((k for k, r in enumerate(new_items)
+                  if r.strip() == "[Desktop Entry]"), -1)
+        new_items.insert(i + 1, "Icon=" + icon)
+    if original is not None:
+        i = next((k for k, r in enumerate(new_items)
+                  if r.strip() == "[Desktop Entry]"), -1)
+        new_items.insert(i + 1, "%s=%s" % (ORIGINAL_KEY, original))
+    tmp = path + ".zeta-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(new_items))
+    shutil.copymode(path, tmp)
+    os.replace(tmp, path)
+    return True
+
+
+def _has_custom_icon(path):
+    """True if this item has an icon chosen by the user."""
+    if _own_desktop(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return ORIGINAL_KEY + "=" in f.read()
+        except OSError:
+            return False
+    try:
+        info = Gio.File.new_for_path(path).query_info(
+            "metadata::custom-icon", Gio.FileQueryInfoFlags.NONE, None)
+        return bool(info.get_attribute_string("metadata::custom-icon"))
+    except GLib.Error:
+        return False
+
+
+def _shortcut_app(path):
+    """The application described by a .desktop file, or None if unreadable."""
+    try:
+        return Gio.DesktopAppInfo.new_from_filename(path)
+    except (GLib.Error, TypeError):
+        return None
+
+
+# ---------------------------------------- launchers for programs
+# The file manager's «Send to › Desktop» creates a symbolic link. For a
+# program downloaded and placed in /opt (Blender, for example) the link may
+# point to the program itself or to its .desktop file, which often just says
+# «Exec=blender»: a name that only works in its own folder, not in the
+# system PATH. Previously neither of the two started from the desktop.
+
+def _is_program(path):
+    """True if the file (following the link) is a program to run: executable
+    and either an ELF binary or a «#!» script. An image with the execute
+    permission (happens with Windows disks) is still an image."""
+    real_path = os.path.realpath(path)
+    if not (os.path.isfile(real_path) and os.access(real_path, os.X_OK)):
+        return False
+    try:
+        with open(real_path, "rb") as f:
+            head = f.read(4)
+    except OSError:
+        return False
+    return head == b"\x7fELF" or head[:2] == b"#!"
+
+
+def _shortcut_command(path):
+    """(argv, folder) for a .desktop file, also looking for the program next to
+    the real .desktop file when it is not in PATH. None if it cannot start."""
+    real_path = os.path.realpath(path)
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(real_path, GLib.KeyFileFlags.NONE)
+        exec_ = kf.get_string("Desktop Entry", "Exec")
+    except GLib.Error:
+        return None
+    try:
+        folder = kf.get_string("Desktop Entry", "Path") or None
+    except GLib.Error:
+        folder = None
+    try:
+        ok, argv = GLib.shell_parse_argv(_app_registry()._strip_field_codes(exec_).strip())
+    except GLib.Error:
+        return None
+    if not ok or not argv:
+        return None
+    resolved = _resolve_command(argv, real_path, folder)
+    if resolved is None:
+        return None
+    argv, folder = resolved
+    # Blender from blender.org: started like the packaged one (see
+    # applications.NO_WAYLAND), also from a «Send to Desktop» link
+    prog = argv[0] if os.path.isabs(argv[0]) else (GLib.find_program_in_path(argv[0]) or "")
+    if os.path.basename(prog) in _app_registry().NO_WAYLAND and not prog.startswith("/usr/"):
+        argv = ["env", "-u", "WAYLAND_DISPLAY"] + argv
+    return argv, folder
+
+
+def _resolve_command(argv, real_path, folder):
+    prog = argv[0]
+    if os.path.isabs(prog):
+        return (argv, folder) if os.access(prog, os.X_OK) else None
+    # the program next to the real .desktop first (Blender 5.2 in /opt with
+    # «Exec=blender», while /usr/bin/blender is the packaged one)
+    nearby = os.path.join(os.path.dirname(real_path), prog)
+    if os.path.isfile(nearby) and os.access(nearby, os.X_OK):
+        return [nearby] + argv[1:], folder or os.path.dirname(real_path)
+    if GLib.find_program_in_path(prog):
+        return argv, folder
+    return None
+
+
+def _shortcut_entry(path):
+    """(name, icon) read straight from the .desktop file. Needed when GIO
+    rejects it: DesktopAppInfo refuses a .desktop file whose Exec program is
+    not in PATH, which is exactly the case of programs placed in /opt."""
+    kf = GLib.KeyFile()
+    try:
+        kf.load_from_file(os.path.realpath(path), GLib.KeyFileFlags.NONE)
+    except GLib.Error:
+        return None, None
+    entries = []
+    for key in ("Name", "Icon"):
+        try:
+            entries.append(kf.get_locale_string("Desktop Entry", key, None) or None)
+        except GLib.Error:
+            entries.append(None)
+    return entries[0], entries[1]
+
+
+def _nearby_icon(path, icon_name):
+    """An icon file next to the program or the real .desktop file (blender.svg
+    next to blender), for icons the system theme does not know."""
+    folder = os.path.dirname(os.path.realpath(path))
+    names = [icon_name] if icon_name else []
+    names.append(os.path.splitext(os.path.basename(os.path.realpath(path)))[0])
+    for n in names:
+        if os.path.isabs(n) and os.path.isfile(n):
+            return n
+        for extension in ("svg", "png", "xpm"):
+            f = os.path.join(folder, "%s.%s" % (n, extension))
+            if os.path.isfile(f):
+                return f
+    return None
+
+
+_REPAIRED = {}
+
+
+def _repair_once(path):
+    """A launcher that can't find its program (copied by the file manager
+    with «Exec=blender», or made before 2.0): rewritten with full paths if
+    its program is found next to its original entry. Tried once per file
+    version, not at every redraw."""
+    try:
+        key = (path, os.lstat(path).st_mtime_ns)
+    except OSError:
+        return False
+    if key in _REPAIRED:
+        return False
+    _REPAIRED[key] = True
+    try:
+        return _app_registry().repair_shortcut(path)
+    except (OSError, GLib.Error) as e:
+        print("zeta-desktop: repair %s: %s" % (path, e), file=sys.stderr, flush=True)
+        return False
+
+
+def _is_elf(path):
+    try:
+        with open(os.path.realpath(path), "rb") as f:
+            return f.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
+def _shortcut_name_and_icon(path, display, gicon):
+    """Name and icon of a .desktop file's application (even if it is a
+    symbolic link to a .desktop file in /opt). An icon the theme does not
+    know (Icon=blender) is looked up next to the real .desktop file."""
+    app = _shortcut_app(path)
+    if app is not None:
+        display = app.get_display_name() or display
+        gicon = app.get_icon() or gicon
+    elif _shortcut_command(path):
+        kf_name, kf_icon = _shortcut_entry(path)
+        display = kf_name or display
+        if kf_icon and os.path.isabs(kf_icon):
+            gicon = Gio.FileIcon.new(Gio.File.new_for_path(kf_icon))
+        elif kf_icon:
+            gicon = Gio.ThemedIcon.new(kf_icon)
+    elif _repair_once(path):
+        return _shortcut_name_and_icon(path, display, gicon)
+    else:
+        # broken link (the program is gone): say so with the app's own name,
+        # never with the technical file name
+        kf_name, _icon = _shortcut_entry(path)
+        if kf_name:
+            display = tr("{name} (missing)").format(name=kf_name)
+        return display, Gio.ThemedIcon.new("application-x-executable")
+    theme_icon = gicon.get_names()[0] if isinstance(gicon, Gio.ThemedIcon) else None
+    theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+    if theme_icon and not theme.has_icon(theme_icon):
+        nearby = _nearby_icon(path, theme_icon)
+        if nearby:
+            gicon = Gio.FileIcon.new(Gio.File.new_for_path(nearby))
+    return display, gicon
+
+
+def _appimage_name_and_icon(path, display):
+    """An AppImage on the Desktop shows its app (name and icon), the one the
+    menu shows, not a generic program icon."""
+    real_path = os.path.realpath(path)
+    for app in _app_registry().all_apps():
+        if app.appimage and os.path.realpath(app.appimage) == real_path:
+            if os.path.isabs(app.icon) and os.path.isfile(app.icon):
+                return app.name, Gio.FileIcon.new(Gio.File.new_for_path(app.icon))
+            return app.name, Gio.ThemedIcon.new(app.icon or "application-x-executable")
+    return display, _program_icon(path)
+
+
+def _program_icon(path):
+    nearby = _nearby_icon(path, None)
+    return (Gio.FileIcon.new(Gio.File.new_for_path(nearby)) if nearby
+            else Gio.ThemedIcon.new("application-x-executable"))
+
+
+def _own_desktop(path):
+    """True for a .desktop file that really lives on the desktop: the chosen
+    icon is written into it. Not for a symbolic link to a .desktop file in
+    /opt: the real file belongs to the system (not writable) and replacing
+    it with a copy would break a relative Exec. For those, the icon goes into
+    the metadata, as for ordinary files."""
+    return path.endswith(".desktop") and not os.path.islink(path)
+
+
+def _ocr_module():
+    if "/usr/lib/zeta" not in sys.path:
+        sys.path.insert(0, "/usr/lib/zeta")
+    from system import ocr
+    return ocr
+
+
+def _app_registry():
+    if "/usr/lib/zeta" not in sys.path:
+        sys.path.insert(0, "/usr/lib/zeta")
+    from system import applications
+    return applications
+
+
+def trash_count():
+    try:
+        return len(os.listdir(os.path.join(trash_dir(), "files")))
+    except OSError:
+        return 0
+
+
+def _human(n):
+    for unit in ("B", "kB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return "%d %s" % (n, unit) if unit == "B" else "%.1f %s" % (n, unit)
+        n /= 1024.0
+    return "%d B" % n
+
+
+# ------------------------------------------------------------------- items
+class Item:
+    """An icon on the desktop: a file, a folder, or Home/Trash."""
+    __slots__ = ("name", "path", "is_dir", "widget", "col", "row", "x", "y", "gicon", "mime",
+                 "custom", "display", "kind", "size", "mtime")
+
+    def __init__(self, name, path, is_dir, gicon, display, kind="file",
+                 size=0, mtime=0, mime="", custom=False):
+        self.name = name
+        self.path = path
+        self.is_dir = is_dir
+        self.gicon = gicon
+        self.display = display
+        self.kind = kind          # file | home | trash
+        self.size = size
+        self.mtime = mtime
+        self.mime = mime          # tells whether a thumbnail can be made
+        self.custom = custom      # icon chosen by hand: beats any thumbnail
+        self.widget = None
+        self.col = self.row = 0
+        self.x = self.y = 0       # where it is drawn (a grid cell, or anywhere)
+
+    @property
+    def special(self):
+        return self.kind != "file"
+
+
+class DesktopWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("Desktop"), decorated=False)
+        self.dir = desktop_dir()
+        self.state = load_state()
+        self.items = []
+        self.selection = []          # list of selected Items
+        self.cut_paths = set()        # paths waiting for «paste» after a cut
+        self.isize = self._icon_size()
+        self.gap = spacing()
+        # Thumbnails already computed, by path and modification time: changing
+        # folder or refreshing never reads the same image twice.
+        self._previews = {}
+        self.cell_w = self.isize + 54
+        self.cell_h = self.isize + 46
+        self.band = None
+        self._ref_timer = 0
+        self._dragging = []
+        self._moving = None
+        self._grab, self._grab_name = (0, 0), None
+
+        self._make_background()
+        self.fixed = Gtk.Fixed(hexpand=True, vexpand=True)
+        self.set_child(self.fixed)
+        self.add_css_class("zeta-desktop")
+
+        self._add_desktop_gestures()
+        self.monitor = None
+        self.trash_monitor = None
+        self._watch()
+        self.refresh()
+
+    # ---------------------------------------- window on the wallpaper
+    def _make_background(self):
+        try:
+            gi.require_version("Gtk4LayerShell", "1.0")
+            from gi.repository import Gtk4LayerShell as LS
+        except (ValueError, ImportError):
+            LS = None
+        if LS and LS.is_supported():
+            LS.init_for_window(self)
+            LS.set_namespace(self, "zeta-desktop")
+            # BOTTOM (not BACKGROUND): the wallpaper (swaybg) is created later
+            # and would cover the icons. BOTTOM sits above the wallpaper and
+            # below the windows.
+            LS.set_layer(self, LS.Layer.BOTTOM)
+            LS.set_keyboard_mode(self, LS.KeyboardMode.NONE)
+            # 0 (not -1): the surface shrinks to leave the bar out
+            LS.set_exclusive_zone(self, 0)
+            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
+                LS.set_anchor(self, edge, True)
+        else:
+            self.fullscreen()
+
+    # ---------------------------------------- folder watching
+    def _watch(self):
+        # the user's app entries too: when an AppImage moves, an app gets a new
+        # icon or is removed, its Desktop icon must follow without waiting
+        # for the next change in the Desktop folder
+        apps = os.path.join(GLib.get_user_data_dir(), "applications")
+        for path, attr in ((self.dir, "monitor"),
+                           (os.path.join(trash_dir(), "files"), "trash_monitor"),
+                           (apps, "apps_monitor")):
+            try:
+                os.makedirs(path, exist_ok=True)
+                m = Gio.File.new_for_path(path).monitor_directory(
+                    Gio.FileMonitorFlags.WATCH_MOVES, None)
+                m.connect("changed", lambda *_: self._debounced_refresh())
+                setattr(self, attr, m)
+            except (GLib.Error, OSError):
+                setattr(self, attr, None)
+
+    def _debounced_refresh(self):
+        if self._ref_timer:
+            GLib.source_remove(self._ref_timer)
+        self._ref_timer = GLib.timeout_add(250, self._do_refresh)
+
+    def _do_refresh(self):
+        self._ref_timer = 0
+        self.refresh()
+        return False
+
+    # ---------------------------------------- reading the folder
+    def read_dir(self):
+        """Home, Trash and then the contents of the Desktop folder."""
+        theme_home = "user-home"
+        out = [Item("::home", os.path.expanduser("~"), True,
+                    Gio.ThemedIcon.new(theme_home), tr("Home"), kind="home"),
+               Item("::trash", "trash:///", True,
+                    Gio.ThemedIcon.new("user-trash-full" if trash_count()
+                                       else "user-trash"),
+                    tr("Trash"), kind="trash")]
+
+        gdir = Gio.File.new_for_path(self.dir)
+        attrs = ("standard::name,standard::display-name,standard::type,"
+                 "standard::icon,standard::is-hidden,standard::size,time::modified,"
+                 "standard::content-type,thumbnail::path,thumbnail::is-valid,"
+                 "metadata::custom-icon," + folder_colors.KEY)
+        try:
+            en = gdir.enumerate_children(attrs, Gio.FileQueryInfoFlags.NONE, None)
+        except GLib.Error:
+            return out
+        while True:
+            try:
+                info = en.next_file(None)
+            except GLib.Error:
+                break
+            if info is None:
+                break
+            if info.get_is_hidden():
+                continue
+            name = info.get_name()
+            path = os.path.join(self.dir, name)
+            gicon = info.get_icon() or Gio.ThemedIcon.new("text-x-generic")
+            display = info.get_display_name() or name
+            # A launcher shows the application's name and icon, not the file
+            # name: that is what the user expects to see.
+            if name.endswith(".desktop") or os.path.realpath(path).endswith(".desktop"):
+                display, gicon = _shortcut_name_and_icon(path, display, gicon)
+            elif name.lower().endswith(".appimage"):
+                display, gicon = _appimage_name_and_icon(path, display)
+            elif _is_program(path):
+                gicon = _program_icon(path)
+            # Icon chosen by the user (Change Icon…). For launchers it is already
+            # in Icon= and comes from get_icon(); for files and folders
+            # metadata::custom-icon is used, the standard GIO attribute that
+            # file managers honor too.
+            custom = info.get_attribute_string("metadata::custom-icon")
+            if custom:
+                icon_file = Gio.File.new_for_uri(custom)
+                if icon_file.query_exists(None):
+                    gicon = Gio.FileIcon.new(icon_file)
+            elif info.get_file_type() == Gio.FileType.DIRECTORY:
+                # folder accent color (right-click > Folder Color): the whole
+                # folder in that color; an icon chosen by the user wins
+                colored = folder_colors.icon_path(info.get_attribute_string(folder_colors.KEY))
+                if colored:
+                    gicon = Gio.FileIcon.new(Gio.File.new_for_path(colored))
+            # Thumbnail already in the system cache (tumbler generates it when
+            # the file manager visits the folder): if present, use it and do
+            # not re-read the image.
+            if not custom:
+                preview = info.get_attribute_byte_string("thumbnail::path")
+                if preview and info.get_attribute_boolean("thumbnail::is-valid"):
+                    gicon = Gio.FileIcon.new(Gio.File.new_for_path(preview))
+            out.append(Item(
+                name, path,
+                info.get_file_type() == Gio.FileType.DIRECTORY,
+                gicon, display,
+                size=info.get_size() or 0,
+                mtime=info.get_attribute_uint64("time::modified"),
+                mime=info.get_content_type() or "",
+                custom=bool(custom)))
+        return out
+
+    def _preview(self, it, img):
+        """Puts the scaled-down image in place of the icon, without making anyone wait."""
+        key = (it.path, it.mtime)
+        if key in self._previews:
+            tex = self._previews[key]
+            if tex is not None:
+                img.set_from_paintable(tex)
+                img.set_pixel_size(self.isize)
+            return
+        side = self.isize * 2          # double size: sharp on high-DPI screens too
+
+        def fine(tex):
+            self._previews[key] = tex
+            if tex is not None and img.get_parent() is not None:
+                img.set_from_paintable(tex)
+                img.set_pixel_size(self.isize)
+            return False
+
+        def work():
+            tex = None
+            try:
+                # Beyond this size, don't even try: a huge or malformed file
+                # would tie up memory and time for nothing, and the type icon
+                # is perfectly fine.
+                if os.path.getsize(it.path) <= PREVIEW_MAX_BYTES:
+                    pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                        it.path, side, side, True)
+                    tex = Gdk.Texture.new_for_pixbuf(pix)
+            except (GLib.Error, OSError, MemoryError):
+                tex = None              # not a readable image: never mind
+            GLib.idle_add(fine, tex)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _sort_items(self, items):
+        mode = self.state.get("order", "name")
+        regular_items = [i for i in items if not i.special]
+        if mode == "type":
+            regular_items.sort(key=lambda i: (not i.is_dir,
+                                        os.path.splitext(i.name)[1].lower(),
+                                        i.display.lower()))
+        elif mode == "date":
+            regular_items.sort(key=lambda i: -i.mtime)
+        elif mode == "size":
+            regular_items.sort(key=lambda i: (not i.is_dir, -i.size))
+        else:
+            regular_items.sort(key=lambda i: (not i.is_dir, i.display.lower()))
+        return [i for i in items if i.special] + regular_items
+
+    # ---------------------------------------- grid
+    def _grid_size(self):
+        w = self.get_width() or 1280
+        h = self.get_height() or 800
+        cols = max(1, (w - 2 * MARGIN) // (self.cell_w + self.gap))
+        rows = max(1, (h - 2 * MARGIN) // (self.cell_h + self.gap))
+        return cols, rows
+
+    def _right_offset(self):
+        """Arranged from the right, the grid touches the right edge (the space
+        left over by the last column goes on the left)."""
+        if self.state.get("side") != "right":
+            return 0
+        cols, _rows = self._grid_size()
+        w = self.get_width() or 1280
+        return max(0, (w - 2 * MARGIN) - (cols * (self.cell_w + self.gap) - self.gap))
+
+    def _slot_xy(self, col, row):
+        return (MARGIN + self._right_offset() + col * (self.cell_w + self.gap),
+                MARGIN + row * (self.cell_h + self.gap))
+
+    def _xy_slot(self, x, y):
+        cols, rows = self._grid_size()
+        col = int(round((x - MARGIN - self._right_offset()) / (self.cell_w + self.gap)))
+        row = int(round((y - MARGIN) / (self.cell_h + self.gap)))
+        return max(0, min(cols - 1, col)), max(0, min(rows - 1, row))
+
+    # Layout, as on Windows and macOS: icons sit on a grid ("Align to Grid")
+    # or exactly where they are dropped; new icons fill the free cells from
+    # the left (Windows) or from the right (macOS). Cells are kept in
+    # "positions", free positions in pixels in "free".
+    def _grid(self):
+        return self.state.get("grid", True) is not False
+
+    def _free_cells(self, cols, rows):
+        columns = range(cols - 1, -1, -1) if self.state.get("side") == "right" else range(cols)
+        return ((c, r) for c in columns for r in range(rows))
+
+    def _clamp_inside(self, x, y):
+        # never glued to the edge of the screen, never off it
+        margin = 6
+        w = (self.get_width() or 1280) - self.cell_w - margin
+        h = (self.get_height() or 800) - self.cell_h - margin
+        return (max(margin, min(int(x), max(margin, w))),
+                max(margin, min(int(y), max(margin, h))))
+
+    def _assign_slots(self, items, just_moved=()):
+        cols, rows = self._grid_size()
+        pos = self.state.setdefault("positions", {})
+        free_positions = self.state.setdefault("free", {})
+        grid = self._grid()
+        # the icons just moved by hand win the cell they were dropped on
+        ordered = ([i for i in items if i.name in just_moved]
+                    + [i for i in items if i.name not in just_moved])
+        taken, pending = set(), []
+        for it in ordered:
+            q = free_positions.get(it.name)
+            if (not grid and isinstance(q, list) and len(q) == 2
+                    and all(isinstance(v, (int, float)) for v in q)):
+                it.x, it.y = self._clamp_inside(*q)
+                it.col, it.row = self._xy_slot(it.x, it.y)
+                taken.add((it.col, it.row))
+                continue
+            p = pos.get(it.name)
+            if (isinstance(p, list) and len(p) == 2 and 0 <= p[0] < cols
+                    and 0 <= p[1] < rows and tuple(p) not in taken):
+                it.col, it.row = int(p[0]), int(p[1])
+                taken.add((it.col, it.row))
+                it.x, it.y = self._slot_xy(it.col, it.row)
+                if not grid:
+                    free_positions[it.name] = [it.x, it.y]
+            else:
+                pending.append(it)
+        cells = self._free_cells(cols, rows)
+        for it in pending:
+            for slot in cells:
+                if slot not in taken:
+                    it.col, it.row = slot
+                    taken.add(slot)
+                    pos[it.name] = list(slot)
+                    break
+            else:
+                it.col, it.row = 0, 0
+            it.x, it.y = self._slot_xy(it.col, it.row)
+            if not grid:
+                free_positions[it.name] = [it.x, it.y]
+
+    def _place_icons(self, names_xy):
+        """Icons dropped at (x, y) by hand: in a cell, or right there."""
+        pos = self.state.setdefault("positions", {})
+        free_positions = self.state.setdefault("free", {})
+        for name, (x, y) in names_xy:
+            if self._grid():
+                pos[name] = list(self._xy_slot(x, y))
+            else:
+                free_positions[name] = list(self._clamp_inside(x, y))
+        save_state(self.state)
+        self.refresh(just_moved={n for n, _xy in names_xy})
+
+    # ---------------------------------------- drawing
+    def refresh(self, just_moved=()):
+        _app_registry().gtk_icons()          # icons of freshly installed Flatpak apps
+        selected = {i.name for i in self.selection}
+        for it in self.items:
+            if it.widget is not None:
+                self.fixed.remove(it.widget)
+        self.items = self._sort_items(self.read_dir())
+        self._assign_slots(self.items, just_moved)
+        self.selection = []
+        for it in self.items:
+            it.widget = self._make_item(it)
+            self.fixed.put(it.widget, it.x, it.y)
+            if it.name in selected:
+                self.selection.append(it)
+                it.widget.add_css_class("selected")
+            if it.path in self.cut_paths:
+                it.widget.add_css_class("cut")
+        names = {i.name for i in self.items}
+        for key in ("positions", "free"):
+            pos = self.state.get(key, {})
+            for gone in [n for n in pos if n not in names]:
+                pos.pop(gone)
+        save_state(self.state)
+
+    def _make_item(self, it):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
+                      css_classes=["desk-item"], width_request=self.cell_w)
+        img = Gtk.Image.new_from_gicon(it.gicon)
+        img.set_pixel_size(self.isize)
+        box.append(img)
+        # Images: show the content, not the type icon. If the file manager has
+        # already been here the thumbnail is in the cache and was already set
+        # in read_dir; otherwise it is read here, in a thread, because opening
+        # a twelve-megapixel JPEG on the UI thread would freeze the desktop
+        # for as long as it takes.
+        if (not it.is_dir and not it.custom and not it.special
+                and it.mime.startswith("image/")
+                and not isinstance(it.gicon, Gio.FileIcon)):
+            self._preview(it, img)
+        box.append(Gtk.Label(label=it.display, css_classes=["desk-name"], wrap=True,
+                             max_width_chars=13, lines=2,
+                             ellipsize=Pango.EllipsizeMode.END,
+                             justify=Gtk.Justification.CENTER))
+
+        click = Gtk.GestureClick(button=1)
+        click.connect("pressed", self._on_click, it)
+        box.add_controller(click)
+
+        right = Gtk.GestureClick(button=3)
+        right.connect("pressed", self._on_right_click, it)
+        box.add_controller(right)
+
+        if not it.special:
+            drag = Gtk.DragSource(actions=Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+            drag.connect("prepare", self._drag_prepare, it)
+            drag.connect("drag-begin", self._drag_begin, it)
+            drag.connect("drag-end", self._drag_end, it)
+            box.add_controller(drag)
+
+        if it.kind == "trash":
+            # files can be dropped on the trash to throw them away
+            drop = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.MOVE)
+            drop.set_gtypes([Gio.File, Gdk.FileList])
+            drop.connect("drop", self._drop_on_trash)
+            box.add_controller(drop)
+        return box
+
+    # ---------------------------------------- selection
+    def _set_selection(self, items):
+        for it in self.items:
+            if it.widget is not None:
+                it.widget.remove_css_class("selected")
+        self.selection = [i for i in items if i is not None]
+        for it in self.selection:
+            if it.widget is not None:
+                it.widget.add_css_class("selected")
+
+    def _toggle(self, it):
+        if it in self.selection:
+            self.selection.remove(it)
+            it.widget.remove_css_class("selected")
+        else:
+            self.selection.append(it)
+            it.widget.add_css_class("selected")
+
+    def _range_to(self, it):
+        if not self.selection:
+            self._set_selection([it])
+            return
+        i0 = self.items.index(self.selection[-1])
+        i1 = self.items.index(it)
+        lo, hi = min(i0, i1), max(i0, i1)
+        self._set_selection(self.items[lo:hi + 1])
+
+    def _on_click(self, gesture, n_press, _x, _y, it):
+        mod = gesture.get_current_event_state()
+        if mod & Gdk.ModifierType.CONTROL_MASK:
+            self._toggle(it)
+            return
+        if mod & Gdk.ModifierType.SHIFT_MASK:
+            self._range_to(it)
+            return
+        if it not in self.selection:
+            self._set_selection([it])
+        if n_press >= 2:
+            for sel in list(self.selection):
+                self.open(sel)
+
+    def _on_right_click(self, gesture, _n, x, y, it):
+        if it not in self.selection:
+            self._set_selection([it])
+        self._menu_for_item(it, gesture.get_widget(), x, y)
+
+    # ---------------------------------------- opening
+    def open(self, it):
+        """Opens with the default application (or the file manager for a folder)."""
+        target = it.path
+        if it.kind == "trash":
+            target = "trash:///"
+        # Launchers are started: passing them to «gio open» would open them in
+        # a text editor, because GIO does not trust an arbitrary .desktop
+        # file. Here the file is read and the application is launched.
+        elif it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
+            command = _shortcut_command(it.path)
+            app = _shortcut_app(it.path)
+            # GIO only when it would start the same program: with «Exec=blender»
+            # next to Blender 5.2 in /opt it would start /usr/bin/blender
+            if command is not None and app is not None and \
+                    GLib.find_program_in_path(app.get_executable() or "") and \
+                    GLib.find_program_in_path(command[0][0]) == \
+                    GLib.find_program_in_path(app.get_executable() or ""):
+                try:
+                    app.launch([], None)   # program installed in the system
+                    return
+                except GLib.Error:
+                    pass
+            if command is not None:
+                argv, folder = command
+                try:
+                    _spawn(argv, cwd=folder, start_new_session=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError as e:
+                    self._error(tr("Couldn't start “{name}”: {error}").format(
+                        name=it.display, error=e.strerror))
+                    return
+            self._error(tr("“{name}” is not a valid shortcut: the program it points "
+                           "to can't be found.").format(name=it.display))
+            return
+        elif _is_program(it.path):
+            # a program (or a link to a program): started from its own folder,
+            # as when double-clicking it in the file manager
+            real_path = os.path.realpath(it.path)
+            try:
+                _spawn([real_path], cwd=os.path.dirname(real_path), start_new_session=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError as e:
+                self._error(tr("Couldn't start “{name}”: {error}").format(
+                    name=it.display, error=e.strerror))
+            return
+        for cmd in (["gio", "open", target], ["xdg-open", target],
+                    ["thunar", target]):
+            try:
+                _spawn(cmd, start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except OSError:
+                continue
+        self._error(tr("No app available to open “{name}”.").format(name=it.display))
+
+    # ---------------------------------------- dragging
+    def _drag_prepare(self, _source, x, y, it):
+        if it not in self.selection:
+            self._set_selection([it])
+        # where the icon was grabbed: it lands with that point under the pointer
+        self._grab, self._grab_name = (x, y), it.path
+        # The paths on the Desktop as plain text/uri-list. A Gio.File value
+        # went through the file-transfer portal, which hands over the real
+        # file behind a symbolic link: moving a «Send to Desktop» link of
+        # Blender arrived as /opt/blender/blender.desktop, was taken for a
+        # file from outside and copied («Blender (missing)»), and dropping
+        # it on the Trash or in a folder acted on the program's own file.
+        paths = [i.path for i in self.selection if not i.special] or [it.path]
+        uri = "".join(Gio.File.new_for_path(q).get_uri() + "\r\n" for q in paths)
+        return Gdk.ContentProvider.new_for_bytes("text/uri-list", GLib.Bytes.new(uri.encode()))
+
+    def _drag_begin(self, _source, _drag, it):
+        self._dragging = [i.path for i in self.selection] or [it.path]
+
+    def _drag_end(self, _source, _drag, _del, _it):
+        self._dragging = []
+
+    def _drop_on_trash(self, _target, value, _x, _y):
+        for gfile in self._files_from(value):
+            self._trash_path(gfile.get_path())
+        self.refresh()
+        return True
+
+    def _files_from(self, value):
+        if isinstance(value, list):
+            return [f for f in value if isinstance(f, Gio.File)]
+        if isinstance(value, Gdk.FileList):
+            return list(value.get_files())
+        if isinstance(value, Gio.File):
+            return [value]
+        return []
+
+    def _add_desktop_gestures(self):
+        right = Gtk.GestureClick(button=3)
+        right.connect("pressed", self._on_desktop_right)
+        self.fixed.add_controller(right)
+
+        left = Gtk.GestureClick(button=1)
+        left.connect("pressed", self._click_empty)
+        self.fixed.add_controller(left)
+
+        # rubber-band selection: drag over empty space to pick several icons
+        band_drag = Gtk.GestureDrag()
+        band_drag.connect("drag-begin", self._rubber_band_begin)
+        band_drag.connect("drag-update", self._band_update)
+        band_drag.connect("drag-end", self._band_end)
+        self.fixed.add_controller(band_drag)
+
+        # Drop on the desktop: look at what the drag source offers and pick the
+        # best (see _dnd_drop). Previously a fixed type was accepted: an
+        # image from a web page with no downloadable address (blob:,
+        # generated by the page) never arrived.
+        formats = Gdk.ContentFormats.new(list(MIME_URI + MIME_TEXT + IMAGE_MIME_TYPES))
+        for gt in (Gdk.FileList, Gio.File, GObject.TYPE_STRING):
+            formats = formats.union(Gdk.ContentFormats.new_for_gtype(gt))
+        drop = Gtk.DropTargetAsync.new(formats, Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+        drop.connect("drag-enter", self._dnd_action)
+        drop.connect("drag-motion", self._dnd_action)
+        drop.connect("drop", self._dnd_drop)
+        self.fixed.add_controller(drop)
+
+    def _click_empty(self, _g, _n, x, y):
+        if not self._point_on_icon(x, y):
+            self._set_selection([])
+
+    # ---------------------------------------- selection band
+    def _point_on_icon(self, x, y):
+        return self._icon_at(x, y) is not None
+
+    def _icon_at(self, x, y):
+        w = self.fixed.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while w is not None and w is not self.fixed:
+            if w.has_css_class("desk-item"):
+                return next((i for i in self.items if i.widget is w), None)
+            w = w.get_parent()
+        return None
+
+    def _rubber_band_begin(self, gesture, x, y):
+        self._moving = None
+        it = self._icon_at(x, y)
+        if it is not None and it.special:
+            # Home and Trash are not files: they move on the desktop only and
+            # are never handed to other apps (dropping Home on the file
+            # manager would copy the whole home folder)
+            self.band = None
+            self._moving = {"it": it, "origin": (it.x, it.y),
+                            "moved": False, "last": None}
+            return
+        # The band only works on empty space: starting from an icon means
+        # dragging that icon, and the two would get in each other's way.
+        if it is not None:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            self.band = None
+            return
+        self._band0 = (x, y)
+        self.band = Gtk.Box(css_classes=["desk-band"])
+        self.fixed.put(self.band, x, y)
+
+    def _band_update(self, _gesture, dx, dy):
+        if self._moving is not None:
+            self._move_icon(dx, dy)
+            return
+        if self.band is None:
+            return
+        x0, y0 = self._band0
+        x, y = min(x0, x0 + dx), min(y0, y0 + dy)
+        w, h = max(1, abs(dx)), max(1, abs(dy))
+        self.fixed.move(self.band, x, y)
+        self.band.set_size_request(int(w), int(h))
+        inside = []
+        for it in self.items:
+            ix, iy = it.x, it.y
+            if (ix + self.cell_w > x and ix < x + w
+                    and iy + self.cell_h > y and iy < y + h):
+                inside.append(it)
+        self._set_selection(inside)
+
+    def _move_icon(self, dx, dy):
+        st = self._moving
+        if not st["moved"]:
+            if abs(dx) < 6 and abs(dy) < 6:
+                return
+            st["moved"] = True
+            st["it"].widget.add_css_class("moving")
+        ox, oy = st["origin"]
+        st["last"] = (max(0, ox + dx), max(0, oy + dy))
+        self.fixed.move(st["it"].widget, *st["last"])
+
+    def _move_end(self):
+        """Home or Trash dropped: into the nearest cell (swapping places with
+        the icon that was there), or right there without the grid."""
+        st, self._moving = self._moving, None
+        if not st["moved"] or st["last"] is None:
+            return
+        it = st["it"]
+        if self._grid():
+            col, row = self._xy_slot(*st["last"])
+            other = next((i for i in self.items
+                          if i is not it and (i.col, i.row) == (col, row)), None)
+            if other is not None:
+                # swap places with the icon that was there
+                self.state.setdefault("positions", {})[other.name] = [it.col, it.row]
+        self._place_icons([(it.name, st["last"])])
+
+    def _band_end(self, *_a):
+        if self._moving is not None:
+            self._move_end()
+            return
+        if self.band is not None:
+            self.fixed.remove(self.band)
+            self.band = None
+
+    # ---------------------------------------- dropping on the desktop
+    # ---- drop: choosing the best format among those offered
+    @staticmethod
+    def _dnd_action(_t, drop, _x, _y):
+        # from the desktop itself it is a move, from outside a copy
+        return Gdk.DragAction.MOVE if drop.get_drag() is not None else Gdk.DragAction.COPY
+
+    def _dnd_drop(self, _t, drop, x, y):
+        if drop.get_drag() is not None and self._dragging:
+            # icons of this Desktop: they only move, whatever the data says
+            self._move_internal(list(self._dragging), x, y)
+            drop.finish(Gdk.DragAction.MOVE)
+            return True
+        fmt = drop.get_formats()
+        debug = bool(os.environ.get("ZETA_DEBUG_DND"))
+        if debug:
+            print("drop, formats:", fmt.to_string(), file=sys.stderr, flush=True)
+        operation = Gdk.DragAction.MOVE if drop.get_drag() is not None else Gdk.DragAction.COPY
+        image = next((m for m in IMAGE_MIME_TYPES if fmt.contain_mime_type(m)), None)
+        file_name = None
+        if not image:
+            # Chromium hands over the file itself, with its name:
+            # application/octet-stream;name="photo.png" (blob: images too)
+            for m in fmt.get_mime_types() or []:
+                if m.startswith("application/octet-stream;name="):
+                    image = m
+                    file_name = m.split("name=", 1)[1].strip().strip('"')
+                    break
+        state = {"x": x, "y": y, "image": image, "name": file_name,
+                 "data": None, "value": None, "closed": False}
+
+        def close_window():
+            # only once: when the reads finish or when the timeout expires
+            if state["closed"]:
+                return False
+            state["closed"] = True
+            try:
+                ok = self._dnd_apply(state)
+            except Exception as e:  # noqa: BLE001 - a drop must never bring the desktop down
+                print("zeta-desktop: drop: %s" % e, file=sys.stderr, flush=True)
+                ok = False
+            if debug:
+                print("drop applied:", ok, type(state["value"]).__name__,
+                      len(state["data"] or b""), file=sys.stderr, flush=True)
+            drop.finish(operation if ok else 0)
+            return False
+        # Reads are done one after the other: two at once from the same drop
+        # hung with Firefox (tested). In any case, after 5 seconds we go on
+        # with whatever we have.
+        GLib.timeout_add(5000, close_window)
+
+        def read_image():
+            if not image:
+                return close_window()
+
+            def read_done(d, res):
+                try:
+                    stream, _m = d.read_finish(res)
+                except GLib.Error:
+                    return close_window()
+                output = Gio.MemoryOutputStream.new_resizable()
+
+                def copied(u, r):
+                    try:
+                        u.splice_finish(r)
+                        state["data"] = u.steal_as_bytes().get_data()
+                    except GLib.Error:
+                        state["data"] = None
+                    close_window()
+                output.splice_async(stream, Gio.OutputStreamSpliceFlags.CLOSE_SOURCE |
+                                    Gio.OutputStreamSpliceFlags.CLOSE_TARGET,
+                                    GLib.PRIORITY_DEFAULT, None, copied)
+            drop.read_async([image], GLib.PRIORITY_DEFAULT, None, read_done)
+
+        def value_read(d, res):
+            try:
+                v = d.read_value_finish(res)
+            except GLib.Error:
+                v = None
+            # The objects read are only valid inside this function: the file
+            # list, used later (after the image read finished), crashed the
+            # desktop (observed). The addresses are copied right away.
+            if isinstance(v, (Gdk.FileList, Gio.File)):
+                v = [Gio.File.new_for_uri(f.get_uri()) for f in self._files_from(v) if f.get_uri()]
+            elif v is not None and not isinstance(v, str):
+                v = None
+            state["value"] = v
+            if debug:
+                print("read:", type(state["value"]).__name__, file=sys.stderr, flush=True)
+            read_image()
+
+        for gt in (Gdk.FileList, Gio.File, GObject.TYPE_STRING):
+            if fmt.contain_gtype(gt):
+                drop.read_value_async(gt, GLib.PRIORITY_DEFAULT, None, value_read)
+                break
+        else:
+            read_image()
+        return True
+
+    def _dnd_apply(self, st):
+        """Acts on what was read: real files, addresses or the image bytes."""
+        value, data, kind = st["value"], st["data"], st["image"]
+        given_name = st.get("name")
+        if kind and kind.startswith("application/octet-stream"):
+            kind = ""                    # the name already tells what file it is
+        col, row = self._xy_slot(st["x"], st["y"])
+        uri = []
+        if isinstance(value, list):
+            uri = [f.get_uri() or "" for f in value]
+        elif isinstance(value, str):
+            uri = [r.strip() for r in value.replace("\r", "").split("\n") if r.strip()]
+        downloadable = [u for u in uri if u.startswith(("http://", "https://", "data:"))]
+        local_uris = [u for u in uri if u.startswith("file:")]
+        # 1) real files (from a file manager, or already downloaded): copy them
+        if local_uris or isinstance(value, list) and value and not downloadable and not data:
+            return self._on_drop(None, value, st["x"], st["y"])
+        # 2) addresses: download the original file (real name and format); if
+        #    that fails (page behind a login, site down) and the browser also
+        #    provided the image, save that instead
+        if downloadable:
+            for u in downloadable[:1] if data else downloadable:
+                fallback = (data, given_name or download.name_from_url(u, kind), kind) if data else None
+                self._download(u, col, row, fallback=fallback)
+            return True
+        # 3) only the image (blob:, generated by the page): save the bytes
+        if data:
+            file_name = given_name or tr("Dropped image")
+            self._done_in_background(lambda: download.data(self.dir, file_name, data, kind), col, row)
+            return True
+        # 4) an address that only works inside the browser (blob:, images
+        #    created by the page): if the browser did not provide the image
+        #    too, nobody can retrieve it. Say so, instead of saving a text
+        #    file with that address (seen with Firefox).
+        internal = [u for u in uri if u.startswith(("blob:", "about:", "javascript:", "moz-extension:",
+                                                  "chrome:", "chrome-extension:"))]
+        if internal and len(internal) >= len([u for u in uri if "://" in u or u.startswith("blob:")]):
+            self._error(tr("This image exists only inside the web page, and the browser doesn't hand it "
+                           "over when you drag it. To save it, right-click the image › “Save Image As…”."))
+            return False
+        # 5) text
+        if isinstance(value, str):
+            return self._drop_text(value, col, row)
+        return False
+
+    def _on_drop(self, _target, value, x, y):
+        col, row = self._xy_slot(x, y)
+        if isinstance(value, str):
+            return self._drop_text(value, col, row)
+        files = self._files_from(value)
+        if not files:
+            return False
+        internal = False
+        remote = []
+        incoming = []          # icons that came from outside: where they were dropped
+        for gfile in files:
+            path = gfile.get_path()
+            if not path:
+                # a web address (image or link from Firefox): download it
+                uri = gfile.get_uri() or ""
+                if uri.startswith(("http://", "https://", "data:")):
+                    remote.append(uri)
+                continue
+            name = os.path.basename(path)
+            if os.path.dirname(os.path.abspath(path)) == os.path.abspath(self.dir):
+                internal = True
+                continue
+            if self._dragging and any(os.path.realpath(d) == os.path.realpath(path)
+                                      for d in self._dragging):
+                internal = True       # a link of the Desktop, given as its target
+                continue
+            # A program dropped on the Desktop becomes a shortcut, as on
+            # Windows: an AppImage (often a gigabyte or more) is never
+            # copied, and a menu entry becomes the app's Desktop icon
+            new = self._app_shortcut(path)
+            if new is None:
+                new = self._copy_here(gfile, name)
+            if new:
+                incoming.append(new)
+        if internal:
+            self._move_internal(self._dragging or [f.get_path() for f in files], x, y)
+        if incoming:
+            cx, cy = x - self.cell_w / 2, y - self.isize / 2
+            step = self.cell_h + self.gap
+            self._place_icons([(n, (cx, cy + i * step)) for i, n in enumerate(incoming)])
+        for uri in remote:
+            self._download(uri, col, row)
+        return True
+
+    def _move_internal(self, moved, x, y):
+        """Icons of this Desktop dropped on it: they keep their arrangement,
+        each moving by the same amount as the one grabbed (which lands under
+        the pointer)."""
+        col, row = self._xy_slot(x, y)
+        cols, _rows = self._grid_size()
+        by_name = {i.name: i for i in self.items}
+        grabbed = by_name.get(os.path.basename(self._grab_name or ""))
+        px, py = self._grab
+        if grabbed is not None:
+            dx, dy = x - px - grabbed.x, y - py - grabbed.y
+        else:
+            dx = dy = None
+        moves = []
+        for i, path in enumerate(moved):
+            name = os.path.basename(path)
+            it = by_name.get(name)
+            if it is not None and dx is not None:
+                moves.append((name, (it.x + dx, it.y + dy)))
+            else:
+                c = (col + i) % cols
+                r = row + (col + i) // cols
+                moves.append((name, self._slot_xy(c, r)))
+        self._place_icons(moves)
+
+    def _app_shortcut(self, path):
+        """The Desktop icon of the app in this file (an AppImage, a menu
+        entry, the desktop entry or the program file of an app unpacked by
+        hand): its name, or None when the file is not an app (then it is
+        copied like any other file, web links included)."""
+        reg = _app_registry()
+        app = None
+        real_path = os.path.realpath(path)
+        if real_path.endswith(".desktop") and "/applications/" in real_path:
+            app = reg.find(real_path)
+        elif real_path.endswith(".desktop") and reg.resolved_entry(real_path) is not None:
+            # a program unpacked by hand (Blender in /opt or in Downloads):
+            # its menu entry if it has one, otherwise a shortcut with full
+            # paths. A plain copy kept «Exec=blender», valid only next to
+            # the program, and showed «Blender (missing)».
+            app = next((a for a in reg.all_apps() if a.desktop and a.id.startswith(reg.OPT_PREFIX)
+                        and self._opt_origin(a) == real_path), None)
+            if app is None:
+                new, error = reg.external_shortcut(path, self.dir)
+                if error:
+                    self._error(error)
+                return os.path.basename(new)
+        elif os.path.isfile(real_path) and reg.is_appimage(real_path):
+            def search():
+                return next((a for a in reg.all_apps() if a.appimage
+                             and os.path.realpath(a.appimage) == real_path), None)
+            app = search()
+            if app is None:
+                reg.integrate_appimages()       # just downloaded: not seen yet
+                app = search()
+        elif _is_program(real_path) and (_is_elf(real_path) or reg.adjacent_entry(real_path)):
+            # a program file (blender, or a script with its own desktop entry
+            # next to it): a shortcut to it, never a copy (Blender needs its
+            # libraries next to it)
+            new, error = reg.program_shortcut(path, self.dir)
+            if error:
+                self._error(error)
+            return os.path.basename(new)
+        if app is None:
+            return None
+        ok, msg = reg.add_to_desktop(app)
+        if not ok:
+            existing = reg.on_desktop(app) or reg.appimage_on_desktop(app)
+            if existing:
+                return os.path.basename(existing)     # already there: it moves here
+            self._error(msg)
+            return ""
+        return app.id
+
+    @staticmethod
+    def _opt_origin(app):
+        kf = GLib.KeyFile()
+        try:
+            kf.load_from_file(app.desktop, GLib.KeyFileFlags.NONE)
+            return kf.get_string("Desktop Entry", "X-ZETA-Opt")
+        except GLib.Error:
+            return ""
+
+    def _drop_text(self, text, col, row):
+        """Dragged text: addresses to download, or else a text file."""
+        lines = [r.strip() for r in text.replace("\r", "").split("\n") if r.strip()]
+        addresses = [r for r in lines if r.startswith(("http://", "https://", "data:"))]
+        if addresses and len(addresses) == len(lines) or (len(lines) == 2 and addresses == lines[:1]):
+            # text/x-moz-url: address and title on two lines
+            title = lines[1] if len(lines) == 2 and addresses == lines[:1] else None
+            for u in (addresses[:1] if title else addresses):
+                self._download(u, col, row, title)
+            return True
+        self._done_in_background(lambda: download.text(self.dir, text), col, row)
+        return True
+
+    def _download(self, url, col, row, title=None, fallback=None):
+        short_url = url if len(url) < 60 else url[:57] + "…"
+        if not url.startswith("data:"):
+            self._notice(tr("Saving to the Desktop: {url}").format(url=short_url))
+
+        def job():
+            outcome = download.from_url(url, self.dir, title)
+            if not outcome[0] and fallback:
+                # the address cannot be downloaded, but the browser gave us the image
+                return download.data(self.dir, fallback[1], fallback[0], fallback[2])
+            return outcome
+        self._done_in_background(job, col, row)
+
+    def _done_in_background(self, job, col, row):
+        """The download does not block the Desktop; when it finishes, the icon
+        appears where it was dropped, or the user is told why it failed."""
+        def filo():
+            try:
+                ok, msg, path = job()
+            except Exception as e:  # noqa: BLE001 - a drop must never bring the desktop down
+                ok, msg, path = False, tr("Operation failed: {error}").format(error=e), None
+            GLib.idle_add(self._downloaded, ok, msg, path, col, row)
+        threading.Thread(target=filo, daemon=True).start()
+
+    def _downloaded(self, ok, msg, path, col, row):
+        if ok and path:
+            self._place_icons([(os.path.basename(path), self._slot_xy(col, row))])
+            self._notice(msg)
+        else:
+            self._error(msg)
+        return False
+
+    def _notice(self, text):
+        try:
+            _spawn(["notify-send", "-a", tr("Desktop"), "-i", "user-desktop", tr("Desktop"), text],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError:
+            pass
+
+    def _copy_here(self, gfile, name):
+        """Copy onto the Desktop; the new file's name, or "" on error."""
+        dest_path = self._unique_name(name)
+        try:
+            gfile.copy(Gio.File.new_for_path(dest_path), Gio.FileCopyFlags.NONE,
+                       None, None, None)
+        except GLib.Error as e:
+            self._error(tr("Couldn't copy “{name}”: {error}").format(name=name, error=e.message))
+            return ""
+        return os.path.basename(dest_path)
+
+    def _unique_name(self, name):
+        dest = os.path.join(self.dir, name)
+        base, ext = os.path.splitext(name)
+        base = re.sub(r" \(\d+\)$", "", base)      # «blender (3)», not «blender (2) (2)»
+        n = 2
+        while os.path.exists(dest):
+            dest = os.path.join(self.dir, "%s (%d)%s" % (base, n, ext))
+            n += 1
+        return dest
+
+    # ---------------------------------------- clipboard
+    def _clipboard(self):
+        return self.get_clipboard()
+
+    def copy(self, cut=False):
+        paths = [i.path for i in self.selection if not i.special]
+        if not paths:
+            return
+        text = ("cut" if cut else "copy") + "\n" + "\n".join(
+            "file://" + urllib.parse.quote(p) for p in paths)
+        # format shared with file managers (Thunar, Nautilus...)
+        provider = Gdk.ContentProvider.new_union([
+            Gdk.ContentProvider.new_for_bytes(CLIP_MIME,
+                                              GLib.Bytes.new(text.encode())),
+            Gdk.ContentProvider.new_for_value(
+                GObject.Value(str, "\n".join(paths))),
+        ])
+        self._clipboard().set_content(provider)
+        self.cut_paths = set(paths) if cut else set()
+        self.refresh()
+
+    def paste(self):
+        self._clipboard().read_async(
+            [CLIP_MIME, "text/uri-list", "text/plain"], GLib.PRIORITY_DEFAULT,
+            None, self._paste_ready)
+
+    def _paste_ready(self, clipboard, result):
+        try:
+            stream, mime = clipboard.read_finish(result)
+        except GLib.Error:
+            return
+        # The read must be asynchronous: reading the stream by hand blocks the
+        # UI thread until the other program closes the channel, and the
+        # desktop hangs.
+        out = Gio.MemoryOutputStream.new_resizable()
+        out.splice_async(stream,
+                         Gio.OutputStreamSpliceFlags.CLOSE_SOURCE
+                         | Gio.OutputStreamSpliceFlags.CLOSE_TARGET,
+                         GLib.PRIORITY_DEFAULT, None,
+                         self._paste_read, mime)
+
+    def _paste_read(self, out, result, mime):
+        try:
+            out.splice_finish(result)
+            data = out.steal_as_bytes().get_data() or b""
+        except GLib.Error:
+            return
+        text = data.decode("utf-8", "replace").strip()
+        if not text:
+            return
+        lines = [r for r in text.split("\n") if r.strip()]
+        cut = mime == CLIP_MIME and lines and lines[0].strip() == "cut"
+        if mime == CLIP_MIME:
+            lines = lines[1:]
+        errors = []
+        for line in lines:
+            line = line.strip()
+            if line.startswith("file://"):
+                line = urllib.parse.unquote(line[7:])
+            if not line or not os.path.exists(line):
+                continue
+            if cut and os.path.dirname(os.path.abspath(line)) == os.path.abspath(self.dir):
+                continue      # cut and pasted back where it already was: nothing to do
+            line_dest = self._unique_name(os.path.basename(line))
+            try:
+                if not cut and os.path.realpath(line).endswith(".desktop") \
+                        and _app_registry().resolved_entry(line) is not None:
+                    # a copy of a launcher: full paths, so it starts from here too
+                    _new, error = _app_registry().external_shortcut(line, self.dir, unique=False)
+                    if error:
+                        errors.append("%s: %s" % (os.path.basename(line), error))
+                    continue
+                if cut and os.path.islink(line) and not os.path.isabs(os.readlink(line)):
+                    # a relative link would point elsewhere from here
+                    os.symlink(os.path.realpath(line), line_dest)
+                    os.unlink(line)
+                elif cut:
+                    shutil.move(line, line_dest)
+                elif os.path.isdir(line):
+                    shutil.copytree(line, line_dest)
+                else:
+                    shutil.copy2(line, line_dest)
+            except (OSError, shutil.Error) as e:
+                errors.append("%s: %s" % (os.path.basename(line), e))
+        self.cut_paths = set()
+        if errors:
+            self._error("\n".join(errors[:5]))
+        self.refresh()
+
+    # ---------------------------------------- menus
+    def _popover(self, parent, x, y, entries):
+        """entries: list of (label, function) — None creates a separator,
+        ('sub', label, [entries]) creates a submenu, ('check', label, active,
+        function) a choice with a check mark."""
+        menu = Gio.Menu()
+        actions = Gio.SimpleActionGroup()
+        counter = [0]
+
+        def fill(target, listing):
+            section = Gio.Menu()
+            for entry in listing:
+                if entry is None:
+                    target.append_section(None, section)
+                    section = Gio.Menu()
+                    continue
+                if isinstance(entry, tuple) and len(entry) == 4 and entry[0] == "check":
+                    # a choice that is on or off: the menu shows a check mark
+                    _t, label, activate, fn = entry
+                    action_name = "v%d" % counter[0]
+                    counter[0] += 1
+                    act = Gio.SimpleAction.new_stateful(action_name, None, GLib.Variant("b", bool(activate)))
+                    act.connect("activate", lambda _a, _p, f=fn: f())
+                    actions.add_action(act)
+                    section.append(label, "desk.%s" % action_name)
+                    continue
+                if isinstance(entry, tuple) and len(entry) == 3 and entry[0] == "sub":
+                    sub = Gio.Menu()
+                    fill(sub, entry[2])
+                    section.append_submenu(entry[1], sub)
+                    continue
+                label, fn = entry
+                action_name = "v%d" % counter[0]
+                counter[0] += 1
+                act = Gio.SimpleAction.new(action_name, None)
+                act.connect("activate", lambda _a, _p, f=fn: f())
+                actions.add_action(act)
+                section.append(label, "desk.%s" % action_name)
+            target.append_section(None, section)
+
+        fill(menu, entries)
+        pop = Gtk.PopoverMenu.new_from_model(menu)
+        pop.insert_action_group("desk", actions)
+        pop.set_parent(parent)
+        # Gdk.Rectangle is a C struct: the fields must be assigned; passing them
+        # to the constructor leaves them at zero and the menu ends up in the
+        # corner.
+        r = Gdk.Rectangle()
+        r.x, r.y, r.width, r.height = int(x), int(y), 1, 1
+        pop.set_pointing_to(r)
+        pop.set_has_arrow(False)
+        pop.popup()
+        return pop
+
+    def _menu_for_item(self, it, widget, x, y):
+        n = len(self.selection)
+        many = n > 1
+        if it.kind == "home":
+            entries = [(tr("Open Home Folder"), lambda: self.open(it)),
+                    (tr("Open in Terminal"), lambda: self._launch("zeta-default-app", "terminal",
+                                                                cwd=os.path.expanduser("~")))]
+        elif it.kind == "trash":
+            entries = [(tr("Open Trash"), lambda: self.open(it)),
+                    None,
+                    (tr("Empty Trash…"), self.empty_trash)]
+        else:
+            entries = [
+                (tr("Open") if not many
+                 else ntr("Open {n} Item", "Open {n} Items", n).format(n=n),
+                 lambda: [self.open(i) for i in list(self.selection)]),
+                None,
+                (tr("Copy"), lambda: self.copy(False)),
+                (tr("Cut"), lambda: self.copy(True)),
+                None,
+            ]
+            if not many:
+                entries.append((tr("Rename…"), lambda: self.rename(it)))
+            entries += [
+                (tr("Move to Trash"), self.trash_selection),
+                (tr("Delete Permanently…"), self.delete_selection),
+                None,
+            ]
+            folders = [i for i in self.selection if i.is_dir] or ([it] if it.is_dir else [])
+            if folders:
+                current = folder_colors.get(folders[0].path) if len(folders) == 1 else None
+                colors = [("check", folder_colors.name(k), current == k,
+                           lambda k=k: self.set_folder_color(folders, k))
+                          for k in folder_colors.COLORS]
+                colors += [None, (tr("Default"), lambda: self.set_folder_color(folders, None))]
+                entries += [("sub", tr("Folder Color"), colors), None]
+            if not many:
+                if it.mime.startswith("image/"):
+                    entries += [(tr("Copy Text from Image…"), lambda: self.ocr(it))]
+                entries += [(tr("Change Icon…"), lambda: self.change_icon(it))]
+                if _has_custom_icon(it.path):
+                    entries.append((tr("Restore Default Icon"),
+                                 lambda: self.restore_icon(it)))
+                entries += [(tr("Copy Path"), lambda: self.copy_path(it)),
+                         (tr("Properties"), lambda: self.properties(it))]
+        self._popover(widget, x, y, entries)
+
+    def set_folder_color(self, items, key):
+        """Color (or reset, key None) the chosen folders, then redraw."""
+        errors = []
+        for i in items:
+            ok, err = folder_colors.set_color(i.path, key)
+            if not ok:
+                errors.append("%s: %s" % (i.display, err))
+        if errors:
+            self._error("\n".join(errors[:5]))
+        self.refresh()
+
+    def _on_desktop_right(self, gesture, _n, x, y):
+        self._set_selection([])
+        current = self.state.get("order", "name")
+        order = [("check", label, mode == current, lambda m=mode: self.set_order(m))
+                  for mode, label in SORT_MODES]
+        right_edge = self.state.get("side") == "right"
+        icon_size = self.state.get("icon_size")
+        view_menu = [
+            ("check", tr("Align to Grid"), self._grid(),
+             lambda: self.set_grid(not self._grid())),
+            None,
+            ("check", tr("Arrange from Left"), not right_edge, lambda: self.set_side("left")),
+            ("check", tr("Arrange from Right"), right_edge, lambda: self.set_side("right")),
+            None,
+        ] + [("check", label, icon_size == value, lambda v=value: self.set_icon_size(v))
+             for value, label in ICON_SIZES]
+        # Each entry leads to the section it promises: they all used to open
+        # the same page at the top, and three different labels with the same
+        # result look — rightly — like three broken commands.
+        # short, like the desktop menus of macOS and Windows: a long menu
+        # opened in the middle of the screen does not fit above or below
+        customize = [
+            (tr("Theme and Colors…"), lambda: self._settings("appearance:accent")),
+            (tr("Icons and Text…"), lambda: self._settings("appearance:theme")),
+            (tr("Animations and Transparency…"), lambda: self._settings("appearance:effects")),
+            (tr("Bar and Dock…"), lambda: self._settings("dock")),
+            (tr("Lock Screen…"), lambda: self._settings("lock-screen")),
+            None,
+            (tr("Display Settings…"), lambda: self._settings("lock-screen")),
+            (tr("System Settings…"), lambda: self._settings(None)),
+        ]
+        new = [
+            (tr("Text Document…"), self.new_file),
+            (tr("App Shortcut…"), self.new_launcher),
+        ]
+        entries = [
+            (tr("New Folder…"), self.new_folder),
+            ("sub", tr("New"), new),
+            (tr("Paste"), self.paste),
+            None,
+            ("sub", tr("View"), view_menu),
+            ("sub", tr("Sort By"), order),
+            (tr("Clean Up Icons"), self.tidy),
+            None,
+            (tr("Change Wallpaper…"), lambda: self._settings("appearance:wallpaper")),
+            ("sub", tr("Customize"), customize),
+            None,
+            (tr("Open in Terminal"), lambda: self._launch("zeta-default-app", "terminal", cwd=self.dir)),
+            (tr("Show in File Manager"), self.open_folder),
+        ]
+        self._popover(self.fixed, x, y, entries)
+
+    def set_order(self, mode):
+        """Sort By: every icon is placed again, in that order."""
+        self.state["order"] = mode
+        self.state["positions"] = {}
+        self.state["free"] = {}
+        save_state(self.state)
+        self.refresh()
+
+    def set_grid(self, grid):
+        self.state["grid"] = bool(grid)
+        if grid:
+            self.tidy()            # every icon into the nearest free cell
+            return
+        # without the grid every icon stays where it is, and can then be
+        # dropped anywhere
+        self.state["free"] = {it.name: [it.x, it.y] for it in self.items}
+        save_state(self.state)
+        self.refresh()
+
+    def set_side(self, side):
+        """New icons, and Sort By, fill the desktop from this side."""
+        if (self.state.get("side") == "right") == (side == "right"):
+            return
+        self.state["side"] = side
+        self.set_order(self.state.get("order", "name"))
+
+    def _icon_size(self):
+        v = self.state.get("icon_size")
+        return v if isinstance(v, int) and 28 <= v <= 72 else icon_size()
+
+    def set_icon_size(self, value):
+        """Icon size of the desktop only (the Dock keeps its own); None
+        follows the size chosen in Settings."""
+        self.state["icon_size"] = value
+        self.isize = self._icon_size()
+        self.cell_w = self.isize + 54
+        self.cell_h = self.isize + 46
+        self._previews = {}
+        save_state(self.state)
+        self.tidy()
+
+    def _settings(self, page):
+        self._launch("zeta-settings", *( [page] if page else [] ))
+
+    def _launch(self, *cmd, cwd=None):
+        try:
+            _spawn(list(cmd), start_new_session=True, cwd=cwd,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self._error(tr("Couldn't start {name}: {error}").format(name=cmd[0], error=e))
+
+    def open_folder(self):
+        # the file manager chosen in Settings › Default Apps
+        self._launch("zeta-default-app", "file", self.dir)
+
+    def copy_path(self, it):
+        self._clipboard().set(it.path)
+
+    # ------------------------------------------- text inside images
+    def ocr(self, it):
+        """Reads the text written inside an image and makes it copyable.
+
+        Recognition can take a few seconds on a large photo, so it runs in a
+        thread: the desktop must not stall because of it. Italian and English
+        are tried together first, which is the usual case for a photographed
+        document.
+        """
+        if not shutil.which("tesseract"):
+            self._error(tr("Text recognition is not available."))
+            return
+        d, box = self._dialog(tr("Text in Image"))
+        box.append(Gtk.Label(label=it.display, xalign=0, css_classes=["title-4"]))
+        wait = Gtk.Label(label=tr("Reading the image…"), xalign=0,
+                           css_classes=["dim-label"])
+        box.append(wait)
+        vista = Gtk.TextView(editable=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                             cursor_visible=True)
+        vista.set_size_request(-1, 240)
+        scroller = Gtk.ScrolledWindow(child=vista, vexpand=True)
+        scroller.set_visible(False)
+        box.append(scroller)
+
+        lines = Gtk.Box(spacing=8)
+        copy = Gtk.Button(label=tr("Copy All"), sensitive=False)
+        save_button = Gtk.Button(label=tr("Save as Text File…"), sensitive=False)
+        close_window = Gtk.Button(label=tr("Close"), css_classes=["zeta-primary"],
+                            halign=Gtk.Align.END, hexpand=True)
+        close_window.connect("clicked", lambda *_: d.destroy())
+        lines.append(copy)
+        lines.append(save_button)
+        lines.append(close_window)
+        box.append(lines)
+        d.present()
+
+        def fine(text, error):
+            if error:
+                wait.set_text(error)
+                return False
+            if not text.strip():
+                wait.set_text(tr("No readable text found in this image."))
+                return False
+            wait.set_text(tr("Select what you need, or copy it all."))
+            vista.get_buffer().set_text(text)
+            scroller.set_visible(True)
+            copy.set_sensitive(True)
+            save_button.set_sensitive(True)
+            copy.connect("clicked", lambda *_: (self._clipboard().set(text),
+                                                 copy.set_label(tr("Copied ✓"))))
+            save_button.connect("clicked", lambda *_: self._save_text(it, text))
+            return False
+
+        def work():
+            try:
+                r = subprocess.run(["tesseract", it.path, "stdout", "-l", _ocr_module().languages()],
+                                   capture_output=True, text=True, timeout=120)
+                if r.returncode != 0:
+                    GLib.idle_add(fine, "", tr("Couldn't read the image."))
+                    return
+                GLib.idle_add(fine, r.stdout, "")
+            except subprocess.TimeoutExpired:
+                GLib.idle_add(fine, "", tr("The image is too large: reading stopped."))
+            except (OSError, subprocess.SubprocessError) as e:
+                GLib.idle_add(fine, "", tr("Failed: {error}").format(error=e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _save_text(self, it, text):
+        """Writes the recognized text next to the image, as a .txt file."""
+        base = os.path.splitext(it.path)[0] + ".txt"
+        dest = self._unique_name(os.path.basename(base))
+        try:
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            self._error(tr("Couldn't save: {error}").format(error=e))
+            return
+        self.refresh()
+        self._info(tr("Saved"), tr("The text is in “{name}”, next to the image.").format(
+            name=os.path.basename(dest)))
+
+    # ------------------------------------------- icon chosen by the user
+    def change_icon(self, it, then=None):
+        """Picks an image and uses it as this item's icon.
+
+        «then» is called with the icon path: the Properties window uses it to
+        update its preview without closing.
+        """
+        dialog = Gtk.FileDialog(title=tr("Choose an image for the icon of {name}").format(
+            name=it.display))
+        filt = Gtk.FileFilter()
+        filt.set_name(tr("Images"))
+        for m in ("image/png", "image/svg+xml", "image/jpeg", "image/webp",
+                  "image/bmp", "image/x-icon", "image/tiff"):
+            filt.add_mime_type(m)
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(filt)
+        dialog.set_filters(filters)
+        # No «parent» window: the desktop is a layer (layer-shell), not a normal
+        # window. Requesting the file chooser on its behalf makes GTK export
+        # a surface that does not allow it, Hyprland closes the connection and
+        # the desktop crashes: the chooser never appeared («Change Icon»
+        # seemed to do nothing, from Properties too).
+        dialog.open(None, None, lambda d, r: self._icon_chosen(d, r, it, then))
+
+    def _icon_chosen(self, dialog, result, it, then=None):
+        try:
+            gfile = dialog.open_finish(result)
+        except GLib.Error:
+            return                      # the user canceled
+        source = gfile.get_path()
+        if not source:
+            self._error(tr("That image is not a file on this computer."))
+            return
+        try:
+            icon = _custom_icon(source, it.name)
+        except (OSError, GLib.Error, shutil.Error) as e:
+            self._error(tr("Couldn't use that image: {error}").format(error=e))
+            return
+        if _own_desktop(it.path):
+            try:
+                _desktop_write_icon(it.path, icon)
+            except OSError as e:
+                self._error(tr("Couldn't write the shortcut: {error}").format(error=e))
+                return
+        else:
+            try:
+                Gio.File.new_for_path(it.path).set_attribute_string(
+                    "metadata::custom-icon",
+                    Gio.File.new_for_path(icon).get_uri(),
+                    Gio.FileQueryInfoFlags.NONE, None)
+            except GLib.Error as e:
+                self._error(tr("Couldn't save the icon choice: {error}").format(error=e.message))
+                return
+        self.refresh()
+        if then is not None:
+            then(icon)
+
+    def restore_icon(self, it, then=None):
+        """Restores the icon the item had before."""
+        try:
+            if _own_desktop(it.path):
+                if not _desktop_write_icon(it.path, None):
+                    self._error(tr("This shortcut has no icon to restore."))
+                    return
+            else:
+                Gio.File.new_for_path(it.path).set_attribute_string(
+                    "metadata::custom-icon", "",
+                    Gio.FileQueryInfoFlags.NONE, None)
+        except (OSError, GLib.Error) as e:
+            self._error(tr("Couldn't restore the icon: {error}").format(error=e))
+            return
+        self.refresh()
+        if then is not None:
+            then(None)
+
+    def _gicon_di(self, it):
+        """Recomputes an item's icon: after a change the one in Item is stale."""
+        try:
+            info = Gio.File.new_for_path(it.path).query_info(
+                "standard::icon,metadata::custom-icon",
+                Gio.FileQueryInfoFlags.NONE, None)
+        except GLib.Error:
+            return Gio.ThemedIcon.new("text-x-generic")
+        gicon = info.get_icon() or Gio.ThemedIcon.new("text-x-generic")
+        if it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
+            _, gicon = _shortcut_name_and_icon(it.path, it.display, gicon)
+        elif _is_program(it.path):
+            gicon = _program_icon(it.path)
+        custom = info.get_attribute_string("metadata::custom-icon")
+        if custom:
+            f = Gio.File.new_for_uri(custom)
+            if f.query_exists(None):
+                gicon = Gio.FileIcon.new(f)
+        return gicon
+
+    def properties(self, it):
+        """The item's properties, with its icon and the button to change it.
+
+        _info() is not used because there is more than text here: the icon is
+        shown and changed from here, which is where people look for it.
+        """
+        try:
+            st = os.stat(it.path)
+        except OSError as e:
+            self._error(str(e))
+            return
+        kind = tr("Folder") if it.is_dir else (
+            tr("Program shortcut")
+            if os.path.realpath(it.path).endswith(".desktop") or _is_program(it.path)
+            else tr("File"))
+        size = "—" if it.is_dir else _human(st.st_size)
+        d, box = self._dialog(tr("Properties"))
+
+        header = Gtk.Box(spacing=14)
+        img = Gtk.Image.new_from_gicon(it.gicon)
+        img.set_pixel_size(64)
+        header.append(img)
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                           valign=Gtk.Align.CENTER)
+        name_label = Gtk.Label(label=it.display, xalign=0, wrap=True,
+                         css_classes=["title-4"])
+        details.append(name_label)
+        details.append(Gtk.Label(label="%s · %s" % (kind, size), xalign=0,
+                                  css_classes=["dim-label"]))
+        header.append(details)
+        box.append(header)
+
+        path = Gtk.Label(label=it.path, xalign=0, wrap=True, selectable=True,
+                             focusable=False, css_classes=["dim-label"])
+        box.append(path)
+
+        restore = Gtk.Button(label=tr("Restore Default Icon"))
+        restore.set_visible(_has_custom_icon(it.path))
+
+        def updated(_icon=None):
+            it.gicon = self._gicon_di(it)
+            img.set_from_gicon(it.gicon)
+            img.set_pixel_size(64)
+            restore.set_visible(_has_custom_icon(it.path))
+
+        change = Gtk.Button(label=tr("Change Icon…"))
+        change.connect("clicked", lambda *_: self.change_icon(it, updated))
+        restore.connect("clicked", lambda *_: self.restore_icon(it, updated))
+
+        lines = Gtk.Box(spacing=8)
+        lines.append(change)
+        lines.append(restore)
+        close_window = Gtk.Button(label=tr("Close"), css_classes=["zeta-primary"],
+                            halign=Gtk.Align.END, hexpand=True)
+        close_window.connect("clicked", lambda *_: d.destroy())
+        lines.append(close_window)
+        box.append(lines)
+        d.present()
+        close_window.grab_focus()
+
+    # ---------------------------------------- file operations
+    def new_folder(self):
+        self._ask(tr("New Folder"), tr("Folder name:"), tr("New Folder"),
+                  lambda name: self._create(name, folder=True))
+
+    def new_file(self):
+        self._ask(tr("New Document"), tr("Document name:"), tr("New Document.txt"),
+                  lambda name: self._create(name, folder=False))
+
+    def new_launcher(self):
+        """Creates a launcher for an installed application on the desktop."""
+        apps = _app_registry().menu()      # the same apps (names, icons) as the menu
+        if not apps:
+            self._error(tr("No installed apps to link."))
+            return
+        self._choose_app(apps)
+
+    def _choose_app(self, apps):
+        win = Gtk.Window(title=tr("New Shortcut"), modal=True, default_width=420,
+                         default_height=520, css_classes=["zeta-dialog"])
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=14,
+                      margin_bottom=14, margin_start=14, margin_end=14)
+        file_filter = Gtk.SearchEntry(placeholder_text=tr("Search for an app…"))
+        items = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE,
+                            css_classes=["boxed-list"])
+        scroll = Gtk.ScrolledWindow(vexpand=True, child=items)
+
+        def fill(text=""):
+            c = items.get_first_child()
+            while c:
+                items.remove(c)
+                c = items.get_first_child()
+            t = text.casefold()
+            for a in apps:
+                app_name = a.name
+                if t and t not in app_name.casefold():
+                    continue
+                line = Gtk.Box(spacing=10, margin_top=6, margin_bottom=6,
+                               margin_start=8, margin_end=8)
+                img = Gtk.Image(pixel_size=24)
+                try:
+                    img.set_from_gicon(Gio.Icon.new_for_string(a.icon or "application-x-executable"))
+                except GLib.Error:
+                    img.set_from_icon_name("application-x-executable")
+                line.append(img)
+                line.append(Gtk.Label(label=app_name, xalign=0, hexpand=True))
+                r = Gtk.ListBoxRow(child=line)
+                r.app = a
+                items.append(r)
+
+        fill()
+        file_filter.connect("search-changed", lambda e: fill(e.get_text()))
+
+        def create_selected(*_a):
+            line = items.get_selected_row()
+            if line is None:
+                return
+            self._create_shortcut(line.app)
+            win.close()
+
+        items.connect("row-activated", create_selected)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=tr("Cancel"))
+        cancel.connect("clicked", lambda *_: win.close())
+        ok = Gtk.Button(label=tr("Create"), css_classes=["suggested-action"])
+        ok.connect("clicked", create_selected)
+        buttons.append(cancel)
+        buttons.append(ok)
+        box.append(file_filter)
+        box.append(scroll)
+        box.append(buttons)
+        win.set_child(box)
+        win.present()
+
+    def _create_shortcut(self, app):
+        # The same launcher as the app menu's (right-click › Add to Desktop):
+        # a copy of the entry, full command for programs in /opt, marked as
+        # trusted, never the same app twice.
+        ok, msg = _app_registry().add_to_desktop(app)
+        if not ok:
+            self._error(msg)
+        self.refresh()
+
+    def _create(self, name, folder):
+        name = (name or "").strip().strip("/")
+        if not name:
+            return
+        path = os.path.join(self.dir, name)
+        if os.path.exists(path):
+            self._error(tr("“{name}” already exists.").format(name=name))
+            return
+        try:
+            if folder:
+                os.mkdir(path)
+            else:
+                open(path, "x").close()
+        except OSError as e:
+            self._error(tr("Couldn't create “{name}”: {error}").format(name=name, error=e.strerror))
+            return
+        self.refresh()
+
+    def rename(self, it):
+        self._ask(tr("Rename"), tr("New name for “{name}”:").format(name=it.display), it.name,
+                  lambda name: self._do_rename(it, name))
+
+    def _do_rename(self, it, name):
+        name = (name or "").strip().strip("/")
+        if not name or name == it.name:
+            return
+        dest = os.path.join(self.dir, name)
+        if os.path.exists(dest):
+            self._error(tr("“{name}” already exists.").format(name=name))
+            return
+        try:
+            os.rename(it.path, dest)
+        except OSError as e:
+            self._error(tr("Couldn't rename: {error}").format(error=e.strerror))
+            return
+        for key in ("positions", "free"):
+            pos = self.state.setdefault(key, {})
+            if it.name in pos:
+                pos[name] = pos.pop(it.name)
+        save_state(self.state)
+        self.refresh()
+
+    def _trash_path(self, path):
+        if not path:
+            return False
+        try:
+            Gio.File.new_for_path(path).trash(None)
+            return True
+        except GLib.Error as e:
+            self._error(tr("Couldn't move “{name}” to the Trash: {error}").format(
+                name=os.path.basename(path), error=e.message))
+            return False
+
+    def trash_selection(self):
+        for it in [i for i in self.selection if not i.special]:
+            self._trash_path(it.path)
+        self._set_selection([])
+        self.refresh()
+
+    def delete_selection(self):
+        elements = [i for i in self.selection if not i.special]
+        if not elements:
+            return
+        which = (elements[0].display if len(elements) == 1
+                 else ntr("{n} item", "{n} items", len(elements)).format(n=len(elements)))
+        self._confirm(tr("Permanently delete {what}?").format(what=which),
+                      tr("They won't go to the Trash and can't be recovered."),
+                      lambda: self._do_delete(elements))
+
+    def _do_delete(self, elements):
+        for it in elements:
+            try:
+                if it.is_dir:
+                    shutil.rmtree(it.path)
+                else:
+                    os.remove(it.path)
+            except OSError as e:
+                self._error(tr("Couldn't delete “{name}”: {error}").format(
+                    name=it.display, error=e.strerror))
+        self._set_selection([])
+        self.refresh()
+
+    def empty_trash(self):
+        n = trash_count()
+        if not n:
+            self._info(tr("Trash"), tr("The Trash is already empty."))
+            return
+        self._confirm(tr("Empty the Trash?"),
+                      ntr("{n} item will be permanently deleted.",
+                          "{n} items will be permanently deleted.", n).format(n=n),
+                      self._do_empty)
+
+    def _do_empty(self):
+        base = trash_dir()
+        for sub in ("files", "info"):
+            d = os.path.join(base, sub)
+            try:
+                for name in os.listdir(d):
+                    p = os.path.join(d, name)
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        os.remove(p)
+            except OSError:
+                pass
+        self.refresh()
+
+    def tidy(self):
+        """Clean Up Icons: each icon into the nearest free cell, keeping the
+        arrangement (macOS "Clean Up"); Sort By puts them in order instead."""
+        cols, rows = self._grid_size()
+        step_x, step_y = self.cell_w + self.gap, self.cell_h + self.gap
+        pos, taken = {}, set()
+        for it in sorted(self.items, key=lambda i: (i.y, i.x)):
+            best = None
+            for c in range(cols):
+                for r in range(rows):
+                    if (c, r) in taken:
+                        continue
+                    x, y = self._slot_xy(c, r)
+                    d = ((x - it.x) / step_x) ** 2 + ((y - it.y) / step_y) ** 2
+                    if best is None or d < best[0]:
+                        best = (d, c, r)
+            if best is None:
+                break
+            taken.add(best[1:])
+            pos[it.name] = list(best[1:])
+        self.state["positions"] = pos
+        self.state["free"] = {n: list(self._slot_xy(*cr)) for n, cr in pos.items()}
+        save_state(self.state)
+        self.refresh()
+
+    # ---------------------------------------- small dialogs
+    def _dialog(self, title):
+        d = Gtk.Window(transient_for=self, modal=True, title=title,
+                       default_width=380, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=18,
+                      margin_bottom=18, margin_start=18, margin_end=18)
+        d.set_child(box)
+        return d, box
+
+    def _ask(self, title, prompt, preset, on_ok):
+        d, box = self._dialog(title)
+        box.append(Gtk.Label(label=prompt, xalign=0, wrap=True))
+        entry = Gtk.Entry(text=preset, css_classes=["zeta-entry"], activates_default=True)
+        box.append(entry)
+        row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=tr("Cancel"))
+        ok = Gtk.Button(label=tr("Confirm"), css_classes=["zeta-primary"])
+        cancel.connect("clicked", lambda *_: d.destroy())
+        ok.connect("clicked", lambda *_: (on_ok(entry.get_text()), d.destroy()))
+        entry.connect("activate", lambda *_: (on_ok(entry.get_text()), d.destroy()))
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        d.present()
+        entry.grab_focus()
+
+    def _confirm(self, title, text, on_ok):
+        d, box = self._dialog(title)
+        box.append(Gtk.Label(label=title, xalign=0, wrap=True, css_classes=["zeta-title"]))
+        box.append(Gtk.Label(label=text, xalign=0, wrap=True, css_classes=["zeta-dim"]))
+        row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=tr("Cancel"))
+        ok = Gtk.Button(label=tr("Delete"), css_classes=["destructive-action"])
+        cancel.connect("clicked", lambda *_: d.destroy())
+        ok.connect("clicked", lambda *_: (on_ok(), d.destroy()))
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        d.present()
+
+    def _info(self, title, text):
+        d, box = self._dialog(title)
+        box.append(Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=60))
+        ok = Gtk.Button(label=tr("Close"), halign=Gtk.Align.END, css_classes=["zeta-primary"])
+        ok.connect("clicked", lambda *_: d.destroy())
+        box.append(ok)
+        d.set_default_widget(ok)
+        d.present()
+        ok.grab_focus()           # not the text: it showed up fully selected
+
+    def _error(self, text):
+        self._info(tr("Operation failed"), text)
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Desktop",
+                         flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.clean_env()
+        popup.load_css(CSS)
+
+    def do_activate(self):
+        (self.props.active_window or DesktopWindow(self)).present()
+
+
+if __name__ == "__main__":
+    if "--status" in sys.argv:
+        print("folder: %s" % desktop_dir())
+        print("icons enabled: %s" % icons_enabled())
+        print("trash: %d item(s)" % trash_count())
+        print("state: %s" % json.dumps(load_state(), ensure_ascii=False))
+        sys.exit(0)
+    if not icons_enabled():
+        sys.exit(0)
+    sys.exit(App().run([sys.argv[0]]))

@@ -1,0 +1,85 @@
+#!/bin/bash
+# shellcheck disable=SC2059  # printf formats come from the translations (gettext)
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-verify-boot — checks that the boot loader REALLY ended up on the
+# disk, and makes the installation fail if it did not.
+#
+# Why it exists
+# -------------
+# Calamares can skip the boot loader step and still reach the end saying
+# "All done". It really happened: an incomplete configuration, or manual
+# partitioning without assigning /boot/efi to the boot partition. In both
+# cases the user reboots and finds
+#
+#     error: file '/boot/grub/x86_64-efi/normal.mod' not found
+#     grub rescue>
+#
+# without anything having warned them during the installation.
+#
+# This script runs INSIDE the freshly installed system, as the last step.
+# If the boot loader is missing it exits with an error: Calamares shows that
+# the installation did NOT succeed, and the user learns it right away, in
+# front of the screen, instead of discovering it at the next reboot.
+set -u
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
+
+fail() {
+    printf "$(gettext 'ERROR: %s')\n\n" "$*" >&2
+    gettext "The system was copied to the disk, but the boot loader was NOT
+installed: the computer would not start after a restart.
+
+If you chose manual partitioning, the most common cause is not
+assigning the /boot/efi mount point to the EFI boot partition
+(the small FAT32 one with the boot flag). Go back, assign it
+WITHOUT formatting it, and try again.
+
+Alternatively, from the ZETA RAYS USB stick:  sudo zeta-repair-boot" >&2
+    echo >&2
+    exit 1
+}
+
+echo "$(gettext "ZETA RAYS: checking the boot loader…")"
+
+# The GRUB modules must be in the freshly installed root. This is the file
+# missing in the "normal.mod not found" error.
+MODULES=""
+for P in /boot/grub/x86_64-efi /boot/grub/arm64-efi /boot/grub/i386-pc; do
+    [ -f "$P/normal.mod" ] && MODULES="$MODULES $P"
+done
+[ -n "$MODULES" ] || fail "$(gettext "there are no GRUB modules in /boot/grub (normal.mod is missing).")"
+printf "  $(gettext 'GRUB modules:%s')\n" "$MODULES"
+
+if [ -d /sys/firmware/efi ]; then
+    # UEFI boot: a boot loader is needed inside the EFI partition.
+    mountpoint -q /boot/efi || fail "$(gettext "/boot/efi is not mounted.")"
+    FOUND=$(find /boot/efi/EFI -maxdepth 2 -iname "*.efi" 2>/dev/null | wc -l)
+    [ "$FOUND" -gt 0 ] || fail "$(gettext "there is no boot loader in the EFI partition.")"
+    printf "  $(gettext 'boot loaders in the EFI partition: %s')\n" "$FOUND"
+
+    OURS=$(find /boot/efi/EFI/zetarays -iname "*.efi" 2>/dev/null | wc -l)
+    if [ "$OURS" -gt 0 ]; then
+        printf "  $(gettext 'ZETA RAYS folder: /boot/efi/EFI/zetarays (%s files)')\n" "$OURS"
+    else
+        # Not fatal: on some firmware only the fallback path matters.
+        echo "  $(gettext "WARNING: /boot/efi/EFI/zetarays is missing, relying on the fallback path")" >&2
+        find /boot/efi/EFI/BOOT -iname "boot*.efi" 2>/dev/null | head -1 | grep -q . \
+            || fail "$(gettext "the EFI/BOOT fallback path is missing too.")"
+    fi
+else
+    echo "  $(gettext "booting in BIOS mode")"
+    [ -f /boot/grub/i386-pc/normal.mod ] \
+        || fail "$(gettext "the GRUB BIOS modules are missing (/boot/grub/i386-pc).")"
+fi
+
+# The menu must have at least one entry, otherwise it boots into an empty list.
+if [ -r /boot/grub/grub.cfg ]; then
+    ENTRIES=$(grep -c "^menuentry \|^\s*menuentry " /boot/grub/grub.cfg 2>/dev/null || echo 0)
+    [ "$ENTRIES" -gt 0 ] || fail "$(gettext "the boot menu (/boot/grub/grub.cfg) has no entries.")"
+    printf "  $(gettext 'entries in the boot menu: %s')\n" "$ENTRIES"
+else
+    fail "$(gettext "/boot/grub/grub.cfg is missing.")"
+fi
+
+echo "$(gettext "ZETA RAYS: boot loader installed correctly.")"
+exit 0

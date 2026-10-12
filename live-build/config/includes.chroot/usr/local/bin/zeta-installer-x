@@ -1,9 +1,10 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Sessione di ripiego senza accelerazione 3D (Xorg, rendering software).
-#  - Dal live: apre l'installer ZETA RAYS (Calamares), così si installa comunque.
-#  - Sul sistema installato: spiega come attivare il 3D (zeta-no3d).
-# matchbox tiene la finestra a tutto schermo e le dà il fuoco della tastiera.
+# Fallback session without 3D acceleration (Xorg, software rendering).
+#  - On the live system: opens the ZETA RAYS installer (Calamares), so
+#    installation works anyway.
+#  - On the installed system: explains how to enable 3D (zeta-no3d).
+# matchbox keeps the window full screen and gives it keyboard focus.
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export LIBGL_ALWAYS_SOFTWARE=1
 mkdir -p "$HOME/.local/share/zeta"
@@ -15,8 +16,8 @@ if [ -d /run/live/medium ]; then
 xset s off -dpms 2>/dev/null
 xhost +si:localuser:root >/dev/null 2>&1
 matchbox-window-manager -use_titlebar no -use_cursor yes -theme ZETA RAYS &
-sleep 1   # il gestore delle finestre deve esserci prima della prima finestra
-# Chiuso l'installer, una schermata permette di riaprirlo, spegnere o riavviare.
+sleep 1   # the window manager must be running before the first window
+# Once the installer closes, a screen lets the user reopen it, shut down or reboot.
 while :; do
     sudo -E /usr/libexec/zeta-installer
     zeta-no3d --live
@@ -28,19 +29,19 @@ else
 #!/bin/sh
 xset s off -dpms 2>/dev/null
 matchbox-window-manager -use_titlebar no -use_cursor yes -theme ZETA RAYS &
-sleep 1   # il gestore delle finestre deve esserci prima della prima finestra
+sleep 1   # the window manager must be running before the first window
 zeta-no3d
 CL
 fi
 chmod +x "$CLIENT"
 
-# Sessione X11 già avviata da SDDM (computer senza driver DRM: SDDM mostra solo
-# sessioni X11): si usa quel server grafico, senza avviarne un secondo.
+# X11 session already started by SDDM (computer without a DRM driver: SDDM only
+# shows X11 sessions): use that display server instead of starting a second one.
 if [ -n "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
     exec sh "$CLIENT" > "$HOME/.local/share/zeta/xinstaller.log" 2>&1
 fi
 
-# Primo display libero: dopo un login manuale :0 è ancora della schermata di accesso.
+# First free display: after a manual login, :0 still belongs to the login screen.
 n=0
 while [ -e "/tmp/.X$n-lock" ] || [ -e "/tmp/.X11-unix/X$n" ]; do n=$((n + 1)); done
 

@@ -1,21 +1,21 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — controllo del volume, in un posto solo.
+# ZETA RAYS — volume control, in a single place.
 #
-# Prima ogni punto che cambiava il volume (scorciatoie da tastiera, rotella
-# sull'icona della barra, azioni di ZETA) chiamava wpctl per conto suo, e la
-# barra si accorgeva del cambiamento solo rileggendo lo stato ogni 2 secondi:
-# trenta processi al minuto, sempre, anche a computer fermo. Qui il volume si
-# cambia e si avvisa subito la barra con un segnale: l'icona si aggiorna
-# all'istante e la lettura periodica puo diventare rara.
+# Previously every place that changed the volume (keyboard shortcuts, scroll
+# wheel on the bar icon, ZETA actions) called wpctl on its own, and the bar
+# only noticed the change by re-reading the state every 2 seconds: thirty
+# processes a minute, all the time, even with the computer idle. Here the
+# volume is changed and the bar is notified right away with a signal: the
+# icon updates instantly and the periodic poll can become rare.
 #
-# Uso: zeta-volume su [passo] | giu [passo] | muto | imposta <0-100>
-#      (passo in punti percentuali, predefinito 5: quello dei tasti del volume)
+# Usage: zeta-volume up [step] | down [step] | mute | set <0-100>
+#        (step in percentage points, default 5: the same as the volume keys)
 set -u
 export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
 command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
 
-SEGNALE=11   # SIGRTMIN+11 (8 launcher, 9 finestre, 10 spazi)
+SIGNAL=11    # SIGRTMIN+11 (8 launcher, 9 windows, 10 workspaces)
 SINK="@DEFAULT_AUDIO_SINK@"
 
 if ! command -v wpctl >/dev/null 2>&1; then
@@ -23,30 +23,30 @@ if ! command -v wpctl >/dev/null 2>&1; then
     exit 1
 fi
 
-passo="${2:-5}"
-case "$passo" in ''|*[!0-9]*) passo=5 ;; esac
-[ "$passo" -gt 50 ] && passo=50
+step="${2:-5}"
+case "$step" in ''|*[!0-9]*) step=5 ;; esac
+[ "$step" -gt 50 ] && step=50
 
 case "${1:-}" in
-    su)      wpctl set-volume -l 1 "$SINK" "${passo}%+" ;;
-    giu)     wpctl set-volume "$SINK" "${passo}%-" ;;
-    muto)    wpctl set-mute "$SINK" toggle ;;
-    imposta)
-        liv="${2:-}"
-        case "$liv" in
+    up)      wpctl set-volume -l 1 "$SINK" "${step}%+" ;;
+    down)    wpctl set-volume "$SINK" "${step}%-" ;;
+    mute)    wpctl set-mute "$SINK" toggle ;;
+    set)
+        level="${2:-}"
+        case "$level" in
             ''|*[!0-9]*) echo "$(gettext "Invalid level: enter a number from 0 to 100.")" >&2; exit 1 ;;
         esac
-        [ "$liv" -gt 100 ] && liv=100
-        wpctl set-volume -l 1 "$SINK" "${liv}%"
+        [ "$level" -gt 100 ] && level=100
+        wpctl set-volume -l 1 "$SINK" "${level}%"
         ;;
     *)
-        echo "$(gettext "Usage: zeta-volume su [step] | giu [step] | muto | imposta <0-100>")" >&2
+        echo "$(gettext "Usage: zeta-volume up [step] | down [step] | mute | set <0-100>")" >&2
         exit 1
         ;;
 esac
-stato=$?
+status=$?
 
-# La barra si aggiorna subito, senza aspettare il prossimo giro di lettura.
-pkill -RTMIN+$SEGNALE -x waybar 2>/dev/null
+# The bar updates right away, without waiting for the next polling round.
+pkill -RTMIN+$SIGNAL -x waybar 2>/dev/null
 
-exit $stato
+exit $status

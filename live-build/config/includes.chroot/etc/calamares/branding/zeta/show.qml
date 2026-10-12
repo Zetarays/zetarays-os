@@ -3,7 +3,7 @@ import calamares.slideshow 1.0
 
 Presentation {
     id: presentation
-    // Sfondo nero su tutta l'area (altrimenti Qt la riempie di bianco)
+    // Black background over the whole area (otherwise Qt fills it with white)
     Rectangle { anchors.fill: parent; color: "#000000"; z: -1 }
     Timer { interval: 6000; running: true; repeat: true; onTriggered: presentation.goToNextSlide() }
 
@@ -19,9 +19,9 @@ Presentation {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: logo.bottom; anchors.topMargin: 34
-            // nella lingua scelta nell'installer (inglese per le lingue
-            // in cui ZETA RAYS non e' tradotto)
-            text: Qt.locale().name.indexOf("it") === 0 ? "Installazione di ZETA RAYS OS"
+            // in the language chosen in the installer (English for the languages
+            // ZETA RAYS is not translated into)
+            text: Qt.locale().name.indexOf("it") === 0 ? "Installazione di ZETA RAYS OS"  // i18n-data
                                                         : "Installing ZETA RAYS OS"
             color: "#EDEDEA"; font.pixelSize: 20; font.family: "Roboto"
         }

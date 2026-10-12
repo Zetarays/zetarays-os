@@ -1,0 +1,151 @@
+#!/bin/bash
+# ZETA RAYS 2.0 — updates network, firewall and SSH on a system ALREADY
+# INSTALLED from an earlier image.
+#
+#   sudo bash update-network-zeta-rays.sh --dry-run    analyze and check, change nothing
+#   sudo bash update-network-zeta-rays.sh              apply (SSH from the internet: as it is now)
+#   sudo bash update-network-zeta-rays.sh --remote     apply, SSH from the internet too
+#   sudo bash update-network-zeta-rays.sh --lan-only   apply, SSH from the local network only
+#
+# What it does:
+#   1. analysis: interfaces, addresses, routing, rp_filter, ports, sshd, firewall
+#      in use, other firewalls; works out whether SSH is currently open to the
+#      internet too (e.g. a hand-added «tcp dport 22 ct state new accept» rule)
+#   2. backup copy in /root/zeta-network-backup-DATE
+#   3. installs only what is missing (SSH, netcat, conntrack, network tools);
+#      ufw is NOT installed: the firewall is nftables
+#   4. ZETA RAYS firewall (nftables, single source of truth): SSH LAN ONLY or
+#      REMOTE ENABLED, saved in /etc/nftables.d/zeta-ssh.nft; hand-added rules
+#      (including duplicates) disappear because everything is reloaded
+#   5. checks with «nft -c» and «sshd -t» BEFORE applying; if something goes
+#      wrong afterwards it restores everything. The firewall is never left off.
+# Can be run several times: the result is always the same, no duplicates.
+set -u
+DRY_RUN=0; MODE=auto
+for a in "$@"; do
+    case "$a" in
+        --dry-run) DRY_RUN=1 ;;
+        --remote) MODE=remote ;;
+        --lan-only) MODE=lan ;;
+        *) echo "Unknown option: $a"; exit 2 ;;
+    esac
+done
+[ "$(id -u)" = 0 ] || { echo "Administrator rights needed: sudo bash $0 $*"; exit 1; }
+B="/root/zeta-network-backup-$(date +%Y%m%d-%H%M%S)"
+TMP=$(mktemp -d)
+put_file() { local dest=$1 mode=$2; mkdir -p "$TMP$(dirname "$dest")"; cat > "$TMP$dest"; chmod "$mode" "$TMP$dest"; }
+@@FILES@@
+echo "== 1. Analysis (nothing is changed)"
+echo "-- interfaces and addresses";   ip -br addr
+echo "-- routing";                ip route
+printf -- "-- rp_filter: all=%s default=%s" "$(sysctl -n net.ipv4.conf.all.rp_filter)" "$(sysctl -n net.ipv4.conf.default.rp_filter)"
+for f in $(ls /sys/class/net | grep -v '^lo$'); do printf ' %s=%s' "$f" "$(sysctl -n net.ipv4.conf."$f".rp_filter 2>/dev/null)"; done; echo
+echo "   (0 off, 1 strict, 2 loose: left unchanged)"
+echo "-- listening (TCP)";      ss -Htlnp 2>/dev/null | awk '{print "   " $4, $6}'
+echo "-- sshd: $(systemctl is-active ssh 2>/dev/null), at boot: $(systemctl is-enabled ssh 2>/dev/null)"
+command -v sshd >/dev/null 2>&1 && sshd -T 2>/dev/null | grep -E '^(port|listenaddress|permitrootlogin|passwordauthentication|pubkeyauthentication) ' | sed 's/^/   /'
+echo "-- firewall"
+printf '   nftables.service: %s; tables: %s\n' "$(systemctl is-active nftables 2>/dev/null)" "$(nft list tables 2>/dev/null | tr '\n' ' ')"
+command -v ufw >/dev/null 2>&1 && echo "   ufw: $(ufw status 2>/dev/null | head -1)" || echo "   ufw: not installed (fine: the firewall is nftables)"
+command -v firewalld >/dev/null 2>&1 && echo "   WARNING: firewalld installed (a second firewall)"
+# Is SSH currently open to the internet too? A rule for port 22 with no source limit
+OPEN_TO_ALL=0
+if nft list ruleset 2>/dev/null | grep -E 'tcp dport (22|ssh)( ct state new)?( counter[^a]*)? accept' | grep -qv 'saddr'; then
+    OPEN_TO_ALL=1
+fi
+if nft list set inet zeta remote_access 2>/dev/null | grep -qE 'elements = \{[^}]*\b22\b'; then
+    OPEN_TO_ALL=1
+fi
+if [ "$MODE" = auto ]; then
+    if [ "$OPEN_TO_ALL" = 1 ]; then MODE=remote; else MODE=lan; fi
+    echo "-- SSH from the internet today: $([ "$OPEN_TO_ALL" = 1 ] && echo YES || echo no) → stays: $([ "$MODE" = remote ] && echo 'from the internet too (REMOTE ENABLED)' || echo 'local network only (LAN ONLY)')"
+else
+    echo "-- chosen: $([ "$MODE" = remote ] && echo 'SSH from the internet too (REMOTE ENABLED)' || echo 'SSH from the local network only (LAN ONLY)')"
+fi
+
+echo "== 2. Checking the new files (without applying them)"
+mkdir -p "$TMP/etc/nftables.d"
+{
+    echo "# ZETA RAYS — written by zeta-ssh, do not edit by hand."
+    echo "add element inet zeta lan_access { 22 }"
+    [ "$MODE" = remote ] && echo "add element inet zeta remote_access { 22 }"
+} > "$TMP/etc/nftables.d/zeta-ssh.nft"
+sed "s#include \"/etc/nftables.d/\\*.nft\"#include \"$TMP/etc/nftables.d/*.nft\"#" "$TMP/etc/nftables.conf" > "$TMP/test.nft"
+if ! nft -c -f "$TMP/test.nft"; then echo "The new firewall does not pass the check: nothing is changed."; exit 1; fi
+echo "   new firewall: valid (nft -c)"
+if [ "$DRY_RUN" = 1 ]; then echo "Test mode: no changes."; rm -rf "$TMP"; exit 0; fi
+
+echo "== 3. Backup in $B"
+mkdir -p "$B"
+cp -a /etc/nftables.conf "$B/" 2>/dev/null; cp -a /etc/nftables.d "$B/" 2>/dev/null
+cp -a /etc/ssh "$B/" 2>/dev/null; nft list ruleset > "$B/ruleset-in-memory.nft" 2>/dev/null
+[ -d /etc/ufw ] && cp -a /etc/ufw "$B/ufw"
+restore_backup() {
+    echo "!! Something went wrong: restoring the previous configuration ($B)"
+    [ -f "$B/nftables.conf" ] && cp -a "$B/nftables.conf" /etc/nftables.conf
+    rm -rf /etc/nftables.d; [ -d "$B/nftables.d" ] && cp -a "$B/nftables.d" /etc/
+    nft -f /etc/nftables.conf 2>/dev/null || nft -f "$B/ruleset-in-memory.nft"
+    if [ -d "$B/ufw" ]; then rm -rf /etc/ufw; cp -a "$B/ufw" /etc/ufw; ufw reload >/dev/null 2>&1; fi
+    exit 1
+}
+
+echo "== 4. Packages (only the missing ones)"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq && apt-get install -y -qq openssh-client openssh-server openssh-sftp-server netcat-openbsd sshfs \
+    iputils-tracepath iptables conntrack socat telnet autossh tcpdump dnsutils >/dev/null \
+  || { echo "Package installation failed (network?). The firewall was not changed."; exit 1; }
+
+echo "== 5. New files"
+for f in /etc/nftables.conf /etc/ssh/sshd_config.d/zeta.conf /etc/systemd/system/ssh.service.d/zeta-host-keys.conf /usr/local/bin/zeta-ssh; do
+    install -D -o root -g root -m "$(stat -c %a "$TMP$f")" "$TMP$f" "$f"
+done
+install -D -o root -g root -m 0644 "$TMP/etc/nftables.d/zeta-ssh.nft" /etc/nftables.d/zeta-ssh.nft
+systemctl daemon-reload
+sshd -t || restore_backup
+
+echo "== 6. Applying (atomic reload: hand-added rules and duplicates disappear)"
+nft -c -f /etc/nftables.conf || restore_backup
+nft -f /etc/nftables.conf || restore_backup
+systemctl enable nftables >/dev/null 2>&1
+systemctl disable --now ssh.socket >/dev/null 2>&1
+systemctl enable ssh.service >/dev/null 2>&1
+systemctl restart ssh.service || restore_backup
+# ufw only if already present: its rules must let SSH and ZETA Share through
+if command -v ufw >/dev/null 2>&1; then
+    for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fc00::/7 fe80::/10; do
+        ufw allow from "$net" to any port 22 proto tcp comment 'ZETA RAYS SSH (LAN)' >/dev/null 2>&1
+        for proto in tcp udp; do
+            ufw allow from "$net" to any port 53317 proto "$proto" comment 'ZETA Share' >/dev/null 2>&1
+        done
+    done
+    if [ "$MODE" = remote ]; then ufw limit 22/tcp comment 'ZETA RAYS SSH (internet)' >/dev/null 2>&1
+    else ufw delete limit 22/tcp >/dev/null 2>&1; fi
+fi
+
+echo "== 7. Verification"
+sleep 2
+ok=1
+systemctl is-active --quiet ssh.service || { echo "   sshd not active"; ok=0; }
+systemctl is-active --quiet nftables || systemctl start nftables
+ss -Htln 'sport = :22' | grep -q . || { echo "   nothing listening on port 22"; ok=0; }
+nft list set inet zeta lan_access | grep -qE '\b22\b' || { echo "   port 22 not in the firewall (local network)"; ok=0; }
+if [ "$MODE" = remote ]; then
+    nft list set inet zeta remote_access | grep -qE '\b22\b' || { echo "   port 22 not open from the internet"; ok=0; }
+else
+    ! nft list set inet zeta remote_access | grep -qE '\b22\b' || { echo "   port 22 open from the internet but not requested"; ok=0; }
+fi
+nft list chain inet zeta input | grep -q 'policy drop' || { echo "   policy is not DROP"; ok=0; }
+[ "$(nft list ruleset | grep -cE 'tcp dport (22|ssh) .*accept')" = 0 ] || { echo "   hand-added SSH rules remain"; ok=0; }
+[ "$(nft list tables | wc -l)" = 1 ] || echo "   note: several nftables tables ($(nft list tables | tr '\n' ' '))"
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    ufw status | grep -qE '^22/tcp +(ALLOW|LIMIT)' || { echo "   ufw on but without the rule for port 22"; ok=0; }
+fi
+timeout 3 bash -c '</dev/tcp/127.0.0.1/22' 2>/dev/null || { echo "   port 22 does not answer even from here"; ok=0; }
+[ "$ok" = 1 ] || restore_backup
+zeta-ssh status
+zeta-ssh config | sed 's/^/   /'
+echo
+echo "Done and verified. Backup: $B"
+echo "From another computer (same network):  ssh $(logname 2>/dev/null || echo user)@$(ip -o -4 addr show scope global | awk '{split($4,a,"/"); print a[1]; exit}')"
+[ "$MODE" = remote ] && echo "From outside:  ssh $(logname 2>/dev/null || echo user)@<public address of the router>   (diagnosis: sudo zeta-ssh diagnose)"
+rm -rf "$TMP"

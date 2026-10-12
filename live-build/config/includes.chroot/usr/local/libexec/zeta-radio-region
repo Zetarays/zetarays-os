@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — Wi-Fi regulatory domain taken from the time zone.
+#
+# Without a country the kernel uses the "world" rules (00): channels 12 and 13
+# at 2.4 GHz and many at 5 GHz stay passive (listen-only), and some adapters
+# will not connect to a router that uses them (they are allowed in Europe and
+# ISP routers often pick them on their own). The country is derived from the
+# time zone chosen at install time (Europe/Rome -> IT), using the system's
+# time zone table: no country is hard-coded here. If the adapter has its own
+# country (firmware), the kernel keeps that: this is only the starting value.
+# udev runs it (60-zeta-radio-region.rules) when a Wi-Fi adapter appears: at
+# boot and also for a USB dongle plugged in later.
+# /etc/localtime is ready even at boot (timedatectl would need D-Bus)
+TZ_NAME=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
+[ -n "$TZ_NAME" ] || exit 0
+COUNTRY=$(awk -v z="$TZ_NAME" '$1 !~ /^#/ && $3 == z {print $1; exit}' /usr/share/zoneinfo/zone.tab 2>/dev/null)
+case "$COUNTRY" in
+  [A-Z][A-Z]) /usr/sbin/iw reg set "$COUNTRY" 2>/dev/null && echo "Wi-Fi regulatory domain: $COUNTRY ($TZ_NAME)" ;;
+  *) echo "Wi-Fi regulatory domain: no country for $TZ_NAME, keeping the adapter's own" ;;
+esac
+exit 0

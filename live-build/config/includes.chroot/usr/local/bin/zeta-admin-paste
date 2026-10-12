@@ -1,0 +1,194 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — "Paste Here as Administrator" and "Open as Administrator".
+
+The file manager cannot write to /opt, /usr/local and the other system
+folders: until now the only way was the terminal. Here:
+
+  zeta-admin-paste paste FOLDER       paste the copied files (Ctrl+C,
+                                                 from the desktop or the file
+                                                 manager), asking for the password
+  zeta-admin-paste open FOLDER        open the folder in the file
+                                                 manager with administrator
+                                                 rights (admin://)
+
+The actual copy is done by /usr/libexec/zeta-admin-copy through
+pkexec: the system asks for the password, this program never sees it.
+"""
+import json
+import os
+import subprocess
+import sys
+from urllib.parse import unquote, urlparse
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import language, ntr, tr  # noqa: E402
+
+HELPER = "/usr/libexec/zeta-admin-copy"
+
+USAGE = tr("""ZETA RAYS — “Paste Here as Administrator” and “Open as Administrator”.
+
+  zeta-admin-paste paste FOLDER     paste the copied files (Ctrl+C,
+                                               from the desktop or the file
+                                               manager), asking for the password
+  zeta-admin-paste open FOLDER      open the folder in the file
+                                               manager with administrator
+                                               rights (admin://)
+""")
+
+
+def notify(title, text="", error=False):
+    cmd = ["notify-send", "-a", tr("File Manager"), "-i",
+           "dialog-error" if error else "system-file-manager", title]
+    if text:
+        cmd.append(text)
+    try:
+        subprocess.run(cmd, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def clipboard():
+    """(action, [paths]) from the clipboard: «copy» or «cut», like file managers."""
+    for kind in ("x-special/gnome-copied-files", "text/uri-list"):
+        try:
+            r = subprocess.run(["wl-paste", "--no-newline", "-t", kind],
+                               capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode != 0 or not r.stdout.strip():
+            continue
+        lines = [x.strip() for x in r.stdout.replace("\r", "").split("\n") if x.strip()]
+        operation = "copy"
+        if kind == "x-special/gnome-copied-files" and lines and lines[0] in ("copy", "cut"):
+            operation = "move" if lines[0] == "cut" else "copy"
+            lines = lines[1:]
+        paths = []
+        for u in lines:
+            if u.startswith("#"):
+                continue
+            p = urlparse(u)
+            if p.scheme == "file":
+                paths.append(unquote(p.path))
+        if paths:
+            return operation, paths
+    return None, []
+
+
+def ask_conflict(dest, names):
+    """Replace / Keep Both / Cancel, with a simple dialog."""
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gio
+    choice = {"r": None}
+    app = Adw.Application(application_id="org.zetarays.AdminPaste",
+                          flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def activate(a):
+        listing = ", ".join(tr("“{name}”").format(name=n) for n in names[:4])
+        if len(names) > 4:
+            listing = tr("{names} and others").format(names=listing)
+        d = Adw.AlertDialog(
+            heading=tr("Already exists in {folder}").format(folder=dest),
+            body=ntr("{names} is already in this folder. What do you want to do?",
+                     "{names} are already in this folder. What do you want to do?",
+                     len(names)).format(names=listing))
+        d.add_response("cancel", tr("Cancel"))
+        d.add_response("keep-both", tr("Keep Both"))
+        d.add_response("replace", tr("Replace"))
+        d.set_response_appearance("replace", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.set_default_response("keep-both")
+        d.set_close_response("cancel")
+
+        def answer(_d, r):
+            choice["r"] = r
+            a.quit()
+        d.connect("response", answer)
+        a.hold()
+        d.present(None)
+    app.connect("activate", activate)
+    app.run([])
+    return choice["r"] or "cancel"
+
+
+def paste(dest):
+    dest = os.path.realpath(dest)
+    if not os.path.isdir(dest):
+        notify(tr("Folder not found"), dest, error=True)
+        return 1
+    operation, sources = clipboard()
+    if not sources:
+        notify(tr("Nothing to paste"),
+               tr("First copy the files (right-click › Copy, or Ctrl+C), then try again."))
+        return 1
+    sources = [s for s in sources if os.path.lexists(s)]
+    if not sources:
+        notify(tr("The copied files no longer exist"), error=True)
+        return 1
+    duplicates = [os.path.basename(s.rstrip("/")) for s in sources
+             if os.path.lexists(os.path.join(dest, os.path.basename(s.rstrip("/"))))
+             and os.path.dirname(os.path.realpath(s)) != dest]
+    conflict = "keep-both"
+    if duplicates:
+        conflict = ask_conflict(dest, duplicates)
+        if conflict == "cancel":
+            return 1
+    try:
+        # pkexec clears the environment: the message language is passed separately
+        r = subprocess.run(["pkexec", HELPER, "--lang=" + language(),
+                            operation, conflict, dest, "--"] + sources,
+                           capture_output=True, text=True)
+    except OSError as e:
+        notify(tr("Copy failed"), str(e), error=True)
+        return 1
+    if r.returncode == 126 and not r.stdout.strip():
+        notify(tr("Copy canceled"), tr("Without the password, the files were not copied."))
+        return 1
+    if r.returncode == 127 and not r.stdout.strip():
+        notify(tr("Could not ask for the password"),
+               (r.stderr or tr("pkexec did not respond")).strip()[:300], error=True)
+        return 1
+    try:
+        outcome = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        notify(tr("Copy failed"), (r.stderr or tr("unknown error")).strip()[:200], error=True)
+        return 1
+    done, errors = outcome.get("done", []), outcome.get("errors", [])
+    if done:
+        if operation == "move":
+            title = ntr("Moved to {folder}", "Moved to {folder}", len(done)).format(folder=dest)
+        else:
+            title = ntr("Copied to {folder}", "Copied to {folder}", len(done)).format(folder=dest)
+        notify(title, ", ".join(done[:6]) + (" …" if len(done) > 6 else ""))
+    if errors:
+        notify(tr("Some files were not copied"), "\n".join(errors[:5]), error=True)
+    if operation == "move" and done:
+        # the clipboard points to files that no longer exist
+        subprocess.run(["wl-copy", "--clear"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 0 if not errors else 1
+
+
+def open_at(dest):
+    dest = os.path.realpath(dest)
+    try:
+        subprocess.Popen(["thunar", "admin://" + dest], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        notify(tr("Could not open the folder"), str(e), error=True)
+        return 1
+    return 0
+
+
+def main(argv):
+    if len(argv) != 2 or argv[0] not in ("paste", "open"):
+        print(USAGE)
+        return 2
+    folder = argv[1]
+    if folder.startswith("file://"):
+        folder = unquote(urlparse(folder).path)
+    return paste(folder) if argv[0] == "paste" else open_at(folder)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

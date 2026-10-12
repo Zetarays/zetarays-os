@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later
+     ZETA RAYS — text editor with a black background and light text
+     (Settings › Appearance › Text Editor: Dark). The syntax colors come from
+     Adwaita-dark. The light and dark variants are this same scheme: the editor
+     never swaps it, whatever the desktop theme. -->
+<style-scheme id="zeta-night" name="ZETA RAYS Night" version="1.0" parent-scheme="Adwaita-dark">
+  <author>ZETA RAYS</author>
+  <description>Black background, light text</description>
+  <metadata>
+    <property name="variant">dark</property>
+    <property name="light-variant">zeta-night</property>
+    <property name="dark-variant">zeta-night</property>
+  </metadata>
+  <style name="text" background="#0C0C0E" foreground="#EDEDEA"/>
+  <style name="background-pattern" background="#0C0C0E"/>
+  <style name="current-line" background="#17171A"/>
+  <style name="current-line-number" background="#17171A" foreground="#8A8A8E"/>
+  <style name="line-numbers" background="#0C0C0E" foreground="#5A5A60"/>
+  <style name="cursor" foreground="#EDEDEA"/>
+</style-scheme>

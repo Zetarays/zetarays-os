@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — the network icon in the bar refreshes when the network actually
+# changes (NetworkManager calls this script) instead of polling the state every
+# 5 seconds: polling used to spawn 4 processes every 5 seconds even on an idle
+# computer.
+case "$2" in
+    up|down|connectivity-change|dhcp4-change|dhcp6-change|vpn-up|vpn-down|reapply) ;;
+    *) exit 0 ;;
+esac
+pkill -RTMIN+13 -x waybar 2>/dev/null
+exit 0

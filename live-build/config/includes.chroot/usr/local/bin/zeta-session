@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Avvio della sessione grafica di ZETA RAYS (lanciato da Hyprland).
-# La scala e il rilevamento VM sono già stati scritti da zeta-desktop-session.
+# Startup of the ZETA RAYS graphical session (launched by Hyprland).
+# Scaling and VM detection have already been written by zeta-desktop-session.
 
 gsettings set org.gnome.desktop.interface icon-theme 'zeta' 2>/dev/null
 
@@ -12,96 +12,109 @@ gsettings set org.gnome.desktop.interface icon-theme 'zeta' 2>/dev/null
 # A variable this login does not have is set EMPTY, not left out: the user's
 # service manager can outlive a quick log out and back in, and its old value
 # (e.g. LANGUAGE=it_IT:it) cannot be unset; empty means "not set" to gettext.
-env_lingua=()
+env_lang=()
 for v in LANG LANGUAGE LC_ALL LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES \
          LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT LC_IDENTIFICATION \
          XMODIFIERS QT_IM_MODULE SDL_IM_MODULE; do
-    env_lingua+=("$v=${!v:-}")
+    env_lang+=("$v=${!v:-}")
 done
-dbus-update-activation-environment --systemd "${env_lingua[@]}" 2>/dev/null
-# Portali partiti prima che una sessione esportasse il suo ambiente (per
-# esempio chiamati da una sessione SSH, o dopo un'uscita e un rientro veloci):
-# falliti con «cannot open display», resterebbero fermi e le app aspetterebbero
-# a vuoto. Si azzera lo stato e si riavviano con l'ambiente di questa sessione.
+dbus-update-activation-environment --systemd "${env_lang[@]}" 2>/dev/null
+# Portals started before a session exported its environment (for example
+# called from an SSH session, or after a quick log out and back in): having
+# failed with "cannot open display", they would stay down and apps would wait
+# for nothing. Their state is reset and they are restarted with this
+# session's environment.
 systemctl --user reset-failed 'xdg-desktop-portal*' >/dev/null 2>&1
 systemctl --user try-restart xdg-desktop-portal.service xdg-desktop-portal-hyprland.service >/dev/null 2>&1 &
 
-# --- I componenti della scrivania si rialzano da soli -----------------------
-# Se uno di essi cade, l'utente non deve restare senza barra, senza sfondo o
-# senza icone: un ciclo lo riavvia. Una pausa crescente evita che un programma
-# rotto consumi CPU riavviandosi all'infinito.
-MIO_HYPRLAND=$(pgrep -nx -u "$(id -u)" Hyprland)
-sorveglia() {
-    local nome="$1"; shift
+# --- Desktop components get back up by themselves --------------------------
+# If one of them crashes, the user must not be left without a bar, wallpaper
+# or icons: a loop restarts it. A growing delay keeps a broken program from
+# burning CPU by restarting forever.
+MY_HYPRLAND=$(pgrep -nx -u "$(id -u)" Hyprland)
+supervise() {
+    local name="$1"; shift
     (
-        attesa=2
+        delay=2
         while true; do
-            # Hyprland caduto: la sorveglianza di questa sessione finisce qui,
-            # quella della sessione nuova la sostituisce (vedi zeta-ripresa).
-            if [ -n "$MIO_HYPRLAND" ] && ! kill -0 "$MIO_HYPRLAND" 2>/dev/null; then
+            # Hyprland is gone: this session's watchdog ends here, the new
+            # session's watchdog replaces it (see zeta-recovery).
+            if [ -n "$MY_HYPRLAND" ] && ! kill -0 "$MY_HYPRLAND" 2>/dev/null; then
                 exit 0
             fi
-            inizio=$SECONDS
+            started=$SECONDS
             "$@" >/dev/null 2>&1
-            codice=$?
-            # Solo le cadute rapide e ripetute allungano l'attesa (un programma
-            # rotto non deve consumare CPU ripartendo di continuo). Se invece
-            # aveva funzionato per più di un minuto si riparte subito: prima
-            # l'attesa cresceva a ogni caduta, anche a ore di distanza, e dopo
-            # qualche caduta la barra impiegava mezzo minuto a tornare.
-            if [ $(( SECONDS - inizio )) -ge 60 ]; then
-                attesa=2
+            code=$?
+            # Only quick, repeated crashes lengthen the delay (a broken program
+            # must not burn CPU by restarting continuously). If instead it had
+            # been running for more than a minute it restarts right away:
+            # previously the delay grew on every crash, even hours apart, and
+            # after a few crashes the bar took half a minute to come back.
+            if [ $(( SECONDS - started )) -ge 60 ]; then
+                delay=2
             fi
-            logger -t zeta-session "$nome exited (code $codice), restarting in ${attesa}s" 2>/dev/null || true
-            sleep "$attesa"
-            attesa=$(( attesa < 30 ? attesa * 2 : 30 ))
+            logger -t zeta-session "$name exited (code $code), restarting in ${delay}s" 2>/dev/null || true
+            sleep "$delay"
+            delay=$(( delay < 30 ? delay * 2 : 30 ))
         done
     ) &
 }
 
-# Cartelle personali in italiano (Scrivania, Documenti, Scaricati...):
-# si creano al primo accesso, prima che servano alle icone della scrivania.
+# Localized personal folders (e.g. the Italian names of Desktop, Documents, Downloads):
+# created at first login, before the desktop icons need them.
 xdg-user-dirs-update 2>/dev/null
-# Immagine dell'utente: senza una scelta, il simbolo di ZETA RAYS nel colore
-# d'accento (menu account, schermata di blocco e di accesso). Non tocca una
-# scelta gia' fatta.
-( /usr/bin/python3 -c 'import sys; sys.path.insert(0, "/usr/lib/zeta"); from system import avatar; avatar.assicura()' >/dev/null 2>&1 ) &
-# Cartella per le AppImage: quelle messe qui (o in Scaricati, o in /opt)
-# entrano nel menu da sole (zeta-appimage.path). Al primo accesso si integrano
-# quelle gia' presenti, in secondo piano e senza fretta.
+# User picture: when none has been chosen, the ZETA RAYS symbol in the accent
+# color (account menu, lock and login screens). It does not touch a choice
+# already made.
+( /usr/bin/python3 -c 'import sys; sys.path.insert(0, "/usr/lib/zeta"); from system import avatar; avatar.ensure()' >/dev/null 2>&1 ) &
+
+# Thunar's custom actions translate the item names (xml:lang) but not the
+# name of a submenu: the "Folder Color" submenu is named here in the user's
+# language.
+UCA="$HOME/.config/Thunar/uca.xml"
+if [ -f "$UCA" ]; then
+    # i18n-data-begin: the Italian submenu name
+    case "${LANG:-}" in it*) SUB="Colore della cartella" ;; *) SUB="Folder Color" ;; esac
+    grep -q "<submenu>$SUB</submenu>" "$UCA" || \
+        sed -i -E "s#<submenu>(Folder Color|Colore della cartella)</submenu>#<submenu>$SUB</submenu>#" "$UCA"
+    # i18n-data-end
+fi
+# Folder for AppImages: those placed here (or in Downloads, or in /opt) join
+# the menu by themselves (zeta-appimage.path). At first login the ones already
+# present are integrated, in the background and without hurry.
 # AppImages: ~/Applications is the standard place (the old Italian folder of
-# earlier installs keeps working: applicazioni.py scans both)
+# earlier installs keeps working: applications.py scans both)
 mkdir -p "$HOME/Applications"
 # input method for Chinese, Japanese and Korean, when turned on in Settings
-if [ -s "$HOME/.config/zeta/metodo-input" ] && command -v fcitx5 >/dev/null; then
+if [ -s "$HOME/.config/zeta/input-method" ] && command -v fcitx5 >/dev/null; then
     fcitx5 -d --replace >/dev/null 2>&1
 fi
 ( sleep 20; nice -n 10 zeta-app appimage >/dev/null 2>&1 ) &
 
-# Colori, tema, testo, icone, cursore e icone sulla scrivania (zeta-aspetto
-# richiama zeta-accent, che genera i colori di tutte le app, lo sfondo e il
-# simbolo del launcher).
-zeta-aspetto apply
+# Colors, theme, text, icons, cursor and desktop icons (zeta-appearance calls
+# zeta-accent, which generates the colors of every app, the wallpaper and the
+# launcher symbol).
+zeta-appearance apply
 
-# Le app amministrative (Pacchetti, installer) girano come root via pkexec/sudo:
-# senza questo non potrebbero aprire finestre su Xwayland.
+# Administrative apps (Packages, installer) run as root via pkexec/sudo:
+# without this they could not open windows on Xwayland.
 xhost +si:localuser:root >/dev/null 2>&1 &
 
-# Sfondo scelto dall'utente (o quello di ZETA RAYS generato dal colore d'accento)
-pgrep -x swaybg >/dev/null || zeta-sfondo apply &
-# Barre del titolo: il plugin hyprbars viene caricato dopo la lettura della
-# configurazione, quindi i pulsanti (chiudi/riduci/ingrandisci) si registrano
-# solo alla rilettura successiva. Una sola ricarica all'avvio, se il plugin c'è.
+# Wallpaper chosen by the user (or the ZETA RAYS one generated from the accent color)
+pgrep -x swaybg >/dev/null || zeta-wallpaper apply &
+# Title bars: the hyprbars plugin is loaded after the configuration is read,
+# so the buttons (close/minimize/maximize) are only registered on the next
+# reload. A single reload at startup, if the plugin is there.
 if [ -f /usr/lib/zeta/hypr/hyprbars.so ]; then
     ( sleep 2; hyprctl plugin list 2>/dev/null | grep -qi hyprbars && hyprctl reload >/dev/null 2>&1 ) &
 fi
 
-sorveglia barra waybar
-# Notifiche: se mako è già partito da solo (D-Bus lo avvia alla prima
-# notifica), non se ne lancia un secondo, che uscirebbe subito con errore
-# e verrebbe rilanciato ogni 30 secondi per sempre: si aspetta che quello
-# esistente termini, e solo allora si riparte con il nostro.
-notifiche() {
+supervise bar waybar
+# Notifications: if mako has already started on its own (D-Bus starts it on
+# the first notification), a second one is not launched, since it would exit
+# immediately with an error and be relaunched every 30 seconds forever: we
+# wait for the existing one to end, and only then start our own.
+notifications() {
     local pid
     pid=$(pgrep -xo -u "$(id -u)" mako)
     if [ -n "$pid" ]; then
@@ -110,53 +123,56 @@ notifiche() {
         mako
     fi
 }
-sorveglia notifiche notifiche
-# Un solo processo in ascolto degli eventi di Hyprland: aggiorna i numeri degli
-# spazi di lavoro nella barra senza che i moduli debbano interrogare in continuo.
-sorveglia spazi zeta-spazi segnala
-# Selettore delle app (Ctrl+Tab): resta pronto, nascosto, cosi' compare
-# subito. Da fermo non usa CPU (aspetta i comandi su un socket).
-sorveglia selettore zeta-selettore --demone
-# Ctrl+Alt+Canc: il pannello di emergenza resta pronto (compare subito anche
-# quando il computer arranca; earlyoom non lo chiude)
-sorveglia emergenza zeta-emergenza --demone
-# Riduzione a icona con anteprima nella barra e animazione: pronta, nascosta,
-# senza CPU da ferma (aspetta i comandi su un socket)
-sorveglia riduci zeta-riduci --demone
-# Blocco automatico (non nel sistema live: lì la password la conosce chiunque)
+supervise notifications notifications
+# A single process listens to Hyprland events: it updates the workspace
+# numbers in the bar without the modules having to poll continuously.
+supervise workspaces zeta-workspaces listen
+# App switcher (Ctrl+Tab): stays ready and hidden, so it appears instantly.
+# When idle it uses no CPU (it waits for commands on a socket).
+supervise switcher zeta-switcher --daemon
+# Ctrl+Alt+Del: the emergency panel stays ready (it appears instantly even
+# when the computer is struggling; earlyoom does not kill it)
+supervise emergency zeta-emergency --daemon
+# Minimize with a preview in the bar and an animation: ready, hidden, no CPU
+# while idle (it waits for commands on a socket)
+supervise minimize zeta-minimize --daemon
+# The light/dark buttons inside the text editor become its page color, so
+# the editor never runs in a mode different from the desktop's (flicker).
+supervise editor-mode zeta-appearance follow-editor
+# Automatic lock (not on the live system: there everybody knows the password)
 [ -d /run/live/medium ] || pgrep -x hypridle >/dev/null || hypridle &
 /usr/libexec/polkit-mate-authentication-agent-1 &
 
-# Sorveglianza di sfondo e icone della scrivania: se cadono, tornano su.
-zeta-vigila &
+# Watchdog for the wallpaper and desktop icons: if they crash, they come back.
+zeta-watchdog &
 
-# Pannelli della barra pronti in memoria, nascosti (launcher, centro di
-# controllo, energia, ricerca): il clic li mostra all'istante (zeta-pannello) invece di
-# far ripartire Python e GTK ogni volta. Qualche secondo dopo l'accesso, per
-# non rallentarlo; se uno cade, il clic successivo lo riavvia da solo.
+# Bar panels kept ready in memory, hidden (launcher, control center, power,
+# search): a click shows them instantly (zeta-panel) instead of restarting
+# Python and GTK every time. A few seconds after login, so as not to slow it
+# down; if one crashes, the next click restarts it by itself.
 ( sleep 6
-  for p in zeta-launcher zeta-controllo zeta-energia zeta-cerca; do
-      ZETA_PANNELLO_NASCOSTO=1 "$p" >/dev/null 2>&1 &
+  for p in zeta-launcher zeta-control-center zeta-power-menu zeta-search; do
+      ZETA_PANEL_HIDDEN=1 "$p" >/dev/null 2>&1 &
       sleep 1
   done ) &
 
-# Modello AI locale: lo si porta in memoria 40 secondi dopo l'accesso, con
-# priorità bassa. Così la prima domanda a ZETA risponde subito invece di
-# far aspettare il caricamento (decine di secondi).
-( sleep 40; nice -n 15 zeta-ai-precarica ) >/dev/null 2>&1 &
+# Local AI model: loaded into memory 40 seconds after login, at low
+# priority. This way the first question to ZETA is answered right away
+# instead of waiting for the model to load (tens of seconds).
+( sleep 40; nice -n 15 zeta-ai-preload ) >/dev/null 2>&1 &
 
-# Modalità installazione: la voce "Installa ZETA RAYS OS" del menu di avvio aggiunge
-# "zeta-install" alla riga di comando. In quel caso apriamo subito l'installer;
-# se l'utente lo chiude, resta comunque nel desktop live.
+# Install mode: the "Install ZETA RAYS OS" boot menu entry adds "zeta-install"
+# to the kernel command line. In that case we open the installer right away;
+# if the user closes it, they still stay on the live desktop.
 if grep -qw zeta-install /proc/cmdline 2>/dev/null; then
-    ( sleep 3; zeta-installa ) &
+    ( sleep 3; zeta-install-system ) &
 elif [ -d /run/live/medium ]; then
-    # Sistema live: benvenuto con "Prova" / "Installa". Non dipende dal menu di
-    # avvio, che in alcune macchine virtuali non riceve la tastiera.
-    ( sleep 3; zeta-benvenuto ) &
-elif [ -e /etc/zeta/primo-avvio-lingua ] && [ ! -e "$HOME/.config/zeta/lingua-scelta" ]; then
+    # Live system: welcome screen with "Try" / "Install". It does not depend
+    # on the boot menu, which in some virtual machines gets no keyboard input.
+    ( sleep 3; zeta-welcome ) &
+elif [ -e /etc/zeta/first-boot-language ] && [ ! -e "$HOME/.config/zeta/language-choice" ]; then
     # Ready-made system (OVA): no installer asked for the language, so the
     # first login opens Settings > Language & Region, once
-    mkdir -p "$HOME/.config/zeta" && : > "$HOME/.config/zeta/lingua-scelta"
-    ( sleep 4; zeta-impostazioni lingua ) &
+    mkdir -p "$HOME/.config/zeta" && : > "$HOME/.config/zeta/language-choice"
+    ( sleep 4; zeta-settings language ) &
 fi

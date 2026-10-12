@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — gestione delle finestre (Hyprland).
+"""ZETA RAYS — window management (Hyprland).
 
-Hyprland non ha la "riduzione a icona": qui la realizziamo spostando la
-finestra in uno spazio speciale nascosto e ricordando da dove veniva, così il
-pulsante «riduci» della barra del titolo fa davvero qualcosa e la finestra si
-può riaprire dalla barra in basso.
+Hyprland has no "minimize": we implement it here by moving the window to a
+hidden special workspace and remembering where it came from, so the title
+bar's "minimize" button really does something and the window can be reopened
+from the bottom bar.
 """
 import json
 import os
@@ -15,7 +15,7 @@ import time
 from i18n import ntr, tr
 
 HIDDEN = "special:zetamin"
-STATE = os.path.expanduser("~/.cache/zeta/finestre.json")
+STATE = os.path.expanduser("~/.cache/zeta/windows.json")
 
 
 def _hyprctl(args, as_json=False):
@@ -35,7 +35,7 @@ def _hyprctl(args, as_json=False):
 
 
 def dispatch(lua):
-    """Esegue un dispatcher di Hyprland 0.55 (formato Lua). True se riuscito."""
+    """Run a Hyprland 0.55 dispatcher (Lua syntax). True on success."""
     r = _hyprctl(["dispatch", lua])
     return r is not None and "invalid" not in (r or "").lower()
 
@@ -59,7 +59,7 @@ def _load():
 
 
 def _notify_bar():
-    """Aggiorna subito il contatore nella barra (SIGRTMIN+9)."""
+    """Refresh the counter in the bar right away (SIGRTMIN+9)."""
     subprocess.run(["pkill", "-RTMIN+9", "-x", "waybar"],
                    capture_output=True, check=False)
 
@@ -77,35 +77,35 @@ def _sel(addr):
     return "address:%s" % addr
 
 
-# ---------------------------------------------------------------- anteprime
-# Le finestre ridotte compaiono nella barra come miniature (come nel Dock di
-# macOS), non come «1 ridotta». L'immagine si cattura un attimo prima di
-# nasconderla, quando e' ancora sullo schermo: dopo non e' piu' disegnata.
-ANTEPRIME = os.path.expanduser("~/.cache/zeta/ridotte")
-POSTI = 8                                  # miniature al massimo nella barra
-RAPPORTO = 1.6                             # larghezza / altezza della miniatura
+# ---------------------------------------------------------------- previews
+# Minimized windows show up in the bar as thumbnails (like the macOS Dock),
+# not as "1 minimized". The image is captured just before hiding the window,
+# while it is still on screen: afterwards it is no longer drawn.
+PREVIEWS = os.path.expanduser("~/.cache/zeta/minimized")
+SLOTS = 8                                  # maximum number of thumbnails in the bar
+ASPECT_RATIO = 1.6                             # thumbnail width / height
 
 
-BARRA_TITOLO = 32                          # hyprbars (bar_height in hyprland.lua)
+TITLE_BAR_HEIGHT = 32                          # hyprbars (bar_height in hyprland.lua)
 
 
-def rettangolo(win):
-    """(x, y, l, a) della finestra come si vede, barra del titolo compresa
-    (Hyprland la disegna sopra le coordinate della finestra; a schermo intero
-    non c'e')."""
+def rectangle(win):
+    """(x, y, w, h) of the window as it appears, title bar included
+    (Hyprland draws it above the window's coordinates; in full screen there
+    is none)."""
     try:
         (x, y), (w, h) = win["at"], win["size"]
     except (KeyError, TypeError, ValueError):
         return None
-    if not win.get("fullscreen") and y >= BARRA_TITOLO:
-        y, h = y - BARRA_TITOLO, h + BARRA_TITOLO
+    if not win.get("fullscreen") and y >= TITLE_BAR_HEIGHT:
+        y, h = y - TITLE_BAR_HEIGHT, h + TITLE_BAR_HEIGHT
     return (x, y, w, h)
 
 
-def cattura(win, dest):
-    """Immagine della finestra (deve essere visibile). Il rettangolo usato,
-    oppure None."""
-    r = rettangolo(win)
+def capture(win, dest):
+    """Capture an image of the window (it must be visible). Returns the
+    rectangle used, or None."""
+    r = rectangle(win)
     if not r or r[2] < 8 or r[3] < 8:
         return None
     os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -117,35 +117,35 @@ def cattura(win, dest):
     return r if p.returncode == 0 and os.path.exists(dest) else None
 
 
-def _icona_app(classe):
+def _app_icon(class_name):
     try:
         import sys
         if "/usr/lib/zeta" not in sys.path:
             sys.path.insert(0, "/usr/lib/zeta")
-        from system import applicazioni
-        c = (classe or "").lower()
-        for a in applicazioni.tutte():
-            nomi = {a.wm_class.lower(), a.id[:-8].lower(), os.path.basename(a.eseguibile).lower()}
-            if c and c in nomi and a.icona:
-                p = applicazioni.icona_file(a.icona)
+        from system import applications
+        c = (class_name or "").lower()
+        for a in applications.all_apps():
+            names = {a.wm_class.lower(), a.id[:-8].lower(), os.path.basename(a.executable).lower()}
+            if c and c in names and a.icon:
+                p = applications.icon_file(a.icon)
                 return p if os.path.exists(p) else None
-    except Exception:  # noqa: BLE001 - senza icona la miniatura resta valida
+    except Exception:  # noqa: BLE001 - the thumbnail is still fine without an icon
         return None
     return None
 
 
-def componi_anteprima(cattura_png, dest, classe="", altezza=84):
-    """Miniatura arrotondata con l'icona dell'app nell'angolo (PNG, 2x)."""
+def compose_preview(capture_png, dest, class_name="", height=84):
+    """Rounded thumbnail with the app icon in the corner (PNG, 2x)."""
     import cairo
     import gi
     gi.require_version("GdkPixbuf", "2.0")
     gi.require_version("Gdk", "4.0")
     from gi.repository import Gdk, GdkPixbuf
-    W, H = int(altezza * RAPPORTO), altezza
+    W, H = int(height * ASPECT_RATIO), height
     sup = cairo.ImageSurface(cairo.FORMAT_ARGB32, W, H)
     cr = cairo.Context(sup)
 
-    def rett(x, y, w, h, r):
+    def rect(x, y, w, h, r):
         cr.new_sub_path()
         cr.arc(x + w - r, y + r, r, -1.5708, 0)
         cr.arc(x + w - r, y + h - r, r, 0, 1.5708)
@@ -154,7 +154,7 @@ def componi_anteprima(cattura_png, dest, classe="", altezza=84):
         cr.close_path()
     m = 3
     try:
-        pb = GdkPixbuf.Pixbuf.new_from_file(cattura_png)
+        pb = GdkPixbuf.Pixbuf.new_from_file(capture_png)
         sc = min((W - 2 * m) / pb.get_width(), (H - 2 * m) / pb.get_height())
         pw, ph = max(1, int(pb.get_width() * sc)), max(1, int(pb.get_height() * sc))
         pb = pb.scale_simple(pw, ph, GdkPixbuf.InterpType.BILINEAR)
@@ -162,7 +162,7 @@ def componi_anteprima(cattura_png, dest, classe="", altezza=84):
         pb, pw, ph = None, W - 2 * m, H - 2 * m
     ox, oy = (W - pw) / 2, (H - ph) / 2
     cr.save()
-    rett(ox, oy, pw, ph, 7)
+    rect(ox, oy, pw, ph, 7)
     cr.clip()
     if pb is not None:
         Gdk.cairo_set_source_pixbuf(cr, pb, ox, oy)
@@ -170,15 +170,15 @@ def componi_anteprima(cattura_png, dest, classe="", altezza=84):
         cr.set_source_rgb(0.12, 0.12, 0.13)
     cr.paint()
     cr.restore()
-    rett(ox + 0.5, oy + 0.5, pw - 1, ph - 1, 7)
+    rect(ox + 0.5, oy + 0.5, pw - 1, ph - 1, 7)
     cr.set_source_rgba(1, 1, 1, 0.18)
     cr.set_line_width(1)
     cr.stroke()
-    icona = _icona_app(classe)
-    if icona:
+    icon = _app_icon(class_name)
+    if icon:
         try:
-            lato = int(H * 0.46)
-            ib = GdkPixbuf.Pixbuf.new_from_file_at_size(icona, lato, lato)
+            side = int(H * 0.46)
+            ib = GdkPixbuf.Pixbuf.new_from_file_at_size(icon, side, side)
             Gdk.cairo_set_source_pixbuf(cr, ib, W - ib.get_width() - 1, H - ib.get_height() - 1)
             cr.paint()
         except Exception:  # noqa: BLE001
@@ -190,27 +190,27 @@ def componi_anteprima(cattura_png, dest, classe="", altezza=84):
     return dest
 
 
-def _nome_file(addr, tipo):
-    return os.path.join(ANTEPRIME, "%s-%s.png" % (addr.replace("0x", ""), tipo))
+def _preview_file(addr, kind):
+    return os.path.join(PREVIEWS, "%s-%s.png" % (addr.replace("0x", ""), kind))
 
 
-def togli_anteprima(addr):
-    for tipo in ("mini", "grande"):
+def remove_preview(addr):
+    for kind in ("mini", "large"):
         try:
-            os.unlink(_nome_file(addr, tipo))
+            os.unlink(_preview_file(addr, kind))
         except OSError:
             pass
 
 
-def ridotte_in_ordine():
-    """Le finestre ridotte, nell'ordine della barra, solo dal file di stato
-    (niente hyprctl: la barra lo legge a ogni aggiornamento)."""
+def minimized_in_order():
+    """The minimized windows, in bar order, from the state file only
+    (no hyprctl: the bar reads this on every refresh)."""
     return list(_load().items())
 
 
-def dimentica(addr):
-    """Una finestra ridotta non c'e' piu' (chiusa): via dallo stato e dalla barra."""
-    togli_anteprima(addr)
+def forget(addr):
+    """A minimized window is gone (closed): drop it from the state and the bar."""
+    remove_preview(addr)
     state = _load()
     if addr in state:
         state.pop(addr, None)
@@ -218,7 +218,7 @@ def dimentica(addr):
 
 
 def minimize(addr=None):
-    """Nasconde la finestra (attiva se addr è None). True se fatto."""
+    """Hide the window (the active one if addr is None). True if done."""
     win = None
     if addr is None:
         win = active()
@@ -234,12 +234,12 @@ def minimize(addr=None):
             return False
     ws = (win.get("workspace") or {}).get("name") or ""
     if ws.startswith("special:"):
-        return False                      # già nascosta
+        return False                      # already hidden
     state = _load()
     state[addr] = {"workspace": ws or "1",
                    "title": win.get("title") or "",
                    "class": win.get("class") or "",
-                   "rect": rettangolo(win)}
+                   "rect": rectangle(win)}
     _save(state)
     ok = dispatch('hl.dsp.window.move({ workspace = "%s", follow = false, window = "%s" })'
                   % (HIDDEN, _sel(addr)))
@@ -250,7 +250,7 @@ def minimize(addr=None):
 
 
 def minimized():
-    """Elenco delle finestre ridotte ancora esistenti (le altre vengono tolte)."""
+    """List of minimized windows that still exist (the others are removed)."""
     state = _load()
     if not state:
         return []
@@ -260,13 +260,13 @@ def minimized():
         c = live.get(addr)
         if c is None:
             state.pop(addr, None)
-            togli_anteprima(addr)
+            remove_preview(addr)
             changed = True
             continue
         if not str((c.get("workspace") or {}).get("name", "")).startswith("special:"):
-            # l'utente l'ha riportata fuori in altro modo
+            # the user brought it back some other way
             state.pop(addr, None)
-            togli_anteprima(addr)
+            remove_preview(addr)
             changed = True
             continue
         out.append({"address": addr,
@@ -279,13 +279,13 @@ def minimized():
 
 
 def restore(addr):
-    """Riporta la finestra nel suo spazio di lavoro e le dà il fuoco."""
+    """Move the window back to its workspace and give it focus."""
     state = _load()
     ws = (state.get(addr) or {}).get("workspace") or "1"
     ok = dispatch('hl.dsp.window.move({ workspace = "%s", follow = false, window = "%s" })'
                   % (ws, _sel(addr)))
     if ok:
-        togli_anteprima(addr)            # prima di avvisare la barra
+        remove_preview(addr)            # before notifying the bar
         state.pop(addr, None)
         _save(state)
         dispatch('hl.dsp.focus({ workspace = "%s" })' % ws)
@@ -309,7 +309,7 @@ def toggle_maximize(addr=None):
 
 
 def open_windows():
-    """Finestre visibili (non ridotte), dalla più recente."""
+    """Visible (not minimized) windows, most recent first."""
     out = []
     for c in clients():
         ws = str((c.get("workspace") or {}).get("name", ""))
@@ -322,37 +322,37 @@ def open_windows():
     return out
 
 
-def memoria_mb(pid):
-    """Quanta memoria occupa un processo, in MB (0 se non si riesce a leggere)."""
+def memory_mb(pid):
+    """How much memory a process uses, in MB (0 if it can't be read)."""
     try:
         with open("/proc/%d/statm" % int(pid)) as f:
-            pagine = int(f.read().split()[1])
-        return pagine * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
+            pages = int(f.read().split()[1])
+        return pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
     except (OSError, ValueError, IndexError):
         return 0.0
 
 
-def bloccato_su_disco(pid):
-    """Vero se il processo e' fermo in attesa del disco o di un driver.
+def stuck_on_disk(pid):
+    """True if the process is stuck waiting for the disk or a driver.
 
-    E' lo stato «D»: il processo non risponde e non si puo' nemmeno
-    interrompere finche' il kernel non gli restituisce cio' che aspetta. E'
-    l'unico «non risponde» che si possa affermare guardando il sistema, e per
-    questo e' l'unico che viene mostrato: inventare una diagnosi peggiorerebbe
-    le cose invece di aiutare.
+    This is the "D" state: the process doesn't respond and can't even be
+    interrupted until the kernel gives it what it is waiting for. It is the
+    only "not responding" that can be stated by looking at the system, which
+    is why it is the only one shown: inventing a diagnosis would make things
+    worse instead of helping.
     """
     try:
         with open("/proc/%d/stat" % int(pid)) as f:
-            campi = f.read().rsplit(")", 1)[1].split()
-        return campi[0] == "D"
+            fields = f.read().rsplit(")", 1)[1].split()
+        return fields[0] == "D"
     except (OSError, ValueError, IndexError):
         return False
 
 
-# Pezzi del desktop che non si terminano mai da qui: fermarli significherebbe
-# perdere la sessione intera, il rimedio sarebbe peggio del male.
-PROTETTI = {"Hyprland", "Xwayland", "waybar", "mako", "swaybg", "zeta-session",
-            "zeta-vigila", "systemd", "dbus-daemon", "dbus-broker", "sddm",
+# Desktop components that are never terminated from here: stopping them would
+# lose the whole session, and the cure would be worse than the disease.
+PROTECTED = {"Hyprland", "Xwayland", "waybar", "mako", "swaybg", "zeta-session",
+            "zeta-watchdog", "systemd", "dbus-daemon", "dbus-broker", "sddm",
             "sddm-helper", "pipewire", "pipewire-pulse", "wireplumber",
             "xdg-desktop-por", "xdg-document-po", "xdg-permission-", "polkit-mate-aut",
             "gnome-keyring-d", "sshd", "sshd-session", "login", "agetty"}
@@ -366,57 +366,57 @@ def _comm(pid):
         return ""
 
 
-def _figli_diretti():
-    """ppid -> [pid] per tutti i processi, letto da /proc in un colpo solo."""
-    mappa = {}
-    for voce in os.listdir("/proc"):
-        if not voce.isdigit():
+def _direct_children():
+    """ppid -> [pid] for every process, read from /proc in a single pass."""
+    mapping = {}
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
             continue
         try:
-            with open("/proc/%s/stat" % voce) as f:
+            with open("/proc/%s/stat" % entry) as f:
                 ppid = int(f.read().rsplit(")", 1)[1].split()[1])
         except (OSError, ValueError, IndexError):
             continue
-        mappa.setdefault(ppid, []).append(int(voce))
-    return mappa
+        mapping.setdefault(ppid, []).append(int(entry))
+    return mapping
 
 
-def albero(pid):
-    """Il processo e tutti i suoi discendenti dello stesso utente.
+def tree(pid):
+    """The process and all of its descendants owned by the same user.
 
-    Un programma spesso ne lancia altri (Firefox i suoi processi per le
-    schede, il terminale il comando che ci gira dentro): terminare solo il
-    primo lasciava vivi gli altri, e il blocco restava.
+    A program often launches others (Firefox its tab processes, the terminal
+    the command running inside it): terminating only the first one left the
+    others alive, and the hang remained.
     """
-    mio = os.getuid()
-    mappa = _figli_diretti()
-    visti, coda = [], [pid]
-    while coda:
-        p = coda.pop()
-        if p in visti:
+    my_uid = os.getuid()
+    mapping = _direct_children()
+    seen, queue = [], [pid]
+    while queue:
+        p = queue.pop()
+        if p in seen:
             continue
         try:
-            if os.stat("/proc/%d" % p).st_uid != mio:
+            if os.stat("/proc/%d" % p).st_uid != my_uid:
                 continue
         except OSError:
             continue
-        visti.append(p)
-        coda.extend(mappa.get(p, []))
-    return visti
+        seen.append(p)
+        queue.extend(mapping.get(p, []))
+    return seen
 
 
-def protetto(pid):
-    return int(pid) <= 1 or int(pid) == os.getpid() or _comm(int(pid)) in PROTETTI
+def is_protected(pid):
+    return int(pid) <= 1 or int(pid) == os.getpid() or _comm(int(pid)) in PROTECTED
 
 
-def _vivo(pid):
+def _alive(pid):
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
-    # uno zombie e' gia' morto: aspetta solo che il padre lo raccolga
+    # a zombie is already dead: it is just waiting for its parent to reap it
     try:
         with open("/proc/%d/stat" % pid) as f:
             return f.read().rsplit(")", 1)[1].split()[0] != "Z"
@@ -424,112 +424,111 @@ def _vivo(pid):
         return False
 
 
-def force_quit(pid, attesa=3.0, forza=True):
-    """Termina un programma piantato, con i suoi processi figli: prima con
-    garbo, poi per forza.
+def force_quit(pid, wait=3.0, force=True):
+    """End a frozen program together with its child processes: gently first,
+    then by force.
 
-    Si manda TERM e si aspetta: un programma che risponde ancora salva e se ne
-    va da solo. Se dopo qualche secondo e' ancora li' vuol dire che non
-    risponde davvero, e allora KILL. Partire subito con KILL farebbe perdere
-    il lavoro non salvato anche a chi si sarebbe chiuso da solo.
-    Con forza=False ci si ferma a TERM: e' la chiusura normale («chiudi»),
-    che non deve mai diventare d'autorita' senza che l'utente lo chieda.
+    TERM is sent and we wait: a program that still responds saves and exits
+    by itself. If it is still there after a few seconds it really isn't
+    responding, so KILL follows. Starting straight with KILL would lose unsaved
+    work even for programs that would have closed by themselves.
+    With force=False we stop at TERM: that is the normal close ("close"),
+    which must never become forcible unless the user asks for it.
     """
     try:
         pid = int(pid)
     except (TypeError, ValueError):
         return False, tr("Invalid process.")
-    if protetto(pid):
+    if is_protected(pid):
         return False, tr("This process is part of the desktop and can't be ended from here.")
-    tutti = [p for p in albero(pid) if not protetto(p)]
-    if not tutti:
-        if not _vivo(pid):
+    all_processes = [p for p in tree(pid) if not is_protected(p)]
+    if not all_processes:
+        if not _alive(pid):
             return True, tr("It had already quit.")
         return False, tr("You don't have permission to end this process.")
-    # prima il principale (puo' chiudere lui i figli in ordine), poi gli altri
-    for p in tutti:
+    # the main process first (it may close its children in order), then the rest
+    for p in all_processes:
         try:
             os.kill(p, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
-    scaduto = time.monotonic() + attesa
-    while time.monotonic() < scaduto and any(_vivo(p) for p in tutti):
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline and any(_alive(p) for p in all_processes):
         time.sleep(0.15)
-    rimasti = [p for p in tutti if _vivo(p)]
-    if not rimasti:
-        if len(tutti) > 1:
+    remaining = [p for p in all_processes if _alive(p)]
+    if not remaining:
+        if len(all_processes) > 1:
             return True, ntr("Closed (with {n} related process).",
                              "Closed (with {n} related processes).",
-                             len(tutti) - 1).format(n=len(tutti) - 1)
+                             len(all_processes) - 1).format(n=len(all_processes) - 1)
         return True, tr("Closed.")
-    if not forza:
+    if not force:
         return False, tr("It didn't close on its own.")
-    for p in rimasti:
+    for p in remaining:
         try:
             os.kill(p, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
-    fine = time.monotonic() + 2.0
-    while time.monotonic() < fine and any(_vivo(p) for p in rimasti):
+    kill_deadline = time.monotonic() + 2.0
+    while time.monotonic() < kill_deadline and any(_alive(p) for p in remaining):
         time.sleep(0.1)
-    ancora = [p for p in rimasti if _vivo(p)]
-    if not ancora:
-        if len(tutti) > 1:
+    still_alive = [p for p in remaining if _alive(p)]
+    if not still_alive:
+        if len(all_processes) > 1:
             return True, ntr("Forced to quit (with {n} related process).",
                              "Forced to quit (with {n} related processes).",
-                             len(tutti) - 1).format(n=len(tutti) - 1)
+                             len(all_processes) - 1).format(n=len(all_processes) - 1)
         return True, tr("Forced to quit.")
-    if any(bloccato_su_disco(p) for p in ancora):
+    if any(stuck_on_disk(p) for p in still_alive):
         return False, tr("The process doesn't respond even to a forced quit: the kernel "
                          "is holding it while it waits for the disk. It will close as "
                          "soon as the disk responds.")
     return False, tr("Couldn't end it.")
 
 
-def finestra_al_punto(x, y):
-    """La finestra visibile che sta sotto il punto (x, y) dello schermo.
+def window_at_point(x, y):
+    """The visible window under the screen point (x, y).
 
-    Se piu' finestre si sovrappongono vince quella usata per ultima, che e'
-    quella davanti. Solo le finestre dello spazio di lavoro mostrato.
+    If several windows overlap, the most recently used one wins, since it is
+    the one in front. Only windows on the displayed workspace are considered.
     """
     monitor = _hyprctl(["monitors"], as_json=True) or []
-    attivi = {m.get("activeWorkspace", {}).get("id") for m in monitor}
-    attivi |= {m.get("specialWorkspace", {}).get("id") for m in monitor
+    active_ids = {m.get("activeWorkspace", {}).get("id") for m in monitor}
+    active_ids |= {m.get("specialWorkspace", {}).get("id") for m in monitor
                if m.get("specialWorkspace", {}).get("id")}
-    candidati = []
+    candidates = []
     for c in clients():
         if not c.get("mapped", True) or c.get("hidden"):
             continue
-        if (c.get("workspace") or {}).get("id") not in attivi and not c.get("pinned"):
+        if (c.get("workspace") or {}).get("id") not in active_ids and not c.get("pinned"):
             continue
         (cx, cy), (w, h) = c.get("at", (0, 0)), c.get("size", (0, 0))
         if cx <= x < cx + w and cy <= y < cy + h:
-            candidati.append(c)
-    if not candidati:
+            candidates.append(c)
+    if not candidates:
         return None
-    return min(candidati, key=lambda c: c.get("focusHistoryID", 999))
+    return min(candidates, key=lambda c: c.get("focusHistoryID", 999))
 
 
-def processi_pesanti(soglia_mb=250):
-    """Processi dell'utente senza finestra che occupano molta memoria: una
-    finestra piantata non e' l'unico modo in cui un programma blocca il
-    computer."""
-    con_finestra = {c.get("pid") for c in clients()}
-    mio = os.getuid()
+def heavy_processes(threshold_mb=250):
+    """The user's windowless processes that use a lot of memory: a frozen
+    window isn't the only way a program can bog down the computer."""
+    with_window = {c.get("pid") for c in clients()}
+    my_uid = os.getuid()
     out = []
-    for voce in os.listdir("/proc"):
-        if not voce.isdigit():
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
             continue
-        pid = int(voce)
+        pid = int(entry)
         try:
-            if os.stat("/proc/%d" % pid).st_uid != mio:
+            if os.stat("/proc/%d" % pid).st_uid != my_uid:
                 continue
         except OSError:
             continue
-        if pid in con_finestra or protetto(pid):
+        if pid in with_window or is_protected(pid):
             continue
-        mb = memoria_mb(pid)
-        if mb >= soglia_mb:
-            out.append({"pid": pid, "nome": _comm(pid), "mb": mb})
+        mb = memory_mb(pid)
+        if mb >= threshold_mb:
+            out.append({"pid": pid, "name": _comm(pid), "mb": mb})
     out.sort(key=lambda d: -d["mb"])
     return out[:8]

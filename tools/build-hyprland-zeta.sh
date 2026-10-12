@@ -1,39 +1,39 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Ricompila Hyprland 0.55.2 (sorgente Debian ufficiale, trixie-backports) con
-# due correzioni:
-#  - la #15416 ufficiale (Hyprland 0.56.0), «desktop/popup: fix crash on
-#    destroy»: senza, chiudere di colpo un programma con un menu a comparsa
-#    aperto (Firefox che si pianta, uscita forzata) fa cadere tutto il desktop;
-#  - la richiesta di finestra ingrandita fatta all'avvio, che veniva scartata
-#    (Blender ufficiale restava minuscolo).
+# Rebuilds Hyprland 0.55.2 (official Debian source, trixie-backports) with
+# two fixes:
+#  - the official #15416 (Hyprland 0.56.0), «desktop/popup: fix crash on
+#    destroy»: without it, abruptly closing a program with a popup menu open
+#    (Firefox hanging, a forced quit) takes down the whole desktop;
+#  - the request for a maximized window made at startup, which was discarded
+#    (the official Blender stayed tiny).
 #   tools/build-hyprland-zeta.sh arm64|amd64
 set -euo pipefail
 ARCH="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/cache/hyprland-zeta/$ARCH"
 mkdir -p "$OUT"
-# I backports di Debian cambiano: dal 3 ottobre 2026 hyprutils 0.14 non
-# compila piu' aquamarine 0.11 ne' Hyprland 0.55.2. Si compila contro i
-# backports com'erano il 27 settembre 2026 (snapshot.debian.org), cioe' le
-# stesse librerie del pacchetto ufficiale e delle immagini: build riproducibile.
+# Debian backports keep changing: since October 3, 2026 hyprutils 0.14 no
+# longer builds aquamarine 0.11 or Hyprland 0.55.2. We build against the
+# backports as they were on September 27, 2026 (snapshot.debian.org), i.e.
+# the same libraries as the official package and the images: reproducible build.
 SNAP="${SNAPSHOT:-20260927T000000Z}"
-docker run --rm --platform "linux/$ARCH" -e PARALLELO="${PARALLELO:-}" -e SNAP="$SNAP" -v "$OUT:/out" debian:trixie bash -euxo pipefail -c '
+docker run --rm --platform "linux/$ARCH" -e PARALLEL="${PARALLEL:-}" -e SNAP="$SNAP" -v "$OUT:/out" debian:trixie bash -euxo pipefail -c '
   echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/$SNAP trixie-backports main" > /etc/apt/sources.list.d/bp.list
   echo "deb-src [check-valid-until=no] http://snapshot.debian.org/archive/debian/$SNAP trixie-backports main" >> /etc/apt/sources.list.d/bp.list
-  echo "Acquire::Retries \"5\";" > /etc/apt/apt.conf.d/80riprova
+  echo "Acquire::Retries \"5\";" > /etc/apt/apt.conf.d/80retry
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends build-essential devscripts dpkg-dev fakeroot python3 >/dev/null
-  # Stesse librerie dell Hyprland ufficiale di trixie-backports (compilato con
-  # aquamarine 0.11 -> dipende da libaquamarine10): nel frattempo i backports
-  # sono passati ad aquamarine 0.14, ma il binario ufficiale e le immagini usano
-  # la 0.11. Si ricompila aquamarine 0.11 (sorgente Debian ufficiale) e la si
-  # blocca, cosi l unica differenza rispetto al pacchetto ufficiale resta la correzione.
+  # Same libraries as the official trixie-backports Hyprland (built with
+  # aquamarine 0.11 -> depends on libaquamarine10): meanwhile the backports
+  # moved to aquamarine 0.14, but the official binary and the images use
+  # 0.11. We rebuild aquamarine 0.11 (official Debian source) and hold it,
+  # so the only difference from the official package remains the fix.
   AQ=0.11.0-2~bpo13+1
   apt-get build-dep -y -qq aquamarine=$AQ >/dev/null
   mkdir -p /aq && cd /aq
   apt-get source -qq aquamarine=$AQ
-  (cd aquamarine-0.11.0 && DEB_BUILD_OPTIONS="nocheck parallel=${PARALLELO:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -15)
+  (cd aquamarine-0.11.0 && DEB_BUILD_OPTIONS="nocheck parallel=${PARALLEL:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -15)
   apt-get install -y -qq --allow-downgrades ./libaquamarine10_${AQ}_*.deb ./libaquamarine-dev_${AQ}_*.deb >/dev/null
   apt-mark hold libaquamarine-dev libaquamarine10
   cd /
@@ -48,7 +48,7 @@ p = "src/desktop/view/Popup.cpp"
 s = io.open(p, encoding="utf-8").read()
 def rep(a, b):
     global s
-    assert s.count(a) == 1, ("NON TROVATO", a)
+    assert s.count(a) == 1, ("NOT FOUND", a)
     s = s.replace(a, b)
 rep("""    if (!m_resource)
         return m_lastPos;
@@ -67,7 +67,7 @@ rep("""    while (current->m_parent && current->m_resource) {
 
         offset += SURFACE->resource()->m_current.offset;""")
 io.open(p, "w", encoding="utf-8").write(s)
-print("correzione 1/2 applicata")
+print("fix 1/2 applied")
 PY
   grep -n -A4 "const auto SURFACE = current->wlSurface();" src/desktop/view/Popup.cpp
   python3 - <<PY
@@ -75,27 +75,27 @@ import io, re
 p = "src/desktop/view/Popup.cpp"
 s = io.open(p, encoding="utf-8").read()
 m = re.search(r"CPopup::popupTreeExtents\(\) const \{[\s\S]*?if \(!popup\)\n(\s*)continue;\n", s)
-assert m, "popupTreeExtents non trovato"
-ind = m.group(1)
-agg = (ind + "// a popup whose xdg surface has been destroyed but the XDGPopupResource not yet received onDestroy()\n"
-       + ind + "if (popup->m_resource && popup->m_resource->m_surface.expired())\n" + ind + "    continue;\n")
-s = s[:m.end()] + "\n" + agg + s[m.end():]
+assert m, "popupTreeExtents not found"
+indent = m.group(1)
+addition = (indent + "// a popup whose xdg surface has been destroyed but the XDGPopupResource not yet received onDestroy()\n"
+       + indent + "if (popup->m_resource && popup->m_resource->m_surface.expired())\n" + indent + "    continue;\n")
+s = s[:m.end()] + "\n" + addition + s[m.end():]
 io.open(p, "w", encoding="utf-8").write(s)
-print("correzione 2/2 applicata")
+print("fix 2/2 applied")
 PY
-  # Correzione 3: la richiesta di finestra ingrandita fatta da un programma
-  # PRIMA di comparire (xdg_toplevel.set_maximized prima del primo disegno, o
-  # _NET_WM_STATE_MAXIMIZED su X11) veniva scartata: onUpdateState la gestiva
-  # solo per finestre gia mappate, mentre quella a schermo intero viene
-  # ricordata (m_wantsInitialFullscreen). Il programma (Blender ufficiale, che
-  # parte cosi) crede di essere ingrandito e resta alla misura provvisoria,
-  # a volte minuscola. Ora la richiesta si ricorda e si applica alla
-  # comparsa, rispettando suppress_event maximize come gia prevede onMap.
+  # Fix 3: a request for a maximized window made by a program BEFORE it
+  # appears (xdg_toplevel.set_maximized before the first commit, or
+  # _NET_WM_STATE_MAXIMIZED on X11) was discarded: onUpdateState handled it
+  # only for already mapped windows, while the fullscreen request is
+  # remembered (m_wantsInitialFullscreen). The program (the official Blender,
+  # which starts that way) believes it is maximized and stays at the
+  # provisional size, sometimes tiny. Now the request is remembered and
+  # applied on map, honoring suppress_event maximize as onMap already does.
   python3 - <<PY
 import io
 def rep(p, a, b):
     s = io.open(p, encoding="utf-8").read()
-    assert s.count(a) == 1, ("NON TROVATO", p, a)
+    assert s.count(a) == 1, ("NOT FOUND", p, a)
     io.open(p, "w", encoding="utf-8").write(s.replace(a, b))
 rep("src/desktop/view/Window.hpp",
     "        bool      m_wantsInitialFullscreen        = false;\n",
@@ -116,15 +116,15 @@ rep("src/desktop/view/Window.cpp",
     else if (m_wantsInitialMaximize)
         requestedClientFSMode = FSMODE_MAXIMIZED;
 """)
-print("correzione 3 applicata (ingrandimento iniziale)")
+print("fix 3 applied (initial maximize)")
 PY
-  DEBEMAIL="zeta@zetarays.org" DEBFULLNAME="ZETA RAYS" dch -v "$(dpkg-parsechangelog -S Version)+zeta2" "Correzione ufficiale #15416 (Hyprland 0.56.0): niente crash quando un menu a comparsa viene distrutto con la sua finestra. Richiesta di finestra ingrandita all avvio rispettata (prima veniva scartata)."
-  DEB_BUILD_OPTIONS="nocheck parallel=${PARALLELO:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -5
+  DEBEMAIL="zeta@zetarays.org" DEBFULLNAME="ZETA RAYS" dch -v "$(dpkg-parsechangelog -S Version)+zeta2" "Official fix #15416 (Hyprland 0.56.0): no crash when a popup menu is destroyed together with its window. A maximized window requested at startup is now honored (previously it was discarded)."
+  DEB_BUILD_OPTIONS="nocheck parallel=${PARALLEL:-$(nproc)}" dpkg-buildpackage -b -uc -us 2>&1 | tail -5
   dpkg-deb -f ../hyprland_*zeta2_*.deb Depends | tr "," "\n" | grep -E "aquamarine|hypr"
-  dpkg-deb -f ../hyprland_*zeta2_*.deb Depends | grep -q "libaquamarine10 " || { echo "DIPENDENZE DIVERSE DALL UFFICIALE"; exit 1; }
+  dpkg-deb -f ../hyprland_*zeta2_*.deb Depends | grep -q "libaquamarine10 " || { echo "DEPENDENCIES DIFFER FROM THE OFFICIAL PACKAGE"; exit 1; }
   rm -f /out/*.deb
   cp -v ../*.deb /out/
-  # le intestazioni di aquamarine 0.11 servono anche per compilare hyprbars
+  # the aquamarine 0.11 headers are also needed to build hyprbars
   cp -v /aq/libaquamarine10_*.deb /aq/libaquamarine-dev_*.deb /out/
 '
 ls -la "$OUT"

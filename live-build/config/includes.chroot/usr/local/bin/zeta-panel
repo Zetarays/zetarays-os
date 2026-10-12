@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — instantly opens one of the bar's panels.
+#
+#   zeta-panel control | network | audio | power | launcher | search
+#
+# The panels stay resident in memory, hidden (they start with the session):
+# the click just sends "show" to the already-running panel via gapplication
+# (a small C program), instead of restarting Python and GTK every time, which
+# took almost a second on a slow computer. A second click closes it.
+# If the panel is not resident it is launched as before: a button never ends
+# up doing nothing.
+# network and audio are views of the same control-center process
+# (zeta-control-center), each showing only its own items.
+action=show
+view=
+case "$1" in
+    control)  id=org.zetarays.ControlCenter; prog=zeta-control-center ;;
+    network|audio) id=org.zetarays.ControlCenter; prog=zeta-control-center; action=$1; view=$1 ;;
+    power)    id=org.zetarays.PowerMenu;   prog=zeta-power-menu ;;
+    launcher) id=org.zetarays.Launcher;    prog=zeta-launcher ;;
+    search)   id=org.zetarays.Search;      prog=zeta-search ;;
+    *) echo "usage: zeta-panel control|network|audio|power|launcher|search" >&2; exit 2 ;;
+esac
+gapplication action "$id" "$action" 2>/dev/null || exec "$prog" $view

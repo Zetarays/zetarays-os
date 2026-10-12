@@ -1,11 +1,11 @@
-name: Problema / Bug
-description: Qualcosa non funziona in ZETA RAYS OS
+name: Bug report
+description: Something does not work in ZETA RAYS OS
 labels: [bug]
 body:
   - type: dropdown
-    id: immagine
+    id: image
     attributes:
-      label: Immagine usata
+      label: Image used
       options:
         - zetarays-2.0-amd64.iso
         - zetarays-2.0-arm64.iso
@@ -14,31 +14,31 @@ body:
     validations:
       required: true
   - type: dropdown
-    id: dove
+    id: where
     attributes:
-      label: Dove gira
+      label: Where it runs
       options:
-        - Computer vero (installato)
-        - Computer vero (dalla chiavetta, senza installare)
+        - Real computer (installed)
+        - Real computer (live session from the USB stick)
         - VirtualBox
         - VMware
         - UTM / QEMU
-        - Altro
+        - Other
     validations:
       required: true
   - type: textarea
-    id: cosa
+    id: what
     attributes:
-      label: Cosa è successo
-      description: Cosa hai fatto, cosa ti aspettavi, cosa è successo invece.
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
     validations:
       required: true
   - type: textarea
-    id: diagnosi
+    id: diagnosis
     attributes:
-      label: Uscita di «sudo zeta-diagnosi»
-      description: Apri il terminale, scrivi sudo zeta-diagnosi e incolla qui il risultato (non contiene password).
+      label: Output of "sudo zeta-diagnostics"
+      description: Open the terminal, run sudo zeta-diagnostics and paste the result here (it contains no passwords).
       render: text
   - type: markdown
     attributes:
-      value: "Problemi di sicurezza: non scriverli qui, vedi SECURITY.md."
+      value: "Security problems: do not report them here, see SECURITY.md."

@@ -1,21 +1,21 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — schermata di blocco.
+# ZETA RAYS — lock screen.
 #
-# Nelle macchine virtuali Hyprland rifiuta i buffer GPU dei client: hyprlock
-# disegna allora con il rendering software. Fuori dalle VM non cambia nulla.
+# In virtual machines Hyprland rejects GPU buffers from clients, so hyprlock
+# draws with software rendering there. Outside VMs nothing changes.
 #
-# Qui si tiene anche traccia del fatto che lo schermo È bloccato: se hyprlock
-# muore per un difetto, Hyprland mostra una schermata d'emergenza e l'utente
-# resta chiuso fuori dalla sessione. Il file-segnale permette a zeta-vigila di
-# accorgersene e rimettere subito il blocco.
+# This wrapper also records the fact that the screen IS locked: if hyprlock
+# dies because of a bug, Hyprland shows an emergency screen and the user is
+# locked out of the session. The signal file lets zeta-watchdog notice this and
+# put the lock back immediately.
 [ "$ZETA_VM" = 1 ] && export LIBGL_ALWAYS_SOFTWARE=1
 
-SEGNALE="${XDG_RUNTIME_DIR:-/tmp}/zeta-schermo-bloccato"
-: > "$SEGNALE"
+LOCK_FLAG="${XDG_RUNTIME_DIR:-/tmp}/zeta-screen-locked"
+: > "$LOCK_FLAG"
 /usr/bin/hyprlock "$@"
-STATO=$?
-# uscita 0 = l'utente ha sbloccato: non c'è più nulla da sorvegliare.
-# uscita diversa = è morto: il segnale resta e zeta-vigila lo rimette.
-[ "$STATO" -eq 0 ] && rm -f "$SEGNALE"
-exit "$STATO"
+STATUS=$?
+# exit 0 = the user unlocked: there is nothing left to watch.
+# any other exit = it died: the signal file stays and zeta-watchdog relocks.
+[ "$STATUS" -eq 0 ] && rm -f "$LOCK_FLAG"
+exit "$STATUS"

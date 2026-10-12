@@ -1,5 +1,5 @@
 import re, xml.etree.ElementTree as ET
-# msgid -> msgstr dal .po di xkeyboard-config
+# msgid -> msgstr from the xkeyboard-config .po file
 po=open('/w/xkb-it.po',encoding='utf-8').read()
 tr={}
 for m in re.finditer(r'(?:msgctxt ".*"\n)?msgid ((?:".*"\n)+)msgstr ((?:".*"\n)+)', po):
@@ -18,4 +18,4 @@ for ctx in root.findall('context'):
         else:
             x.set('type','unfinished'); x.text=None
 t.write('/w/kb_it_IT.ts',encoding='utf-8',xml_declaration=True)
-print('tradotte',n,'su',tot); print('Italian ->',tr.get('Italian'),'| Default ->',tr.get('Default'),'| Generic 105-key PC ->',tr.get('Generic 105-key PC'))
+print('translated',n,'of',tot); print('Italian ->',tr.get('Italian'),'| Default ->',tr.get('Default'),'| Generic 105-key PC ->',tr.get('Generic 105-key PC'))

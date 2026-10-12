@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — energia e sessione: blocca, sospendi, cambia utente, esci, riavvia, spegni."""
+"""ZETA RAYS — power and session: lock, suspend, switch user, log out, restart, shut down."""
 import glob
 import os
 
@@ -9,16 +9,16 @@ from . import run, spawn
 
 
 def lock():
-    """Blocca lo schermo (hyprlock). Non attende."""
+    """Lock the screen (hyprlock). Does not wait."""
     if run(["pgrep", "-x", "hyprlock"]).strip():
         return
     spawn(["hyprlock"])
 
 
 def suspend():
-    """Standby. Dove la sospensione non è sicura (macchine virtuali: non si
-    riprenderebbero) si blocca la sessione e si spegne lo schermo; tastiera o
-    mouse lo riaccendono."""
+    """Standby. Where suspend isn't safe (virtual machines: they wouldn't
+    resume) the session is locked and the screen turned off; the keyboard or
+    mouse turns it back on."""
     lock()
     if can_suspend():
         spawn(["sh", "-c", "sleep 1; systemctl suspend"])
@@ -32,14 +32,14 @@ def can_suspend():
 
 
 def switch_user():
-    """Mostra la schermata di accesso per un altro utente, senza bloccare.
+    """Show the login screen for another user, without locking.
 
-    Non si blocca la sessione di proposito: hyprlock non si può sbloccare da
-    programma (ignora SIGUSR1 e `loginctl unlock-session`, e non ha un comando
-    di sblocco), quindi bloccare qui costringerebbe a digitare la password DUE
-    volte al rientro — prima nella schermata di accesso e poi nel blocco.
-    La schermata di accesso protegge già lo schermo; per bloccare davvero c'è
-    il pulsante «Blocca».
+    The session is deliberately not locked: hyprlock can't be unlocked
+    programmatically (it ignores SIGUSR1 and `loginctl unlock-session`, and has
+    no unlock command), so locking here would force the user to type the
+    password TWICE on return — first on the login screen and then on the lock.
+    The login screen already protects the display; to really lock there is the
+    "Lock" button.
     """
     run(["dbus-send", "--system", "--type=method_call", "--print-reply",
          "--dest=org.freedesktop.DisplayManager",
@@ -60,7 +60,7 @@ def poweroff():
 
 
 def backlight():
-    """(percentuale, device) oppure (None, None) se lo schermo non ha retroilluminazione."""
+    """(percentage, device), or (None, None) if the screen has no backlight."""
     devs = glob.glob("/sys/class/backlight/*")
     if not devs:
         return None, None
@@ -78,7 +78,7 @@ def set_backlight(percent):
 
 
 def battery():
-    """None oppure {percent, charging, state}."""
+    """None, or {percent, charging, state}."""
     bats = glob.glob("/sys/class/power_supply/BAT*")
     if not bats:
         return None

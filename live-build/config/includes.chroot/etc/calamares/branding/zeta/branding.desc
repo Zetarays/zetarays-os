@@ -2,9 +2,9 @@
 componentName: zeta
 welcomeStyleCalamares: false
 welcomeExpandingLogo: false
-# noexpand: la finestra resta 1100x600 e il contenuto scorre. Con «normal»
-# il riepilogo con due dischi la faceva crescere oltre lo schermo e i
-# pulsanti Install/Back finivano sotto la barra in basso.
+# noexpand: the window stays 1100x600 and the content scrolls. With «normal»
+# the summary with two disks made it grow beyond the screen and the
+# Install/Back buttons ended up under the bottom bar.
 windowExpanding: noexpand
 windowSize: 1100px,600px
 windowPlacement: center

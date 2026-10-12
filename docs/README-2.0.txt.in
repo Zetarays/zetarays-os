@@ -262,14 +262,14 @@ Displays
   the new settings: without an answer the previous ones come back after
   15 seconds. Kept settings are remembered for each display (make, model
   and serial number), also when it is unplugged and plugged in again.
-  zeta-schermi list prints the state in a terminal.
+  zeta-displays list prints the state in a terminal.
 
 Windows always within reach
   A window can never stay where you cannot grab it: if a program moves its
   window off the screen or opens it larger than the screen, or a display
   is unplugged or its resolution or scale changes, the window comes back
   with its title bar and buttons inside the screen, above the bar.
-  SUPER + SHIFT + W (or zeta-finestre recupera) brings every window back
+  SUPER + SHIFT + W (or zeta-windows recover) brings every window back
   at once. Menus of the bar always open inside the screen.
 
 Instant menus
@@ -300,6 +300,23 @@ Look and feel
   until the lock is on screen); the wallpaper comes back after unlocking.
   The text editor can have a white or a black page (Settings > Appearance
   > Text Editor) while its window follows the theme of the desktop.
+
+Folder colors
+  Right-click a folder, on the Desktop or in Files, and choose Folder Color:
+  red, white, green, blue or purple, like on a Mac. On the Desktop the
+  whole folder takes the color; in Files a colored dot marks it. Default
+  brings the standard folder back. The color is kept after a restart and
+  nothing inside the folder changes (zeta-folder-color does the same from a
+  terminal).
+
+ZETA RAYS Monitor
+  Twelve real-time sections: overview, traffic, map, network, VPN and
+  proxy, firewall, connections, users, security, processes, services and
+  system. Services shows each one as running, completed, stopped, not
+  applicable (skipped because it is not needed on this computer, such as
+  Bluetooth without an adapter), needing attention (a periodic job that
+  failed and will run again) or failed. Only a failed service turns the
+  status at the top red.
 
 Desktop
   Arrange the icons your way: Home and Trash move like every other icon.
@@ -388,7 +405,7 @@ Installing and managing programs
   search, Desktop); "Restore icon" puts the original back.
 
 Where is a program?
-  In the terminal, zeta-app find NAME (or zeta-app trova NAME) tells where a
+  In the terminal, zeta-app find NAME (or zeta-app where NAME) tells where a
   program is and how to start it: every installation (APT, Flatpak,
   AppImage, /opt...), the launch command, the executable, the desktop
   entry, the package and its version, and whether a command is in your PATH
@@ -396,8 +413,7 @@ Where is a program?
   services with that name. --json gives the same answer for scripts.
   zeta-app --help lists the other commands: launch, info, locate, desktop,
   dock, undock, set-icon, reset-icon, hide, show, hidden, uninstall,
-  install, appimage, maintenance and list (the earlier Italian names still
-  work in scripts).
+  install, appimage, maintenance and list.
 
 Servers and shared folders
   "Connect to Server" (app menu, search, or "Connect to a server" in
@@ -539,9 +555,8 @@ Remote access (SSH)
       sudo zeta-ssh remote off        back to the local network only
       sudo zeta-ssh off               off
       zeta-ssh status / zeta-ssh config / sudo zeta-ssh diagnose
-  (The Italian names of earlier versions, such as "attiva", still work.)
   The choice stays after a restart and after a reload of the firewall, and
-  repeating a command never adds duplicate rules: the zeta-ssh-sincronizza
+  repeating a command never adds duplicate rules: the zeta-ssh-sync
   service puts it back into the firewall sets after every start and every
   firewall reload (sudo zeta-ssh sync does the same by hand). From another
   computer on the same network:  ssh yourname@<address shown by zeta-ssh
@@ -550,7 +565,7 @@ Remote access (SSH)
   From the internet: on by default on an installed system, off in the live
   session and the OVAs (their password is known). Use the "Also from the
   internet" switch, or sudo zeta-ssh remote on / remote off.
-  Check it with: sudo nft list set inet zeta accesso_remoto
+  Check it with: sudo nft list set inet zeta remote_access
   (elements = { 22 }). Your router must also forward port 22 to this
   computer. Protections: root cannot log in, 4 attempts per connection, and
   more than 10 new connections a minute from the same address are dropped.
@@ -593,7 +608,7 @@ Wi-Fi says "Wrong password" but you are sure it is right
   Check upper and lower case and the keyboard layout: the live session uses
   the US layout, an installed system the one you chose (Settings > Language
   & Region). If it still fails, forget the network (bin button) and connect
-  again. The full report: sudo zeta-diagnosi.
+  again. The full report: sudo zeta-diagnostics.
 
 Wi-Fi says "Could not join" the network
   The router did not complete the connection: move closer, or restart the
@@ -603,7 +618,7 @@ No Wi-Fi at all
   Settings > Wi-Fi & Network must show the Wi-Fi switch. If it does not, the
   card is not recognized: run "rfkill list" in the terminal (a "Hard
   blocked: yes" means a physical switch or a key on the laptop) and sudo
-  zeta-diagnosi.
+  zeta-diagnostics.
 
 The first answer of ZETA is slow
   The local model is being loaded into memory, which takes a few seconds the
@@ -615,7 +630,7 @@ A program does not respond
 
 "grub rescue>" or the other system is missing from the boot menu
   Start from the ZETA RAYS USB stick, open the terminal and run:
-      sudo zeta-ripara-avvio
+      sudo zeta-repair-boot
   It finds the installed systems, shows what it is about to do, asks for
   confirmation, then reinstalls the boot loader and rebuilds the menu. It
   never touches partitions or data. It also fixes installations made with
@@ -626,7 +641,7 @@ Cannot connect with SSH from another computer
   open and which address to use (it can change, for example when you move
   from the cable to Wi-Fi: the router must forward port 22 to the address
   shown now). sudo zeta-ssh diagnose checks everything: network cards,
-  routes, the chain SSH_REMOTE_ACCESS > accesso_remoto > nftables > sshd
+  routes, the chain SSH_REMOTE_ACCESS > remote_access > nftables > sshd
   line by line, other firewalls (iptables, ufw), sshd, open connections and
   refused attempts.
   From the internet: on this computer run sudo tcpdump -ni any 'tcp port 22'
@@ -636,11 +651,11 @@ Cannot connect with SSH from another computer
   the OVAs the server is off: sudo zeta-ssh on. On the local network,
   from the other computer, nc -vz <address> 22 tells whether the port
   answers. A system installed with an earlier test image can be brought up
-  to date with the script aggiorna-rete-zeta-rays.sh released with these
-  images: sudo bash aggiorna-rete-zeta-rays.sh --prova analyzes and checks
-  without changing anything; then run it again without --prova. If SSH is
-  already open from the internet there, it stays open (--solo-lan closes
-  it, --remoto opens it).
+  to date with the script update-network-zeta-rays.sh released with these
+  images: sudo bash update-network-zeta-rays.sh --dry-run analyzes and
+  checks without changing anything; then run it again without --dry-run.
+  If SSH is already open from the internet there, it stays open
+  (--lan-only closes it, --remote opens it).
 
 Kernel panic at boot in a virtual machine (VMware Fusion, Workstation...)
   Fixed in these images: the boot no longer needs more memory than a small
@@ -653,7 +668,7 @@ No sound
   Settings > Sound: choose the right output device.
 
 Anything else
-  sudo zeta-diagnosi writes a full report (hardware, drivers, network,
+  sudo zeta-diagnostics writes a full report (hardware, drivers, network,
   services, errors) that you can send to info@zetarays.org.
 
 
@@ -695,7 +710,7 @@ redistribute it.
 Every component keeps its own license. The full list, generated from the image
 component by component, is inside the system under Settings > About >
 Third-party software and licenses (and Full list of components), and in the
-files under /usr/share/zeta/legale/.
+files under /usr/share/zeta/legal/.
 
 Built on the work of Debian, Kali Linux, Mozilla, the GNU project, Linus
 Torvalds and the Linux kernel community, Hyprland, XFCE, GNOME, KDE, Ollama

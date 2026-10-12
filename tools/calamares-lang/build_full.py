@@ -2,6 +2,7 @@ import re, xml.etree.ElementTree as ET
 exec(open('it_fill.py').read().split("root = ET.Element")[0].split("miss = json.load")[0])  # imports
 src_py = open('it_fill.py').read()
 T = eval(src_py[src_py.index("T = {")+4: src_py.index("\n}\n")+2])
+# i18n-data-begin: Italian translations and corrections (localization data)
 T["Creating new <strong>%1</strong> partition table on <strong>%2</strong> (%3)…"] = "Creazione della nuova tabella delle partizioni <strong>%1</strong> su <strong>%2</strong> (%3)…"
 FIX = {
  "Create new %1MiB partition on %3 (%2) with entries %4": "Crea una nuova partizione %4 da %1 MiB su %3 (%2)",
@@ -20,6 +21,7 @@ PLUR = {
  "Waiting for %n module(s)…": ["In attesa di %n modulo…", "In attesa di %n moduli…"],
  "(%n second(s))": ["(%n secondo)", "(%n secondi)"],
 }
+# i18n-data-end
 t = ET.parse('it.ts'); n = 0
 for ctx in t.getroot().findall('context'):
     for m in ctx.findall('message'):
@@ -36,4 +38,4 @@ for ctx in t.getroot().findall('context'):
         if s in FIX or (empty and s in T):
             tr.text = FIX.get(s, T.get(s)); tr.attrib.pop('type', None); n += 1
 t.write('calamares_it_IT.ts', encoding='utf-8', xml_declaration=True)
-print("modificate", n)
+print("changed", n)

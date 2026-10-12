@@ -1,8 +1,8 @@
 [Icon Theme]
 Name=ZETA RAYS
-Comment=Icone di ZETA RAYS
+Comment=ZETA RAYS icons
 Inherits=Adwaita,hicolor
-Directories=scalable/apps
+Directories=scalable/apps,scalable/emblems
 
 [scalable/apps]
 Size=64
@@ -10,3 +10,10 @@ MinSize=16
 MaxSize=512
 Type=Scalable
 Context=Applications
+
+[scalable/emblems]
+Size=64
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Emblems

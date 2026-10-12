@@ -1,10 +1,10 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Importa e avvia l'OVA ZETA RAYS in VirtualBox, poi salva sul Desktop uno
-# screenshot REALE del contenuto della VM (utile se la finestra resta nera:
-# lo screenshot mostra comunque cosa c'è dentro la macchina).
+# Imports and starts the ZETA RAYS OVA in VirtualBox, then saves a REAL
+# screenshot of the VM contents to the Desktop (useful if the window stays
+# black: the screenshot still shows what is going on inside the machine).
 #
-# Uso:  tools/vbox-run.sh [arm64|amd64]
+# Usage:  tools/vbox-run.sh [arm64|amd64]
 set -uo pipefail
 ARCH="${1:-arm64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,37 +12,37 @@ OVA="$ROOT/out/zetarays-2.0-$ARCH.ova"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
 NAME="ZETA RAYS 2.0 ($ARCH)"
 
-[ -f "$OVA" ] || { echo "OVA non trovata: $OVA"; exit 1; }
+[ -f "$OVA" ] || { echo "OVA not found: $OVA"; exit 1; }
 
 HOSTARCH="$(uname -m)"
 if [ "$ARCH" = "amd64" ] && [ "$HOSTARCH" = "arm64" ]; then
-  echo "ATTENZIONE: su Mac Apple Silicon la OVA amd64 NON può avviarsi"
-  echo "            (VirtualBox ARM non emula x86). Usa: tools/vbox-run.sh arm64"
+  echo "WARNING: on Apple Silicon Macs the amd64 OVA CANNOT boot"
+  echo "         (VirtualBox for ARM does not emulate x86). Use: tools/vbox-run.sh arm64"
   exit 2
 fi
 
-# se esiste già una VM con questo nome, rimuovila per partire pulito
+# if a VM with this name already exists, remove it to start clean
 if "$VBM" list vms | grep -q "\"$NAME\""; then
   "$VBM" controlvm "$NAME" poweroff >/dev/null 2>&1 || true
   sleep 2
   "$VBM" unregistervm "$NAME" --delete >/dev/null 2>&1 || true
 fi
 
-echo "== Importo $OVA"
-"$VBM" import "$OVA" >/dev/null 2>&1 || { echo "import fallito"; exit 1; }
+echo "== Importing $OVA"
+"$VBM" import "$OVA" >/dev/null 2>&1 || { echo "import failed"; exit 1; }
 
-echo "== Avvio la VM (finestra)"
+echo "== Starting the VM (window)"
 "$VBM" startvm "$NAME" --type gui >/dev/null 2>&1 || \
   "$VBM" startvm "$NAME" --type headless >/dev/null 2>&1
 
-echo "== Attendo l'avvio (30s) e catturo uno screenshot reale…"
+echo "== Waiting for boot (30s) and capturing a real screenshot…"
 sleep 30
 SHOT="$HOME/Desktop/zeta-vm-$ARCH.png"
 if "$VBM" controlvm "$NAME" screenshotpng "$SHOT" >/dev/null 2>&1; then
-  echo "== Screenshot salvato: $SHOT"
-  echo "   Se qui vedi la schermata di login ZETA RAYS ma la finestra è nera,"
-  echo "   è solo il ridisegno della finestra: ridimensiona la finestra"
-  echo "   (o Host+Home) e apparirà. Login: utente 'zeta' / password 'zeta'."
+  echo "== Screenshot saved: $SHOT"
+  echo "   If you see the ZETA RAYS login screen here but the window is black,"
+  echo "   it is only the window not repainting: resize the window"
+  echo "   (or press Host+Home) and it will appear. Login: user 'zeta' / password 'zeta'."
 else
-  echo "== Non sono riuscito a catturare (VM non in esecuzione?)"
+  echo "== Could not capture a screenshot (is the VM running?)"
 fi

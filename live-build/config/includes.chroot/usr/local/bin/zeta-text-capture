@@ -1,0 +1,292 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — text inside images, the screen and PDFs (OCR, fully local).
+
+  zeta-text-capture                 select an area of the screen (Super+Shift+T)
+  zeta-text-capture FILE            an image or a PDF
+  zeta-text-capture --languages     the installed languages
+
+The recognized text goes straight to the clipboard (paste it anywhere) and
+appears in a window where you can select part of it, change the language or
+save it to a file. Nothing goes over the network: recognition is done by
+tesseract, on the computer.
+"""
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+from system import ocr  # noqa: E402
+
+# the system language and English, among the installed ones
+DEFAULT_LANGUAGES = ocr.languages()
+LANGUAGE_NAMES = {"ita": tr("Italian"), "eng": tr("English"), "deu": tr("German"), "fra": tr("French"),
+               "spa": tr("Spanish"), "por": tr("Portuguese"), "nld": tr("Dutch"), "pol": tr("Polish"),
+               "rus": tr("Russian"), "ukr": tr("Ukrainian"), "ces": tr("Czech"), "slk": tr("Slovak"),
+               "hun": tr("Hungarian"), "ron": tr("Romanian"), "bul": tr("Bulgarian"), "ell": tr("Greek"),
+               "tur": tr("Turkish"), "swe": tr("Swedish"), "nor": tr("Norwegian"), "dan": tr("Danish"),
+               "fin": tr("Finnish"), "hrv": tr("Croatian"), "slv": tr("Slovenian"), "srp": tr("Serbian"),
+               "heb": tr("Hebrew"), "ara": tr("Arabic"), "fas": tr("Persian"), "hin": tr("Hindi"),
+               "ben": tr("Bengali"), "jpn": tr("Japanese"), "kor": tr("Korean"),
+               "chi_sim": tr("Chinese (Simplified)"), "chi_tra": tr("Chinese (Traditional)")}
+
+
+def languages():
+    try:
+        r = subprocess.run(["tesseract", "--list-langs"], capture_output=True,
+                           text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [x.strip() for x in r.stdout.splitlines()[1:] if x.strip() and x.strip() != "osd"]
+
+
+def _light_env():
+    """Recognition must not hog the computer: at most two threads
+    (tesseract, left alone, uses them all) and low priority."""
+    env = dict(os.environ)
+    env["OMP_THREAD_LIMIT"] = "2"
+    return env
+
+
+def ocr_image(path, lang):
+    r = subprocess.run(["nice", "-n", "10", "tesseract", path, "stdout", "-l", lang,
+                        "--psm", "3"],
+                       capture_output=True, text=True, timeout=180, env=_light_env())
+    if r.returncode != 0:
+        raise RuntimeError("tesseract: %s" % (r.stderr.strip().splitlines() or [tr("error")])[-1])
+    return r.stdout
+
+
+def pdf_text(path, lang, progress=None):
+    """A PDF with real text is read directly (exact and immediate); only if
+    there is none (scans, photos) do we fall back to OCR, page by page."""
+    try:
+        r = subprocess.run(["pdftotext", "-layout", path, "-"], capture_output=True,
+                           text=True, timeout=60)
+        direct_text = r.stdout if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        direct_text = ""
+    if len("".join(direct_text.split())) >= 20:
+        return direct_text
+    with tempfile.TemporaryDirectory(prefix="zeta-text-") as tmp:
+        subprocess.run(["nice", "-n", "10", "pdftoppm", "-r", "200", "-png", path,
+                        os.path.join(tmp, "p")], capture_output=True, timeout=300, check=True)
+        pages = sorted(f for f in os.listdir(tmp) if f.endswith(".png"))
+        pieces = []
+        for i, f in enumerate(pages, 1):
+            if progress:
+                progress(tr("Reading page {n} of {total}…").format(n=i, total=len(pages)))
+            pieces.append(ocr_image(os.path.join(tmp, f), lang))
+        return "\n\f".join(pieces)
+
+
+def capture_area():
+    """Screen area chosen with the mouse, captured at double resolution: small
+    UI text is recognized much better that way. None = canceled."""
+    try:
+        r = subprocess.run(["slurp", "-d"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    fd, dest = tempfile.mkstemp(prefix="zeta-text-", suffix=".png")
+    os.close(fd)
+    c = subprocess.run(["grim", "-s", "2", "-g", r.stdout.strip(), dest], capture_output=True)
+    if c.returncode != 0:
+        c = subprocess.run(["grim", "-g", r.stdout.strip(), dest], capture_output=True)
+    if c.returncode != 0:
+        os.unlink(dest)
+        return None
+    return dest
+
+
+def copy(text):
+    try:
+        subprocess.run(["wl-copy"], input=text, text=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def notify(text):
+    subprocess.Popen(["notify-send", "-a", "ZETA RAYS", "-t", "4000", tr("Text"), text],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# ------------------------------------------------------------------ command line
+if "--languages" in sys.argv[1:]:
+    print(" ".join(languages()))
+    sys.exit(0)
+if not shutil.which("tesseract"):
+    notify(tr("Text recognition is not installed (tesseract)."))
+    sys.exit(1)
+
+SOURCE = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
+TEMPORARY = False
+if SOURCE is None:
+    SOURCE = capture_area()           # before loading GTK: the crosshair is ready at once
+    if SOURCE is None:
+        sys.exit(0)
+    TEMPORARY = True
+elif not os.path.isfile(SOURCE):
+    notify(tr("File not found: {path}").format(path=SOURCE))
+    sys.exit(1)
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from ui import theme  # noqa: E402
+
+CSS = """
+.text-status { color: @ink_dim; }
+textview, textview text { font-size: 13px; }
+"""
+
+
+class MainWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        title = tr("Text from Screen Area") if TEMPORARY else os.path.basename(SOURCE)
+        super().__init__(application=app, title=title, default_width=620, default_height=460)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=14,
+                      margin_bottom=14, margin_start=14, margin_end=14)
+        self.set_child(box)
+
+        top_bar = Gtk.Box(spacing=8)
+        self.state = Gtk.Label(label=tr("Reading…"), xalign=0, hexpand=True, wrap=True,
+                               css_classes=["text-status"])
+        top_bar.append(self.state)
+        self.codes = languages() or ["ita", "eng"]
+        automatic_languages = " + ".join(LANGUAGE_NAMES.get(c, c) for c in DEFAULT_LANGUAGES.split("+"))
+        entries = [tr("Automatic ({languages})").format(languages=automatic_languages)] + \
+            [LANGUAGE_NAMES.get(c, c) for c in self.codes]
+        self.lang = Gtk.DropDown(model=Gtk.StringList.new(entries), valign=Gtk.Align.CENTER,
+                                   tooltip_text=tr("Text language"))
+        self.lang.connect("notify::selected", lambda *_: self.read())
+        top_bar.append(self.lang)
+        box.append(top_bar)
+
+        self.text_view = Gtk.TextView(editable=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                                  left_margin=8, right_margin=8, top_margin=8, bottom_margin=8)
+        box.append(Gtk.ScrolledWindow(child=self.text_view, vexpand=True))
+
+        lines = Gtk.Box(spacing=8)
+        self.b_copy = Gtk.Button(label=tr("Copy All"), sensitive=False)
+        self.b_copy.connect("clicked", self._copy)
+        self.b_save = Gtk.Button(label=tr("Save as Text File…"), sensitive=False)
+        self.b_save.connect("clicked", self._save)
+        close_window = Gtk.Button(label=tr("Close"), css_classes=["zeta-primary"], halign=Gtk.Align.END,
+                            hexpand=True)
+        close_window.connect("clicked", lambda *_: self.close())
+        for b in (self.b_copy, self.b_save, close_window):
+            lines.append(b)
+        box.append(lines)
+        self.connect("close-request", self._clean)
+        self._request = 0
+        self.read()
+
+    def _language_code(self):
+        i = self.lang.get_selected()
+        return DEFAULT_LANGUAGES if i == 0 else self.codes[i - 1]
+
+    def read(self):
+        """Recognition runs in a thread: on a large photo or a PDF with many
+        pages it takes seconds, and the window must stay responsive."""
+        self._request += 1
+        n, lang = self._request, self._language_code()
+        self.state.set_text(tr("Reading…"))
+        self.b_copy.set_sensitive(False)
+        self.b_save.set_sensitive(False)
+
+        def step(t):
+            GLib.idle_add(lambda: (n == self._request and self.state.set_text(t), False)[1])
+
+        def work():
+            try:
+                if SOURCE.lower().endswith(".pdf"):
+                    text = pdf_text(SOURCE, lang, step)
+                else:
+                    text = ocr_image(SOURCE, lang)
+                error = ""
+            except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+                text, error = "", tr("Could not read the text: {error}").format(error=e)
+            GLib.idle_add(self._done, n, text, error)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _done(self, n, text, error):
+        if n != self._request:
+            return False                      # the language was changed in the meantime
+        text = text.strip()
+        if error:
+            self.state.set_text(error)
+            return False
+        if not text:
+            self.state.set_text(tr("No readable text found. Try another language, "
+                                   "or a larger, sharper area."))
+            self.text_view.get_buffer().set_text("")
+            return False
+        self.text_view.get_buffer().set_text(text)
+        self.b_copy.set_sensitive(True)
+        self.b_save.set_sensitive(True)
+        if copy(text):
+            self.state.set_text(tr("Text copied to the clipboard: paste it wherever you like. "
+                                   "You can also select just part of it."))
+        else:
+            self.state.set_text(tr("Select the text you need, or click “Copy All”."))
+        return False
+
+    def _text(self):
+        buf = self.text_view.get_buffer()
+        if buf.get_has_selection():
+            a, b = buf.get_selection_bounds()
+        else:
+            a, b = buf.get_bounds()
+        return buf.get_text(a, b, False)
+
+    def _copy(self, _b):
+        if copy(self._text()):
+            self.b_copy.set_label(tr("Copied ✓"))
+            GLib.timeout_add(1500, lambda: (self.b_copy.set_label(tr("Copy All")), False)[1])
+
+    def _save(self, _b):
+        dialog = Gtk.FileDialog(title=tr("Save Text"), initial_name=(
+            tr("text.txt") if TEMPORARY else os.path.splitext(os.path.basename(SOURCE))[0] + ".txt"))
+        if not TEMPORARY:
+            dialog.set_initial_folder(Gio.File.new_for_path(os.path.dirname(os.path.abspath(SOURCE))))
+
+        def done(d, res):
+            try:
+                f = d.save_finish(res)
+            except GLib.Error:
+                return                        # canceled
+            try:
+                with open(f.get_path(), "w", encoding="utf-8") as out:
+                    out.write(self._text())
+                self.state.set_text(tr("Saved to {path}").format(path=f.get_path()))
+            except OSError as e:
+                self.state.set_text(tr("Not saved: {error}").format(error=e))
+        dialog.save(self, None, done)
+
+    def _clean(self, *_):
+        if TEMPORARY:
+            try:
+                os.unlink(SOURCE)
+            except OSError:
+                pass
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.TextCapture",
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def do_activate(self):
+        theme.apply(CSS)
+        MainWindow(self).present()
+
+
+sys.exit(App().run([sys.argv[0]]))

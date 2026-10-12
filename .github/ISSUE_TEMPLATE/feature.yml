@@ -1,0 +1,11 @@
+name: Feature request
+description: Suggest something new for ZETA RAYS OS
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+      description: Describe the idea and what you would use it for.
+    validations:
+      required: true

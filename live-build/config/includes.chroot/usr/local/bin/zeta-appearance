@@ -1,0 +1,449 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-appearance — desktop text, icons, pointer, scale and theme.
+
+  zeta-appearance get                 print the current values (key=value)
+  zeta-appearance set <key> <value>   change a value and apply it right away
+  zeta-appearance apply               apply everything again (at session start)
+  zeta-appearance toggle-theme        switch between dark and light
+                                   (keyboard shortcut: SUPER + T)
+
+Keys:
+  theme         dark | light
+  editor-theme  system | light | dark   (text editor background:
+                "light" = white background and black text, "dark" = black
+                background and white text, "system" = follow the desktop theme)
+  font-size     interface text size (8–16)
+  icon-size     dock icon size (28–64)
+  cursor-size   pointer size (16–48)
+  scale         auto | 1 | 1.25 | 1.5 | 2   (interface scale)
+  desktop-icons 1 | 0   (show or hide the desktop icons)
+  animations    1 | 0   (window and interface animations)
+  transparency  1 | 0   (blur and transparency of panels and terminal)
+  corners       0–24    (window corner rounding)
+  icon-spacing  0–48    (spacing between desktop icons)
+  screen-off      idle minutes before the screen turns off (0 = never)
+  auto-lock       idle minutes before the screen locks (0 = never)
+  notification-position  corner where notifications appear
+  notification-duration  seconds a notification stays on screen
+  do-not-disturb  1 | 0 (silence notifications)
+  dock-position   bottom | top
+  ai-preload      auto | 1 | 0  (keep the AI model in memory for instant
+                  replies: "auto" does so only if the computer has plenty
+                  of RAM, since it takes about 1.8 GB)
+
+Each value is a file in ~/.config/zeta/, easy to read from startup scripts
+too. Theme and color changes go through zeta-accent, which regenerates the
+colors of every app.
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+CFG = os.path.expanduser("~/.config/zeta")
+HYPRCFG = os.path.expanduser("~/.config/hypr")
+
+KEYS = {
+    "theme":       ("dark", lambda v: v in ("dark", "light")),
+    "font-size":   ("10", lambda v: v.isdigit() and 8 <= int(v) <= 16),
+    "icon-size":   ("42", lambda v: v.isdigit() and 28 <= int(v) <= 64),
+    "cursor-size": ("24", lambda v: v.isdigit() and 16 <= int(v) <= 48),
+    "scale":       ("auto", lambda v: v == "auto" or _is_scale(v)),
+    "desktop-icons": ("1", lambda v: v in ("0", "1")),
+    "animations":  ("1", lambda v: v in ("0", "1")),
+    "transparency": ("1", lambda v: v in ("0", "1")),
+    "corners":     ("14", lambda v: v.isdigit() and 0 <= int(v) <= 24),
+    "icon-spacing": ("14", lambda v: v.isdigit() and 0 <= int(v) <= 48),
+    "screen-off":  ("10", lambda v: v.isdigit() and 0 <= int(v) <= 120),
+    "auto-lock":   ("10", lambda v: v.isdigit() and 0 <= int(v) <= 120),
+    "notification-position": ("top-right", lambda v: v in (
+        "top-right", "top-center", "top-left", "bottom-right", "bottom-left")),
+    "notification-duration": ("5", lambda v: v.isdigit() and 1 <= int(v) <= 60),
+    "do-not-disturb": ("0", lambda v: v in ("0", "1")),
+    "dock-position": ("bottom", lambda v: v in ("bottom", "top")),
+    "ai-preload": ("auto", lambda v: v in ("auto", "0", "1")),
+    "editor-theme": ("system", lambda v: v in ("system", "light", "dark")),
+}
+
+
+def _is_scale(v):
+    try:
+        return 0.5 <= float(v) <= 3.0
+    except ValueError:
+        return False
+
+
+def get(key):
+    default = KEYS[key][0]
+    try:
+        with open(os.path.join(CFG, key)) as f:
+            v = f.read().strip()
+    except OSError:
+        return default
+    return v if KEYS[key][1](v) else default
+
+
+def put(key, value):
+    os.makedirs(CFG, exist_ok=True)
+    with open(os.path.join(CFG, key), "w") as f:
+        f.write(value)
+
+
+def _gsettings(schema, key, value):
+    subprocess.run(["gsettings", "set", schema, key, value],
+                   capture_output=True, check=False)
+
+
+def _run(cmd, env=None):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=40,
+                              env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _run_env(cmd, extra):
+    return _run(cmd, env=dict(os.environ, **extra))
+
+
+def in_session():
+    return bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"))
+
+
+def apply_fonts():
+    n = get("font-size")
+    iface = "org.gnome.desktop.interface"
+    _gsettings(iface, "font-name", "Roboto %s" % n)
+    _gsettings(iface, "document-font-name", "Roboto %s" % n)
+    _gsettings(iface, "monospace-font-name", "JetBrains Mono %s" % n)
+
+
+def apply_editor():
+    """Light or dark background for the text editor (GNOME Text Editor).
+
+    Only the text color scheme is changed, never the app's light/dark mode:
+    "style-variant" always stays "follow". Previously "light" and "dark"
+    forced the whole app into a mode different from the desktop's: GTK and
+    libadwaita had to juggle two modes at once (the header bar and dialogs
+    kept the other color) and at every transition, even when closing the
+    window, the app redrew itself in the other mode: hence the flicker.
+    zeta-paper and zeta-night (usr/share/gtksourceview-5/styles) are a light
+    and a dark scheme that the editor never swaps.
+    """
+    schema = dict(EDITOR_SCHEMES, system="Adwaita")[get("editor-theme")]
+    _gsettings("org.gnome.TextEditor", "style-variant", "follow")
+    _gsettings("org.gnome.TextEditor", "style-scheme", schema)
+
+
+EDITOR_SCHEMES = {"light": "zeta-paper", "dark": "zeta-night"}
+
+
+def follow_editor():
+    """Resident (started by the session): keep the text editor in the
+    desktop's light or dark mode.
+
+    The light and dark buttons in GNOME Text Editor's own menu force the
+    whole app into a mode (org.gnome.TextEditor style-variant) different
+    from the desktop's. GTK then has to juggle two modes, and at every
+    transition, also when the window closes, the app redraws itself in the
+    other mode: the desktop flickers. A choice made there becomes the page
+    color instead, exactly like Settings › Appearance › Text Editor: a white
+    or black page (zeta-paper, zeta-night) with the app following the desktop.
+    """
+    from gi.repository import Gio, GLib
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup("org.gnome.TextEditor", True) is None:
+        return 0                      # editor not installed: nothing to do
+    settings = Gio.Settings.new("org.gnome.TextEditor")
+
+    def changed(s, _key):
+        variant = s.get_string("style-variant")
+        if variant in EDITOR_SCHEMES:
+            put("editor-theme", variant)
+            s.set_string("style-scheme", EDITOR_SCHEMES[variant])
+            s.set_string("style-variant", "follow")
+
+    settings.connect("changed::style-variant", changed)
+    changed(settings, "style-variant")    # a forced mode left by an earlier session
+    GLib.MainLoop().run()
+    return 0
+
+
+def apply_cursor():
+    size = get("cursor-size")
+    _gsettings("org.gnome.desktop.interface", "cursor-size", size)
+    if in_session():
+        _run(["hyprctl", "setcursor", "Adwaita", size])
+
+
+def apply_scale():
+    """Write the scale for Hyprland (auto = computed from the screen's DPI).
+
+    Returns the scale if it changed, None if it was already the same.
+    """
+    scale = get("scale")
+    if scale == "auto":
+        r = _run(["zeta-display-scale"])
+        scale = (r.stdout.strip() if r and r.returncode == 0 else "") or "1"
+    os.makedirs(HYPRCFG, exist_ok=True)
+    path = os.path.join(HYPRCFG, "zeta_monitor.lua")
+    want = "return { scale = %s }\n" % scale
+    try:
+        if open(path).read() == want:
+            return None
+    except OSError:
+        pass
+    with open(path, "w") as f:
+        f.write(want)
+    return scale
+
+
+def apply_hypr_env():
+    """Values read by hyprland.lua: cursor, theme, effects."""
+    os.makedirs(HYPRCFG, exist_ok=True)
+    with open(os.path.join(HYPRCFG, "zeta_appearance.lua"), "w") as f:
+        f.write('return { cursor = %s, font = %s, theme = "%s",\n'
+                '         animations = %s, transparency = %s, corners = %s }\n'
+                % (get("cursor-size"), get("font-size"), get("theme"),
+                   "true" if get("animations") == "1" else "false",
+                   "true" if get("transparency") == "1" else "false",
+                   get("corners")))
+
+
+def apply_idle():
+    """Screen blanking and automatic lock (hypridle)."""
+    screen_off_minutes = int(get("screen-off"))
+    lock = int(get("auto-lock"))
+    lines = ["# ZETA RAYS — generated by zeta-appearance (Settings › Display & Lock).",
+             "general {",
+             "    lock_cmd = pidof hyprlock || hyprlock",
+             "    before_sleep_cmd = loginctl lock-session",
+             # suspend waits until the lock screen is really displayed:
+             # on resume the desktop is never visible, not even for an instant
+             "    inhibit_sleep = 3",
+             "    after_sleep_cmd = sleep 3; zeta-bar check",
+             "}",
+             ""]
+    if lock:
+        lines += ["listener {", "    timeout = %d" % (lock * 60),
+                  "    on-timeout = loginctl lock-session", "}", ""]
+    if screen_off_minutes:
+        lines += ["listener {", "    timeout = %d" % (screen_off_minutes * 60),
+                  "    on-timeout = hyprctl dispatch 'hl.dsp.dpms({ action = \"off\" })'",
+                  # after the screen turns back on Waybar sometimes duplicates
+                  # the bar: check that only one is left (zeta-bar)
+                  "    on-resume = hyprctl dispatch 'hl.dsp.dpms({ action = \"on\" })'; sleep 3; zeta-bar check",
+                  "}", ""]
+    os.makedirs(HYPRCFG, exist_ok=True)
+    with open(os.path.join(HYPRCFG, "hypridle.conf"), "w") as f:
+        f.write("\n".join(lines))
+    if in_session():
+        # hypridle only rereads its configuration when restarted
+        subprocess.run(["pkill", "-x", "hypridle"], capture_output=True)
+        if screen_off_minutes or lock:
+            subprocess.Popen(["hypridle"], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def apply_notifications():
+    """Notification appearance and behavior (mako)."""
+    conf = os.path.expanduser("~/.config/mako")
+    os.makedirs(conf, exist_ok=True)
+    accent = "#3A8DFF"
+    try:
+        with open(os.path.join(CFG, "accent")) as f:
+            accent = f.read().strip() or accent
+    except OSError:
+        pass
+    light = get("theme") == "light"
+    background = "#FFFFFFEE" if light else "#141416EE"
+    text = "#1C1C1E" if light else "#EDEDEA"
+    conf_text = """# ZETA RAYS — notifications (generated by zeta-appearance).
+font=Roboto %s
+background-color=%s
+text-color=%s
+border-color=%s
+border-size=1
+border-radius=14
+width=360
+padding=14
+margin=12
+outer-margin=12
+anchor=%s
+default-timeout=%d
+icon-path=/usr/share/icons/zeta
+
+# Do Not Disturb (from the Control Center or Settings)
+[mode=do-not-disturb]
+invisible=1
+""" % (get("font-size"), background, text, accent, get("notification-position"),
+       int(get("notification-duration")) * 1000)
+    with open(os.path.join(conf, "config"), "w") as f:
+        f.write(conf_text)
+    if in_session():
+        _run(["makoctl", "reload"])
+        _run(["makoctl", "mode", "-s",
+              "do-not-disturb" if get("do-not-disturb") == "1" else "default"])
+
+
+def apply_terminal_transparency():
+    """Terminal transparency follows the general preference."""
+    ini = os.path.expanduser("~/.config/foot/foot.ini")
+    try:
+        with open(ini) as f:
+            lines = f.read().split("\n")
+    except OSError:
+        return
+    alpha = "0.96" if get("transparency") == "1" else "1.0"
+    for i, r in enumerate(lines):
+        if r.startswith("alpha="):
+            lines[i] = "alpha=" + alpha
+    try:
+        with open(ini, "w") as f:
+            f.write("\n".join(lines))
+    except OSError:
+        pass
+
+
+DESKTOP_PROCESS = "^/usr/bin/python3 /usr/local/bin/zeta-desktop$"
+
+
+def apply_desktop(restart=False):
+    """Start or stop the desktop icons according to the preference.
+
+    With restart=True they are restarted even if already running: icon colors
+    and size are read at startup, so they must be reloaded when the theme or
+    size changes."""
+    if not in_session():
+        return
+    active = get("desktop-icons") == "1"
+    # Exact command line: a bare "/usr/local/bin/zeta-desktop" would also
+    # match zeta-desktop-session, and killing that ends the whole session.
+    running = subprocess.run(["pgrep", "-u", str(os.getuid()), "-f", DESKTOP_PROCESS],
+                          capture_output=True).returncode == 0
+    if running and (not active or restart):
+        subprocess.run(["pkill", "-u", str(os.getuid()), "-f", DESKTOP_PROCESS],
+                       capture_output=True)
+        running = False
+    if active and not running:
+        subprocess.Popen(["zeta-desktop"], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def apply(reload_hypr=True, restart_desktop=False):
+    apply_fonts()
+    apply_hypr_env()
+    new_scale = apply_scale()
+    apply_cursor()
+    apply_editor()
+    # Colors first: zeta-accent regenerates the palette, the GTK theme, the
+    # terminal, the wallpaper and the bar icons, and reloads Hyprland. It does
+    # not reload the bar: the dock does that right after, only once (two
+    # reloads in quick succession crash Waybar).
+    _run_env(["zeta-accent"], {"ZETA_NO_BAR_RELOAD": "1"})
+    # Then the dock, which rereads the freshly recolored icons and reloads the bar.
+    _run(["zeta-dock", "apply"])
+    apply_idle()
+    apply_notifications()
+    apply_terminal_transparency()
+    apply_desktop(restart_desktop)
+    if reload_hypr and new_scale and in_session():
+        # Only the monitor is reconfigured. A full "hyprctl reload" would
+        # strip the title bar from every window already open, leaving the
+        # user without the buttons until the windows are reopened.
+        _run(["hyprctl", "eval",
+              'hl.monitor({ output = "", mode = "preferred", '
+              'position = "auto", scale = %s })' % new_scale])
+    return 0
+
+
+def _usage():
+    return tr("""zeta-appearance — desktop text, icons, pointer, scale and theme.
+
+  zeta-appearance get                 print the current values (key=value)
+  zeta-appearance set <key> <value>   change a value and apply it right away
+  zeta-appearance apply               apply everything again (at session start)
+  zeta-appearance toggle-theme        switch between dark and light
+                                   (keyboard shortcut: SUPER + T)
+
+Keys:
+  theme         dark | light
+  editor-theme  system | light | dark   (text editor background:
+                «light» = white background and black text, «dark» = black
+                background and white text, «system» = follow the desktop theme)
+  font-size     interface text size (8–16)
+  icon-size     dock icon size (28–64)
+  cursor-size   pointer size (16–48)
+  scale         auto | 1 | 1.25 | 1.5 | 2   (interface scale)
+  desktop-icons 1 | 0   (show or hide the desktop icons)
+  animations    1 | 0   (window and interface animations)
+  transparency  1 | 0   (blur and transparency of panels and terminal)
+  corners       0–24    (window corner rounding)
+  icon-spacing  0–48    (spacing between desktop icons)
+  screen-off      idle minutes before the screen turns off (0 = never)
+  auto-lock       idle minutes before the screen locks (0 = never)
+  notification-position  corner where notifications appear
+  notification-duration  seconds a notification stays on screen
+  do-not-disturb  1 | 0 (silence notifications)
+  dock-position   bottom | top
+  ai-preload      auto | 1 | 0  (keep the AI model in memory for instant
+                  replies: «auto» does so only if the computer has plenty
+                  of RAM, since it takes about 1.8 GB)
+
+Each value is a file in ~/.config/zeta/, easy to read from startup scripts
+too. Theme and color changes go through zeta-accent, which regenerates the
+colors of every app.""")
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "apply"
+    if cmd == "apply":
+        return apply()
+    if cmd == "toggle-theme":
+        new = "light" if get("theme") == "dark" else "dark"
+        put("theme", new)
+        # restart_desktop: the icons read their colors at startup; without
+        # this they would keep the previous theme until the next session.
+        rc = apply(restart_desktop=True)
+        if new == "light":
+            title = tr("Light theme")
+            text = tr("Press SUPER + T again to switch back to the dark theme.")
+        else:
+            title = tr("Dark theme")
+            text = tr("Press SUPER + T again to switch back to the light theme.")
+        _run(["notify-send", "-a", "ZETA RAYS", "-i", "zeta-settings",
+              title, text])
+        return rc
+    if cmd == "follow-editor":
+        return follow_editor()
+    if cmd == "get":
+        for k in KEYS:
+            print("%s=%s" % (k, get(k)))
+        return 0
+    if cmd == "set" and len(argv) > 3:
+        key, value = argv[2], argv[3]
+        if key not in KEYS:
+            print(tr("Unknown key: {key}").format(key=key), file=sys.stderr)
+            return 1
+        if not KEYS[key][1](value):
+            print(tr("Invalid value for {key}: {value}").format(key=key, value=value),
+                  file=sys.stderr)
+            return 1
+        put(key, value)
+        if key == "editor-theme":
+            # Only the editor. Previously everything was redone here (colors,
+            # GTK theme, bar reload, desktop, terminal): changing the editor's
+            # white/black background redrew the whole desktop.
+            apply_editor()
+            return 0
+        # theme and icon size are read when the desktop icons start
+        return apply(restart_desktop=key in ("theme", "icon-size", "icon-spacing"))
+    print(_usage())
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

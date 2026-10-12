@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — slim initramfs.
+#
+# With MODULES=most the initramfs carried the AMD/NVIDIA/Intel GPU drivers
+# and some server network card drivers, with their firmware: 283 MB to
+# unpack into memory before the system even starts (204 MB of firmware
+# alone). With little RAM (VMware Fusion creates Linux VMs with 768 MB)
+# unpacking failed ("Initramfs unpacking failed: write error") and the
+# kernel panicked ("No working init found"), both live and installed.
+#
+# These drivers are not needed to find the disk or the USB stick: udev loads
+# them right afterwards from the real system, where the firmware is. At boot
+# the screen uses the firmware framebuffer (simpledrm/efifb), as it already does.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+[ -n "${DESTDIR:-}" ] || exit 0
+
+# The drivers that other hooks queue up (plymouth: the whole gpu/drm
+# directory; live-boot "kms": i915, radeon, nouveau) are copied, firmware
+# included, only AFTER all hooks have run (apply_add_modules): removing them
+# from the directory is not enough, they must be removed from the queue. This
+# hook lives in /etc/initramfs-tools/hooks, which runs after /usr/share's.
+if [ -n "${__MODULES_TO_ADD:-}" ] && [ -f "$__MODULES_TO_ADD" ]; then
+    grep -vE '(^|/)(amdgpu|radeon|nouveau|i915|xe)(\.ko(\.[a-z]+)?)?$' "$__MODULES_TO_ADD" \
+        > "$__MODULES_TO_ADD.zeta" || true
+    cat "$__MODULES_TO_ADD.zeta" > "$__MODULES_TO_ADD"
+    rm -f "$__MODULES_TO_ADD.zeta"
+fi
+
+for d in usr/lib/firmware lib/firmware; do
+    [ -d "$DESTDIR/$d" ] || continue
+    for f in amdgpu nvidia radeon i915 xe nouveau netronome liquidio mediatek \
+             cxgb4 qed bnx2x mrvl ath10k ath11k ath12k iwlwifi rtw88 rtw89 brcm \
+             phanfw.bin; do
+        rm -rf "${DESTDIR:?}/$d/$f" "${DESTDIR:?}/$d/$f".* 2>/dev/null
+    done
+done
+for v in "$DESTDIR"/usr/lib/modules/* "$DESTDIR"/lib/modules/*; do
+    k="$v/kernel/drivers"
+    [ -d "$k" ] || continue
+    rm -rf "$k/gpu/drm/amd" "$k/gpu/drm/radeon" "$k/gpu/drm/nouveau" \
+           "$k/gpu/drm/i915" "$k/gpu/drm/xe" \
+           "$k/net/ethernet/netronome" "$k/net/ethernet/cavium/liquidio" \
+           "$k/net/ethernet/chelsio" "$k/net/ethernet/qlogic" \
+           "$k/net/ethernet/broadcom/bnx2x" "$k/net/wireless" 2>/dev/null
+done
+exit 0

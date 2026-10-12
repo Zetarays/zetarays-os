@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — package sources of the installed system.
+#
+# Runs inside the freshly installed system, after Calamares' "sources-final".
+# That Debian script rewrites /etc/apt/sources.list with only the
+# "main non-free-firmware" components and adds the backports already present
+# in sources.list.d to it: on the installed system contrib and non-free
+# disappeared (programs from the Security catalog such as nikto could no
+# longer be installed) and every "apt update" warned about duplicate entries
+# (tested with a clean install, October 1). Here we restore the same sources
+# as the live session, once and only once.
+set -e
+cat > /etc/apt/sources.list.d/debian.sources <<'EOF'
+# Debian 13 (trixie): the same components as the ZETA RAYS live session.
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie trixie-updates
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.debian.org/debian-security
+Suites: trixie-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+# the backports stay in sources.list.d/backports.list (with their pin
+# preference), so there is nothing left to repeat in sources.list
+cat > /etc/apt/sources.list <<'EOF'
+# ZETA RAYS: the sources are in /etc/apt/sources.list.d/
+# (debian.sources and backports.list).
+EOF
+chmod 0644 /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources
+echo "package sources: main contrib non-free non-free-firmware"

@@ -18,7 +18,7 @@ def usage():
 
   zeta shell status                installed shells, default, sessions, history
   zeta shell themes                available themes (all on a black background)
-  zeta shell theme NAME            change theme (zeta, ambra, verde, viola, rosso, contrasto)
+  zeta shell theme NAME            change theme (zeta, amber, green, purple, red, contrast)
   zeta shell accent RRGGBB|system  terminal accent color
   zeta shell font "NAME" [SIZE]    terminal font
   zeta shell transparency 0.70-1.00   background opacity
@@ -30,46 +30,40 @@ def usage():
 Changes apply to terminal windows opened from now on.""")
 
 
-# Comandi in inglese: si traducono nei nomi storici (in italiano, che restano
-# validi e che usano altri programmi, es. «zeta-shell applica»).
-ALIAS = {"status": "stato", "themes": "temi", "theme": "tema", "accent": "accento",
-         "font": "carattere", "transparency": "trasparenza", "opacity": "trasparenza",
-         "reset": "ripristina", "default": "predefinita", "sessions": "sessioni",
-         "resume": "riprendi", "apply": "applica", "help": "aiuto", "--help": "aiuto",
-         "-h": "aiuto"}
+# Synonyms of the subcommands.
+ALIAS = {"opacity": "transparency", "--help": "help", "-h": "help"}
 
 HOME = os.path.expanduser("~")
-CFG = os.path.join(HOME, ".config", "zeta", "terminale.json")
-PREF_SHELL = os.path.join(HOME, ".config", "zeta", "shell")
-TEMI = "/usr/share/zeta/shell/temi"
+CFG = os.path.join(HOME, ".config", "zeta", "terminal.json")
+SHELL_PREF_FILE = os.path.join(HOME, ".config", "zeta", "shell")
+THEMES_DIR = "/usr/share/zeta/shell/themes"
 # shown by "zeta shell themes" (the .ini files keep the original description)
-DESCRIZIONI_TEMI = {"zeta": tr("ZETA black, system accent color"),
-                    "ambra": tr("Black with an amber accent"), "contrasto": tr("High-contrast black"),
-                    "rosso": tr("Black with a red accent"), "verde": tr("Black with a green accent (Kali style)"),
-                    "viola": tr("Black with a purple accent")}
-# English names of the themes (the files keep their Italian names)
-NOMI_TEMI = {"amber": "ambra", "contrast": "contrasto", "red": "rosso", "green": "verde", "purple": "viola"}
+THEME_DESCRIPTIONS = {"zeta": tr("ZETA black, system accent color"),
+                      "amber": tr("Black with an amber accent"), "contrast": tr("High-contrast black"),
+                      "red": tr("Black with a red accent"), "green": tr("Black with a green accent (Kali style)"),
+                      "purple": tr("Black with a purple accent")}
 STARSHIP_T = "/usr/share/zeta/shell/starship.toml"
 CACHE = os.path.join(HOME, ".cache", "zeta")
-FOOT_TEMA = os.path.join(HOME, ".config", "foot", "tema.ini")
-# None = «come il sistema»: carattere e dimensione di Impostazioni › Aspetto,
-# colori e trasparenza del tema di sistema (li applica zeta-accent a foot.ini)
-PREDEF = {"tema": "zeta", "accento": "sistema", "carattere": None,
-          "dimensione": None, "trasparenza": None}
+FOOT_THEME = os.path.join(HOME, ".config", "foot", "theme.ini")
+# None = «same as the system»: font and size from Settings › Appearance,
+# colors and transparency from the system theme (zeta-accent applies them to
+# foot.ini)
+DEFAULTS = {"theme": "zeta", "accent": "system", "font": None,
+            "size": None, "transparency": None}
 
 
-def leggi():
+def read():
     try:
         with open(CFG) as f:
             d = json.load(f)
         if isinstance(d, dict):
-            return {**PREDEF, **d}
+            return {**DEFAULTS, **d}
     except (OSError, ValueError):
         pass
-    return dict(PREDEF)
+    return dict(DEFAULTS)
 
 
-def salva(d):
+def save(d):
     os.makedirs(os.path.dirname(CFG), exist_ok=True)
     tmp = CFG + ".tmp"
     with open(tmp, "w") as f:
@@ -77,16 +71,16 @@ def salva(d):
     os.replace(tmp, CFG)
 
 
-def _scrivi(percorso, testo):
-    os.makedirs(os.path.dirname(percorso), exist_ok=True)
-    tmp = percorso + ".tmp"
+def _write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        f.write(testo)
-    os.replace(tmp, percorso)
+        f.write(text)
+    os.replace(tmp, path)
 
 
-def accento_sistema():
-    for n in ("accent-reso", "accent"):
+def system_accent():
+    for n in ("accent-rendered", "accent"):
         try:
             v = open(os.path.join(HOME, ".config", "zeta", n)).read().strip().lstrip("#")
             if re.fullmatch(r"[0-9A-Fa-f]{6}", v):
@@ -96,59 +90,59 @@ def accento_sistema():
     return "3A8DFF"
 
 
-def accento(d):
-    if d["accento"] != "sistema":
-        return d["accento"]
+def accent(d):
+    if d["accent"] != "system":
+        return d["accent"]
     try:
-        for riga in open(os.path.join(TEMI, d["tema"] + ".ini")):
-            m = re.match(r"# accento=([0-9A-Fa-f]{6})", riga)
+        for line in open(os.path.join(THEMES_DIR, d["theme"] + ".ini")):
+            m = re.match(r"# accent=([0-9A-Fa-f]{6})", line)
             if m:
                 return m.group(1).upper()
     except OSError:
         pass
-    return accento_sistema()
+    return system_accent()
 
 
-def applica(d=None):
-    """Rigenera tema di foot, prompt e colori di tmux dalla scelta salvata."""
-    d = d or leggi()
-    acc = accento(d)
-    # tema.ini (incluso in fondo a foot.ini) contiene SOLO cio' che l'utente ha
-    # scelto: il resto lo decide il tema di sistema, come prima
-    parti = ["# ZETA RAYS — terminal theme, written by “zeta shell” (do not edit)"]
-    if d["carattere"] or d["dimensione"]:
-        parti += ["[main]", "font=%s:size=%s" % (d["carattere"] or "JetBrains Mono",
-                                                 d["dimensione"] or _dimensione_sistema())]
-    if d["tema"] != "zeta":
-        tema = os.path.join(TEMI, d["tema"] + ".ini")
-        if not os.path.exists(tema):
-            tema = os.path.join(TEMI, "zeta.ini")
-        alpha = d["trasparenza"] if d["trasparenza"] is not None else 0.96
-        sel = "26262A" if d["tema"] != "contrasto" else "444444"
-        parti.append(open(tema, encoding="utf-8").read().replace("@ACCENT@", acc)
+def apply(d=None):
+    """Regenerates the foot theme, the prompt and the tmux colors from the saved choice."""
+    d = d or read()
+    acc = accent(d)
+    # theme.ini (included at the end of foot.ini) contains ONLY what the user
+    # chose: everything else is decided by the system theme, as before
+    pieces = ["# ZETA RAYS — terminal theme, written by “zeta shell” (do not edit)"]
+    if d["font"] or d["size"]:
+        pieces += ["[main]", "font=%s:size=%s" % (d["font"] or "JetBrains Mono",
+                                                 d["size"] or _system_font_size())]
+    if d["theme"] != "zeta":
+        theme = os.path.join(THEMES_DIR, d["theme"] + ".ini")
+        if not os.path.exists(theme):
+            theme = os.path.join(THEMES_DIR, "zeta.ini")
+        alpha = d["transparency"] if d["transparency"] is not None else 0.96
+        sel = "26262A" if d["theme"] != "contrast" else "444444"
+        pieces.append(open(theme, encoding="utf-8").read().replace("@ACCENT@", acc)
                      .replace("@ALPHA@", "%.2f" % float(alpha)).replace("@SEL@", sel))
     else:
-        if d["accento"] != "sistema":
-            parti += ["[cursor]", "color=0C0C0E %s" % acc]
-        if d["trasparenza"] is not None:
-            parti += ["[colors]", "alpha=%.2f" % float(d["trasparenza"])]
-    _scrivi(FOOT_TEMA, "\n".join(parti) + "\n")
-    _scrivi(os.path.join(CACHE, "accento-terminale"), "#%s\n" % acc)
+        if d["accent"] != "system":
+            pieces += ["[cursor]", "color=0C0C0E %s" % acc]
+        if d["transparency"] is not None:
+            pieces += ["[colors]", "alpha=%.2f" % float(d["transparency"])]
+    _write(FOOT_THEME, "\n".join(pieces) + "\n")
+    _write(os.path.join(CACHE, "terminal-accent"), "#%s\n" % acc)
     try:
         prompt = open(STARSHIP_T).read().replace("@ACCENT@", "#" + acc)
-        _scrivi(os.path.join(CACHE, "starship.toml"), prompt)
+        _write(os.path.join(CACHE, "starship.toml"), prompt)
     except OSError:
         pass
-    _scrivi(os.path.join(CACHE, "tmux-colori.conf"),
+    _write(os.path.join(CACHE, "tmux-colors.conf"),
             'set -g window-status-current-format "#[bg=#%s,fg=#0C0C0E,bold] #I #W #[default]"\n'
             'set -g pane-active-border-style "fg=#%s"\n'
             'set -g menu-selected-style "bg=#%s,fg=#0C0C0E"\n' % (acc, acc, acc))
-    subprocess.run(["tmux", "source-file", "-q", os.path.join(CACHE, "tmux-colori.conf")],
+    subprocess.run(["tmux", "source-file", "-q", os.path.join(CACHE, "tmux-colors.conf")],
                    capture_output=True)
     return 0
 
 
-def _dimensione_sistema():
+def _system_font_size():
     try:
         return int(open(os.path.join(HOME, ".config", "zeta", "font-size")).read().strip())
     except (OSError, ValueError):
@@ -156,24 +150,24 @@ def _dimensione_sistema():
 
 
 def shells():
-    out = subprocess.run(["zeta-terminale", "shells"], capture_output=True, text=True).stdout
+    out = subprocess.run(["zeta-terminal", "shells"], capture_output=True, text=True).stdout
     return [r.split(" ", 1) for r in out.splitlines() if " " in r]
 
 
-def sessioni():
+def sessions():
     r = subprocess.run(["tmux", "list-sessions", "-F",
                         "#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_created}"],
                        capture_output=True, text=True)
     out = []
-    for riga in r.stdout.splitlines():
-        n, att, win, _cr = riga.split("\t")
+    for line in r.stdout.splitlines():
+        n, att, win, _cr = line.split("\t")
         cmd = subprocess.run(["tmux", "list-panes", "-s", "-t", "=" + n, "-F",
                               "#{pane_current_command}"], capture_output=True, text=True).stdout.split()
         out.append((n, att != "0", int(win), cmd))
     return out
 
 
-def cronologia():
+def history():
     db = os.path.join(HOME, ".local", "share", "atuin", "history.db")
     if not os.path.exists(db):
         return None
@@ -186,32 +180,32 @@ def cronologia():
         return None
 
 
-def stato():
-    d = leggi()
-    pred = (open(PREF_SHELL).read().strip() if os.path.exists(PREF_SHELL) else "bash")
+def state():
+    d = read()
+    current_default = (open(SHELL_PREF_FILE).read().strip() if os.path.exists(SHELL_PREF_FILE) else "bash")
     print("\033[1m%s\033[0m\n" % tr("ZETA RAYS Terminal"))
 
-    def voce(etichetta, valore):
-        print("  %-17s %s" % (etichetta + ":", valore))
-    voce(tr("installed shells"), ", ".join(n for n, _ in shells()))
-    mancano = [n for n in ("zsh", "fish") if not shutil.which(n)]
-    if mancano:
-        voce(tr("missing shells"), tr("{shells}  (install them from the Ctrl+Shift+N menu)").format(
-            shells=", ".join(mancano)))
-    voce(tr("default shell"), pred)
-    di_sistema = tr("from system")
-    voce(tr("theme"), tr("{theme}, accent #{accent}, font {font} {size}, transparency {alpha}").format(
-        theme=d["tema"], accent=accento(d), font=d["carattere"] or di_sistema,
-        size=d["dimensione"] or "",
-        alpha=di_sistema if d["trasparenza"] is None else "%.2f" % float(d["trasparenza"])))
-    for nome in ("tmux", "atuin", "starship", "fzf"):
-        voce(nome, tr("yes") if shutil.which(nome) else tr("NO (reduced features)"))
-    c = cronologia()
+    def entry(label, value):
+        print("  %-17s %s" % (label + ":", value))
+    entry(tr("installed shells"), ", ".join(n for n, _ in shells()))
+    absent = [n for n in ("zsh", "fish") if not shutil.which(n)]
+    if absent:
+        entry(tr("missing shells"), tr("{shells}  (install them from the Ctrl+Shift+N menu)").format(
+            shells=", ".join(absent)))
+    entry(tr("default shell"), current_default)
+    from_system = tr("from system")
+    entry(tr("theme"), tr("{theme}, accent #{accent}, font {font} {size}, transparency {alpha}").format(
+        theme=d["theme"], accent=accent(d), font=d["font"] or from_system,
+        size=d["size"] or "",
+        alpha=from_system if d["transparency"] is None else "%.2f" % float(d["transparency"])))
+    for name in ("tmux", "atuin", "starship", "fzf"):
+        entry(name, tr("yes") if shutil.which(name) else tr("NO (reduced features)"))
+    c = history()
     if c:
-        voce(tr("history"), ntr("{n} command ({size} MB), Ctrl+R to search",
+        entry(tr("history"), ntr("{n} command ({size} MB), Ctrl+R to search",
                                 "{n} commands ({size} MB), Ctrl+R to search", c[0]).format(
             n=c[0], size="%.1f" % (c[1] / 1e6)))
-    ss = sessioni()
+    ss = sessions()
     print("\n  " + tr("sessions: {n}").format(n=len(ss)))
     for n, att, win, cmd in ss:
         print("    %-10s %-12s %s  %s" % (n, tr("attached") if att else tr("DETACHED"),
@@ -222,82 +216,79 @@ def stato():
 
 
 def main(a):
-    cmd = a[0] if a else "stato"
+    cmd = a[0] if a else "status"
     cmd = ALIAS.get(cmd, cmd)
-    d = leggi()
-    if cmd in ("stato", "status"):
-        return stato()
-    if cmd == "applica":
-        return applica(d)
-    if cmd == "temi":
-        for f in sorted(os.listdir(TEMI)):
+    d = read()
+    if cmd == "status":
+        return state()
+    if cmd == "apply":
+        return apply(d)
+    if cmd == "themes":
+        for f in sorted(os.listdir(THEMES_DIR)):
             if f.endswith(".ini") and not f.startswith("."):
-                with open(os.path.join(TEMI, f), encoding="utf-8", errors="replace") as fh:
-                    descr = DESCRIZIONI_TEMI.get(f[:-4]) or fh.readline().split(":", 1)[-1].strip()
-                segno = "●" if f[:-4] == d["tema"] else " "
-                print(" %s %-10s %s" % (segno, f[:-4], descr))
+                with open(os.path.join(THEMES_DIR, f), encoding="utf-8", errors="replace") as fh:
+                    descr = THEME_DESCRIPTIONS.get(f[:-4]) or fh.readline().split(":", 1)[-1].strip()
+                mark = "●" if f[:-4] == d["theme"] else " "
+                print(" %s %-10s %s" % (mark, f[:-4], descr))
         return 0
-    if cmd == "ripristina":
-        d = dict(PREDEF)
-    elif cmd == "tema" and len(a) > 1:
-        a[1] = NOMI_TEMI.get(a[1], a[1])
-        if not os.path.exists(os.path.join(TEMI, a[1] + ".ini")):
+    if cmd == "reset":
+        d = dict(DEFAULTS)
+    elif cmd == "theme" and len(a) > 1:
+        if not os.path.exists(os.path.join(THEMES_DIR, a[1] + ".ini")):
             print(tr("Unknown theme: {name} (see “zeta shell themes”)").format(name=a[1]),
                   file=sys.stderr)
             return 1
-        d["tema"] = a[1]
-        d["accento"] = "sistema"
-    elif cmd == "accento" and len(a) > 1:
+        d["theme"] = a[1]
+        d["accent"] = "system"
+    elif cmd == "accent" and len(a) > 1:
         v = a[1].lstrip("#").upper()
-        if v == "SYSTEM":
-            v = "SISTEMA"
-        if v != "SISTEMA" and not re.fullmatch(r"[0-9A-F]{6}", v):
+        if v != "SYSTEM" and not re.fullmatch(r"[0-9A-F]{6}", v):
             print(tr("Invalid color: use RRGGBB (e.g. 3A8DFF) or “system”"), file=sys.stderr)
             return 1
-        d["accento"] = "sistema" if v == "SISTEMA" else v
-    elif cmd == "carattere" and len(a) > 1:
-        d["carattere"] = a[1]
+        d["accent"] = "system" if v == "SYSTEM" else v
+    elif cmd == "font" and len(a) > 1:
+        d["font"] = a[1]
         if len(a) > 2:
             try:
-                d["dimensione"] = max(6, min(32, int(float(a[2]))))
+                d["size"] = max(6, min(32, int(float(a[2]))))
             except ValueError:
                 return 1
-    elif cmd == "trasparenza" and len(a) > 1:
+    elif cmd == "transparency" and len(a) > 1:
         try:
-            d["trasparenza"] = max(0.70, min(1.0, float(a[1].replace(",", "."))))
+            d["transparency"] = max(0.70, min(1.0, float(a[1].replace(",", "."))))
         except ValueError:
             return 1
-    elif cmd == "predefinita" and len(a) > 1:
+    elif cmd == "default" and len(a) > 1:
         if a[1] not in [n for n, _ in shells()]:
             print(tr("{shell} isn't installed. Install it from the terminal: Ctrl+Shift+N").format(
                 shell=a[1]), file=sys.stderr)
             return 1
-        os.makedirs(os.path.dirname(PREF_SHELL), exist_ok=True)
-        with open(PREF_SHELL, "w") as f:
+        os.makedirs(os.path.dirname(SHELL_PREF_FILE), exist_ok=True)
+        with open(SHELL_PREF_FILE, "w") as f:
             f.write(a[1] + "\n")
         print(tr("New terminal windows will use {shell}.").format(shell=a[1]))
         return 0
-    elif cmd == "sessioni":
-        for n, att, win, cmd_ in sessioni():
+    elif cmd == "sessions":
+        for n, att, win, cmd_ in sessions():
             print("%-10s %-11s %s" % (n, tr("attached") if att else tr("detached"), ", ".join(cmd_)))
         return 0
-    elif cmd == "riprendi":
-        sosp = [n for n, att, _w, _c in sessioni() if not att]
-        nome = a[1] if len(a) > 1 else (sosp[0] if sosp else None)
-        if not nome:
+    elif cmd == "resume":
+        suspended = [n for n, att, _w, _c in sessions() if not att]
+        name = a[1] if len(a) > 1 else (suspended[0] if suspended else None)
+        if not name:
             print(tr("No detached sessions."))
             return 0
         if os.environ.get("TMUX"):
-            return subprocess.call(["tmux", "switch-client", "-t", "=" + nome])
-        os.execvp("tmux", ["tmux", "attach-session", "-t", "=" + nome])
-    elif cmd == "aiuto":
+            return subprocess.call(["tmux", "switch-client", "-t", "=" + name])
+        os.execvp("tmux", ["tmux", "attach-session", "-t", "=" + name])
+    elif cmd == "help":
         print(usage())
         return 0
     else:
         print(usage())
         return 1
-    salva(d)
-    applica(d)
+    save(d)
+    apply(d)
     print(tr("Done: applies to terminal windows opened from now on."))
     return 0
 

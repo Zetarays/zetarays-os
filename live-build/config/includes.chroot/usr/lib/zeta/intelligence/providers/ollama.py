@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Provider Ollama (modelli locali) per ZETA RAYS Intelligence.
+"""Ollama provider (local models) for ZETA RAYS Intelligence.
 
-ZETA RAYS funziona anche senza Internet: se Ollama è in esecuzione con un modello
-compatibile, ZETA usa quello. Rileva i modelli installati.
+ZETA RAYS works even without Internet: if Ollama is running with a compatible
+model, ZETA uses it. Detects the installed models.
 """
 from __future__ import annotations
 
@@ -14,75 +14,75 @@ from typing import Callable
 from i18n import tr
 
 from .base import Message, Provider, Reply, ToolSpec
-from .. import risorse
+from .. import resources
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
 
 
-class MemoriaInsufficiente(RuntimeError):
-    """Non c'è memoria per caricare il modello: meglio dirlo che bloccarsi."""
+class InsufficientMemoryError(RuntimeError):
+    """Not enough memory to load the model: better to say so than to hang."""
 
 
 class OllamaProvider(Provider):
-    # Il modello locale non riceve le azioni (i comandi li riconosce ZETA da
-    # solo, in intents.py): le sue risposte vanno sempre in streaming.
-    usa_strumenti = False
+    # The local model doesn't get the actions (ZETA recognizes commands by
+    # itself, in intents.py): its replies are always streamed.
+    uses_tools = False
 
     def _base(self) -> str:
         return (self.config.endpoint or DEFAULT_ENDPOINT).rstrip("/")
 
     def available(self) -> bool:
-        """Utilizzabile solo se Ollama risponde E c'è memoria per il modello.
+        """Usable only if Ollama responds AND there is memory for the model.
 
-        Dichiararsi disponibile senza avere la memoria per caricare il modello
-        significa far scegliere questo provider e poi piantare il computer nel
-        momento in cui l'utente fa la prima domanda.
+        Claiming to be available without the memory to load the model means
+        getting this provider chosen and then freezing the computer the moment
+        the user asks the first question.
         """
-        if not risorse.memoria_per_il_modello() and not self._gia_caricato():
+        if not resources.memory_for_model() and not self._already_loaded():
             return False
         return bool(self.list_models())
 
     def test(self, timeout: float = 25.0) -> tuple[bool, str]:
-        """Prova il collegamento locale senza far caricare il modello.
+        """Test the local connection without making it load the model.
 
-        La prova comune fa una domanda vera: per Ollama significherebbe tirare
-        su il modello, che su una macchina modesta prende decine di secondi e
-        farebbe scadere la prova facendola sembrare un guasto. Qui si guarda
-        cio' che conta: il servizio risponde, il modello c'e', la memoria basta.
+        The generic test asks a real question: for Ollama that would mean
+        loading the model, which on a modest machine takes tens of seconds and
+        would make the test time out, looking like a failure. Here we check
+        what matters: the service responds, the model exists, memory suffices.
         """
-        modelli = self.list_models()
-        if not modelli:
+        models = self.list_models()
+        if not models:
             return False, tr("Ollama isn't responding at {address}. Check that the service "
                              "is running: systemctl status ollama").format(address=self._base())
-        voluto = self._model()
-        if voluto and voluto not in modelli:
+        wanted = self._model()
+        if wanted and wanted not in models:
             return False, tr("The model “{model}” isn't installed. Available: {models}.").format(
-                model=voluto, models=", ".join(modelli))
-        if self._gia_caricato():
+                model=wanted, models=", ".join(models))
+        if self._already_loaded():
             return True, tr("Connected, model {model} already in memory (instant replies).").format(
-                model=voluto)
-        if not risorse.memoria_per_il_modello():
+                model=wanted)
+        if not resources.memory_for_model():
             return False, tr("Ollama is responding, but there isn't enough free memory to "
                              "load the model: questions would hang.")
         return True, tr("Connected, model {model} ready. The first reply needs to "
-                        "load it into memory.").format(model=voluto)
+                        "load it into memory.").format(model=wanted)
 
-    def _gia_caricato(self) -> bool:
-        """Il modello è già in memoria: usarlo non costa altra memoria."""
+    def _already_loaded(self) -> bool:
+        """The model is already in memory: using it costs no extra memory."""
         try:
             with urllib.request.urlopen(self._base() + "/api/ps", timeout=2.0) as resp:
-                dati = json.loads(resp.read().decode("utf-8"))
-            return bool(dati.get("models"))
+                data = json.loads(resp.read().decode("utf-8"))
+            return bool(data.get("models"))
         except (urllib.error.URLError, ValueError, OSError):
             return False
 
     def preload(self) -> bool:
-        """Carica il modello in memoria senza generare nulla.
+        """Load the model into memory without generating anything.
 
-        Serve a togliere l'attesa del primo utilizzo: a freddo il modello ci
-        mette decine di secondi a salire, poi risponde in frazioni di secondo.
+        This removes the wait on first use: from cold, the model takes tens of
+        seconds to load, then answers in fractions of a second.
         """
-        if not risorse.memoria_per_il_modello():
+        if not resources.memory_for_model():
             return False
         try:
             payload = json.dumps({"model": self._model(), "messages": [],
@@ -96,7 +96,7 @@ class OllamaProvider(Provider):
             return False
 
     def list_models(self) -> list[str]:
-        """Modelli installati localmente (vuoto se Ollama non è in esecuzione)."""
+        """Locally installed models (empty if Ollama isn't running)."""
         try:
             with urllib.request.urlopen(self._base() + "/api/tags", timeout=2.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -114,43 +114,43 @@ class OllamaProvider(Provider):
         out = []
         if self.config.system:
             out.append({"role": "system", "content": self.config.system})
-        # un modello locale piccolo con molta cronologia perde il filo e
-        # risponde alle domande vecchie: bastano gli ultimi scambi
-        recenti = messages[-self.MAX_CRONOLOGIA:]
-        while recenti and recenti[0].role != "user":
-            recenti = recenti[1:]
-        out.extend({"role": m.role, "content": m.content} for m in recenti)
+        # a small local model with a long history loses track and answers
+        # old questions: the last few exchanges are enough
+        recent = messages[-self.MAX_HISTORY:]
+        while recent and recent[0].role != "user":
+            recent = recent[1:]
+        out.extend({"role": m.role, "content": m.content} for m in recent)
         return out
 
-    MAX_CRONOLOGIA = 8
+    MAX_HISTORY = 8
 
-    # Risposte brevi: con un modello piccolo una risposta lunga è quasi sempre
-    # divagante e fa aspettare l'utente per nulla.
+    # Short replies: with a small model a long reply almost always rambles
+    # and makes the user wait for nothing.
     MAX_TOKEN = 220
 
     @property
-    def KEEP_ALIVE(self) -> str:          # noqa: N802  (nome storico)
-        """Quanto il modello resta in memoria dopo l'ultima domanda.
+    def KEEP_ALIVE(self) -> str:          # noqa: N802  (historical name)
+        """How long the model stays in memory after the last question.
 
-        Non è una costante: dipende da quanta RAM ha il computer. Tenere 1,8 GB
-        occupati per mezz'ora su una macchina da 4 GB è la ricetta esatta per i
-        blocchi e le lentezze che si vogliono evitare.
+        It isn't a constant: it depends on how much RAM the computer has.
+        Keeping 1.8 GB busy for half an hour on a 4 GB machine is the exact
+        recipe for the freezes and slowdowns we want to avoid.
         """
-        return risorse.keep_alive()
+        return resources.keep_alive()
 
     def _options(self) -> dict:
-        opz = {"temperature": self.config.temperature,
+        opts = {"temperature": self.config.temperature,
                "num_predict": self.config.max_tokens or self.MAX_TOKEN}
         if self.config.context:
-            opz["num_ctx"] = self.config.context
-        return opz
+            opts["num_ctx"] = self.config.context
+        return opts
 
-    def _controlla_memoria(self) -> None:
-        if not self._gia_caricato() and not risorse.memoria_per_il_modello():
-            raise MemoriaInsufficiente(risorse.motivo_memoria())
+    def _check_memory(self) -> None:
+        if not self._already_loaded() and not resources.memory_for_model():
+            raise InsufficientMemoryError(resources.memory_reason())
 
     def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None) -> Reply:
-        self._controlla_memoria()
+        self._check_memory()
         payload = {"model": self._model(), "messages": self._messages(messages),
                    "stream": False, "keep_alive": self.KEEP_ALIVE,
                    "options": self._options()}
@@ -162,7 +162,7 @@ class OllamaProvider(Provider):
 
     def stream(self, messages: list[Message],
                on_text: Callable[[str], None]) -> Reply:
-        self._controlla_memoria()
+        self._check_memory()
         payload = {"model": self._model(), "messages": self._messages(messages),
                    "stream": True, "keep_alive": self.KEEP_ALIVE,
                    "options": self._options()}

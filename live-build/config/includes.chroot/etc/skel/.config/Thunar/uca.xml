@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- ZETA RAYS: azioni del tasto destro nel gestore file.
-     Si riprende quella di serie («Apri un terminale qui»), che questo file
-     sostituisce, e si aggiungono la lettura del testo dentro immagini e PDF, ZETA Share e le
-     azioni da amministratore per le cartelle di sistema (/opt...). -->
+<!-- ZETA RAYS: right-click actions of the file manager.
+     The stock action (Open Terminal Here), which this file replaces, is kept;
+     added are text recognition in images and PDFs, ZETA Share, the
+     administrator actions for system folders (/opt...) and the Folder Color
+     submenu (the submenu name is localized at login by zeta-session). -->
 <actions>
 <action>
 	<icon>utilities-terminal</icon>
 	<name>Open Terminal Here</name>
 	<name xml:lang="it">Apri un terminale qui</name>
-	<unique-id>zeta-terminale-qui</unique-id>
+	<unique-id>zeta-terminal-here</unique-id>
 	<command>foot --working-directory %f</command>
 	<description>Opens the terminal in this folder</description>
 	<description xml:lang="it">Apre il terminale in questa cartella</description>
@@ -17,11 +18,11 @@
 	<directories/>
 </action>
 <action>
-	<icon>zeta-testo</icon>
+	<icon>zeta-text-capture</icon>
 	<name>Copy Text from Image</name>
 	<name xml:lang="it">Copia il testo dell'immagine</name>
-	<unique-id>zeta-testo-ocr</unique-id>
-	<command>zeta-testo %f</command>
+	<unique-id>zeta-text-ocr</unique-id>
+	<command>zeta-text-capture %f</command>
 	<description>Recognizes the text (OCR, on this computer) and copies it to the clipboard</description>
 	<description xml:lang="it">Riconosce il testo (OCR, sul computer) e lo copia negli appunti</description>
 	<patterns>*.png;*.PNG;*.jpg;*.JPG;*.jpeg;*.JPEG;*.webp;*.WEBP;*.tif;*.tiff;*.TIF;*.bmp;*.gif;*.pdf;*.PDF</patterns>
@@ -48,8 +49,8 @@
 	<icon>edit-paste</icon>
 	<name>Paste Here as Administrator</name>
 	<name xml:lang="it">Incolla qui come amministratore</name>
-	<unique-id>zeta-incolla-amministratore</unique-id>
-	<command>zeta-incolla-amministratore incolla %f</command>
+	<unique-id>zeta-admin-paste</unique-id>
+	<command>zeta-admin-paste paste %f</command>
 	<description>Pastes the copied files into a system folder (/opt, /usr/local…), asking for your password</description>
 	<description xml:lang="it">Incolla i file copiati in una cartella di sistema (/opt, /usr/local...) chiedendo la password</description>
 	<patterns>*</patterns>
@@ -59,10 +60,82 @@
 	<icon>dialog-password</icon>
 	<name>Open as Administrator</name>
 	<name xml:lang="it">Apri come amministratore</name>
-	<unique-id>zeta-apri-amministratore</unique-id>
-	<command>zeta-incolla-amministratore apri %f</command>
+	<unique-id>zeta-admin-open</unique-id>
+	<command>zeta-admin-paste open %f</command>
 	<description>Opens the folder with administrator rights, so you can copy, rename and delete</description>
 	<description xml:lang="it">Apre la cartella con i permessi di amministratore: si puo' copiare, rinominare e cancellare</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>emblem-zeta-folder-red</icon>
+	<name>Red</name>
+	<name xml:lang="it">Rosso</name>
+	<submenu>Folder Color</submenu>
+	<unique-id>zeta-folder-color-red</unique-id>
+	<command>zeta-folder-color red %F</command>
+	<description>Shows this folder in red</description>
+	<description xml:lang="it">Mostra questa cartella in rosso</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>emblem-zeta-folder-white</icon>
+	<name>White</name>
+	<name xml:lang="it">Bianco</name>
+	<submenu>Folder Color</submenu>
+	<unique-id>zeta-folder-color-white</unique-id>
+	<command>zeta-folder-color white %F</command>
+	<description>Shows this folder in white</description>
+	<description xml:lang="it">Mostra questa cartella in bianco</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>emblem-zeta-folder-green</icon>
+	<name>Green</name>
+	<name xml:lang="it">Verde</name>
+	<submenu>Folder Color</submenu>
+	<unique-id>zeta-folder-color-green</unique-id>
+	<command>zeta-folder-color green %F</command>
+	<description>Shows this folder in green</description>
+	<description xml:lang="it">Mostra questa cartella in verde</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>emblem-zeta-folder-blue</icon>
+	<name>Blue</name>
+	<name xml:lang="it">Blu</name>
+	<submenu>Folder Color</submenu>
+	<unique-id>zeta-folder-color-blue</unique-id>
+	<command>zeta-folder-color blue %F</command>
+	<description>Shows this folder in blue</description>
+	<description xml:lang="it">Mostra questa cartella in blu</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>emblem-zeta-folder-purple</icon>
+	<name>Purple</name>
+	<name xml:lang="it">Viola</name>
+	<submenu>Folder Color</submenu>
+	<unique-id>zeta-folder-color-purple</unique-id>
+	<command>zeta-folder-color purple %F</command>
+	<description>Shows this folder in purple</description>
+	<description xml:lang="it">Mostra questa cartella in viola</description>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+<action>
+	<icon>folder</icon>
+	<name>Default</name>
+	<name xml:lang="it">Predefinito</name>
+	<submenu>Folder Color</submenu>
+	<unique-id>zeta-folder-color-default</unique-id>
+	<command>zeta-folder-color default %F</command>
+	<description>Shows the standard folder again</description>
+	<description xml:lang="it">Torna alla cartella normale</description>
 	<patterns>*</patterns>
 	<directories/>
 </action>

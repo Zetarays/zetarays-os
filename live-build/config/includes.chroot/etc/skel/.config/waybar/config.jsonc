@@ -1,4 +1,4 @@
-// ZETA RAYS — barra in basso con dock
+// ZETA RAYS — bottom bar with dock
 {
   "layer": "top",
   "position": "bottom",
@@ -8,49 +8,49 @@
   "margin-bottom": 12,
   "spacing": 0,
 
-  "modules-left": ["image#launcher", "group/spazi"],
+  "modules-left": ["image#launcher", "group/workspaces"],
   "modules-center": ["group/dock"],
-  "modules-right": ["custom/finestre", "image#search", "image#net", "image#vol", "image#bat", "clock", "image#power"],
+  "modules-right": ["custom/windows", "image#search", "image#net", "image#vol", "image#bat", "clock", "image#power"],
 
   "image#launcher": {
     "exec": "echo $HOME/.config/zeta/launcher.svg",
     "size": 42,
     "signal": 8,
     "tooltip": false,
-    "on-click": "zeta-pannello launcher"
+    "on-click": "zeta-panel launcher"
   },
 
-  // Finestre ridotte a icona: il modulo compare solo quando ce n'è almeno una
-  "custom/finestre": {
-    "exec": "zeta-finestre conta", "interval": 30, "signal": 9,
+  // Minimized windows: the module only appears when there is at least one
+  "custom/windows": {
+    "exec": "zeta-windows count", "interval": 30, "signal": 9,
     "tooltip": true, "tooltip-format": "Minimized windows",
-    "on-click": "zeta-finestre"
+    "on-click": "zeta-windows"
   },
 
   "image#search": {
-    "path": "/usr/share/icons/zeta/scalable/apps/zeta-cerca.svg",
-    "size": 18, "tooltip": false, "on-click": "zeta-pannello cerca"
+    "path": "/usr/share/icons/zeta/scalable/apps/zeta-search.svg",
+    "size": 18, "tooltip": false, "on-click": "zeta-panel search"
   },
 
-  // Spazi di lavoro. Non si usa "hyprland/workspaces": per attivare uno spazio
-  // manda a Hyprland la sintassi storica, che la configurazione in Lua di
-  // Hyprland 0.55 rifiuta, e il clic non faceva nulla. zeta-spazi ascolta gli
-  // eventi (niente interrogazioni a ripetizione) e usa la sintassi giusta.
-  "group/spazi": {
+  // Workspaces. "hyprland/workspaces" is not used: to activate a workspace it
+  // sends Hyprland the legacy syntax, which the Lua configuration of
+  // Hyprland 0.55 rejects, so clicking did nothing. zeta-workspaces listens to
+  // events (no repeated polling) and uses the correct syntax.
+  "group/workspaces": {
     "orientation": "horizontal",
-    "modules": ["custom/spazio1", "custom/spazio2", "custom/spazio3"]
+    "modules": ["custom/workspace1", "custom/workspace2", "custom/workspace3"]
   },
-  "custom/spazio1": {
-    "exec": "zeta-spazi stato 1", "return-type": "json", "interval": 30, "signal": 10,
-    "on-click": "zeta-spazi vai 1", "tooltip": false
+  "custom/workspace1": {
+    "exec": "zeta-workspaces status 1", "return-type": "json", "interval": 30, "signal": 10,
+    "on-click": "zeta-workspaces go 1", "tooltip": false
   },
-  "custom/spazio2": {
-    "exec": "zeta-spazi stato 2", "return-type": "json", "interval": 30, "signal": 10,
-    "on-click": "zeta-spazi vai 2", "tooltip": false
+  "custom/workspace2": {
+    "exec": "zeta-workspaces status 2", "return-type": "json", "interval": 30, "signal": 10,
+    "on-click": "zeta-workspaces go 2", "tooltip": false
   },
-  "custom/spazio3": {
-    "exec": "zeta-spazi stato 3", "return-type": "json", "interval": 30, "signal": 10,
-    "on-click": "zeta-spazi vai 3", "tooltip": false
+  "custom/workspace3": {
+    "exec": "zeta-workspaces status 3", "return-type": "json", "interval": 30, "signal": 10,
+    "on-click": "zeta-workspaces go 3", "tooltip": false
   },
 
   "group/dock": {
@@ -62,15 +62,15 @@
   "image#browser":  { "path": "/usr/share/icons/zeta/scalable/apps/firefox-esr.svg",          "size": 42, "tooltip": false, "on-click": "firefox-esr" },
   "image#editor":   { "path": "/usr/share/icons/zeta/scalable/apps/org.gnome.TextEditor.svg", "size": 42, "tooltip": false, "on-click": "gnome-text-editor" },
   "image#monitor":  { "path": "/usr/share/icons/zeta/scalable/apps/zeta-monitor.svg",         "size": 42, "tooltip": false, "on-click": "zeta-monitor" },
-  "image#security": { "path": "/usr/share/icons/zeta/scalable/apps/zeta-sicurezza.svg",       "size": 42, "tooltip": false, "on-click": "zeta-sicurezza" },
+  "image#security": { "path": "/usr/share/icons/zeta/scalable/apps/zeta-security.svg",       "size": 42, "tooltip": false, "on-click": "zeta-security" },
   "image#packages": { "path": "/usr/share/icons/zeta/scalable/apps/synaptic.svg",             "size": 42, "tooltip": false, "on-click": "synaptic-pkexec" },
-  "image#settings": { "path": "/usr/share/icons/zeta/scalable/apps/zeta-impostazioni.svg",    "size": 42, "tooltip": false, "on-click": "zeta-impostazioni" },
+  "image#settings": { "path": "/usr/share/icons/zeta/scalable/apps/zeta-settings.svg",    "size": 42, "tooltip": false, "on-click": "zeta-settings" },
 
-  "image#net": { "exec": "zeta-status net", "interval": 5, "size": 18, "tooltip": false, "on-click": "zeta-pannello rete" },
-  "image#vol": { "exec": "zeta-status vol", "interval": 30, "signal": 11, "size": 18, "tooltip": false, "on-click": "zeta-pannello audio",
-                 "on-scroll-up": "zeta-volume su", "on-scroll-down": "zeta-volume giu" },
-  "image#bat": { "exec": "zeta-status bat", "interval": 30, "size": 20, "tooltip": false, "on-click": "zeta-pannello controllo" },
-  "image#power": { "path": "/usr/share/zeta/status/power.svg", "size": 18, "tooltip": false, "on-click": "zeta-pannello energia" },
+  "image#net": { "exec": "zeta-status net", "interval": 5, "size": 18, "tooltip": false, "on-click": "zeta-panel network" },
+  "image#vol": { "exec": "zeta-status vol", "interval": 30, "signal": 11, "size": 18, "tooltip": false, "on-click": "zeta-panel audio",
+                 "on-scroll-up": "zeta-volume up", "on-scroll-down": "zeta-volume down" },
+  "image#bat": { "exec": "zeta-status bat", "interval": 30, "size": 20, "tooltip": false, "on-click": "zeta-panel control" },
+  "image#power": { "path": "/usr/share/zeta/status/power.svg", "size": 18, "tooltip": false, "on-click": "zeta-panel power" },
   "clock": {
     "format": "<span weight='500'>{0:%H:%M}</span>\n<span size='8.5pt' foreground='#8A8A8E'>{0:L%a %d %b}</span>",
     "justify": "right",
@@ -84,6 +84,6 @@
         "today": "<span color='#3A8DFF'><b>{}</b></span>"
       }
     },
-    "on-click": "zeta-pannello controllo"
+    "on-click": "zeta-panel control"
   }
 }

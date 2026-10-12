@@ -1,0 +1,396 @@
+#!/bin/bash
+# shellcheck disable=SC2059  # the printf formats come from the translations (gettext)
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-diagnostics — a complete snapshot of the computer's state.
+#
+#   zeta-diagnostics              writes the report and prints its path
+#   zeta-diagnostics -            writes the report to the screen
+#
+# Its purpose is to understand WHY an installed ZETA RAYS is slow or freezes,
+# without guessing. It changes nothing: it only reads. No command in here
+# modifies files, services or packages, so it can be run on a machine that is
+# already struggling without making things worse.
+#
+# API keys never end up in the report: for each one we only say whether it is
+# there and how long it is.
+set -u
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
+
+# With sudo the system logs can be read too (errors, crashes, kernel); the
+# ZETA files and the report stay those of the user who launched it.
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    export HOME
+fi
+
+DEST="${HOME}/zeta-diagnostics-$(date +%Y%m%d-%H%M%S).txt"
+[ "${1:-}" = "-" ] && DEST=/dev/stdout
+
+# Not everything is installed everywhere: we try, and if it is missing we say
+# so instead of leaving a silent gap in the report.
+has() { command -v "$1" >/dev/null 2>&1; }
+section() { printf '\n\n===============================================================\n %s\n===============================================================\n' "$1"; }
+subsection() { printf '\n--- %s ---\n' "$1"; }
+try_cmd() {   # try_cmd <description> <command...>
+    local d="$1"; shift
+    subsection "$d"
+    if has "$1"; then
+        "$@" 2>&1 | head -60
+    else
+        printf "$(gettext '(not installed: %s)')\n" "$1"
+    fi
+}
+
+report() {
+
+printf '%s\n' "$(gettext "ZETA RAYS - SYSTEM DIAGNOSTICS")"
+printf "$(gettext 'generated on %s')\n" "$(date '+%F %T')"
+if ! journalctl -b -n 1 -p err --no-pager -q >/dev/null 2>&1 || \
+   { [ "$(id -u)" -ne 0 ] && ! id -nG | grep -qwE "adm|systemd-journal"; }; then
+    gettext "WARNING: without sudo the system logs cannot be read and the
+sections on errors, crashes and the kernel stay empty. Better: sudo zeta-diagnostics"; echo
+fi
+
+section "1. $(gettext "MACHINE")"
+subsection "$(gettext "identity")"
+[ -r /etc/os-release ] && . /etc/os-release && printf "$(gettext 'system:   %s')\n" "${PRETTY_NAME:-?}"
+echo "kernel:   $(uname -r)  ($(uname -m))"
+printf "$(gettext 'name:     %s')\n" "$(hostname)"
+printf "$(gettext 'up for:   %s')\n" "$(uptime -p 2>/dev/null || uptime)"
+subsection "$(gettext "computer model")"
+for f in /sys/devices/virtual/dmi/id/sys_vendor /sys/devices/virtual/dmi/id/product_name \
+         /sys/devices/virtual/dmi/id/product_version /sys/devices/virtual/dmi/id/board_name; do
+    [ -r "$f" ] && echo "$(basename "$f"): $(cat "$f" 2>/dev/null)"
+done
+[ -r /sys/hypervisor/type ] && echo "hypervisor: $(cat /sys/hypervisor/type)"
+if has systemd-detect-virt; then
+    VIRT=$(systemd-detect-virt 2>/dev/null)     # prints «none» (and exits with 1) on a physical computer
+    { [ -z "$VIRT" ] || [ "$VIRT" = none ]; } && VIRT=$(gettext "none (physical machine)")
+    printf "$(gettext 'virtualization: %s')\n" "$VIRT"
+fi
+
+section "2. $(gettext "PROCESSOR")"
+subsection "$(gettext "model and number of cores")"
+if has lscpu; then
+    LC_ALL=C lscpu | grep -iE "^(architecture|model name|cpu\(s\)|thread|core|socket|cpu max|cpu min|cpu mhz|l3|flags)" | head -14
+else
+    grep -m1 "model name" /proc/cpuinfo; grep -c ^processor /proc/cpuinfo
+fi
+subsection "$(gettext "load average (1, 5, 15 minutes)")"
+cat /proc/loadavg
+echo "$(gettext "(if the first number stays above the number of cores, the computer is queuing work)")"
+subsection "$(gettext "governor and frequencies")"
+for c in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+    [ -d "$c" ] || continue
+    echo "$(basename "$(dirname "$c")"): governor=$(cat "$c/scaling_governor" 2>/dev/null) \
+current=$(cat "$c/scaling_cur_freq" 2>/dev/null) max=$(cat "$c/scaling_max_freq" 2>/dev/null)"
+done 2>/dev/null | head -8
+[ -d /sys/devices/system/cpu/cpu0/cpufreq ] || echo "$(gettext "(no frequency control exposed by the kernel)")"
+
+section "3. $(gettext "MEMORY")"
+subsection "$(gettext "summary")"
+free -h
+subsection "$(gettext "details")"
+grep -E "^(MemTotal|MemFree|MemAvailable|Cached|SwapTotal|SwapFree|Dirty|Committed_AS)" /proc/meminfo
+subsection "$(gettext "swap in use")"
+swapon --show 2>/dev/null || echo "$(gettext "(no active swap)")"
+echo "swappiness: $(cat /proc/sys/vm/swappiness 2>/dev/null)"
+subsection "zram"
+if [ -e /sys/block/zram0 ]; then
+    zramctl 2>/dev/null || echo "$(gettext "(zram0 present)")"
+else
+    echo "$(gettext "(zram not in use)")"
+fi
+subsection "$(gettext "OOM: did the kernel kill something for lack of memory?")"
+(journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) \
+    | grep -iE "out of memory|oom-kill|killed process" | tail -10 || true
+echo "$(gettext "(no lines above = it has not happened since this boot)")"
+
+section "4. $(gettext "PROCESSES")"
+subsection "$(gettext "the 15 using the most CPU")"
+ps -eo pcpu,pmem,rss,etimes,comm --sort=-pcpu | head -16
+subsection "$(gettext "the 15 using the most memory")"
+ps -eo pmem,rss,pcpu,comm --sort=-pmem | head -16
+subsection "$(gettext "zombie processes")"
+ZOMBIE=$(ps -eo stat,pid,comm | awk '$1 ~ /^Z/ {print}' | wc -l)
+echo "zombie: $ZOMBIE"
+[ "$ZOMBIE" -gt 0 ] && ps -eo stat,pid,ppid,comm | awk '$1 ~ /^Z/'
+subsection "$(gettext "processes in uninterruptible wait (state D: disk or driver stuck)")"
+ps -eo stat,pid,comm | awk '$1 ~ /^D/' || true
+echo "$(gettext "(lines above = something is waiting for the disk or a driver: a typical cause of freezes)")"
+subsection "$(gettext "how many ZETA RAYS processes are alive")"
+ps -eo pid,pcpu,pmem,rss,comm,args | grep -E "zeta|ollama" | grep -v grep | head -20
+
+section "5. $(gettext "STARTUP AND SERVICES")"
+try_cmd "$(gettext "startup time")" systemd-analyze
+try_cmd "$(gettext "what slowed down startup")" systemd-analyze blame
+subsection "$(gettext "failed units")"
+systemctl --failed --no-pager 2>/dev/null || echo "$(gettext "(systemctl not available)")"
+subsection "$(gettext "running system services")"
+systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}' | head -40
+subsection "$(gettext "user services")"
+systemctl --user list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}' | head -20
+subsection "$(gettext "active timers (periodic jobs: they can keep waking up the disk)")"
+systemctl list-timers --all --no-pager 2>/dev/null | head -15
+
+section "6. $(gettext "DISK")"
+subsection "$(gettext "space")"
+df -h -x tmpfs -x devtmpfs 2>/dev/null
+subsection "$(gettext "disks present")"
+lsblk -o NAME,SIZE,ROTA,TYPE,MOUNTPOINT,FSTYPE 2>/dev/null
+echo "$(gettext "(ROTA=1 spinning disk, ROTA=0 SSD or NVMe)")"
+subsection "$(gettext "root mounts")"
+grep -E " / | /home " /proc/mounts
+subsection "$(gettext "disk health (SMART)")"
+if has smartctl; then
+    for d in /dev/nvme0n1 /dev/sda /dev/sdb; do
+        [ -e "$d" ] || continue
+        echo "### $d"
+        smartctl -H "$d" 2>&1 | grep -iE "result|health|failed" | head -3
+        smartctl -A "$d" 2>&1 | grep -iE "percentage_used|power_on|media_errors|reallocated|temperature|wear" | head -8
+    done
+else
+    echo "$(gettext "(smartctl not installed: sudo apt install smartmontools)")"
+fi
+subsection "$(gettext "disk activity right now")"
+if has iostat; then iostat -dx 1 2 2>/dev/null | tail -12
+else echo "$(gettext "(iostat not installed: sudo apt install sysstat)")"; fi
+subsection "$(gettext "file system errors in the log")"
+(journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) \
+    | grep -iE "ext4-fs error|i/o error|blk_update_request|ata[0-9]+\.[0-9]+: failed|nvme.*(reset|timeout)|remounting.*read-only" \
+    | tail -12 || true
+echo "$(gettext "(no lines = the disk is healthy as far as the kernel can tell)")"
+
+section "7. $(gettext "GRAPHICS")"
+try_cmd "$(gettext "graphics cards")" lspci
+subsection "$(gettext "drivers in use")"
+if has lspci; then lspci -nnk 2>/dev/null | grep -A 3 -iE "vga|3d|display" | head -20; fi
+subsection "$(gettext "rendering")"
+if has glxinfo; then glxinfo -B 2>/dev/null | head -12
+elif has eglinfo; then eglinfo 2>/dev/null | head -10
+else echo "$(gettext "(glxinfo not installed: sudo apt install mesa-utils)")"; fi
+subsection "$(gettext "video acceleration available?")"
+ls -la /dev/dri/ 2>/dev/null || echo "$(gettext "(no /dev/dri: no acceleration, everything runs on the CPU)")"
+subsection "$(gettext "compositor variables")"
+env | grep -E "^(WLR_|HYPRLAND|GSK_|GDK_|LIBGL|MESA|WAYLAND_DISPLAY|XDG_SESSION_TYPE)" | sort
+subsection "$(gettext "graphics card errors since this boot (GPU hang, reset, timeout)")"
+journalctl -k -b --no-pager -o short 2>/dev/null \
+    | grep -iE "gpu hang|ring .*timeout|\*ERROR\*|amdgpu.*(timeout|reset|fault)|i915.*(reset|hang|error)|xe .*(reset|timeout)|nouveau.*(fault|timeout)|drm.*(timed out|flip_done)" \
+    | tail -15 || true
+subsection "$(gettext "windows that were not responding (according to Hyprland)")"
+for L in "$HOME/.local/share/zeta/hyprland.log" /run/user/"$(id -u "${SUDO_USER:-$USER}" 2>/dev/null)"/hypr/*/hyprland.log; do
+    [ -r "$L" ] && grep -iE "ANR|not responding|non risponde" "$L" | tail -8  # i18n-data: older Italian log lines
+done
+subsection "$(gettext "Firefox: processes, memory, crash reports")"
+ps -eo pid,stat,rss,etime,comm 2>/dev/null | awk 'NR==1 || /firefox|Web Content|Isolated|WebExtensions|RDD|Socket|Utility|GPU Process/' | head -20
+CR="$HOME/.mozilla/firefox/Crash Reports/pending"
+if [ -d "$CR" ]; then
+    N=$(find "$CR" -maxdepth 1 -name "*.dmp" 2>/dev/null | wc -l)
+    printf "$(gettext 'pending Firefox crash reports: %s')\n" "$N"
+fi
+subsection "$(gettext "compositor errors")"
+tail -40 "$HOME/.local/share/zeta/hyprland.log" 2>/dev/null | grep -iE "err|fail|warn" | tail -12 \
+    || echo "$(gettext "(no Hyprland log)")"
+
+section "8. $(gettext "TEMPERATURE")"
+subsection "$(gettext "sensors")"
+if has sensors; then sensors 2>/dev/null | head -30
+else
+    for z in /sys/class/thermal/thermal_zone*; do
+        [ -r "$z/temp" ] || continue
+        echo "$(cat "$z/type" 2>/dev/null): $(( $(cat "$z/temp") / 1000 ))C"
+    done 2>/dev/null || echo "$(gettext "(no readable sensor)")"
+fi
+subsection "$(gettext "was the processor slowed down by heat?")"
+(journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null) \
+    | grep -iE "thermal|throttl|temperature above" | tail -10 || true
+echo "$(gettext "(lines above = overheating: a classic cause of slowdowns that come and go)")"
+
+section "9. $(gettext "ZETA CORE AND AI")"
+subsection "$(gettext "Ollama service")"
+systemctl status ollama --no-pager -n 12 2>/dev/null | head -22 || echo "$(gettext "(ollama service missing)")"
+subsection "$(gettext "does Ollama respond?")"
+if has curl; then
+    T0=$(date +%s%N)
+    R=$(curl -s -m 10 http://127.0.0.1:11434/api/tags 2>/dev/null)
+    T1=$(date +%s%N)
+    if [ -n "$R" ]; then
+        printf "$(gettext 'response in %s ms')\n" "$(( (T1-T0)/1000000 ))"
+        echo "$R" | tr ',' '\n' | grep -E '"name"|"size"' | head -12
+    else
+        echo "$(gettext "NOT responding on port 11434")"
+    fi
+else echo "$(gettext "(curl not installed)")"; fi
+subsection "$(gettext "installed models")"
+has ollama && ollama list 2>&1 | head -10 || echo "$(gettext "(ollama command missing)")"
+subsection "$(gettext "models currently in memory")"
+has ollama && ollama ps 2>&1 | head -10 || true
+subsection "$(gettext "Ollama service settings")"
+systemctl show ollama -p Environment -p MemoryMax -p CPUQuota -p ExecStart --no-pager 2>/dev/null | head -10
+subsection "$(gettext "how much ZETA and Ollama use right now")"
+ps -eo pid,pcpu,pmem,rss,etimes,comm,args 2>/dev/null \
+    | grep -E "ollama|zeta-core|zeta-control-center|zeta-monitor" | grep -v grep | head -12
+subsection "$(gettext "AI configuration")"
+CFG="$HOME/.config/zeta/intelligence.json"
+if [ -r "$CFG" ]; then
+    printf "$(gettext 'file: %s  (permissions: %s)')\n" "$CFG" "$(stat -c '%a %U:%G' "$CFG" 2>/dev/null)"
+    sed -E 's/("(api_key|key|token|secret)"[[:space:]]*:[[:space:]]*")[^"]*"/\1***"/g' "$CFG" | head -40
+else
+    printf "$(gettext '(no saved configuration: %s does not exist)')\n" "$CFG"
+fi
+subsection "$(gettext "API keys: are they there? (only the length is printed, never the key)")"
+if has secret-tool; then
+    for p in claude gemini openai deepseek qwen perplexity mistral groq xai openrouter custom; do
+        V=$(timeout 6 secret-tool lookup zeta-provider "$p" 2>/dev/null)
+        RC=$?
+        if [ $RC -eq 124 ]; then printf "  %s: $(gettext 'secret-tool NOT RESPONDING (timed out)')\n" "$p"
+        elif [ -n "$V" ]; then printf "  %s: $(gettext 'present (%s characters)')\n" "$p" "${#V}"
+        else printf "  %s: $(gettext 'missing')\n" "$p"; fi
+    done
+else
+    echo "$(gettext "(secret-tool not installed)")"
+fi
+subsection "$(gettext "ZETA keys: encrypted (~/.config/zeta/keys/*.cred), names and sizes only")"
+C="$HOME/.config/zeta/keys"
+if [ -d "$C" ]; then
+    printf "$(gettext 'folder: %s (must be 700)')\n" "$(stat -c '%a' "$C")"
+    for f in "$C"/*.cred; do
+        [ -e "$f" ] || { echo "  $(gettext "(no saved keys)")"; break; }
+        printf "  %s: $(gettext '%s bytes, permissions %s')\n" "$(basename "$f" .cred)" "$(stat -c '%s' "$f")" "$(stat -c '%a' "$f")"
+    done
+else
+    echo "$(gettext "(no saved keys)")"
+fi
+[ -e "$HOME/.config/zeta/keys.json" ] && echo "$(gettext "WARNING: the old plain-text keys.json file is still there (it is converted the first time ZETA is used)")"
+subsection "$(gettext "automatic health check (zeta-health)")"
+cat /run/zeta-health.txt 2>/dev/null || echo "$(gettext "(no check yet: it starts 3 minutes after power-on)")"
+journalctl -t zeta-health -b --no-pager -o short 2>/dev/null | tail -15
+subsection "$(gettext "is there a keyring that responds?")"
+if has busctl; then
+    busctl --user list 2>/dev/null | grep -i secret || echo "  $(gettext "no keyring (normal: the keys are encrypted with systemd-creds)")"
+else
+    echo "$(gettext "(busctl not available)")"
+fi
+subsection "$(gettext "ZETA key files (if used)")"
+f="$HOME/.config/zeta/keys.json"
+[ -r "$f" ] && printf "$(gettext '%s  permissions: %s')\n" "$f" "$(stat -c '%a %U:%G' "$f" 2>/dev/null)"
+subsection "$(gettext "ZETA action log (last 15)")"
+tail -15 "$HOME/.local/share/zeta/actions.log" 2>/dev/null || echo "$(gettext "(no log)")"
+
+section "9B. $(gettext "NEW COMPONENTS (terminal, switcher, emergency, ZETA Share, Mail)")"
+for n in zeta-switcher zeta-emergency; do
+    if [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u "${SUDO_USER:-$USER}")}/$n.sock" ]; then echo "$n: $(gettext "ready")"; else echo "$n: $(gettext "NOT ready")"; fi
+done
+for c in tmux zsh fish atuin starship thunderbird; do
+    printf '%-12s %s\n' "$c" "$(if command -v "$c" >/dev/null; then gettext "present"; else gettext "MISSING"; fi)"
+done
+echo "LocalSend: $(dpkg-query -W -f='${Version}' localsend 2>/dev/null || gettext "not installed")"
+printf "$(gettext 'terminal sessions: %s')\n" "$(tmux list-sessions 2>/dev/null | wc -l)"
+
+section "10. $(gettext "NETWORK")"
+subsection "$(gettext "interfaces")"
+ip -brief addr 2>/dev/null | head -10
+subsection "$(gettext "connection")"
+has nmcli && nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | head -8
+subsection "$(gettext "does DNS respond? (a slow DNS makes everything feel slow)")"
+if has getent; then
+    T0=$(date +%s%N); getent hosts deb.debian.org >/dev/null 2>&1; T1=$(date +%s%N)
+    printf "$(gettext 'resolving deb.debian.org: %s ms')\n" "$(( (T1-T0)/1000000 ))"
+fi
+subsection "$(gettext "listening ports")"
+(ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null) | head -20
+
+section "11. $(gettext "PACKAGES AND REPOSITORIES")"
+subsection "$(gettext "configured sources")"
+cat /etc/apt/sources.list 2>/dev/null | grep -v "^#" | grep -v "^$"
+for f in /etc/apt/sources.list.d/*; do
+    [ -r "$f" ] || continue
+    echo "### $f"
+    grep -v "^#" "$f" | grep -v "^$"
+done 2>/dev/null
+subsection "$(gettext "signing keys")"
+ls -la /etc/apt/trusted.gpg.d/ /etc/apt/keyrings/ 2>/dev/null | head -20
+subsection "$(gettext "package list update (read-only, installs nothing)")"
+if [ "$(id -u)" = 0 ]; then
+    apt-get update -qq 2>&1 | head -25
+    printf "$(gettext 'exit status: %s')\n" "${PIPESTATUS[0]}"
+else
+    echo "$(gettext "(needs sudo: run  sudo zeta-diagnostics  to try apt update)")"
+fi
+subsection "$(gettext "broken or half-installed packages")"
+dpkg -l 2>/dev/null | awk '$1 !~ /^ii/ && NR>5 {print}' | head -20 || true
+echo "$(gettext "(no lines = no package in an abnormal state)")"
+subsection "$(gettext "held packages")"
+apt-mark showhold 2>/dev/null | head -10; echo "$(gettext "(empty = none)")"
+subsection "$(gettext "unmet dependencies")"
+apt-get check 2>&1 | head -10
+subsection "$(gettext "what would be upgraded (simulation, installs nothing)")"
+apt-get -s upgrade 2>&1 | tail -15
+
+section "12. $(gettext "LOG: RECURRING ERRORS")"
+subsection "$(gettext "errors since this boot, grouped by frequency")"
+journalctl -p err -b --no-pager -o cat 2>/dev/null \
+    | sed -E 's/[0-9]{2,}/N/g' | sort | uniq -c | sort -rn | head -20 \
+    || echo "$(gettext "(journalctl not available)")"
+subsection "$(gettext "last 25 errors in time order")"
+journalctl -p err -b --no-pager -n 25 2>/dev/null | tail -25
+subsection "$(gettext "programs that crashed")"
+(journalctl -b --no-pager 2>/dev/null | grep -iE "segfault|core dump|crash|Killed" | tail -12) || true
+subsection "$(gettext "most recent kernel messages")"
+(journalctl -k -b --no-pager -n 20 2>/dev/null || dmesg 2>/dev/null | tail -20)
+
+section "13. $(gettext "MEASUREMENTS")"
+subsection "$(gettext "disk responsiveness (reading 200 MB already cached, and uncached)")"
+if [ -r /usr/lib/zeta ]; then
+    T0=$(date +%s%N); find /usr -type f -name "*.so*" 2>/dev/null | head -2000 >/dev/null; T1=$(date +%s%N)
+    printf "$(gettext 'scanning 2000 files in /usr: %s ms')\n" "$(( (T1-T0)/1000000 ))"
+fi
+subsection "$(gettext "starting a program (terminal)")"
+if has foot; then
+    T0=$(date +%s%N); timeout 10 foot --version >/dev/null 2>&1; T1=$(date +%s%N)
+    echo "foot --version: $(( (T1-T0)/1000000 )) ms"
+fi
+subsection "$(gettext "starting ZETA's interpreter (how long it takes to load the modules)")"
+if [ -d /usr/lib/zeta ]; then
+    T0=$(date +%s%N)
+    timeout 60 python3 -c "import sys; sys.path.insert(0,'/usr/lib/zeta')
+from intelligence.registry import Registry
+r = Registry()" >/dev/null 2>&1
+    T1=$(date +%s%N)
+    printf "$(gettext 'loading Registry: %s ms')\n" "$(( (T1-T0)/1000000 ))"
+    echo "$(gettext "(if it takes more than 2000 ms, something in the loading is waiting for something else)")"
+fi
+subsection "$(gettext "local AI response (short question, 90 seconds at most)")"
+if has curl && curl -s -m 3 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+    MOD=$(has ollama && ollama list 2>/dev/null | awk 'NR==2{print $1}')
+    if [ -n "$MOD" ]; then
+        T0=$(date +%s%N)
+        curl -s -m 90 http://127.0.0.1:11434/api/generate \
+             -d "{\"model\":\"$MOD\",\"prompt\":\"Reply only: ok\",\"stream\":false}" >/dev/null 2>&1
+        T1=$(date +%s%N)
+        printf "$(gettext 'model %s, first response: %s ms')\n" "$MOD" "$(( (T1-T0)/1000000 ))"
+    else
+        echo "$(gettext "(no model installed)")"
+    fi
+else
+    echo "$(gettext "(Ollama unreachable: test skipped)")"
+fi
+
+section "$(gettext "END")"
+echo "$(gettext "Report complete. Nothing was changed on the computer.")"
+
+}
+
+if [ "$DEST" = /dev/stdout ]; then
+    report
+else
+    report > "$DEST" 2>&1
+    chmod 600 "$DEST"
+    [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER": "$DEST" 2>/dev/null
+    echo "$(gettext "Diagnostics complete.")"
+    printf "$(gettext 'Report: %s')\n" "$DEST"
+    printf "$(gettext 'Lines: %s')\n" "$(wc -l < "$DEST")"
+    echo
+    echo "$(gettext "Nothing was changed. The report contains no API keys.")"
+fi

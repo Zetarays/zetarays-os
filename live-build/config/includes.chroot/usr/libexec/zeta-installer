@@ -1,22 +1,22 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Avvia Calamares come root per installare ZETA RAYS OS (chiamato da pkexec o sudo).
-# pkexec azzera l'ambiente: qui si ripristinano lingua e impostazioni Qt.
-# L'installer parte in INGLESE: e la lingua che chiunque nel mondo puo leggere,
-# e la prima schermata di Calamares ha il menu per scegliere la propria (la
-# scelta vale sia per l'installazione sia per il sistema installato). Prima qui
-# si forzava l'italiano, e chi non lo parla non capiva nemmeno da dove cambiarlo.
+# Launches Calamares as root to install ZETA RAYS OS (called via pkexec or sudo).
+# pkexec wipes the environment: language and Qt settings are restored here.
+# The installer starts in ENGLISH: it is the language anyone in the world can
+# read, and Calamares' first screen has the menu to pick one's own (the choice
+# applies both to the installation and to the installed system). Italian used
+# to be forced here, and non-speakers could not even tell where to change it.
 export LANG=en_US.UTF-8
 export LANGUAGE=en_US:en
 export QT_QPA_PLATFORM=xcb QT_AUTO_SCREEN_SCALE_FACTOR=1 QT_FONT_DPI=82
 
-# Solo nel sistema live: il /etc/fstab di live-build confonde il partizionatore.
+# Live system only: live-build's /etc/fstab confuses the partitioner.
 moved=0
 if [ -e /run/live/medium ] && [ -f /etc/fstab ]; then
     mv /etc/fstab /etc/fstab.zeta-installer && moved=1
 fi
-# Un'installazione interrotta lascia i dischi montati e il partizionatore
-# offrirebbe solo la modalità manuale: si liberano prima di ripartire.
+# An interrupted installation leaves the disks mounted and the partitioner
+# would only offer manual mode: release them before starting again.
 release_leftovers() {
     for m in $(awk '$2 ~ /^\/tmp\/calamares-root-/ {print $2}' /proc/mounts | sort -r); do
         umount -l "$m" 2>/dev/null
@@ -27,13 +27,13 @@ release_leftovers() {
 }
 release_leftovers
 
-# Durante l'installazione il computer non deve bloccare lo schermo ne'
-# sospendersi. Prima, dopo dieci minuti di inattivita', scattava il blocco:
-# l'installazione continuava sotto, ma chi si era allontanato tornava e
-# trovava una richiesta di password senza capire se fosse finita. Peggio la
-# sospensione (o un portatile chiuso): fermare la scrittura sul disco a meta'
-# lascia un sistema installato a pezzi. L'inibitore vale finche' Calamares e'
-# aperto e sparisce da solo quando si chiude, anche se si chiude male.
+# During installation the computer must neither lock the screen nor
+# suspend. Previously, after ten minutes of inactivity the lock kicked in:
+# the installation kept going underneath, but whoever had stepped away came
+# back to a password prompt with no idea whether it had finished. Suspend (or
+# closing a laptop lid) was worse: stopping disk writes halfway leaves a
+# broken installed system. The inhibitor lasts as long as Calamares is open
+# and goes away on its own when it exits, even if it exits abnormally.
 if command -v systemd-inhibit >/dev/null 2>&1; then
     systemd-inhibit --what=idle:sleep:handle-lid-switch \
         --who="ZETA RAYS" --why="Installation in progress" \

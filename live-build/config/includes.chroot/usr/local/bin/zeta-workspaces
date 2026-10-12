@@ -1,0 +1,205 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-workspaces — workspaces in the bar.
+
+Waybar has a "hyprland/workspaces" module, but to switch workspace it sends
+Hyprland a command in the legacy syntax ("dispatch workspace 2"). Hyprland
+0.55, which reads a Lua configuration, no longer accepts that syntax: the
+result was that clicking a number in the bar did absolutely nothing. Here
+the rendering and the click handling are ours, and use the right syntax.
+
+  zeta-workspaces status N  print the state of workspace N (called by Waybar)
+  zeta-workspaces go N      take the user to workspace N
+  zeta-workspaces listen    listen to Hyprland events and notify the bar
+                            when something changes (a single process)
+
+Why a separate listener instead of three modules that stay running: Waybar
+does not reap long-lived children when it reloads, and every reload left
+behind one zombie process per module. With the signal, the modules are
+short commands that exit on their own, and only one process is listening.
+"""
+import json
+import os
+import socket
+import subprocess
+import threading
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+N_WORKSPACES = 3
+
+
+def _hyprctl(args):
+    try:
+        r = subprocess.run(["hyprctl"] + args, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def state(n):
+    """{'text','class','alt'} for workspace n: active, occupied or empty."""
+    out = _hyprctl(["-j", "workspaces"])
+    active = _hyprctl(["-j", "activeworkspace"])
+    populated = False
+    try:
+        for w in json.loads(out or "[]"):
+            if w.get("id") == n and w.get("windows", 0) > 0:
+                populated = True
+    except ValueError:
+        pass
+    current = None
+    try:
+        current = json.loads(active or "{}").get("id")
+    except ValueError:
+        pass
+    class_name = "active" if current == n else ("occupied" if populated else "empty")
+    return {"text": str(n), "class": class_name, "alt": class_name,
+            "tooltip": tr("Workspace {n}").format(n=n)}
+
+
+def go(n):
+    _hyprctl(["dispatch", "hl.dsp.focus({ workspace = %d })" % n])
+
+
+def _events_socket():
+    his = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    base = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    if not his:
+        return None
+    for path in (os.path.join(base, "hypr", his, ".socket2.sock"),
+                     "/tmp/hypr/%s/.socket2.sock" % his):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+SIGNAL = 10          # SIGRTMIN+10 (9 is used by the minimized-windows module)
+DOCK_SIGNAL = 12     # SIGRTMIN+12: dock icons that show whether the app is open
+
+
+_confirm_timer = None
+
+
+def _notify_bar():
+    """Refresh the workspace numbers; shortly after, a second time.
+
+    With many events at once (opening a window generates several) Waybar
+    sometimes misses an update: the module stays hidden, and the number 1
+    disappeared from the bar until the next workspace switch. The second
+    signal, only one per burst of events, puts it back. When idle it costs
+    nothing: it only fires when there are events.
+    """
+    global _confirm_timer
+    subprocess.run(["pkill", "-RTMIN+%d" % SIGNAL, "-x", "waybar"],
+                   capture_output=True, check=False)
+    # an in-process timer, not a detached "sh -c sleep": that one stayed a
+    # zombie process until the next event (zeta-selftest flagged it)
+    if _confirm_timer is None or not _confirm_timer.is_alive():
+        _confirm_timer = _after(1.5, ["pkill", "-RTMIN+%d" % SIGNAL, "-x", "waybar"])
+
+
+def _after(seconds, argv):
+    """Run argv in a few seconds, without blocking and without zombies."""
+    t = threading.Timer(seconds, lambda: subprocess.run(argv, capture_output=True, check=False))
+    t.daemon = True
+    t.start()
+    return t
+
+
+def _minimized_closed(addr):
+    """A minimized app closed by itself: remove its thumbnail."""
+    try:
+        import json
+        with open(os.path.expanduser("~/.cache/zeta/windows.json")) as f:
+            if addr not in json.load(f):
+                return
+        sys.path.insert(0, "/usr/lib/zeta")
+        from system import windows
+        windows.forget(addr)
+    except (OSError, ValueError, ImportError):
+        pass
+
+
+def notify_bar():
+    """Listen to Hyprland and notify the bar on every change.
+
+    Listening instead of polling: three modules calling hyprctl every second
+    would mean six processes per second forever, and it would show in the
+    resource usage of an idle computer.
+    """
+    path = _events_socket()
+    if path is None:
+        return 1
+    INTERESTING_EVENTS = ("workspace>>", "focusedmon>>", "openwindow>>",
+                    "closewindow>>", "movewindow>>", "createworkspace>>",
+                    "destroyworkspace>>")
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+    except OSError:
+        return 1
+    rest = b""
+    try:
+        while True:
+            data = sock.recv(4096)
+            if not data:
+                break
+            rest += data
+            while b"\n" in rest:
+                line, rest = rest.split(b"\n", 1)
+                text = line.decode("utf-8", "replace")
+                if text.startswith(INTERESTING_EVENTS):
+                    _notify_bar()
+                if text.startswith(("openwindow>>", "closewindow>>")):
+                    subprocess.run(["pkill", "-RTMIN+%d" % DOCK_SIGNAL, "-x", "waybar"],
+                                   capture_output=True, check=False)
+                if text.startswith("closewindow>>"):
+                    _minimized_closed("0x" + text.split(">>", 1)[1].strip())
+                # keyboard layout changed (Alt+Shift or the indicator): update the code in the bar
+                if text.startswith("activelayout>>"):
+                    subprocess.run(["pkill", "-RTMIN+14", "-x", "waybar"],
+                                   capture_output=True, check=False)
+                # a display appears or disappears (also when it wakes up):
+                # Waybar sometimes duplicates the bar, so check shortly after
+                if text.startswith(("monitoradded", "monitorremoved")):
+                    _after(3, ["zeta-bar", "check"])
+    except OSError:
+        pass
+    finally:
+        sock.close()
+    return 0                # Hyprland exited: the listener exits too
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else ""
+    if cmd == "listen":
+        return notify_bar()
+    if len(argv) < 3:
+        print(tr("""zeta-workspaces — workspaces in the bar.
+
+  zeta-workspaces status N  print the state of workspace N (called by Waybar)
+  zeta-workspaces go N      take the user to workspace N
+  zeta-workspaces listen    listen to Hyprland events and notify the bar
+                            when something changes (a single process)"""), file=sys.stderr)
+        return 2
+    try:
+        n = int(argv[2])
+    except ValueError:
+        return 2
+    if not 1 <= n <= N_WORKSPACES:
+        return 2
+    if cmd == "go":
+        go(n)
+        _notify_bar()
+        return 0
+    if cmd == "status":
+        print(json.dumps(state(n)))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

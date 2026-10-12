@@ -1,0 +1,75 @@
+#!/bin/bash
+# shellcheck disable=SC2059  # the printf formats come from the translations (gettext)
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-view FILE… — shows any file in the terminal, in the right way for its type.
+#   text and code    colors (bat)            JSON/YAML/XML   formatted
+#   CSV/TSV          table                   logs            colors, from the end
+#   PDF              text of the PDF         images/audio/video  details and metadata
+#   archives         list of contents        binaries        hex dump (hexyl)
+# Scroll with the arrow keys, «/» searches, «q» quits. Never modifies the file.
+set -u
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
+command -v ngettext >/dev/null 2>&1 || ngettext() { if [ "$3" = 1 ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }
+PAGER_CMD="less -R -F -X -i -M"
+BAT=$(command -v batcat || command -v bat || true)
+
+colorize() {                      # $1 = language for bat, file on stdin
+    if [ -n "$BAT" ]; then "$BAT" --paging=never --color=always --style=numbers -l "$1"; else cat; fi
+}
+
+view_one() {
+    local f="$1" mime pages
+    if [ -d "$f" ]; then
+        if command -v eza >/dev/null; then eza --tree --level=2 --color=always "$f"; else ls -la "$f"; fi
+        return
+    fi
+    [ -r "$f" ] || { printf "$(gettext 'zeta-view: cannot read "%s"')\n" "$f" >&2; return 1; }
+    mime=$(file -b --mime-type -- "$f")
+    case "$f" in
+        *.json|*.geojson) jq -C . -- "$f" 2>/dev/null || colorize json < "$f"; return ;;
+        *.yaml|*.yml)     colorize yaml < "$f"; return ;;
+        *.xml|*.svg)      colorize xml < "$f"; return ;;
+        *.csv)            column -s, -t < "$f" | colorize csv; return ;;
+        *.tsv)            column -s $'\t' -t < "$f" | colorize tsv; return ;;
+        *.md|*.markdown)  colorize markdown < "$f"; return ;;
+        *.log|*.log.[0-9]) colorize log < "$f"; return ;;
+    esac
+    case "$mime" in
+        application/json) jq -C . -- "$f" 2>/dev/null || colorize json < "$f" ;;
+        application/pdf)
+            pages=$(LC_ALL=C pdfinfo -- "$f" 2>/dev/null | awk -F': *' '/^Pages/{print $2}')
+            if [ -n "$pages" ]; then
+                printf "── PDF: $(ngettext '%s page' '%s pages' "$pages") ──\n" "$pages"
+            else
+                echo "── PDF ──"
+            fi
+            pdftotext -layout -- "$f" - 2>/dev/null ;;
+        image/*|audio/*|video/*)
+            file -b -- "$f"
+            if command -v exiftool >/dev/null; then exiftool -- "$f" 2>/dev/null | head -40; fi ;;
+        application/zip|application/x-tar|application/gzip|application/x-7z-compressed|application/x-rar*|application/x-xz|application/x-bzip2|application/zstd|application/vnd.debian.binary-package|application/x-compressed-tar)
+            printf "── $(gettext 'Archive: %s') ──\n" "$(file -b -- "$f")"
+            if command -v bsdtar >/dev/null; then bsdtar -tvf "$f" 2>/dev/null
+            elif [ -x /usr/bin/lesspipe ]; then /usr/bin/lesspipe "$f"
+            else unzip -l -- "$f" 2>/dev/null || tar -tvf "$f"; fi ;;
+        text/*|application/x-shellscript|application/javascript|application/x-*script*|inode/x-empty)
+            if [ -n "$BAT" ]; then "$BAT" --paging=never --color=always --style=numbers -- "$f"; else cat -- "$f"; fi ;;
+        *)
+            echo "── $(file -b -- "$f") ──"
+            if command -v hexyl >/dev/null; then hexyl --length 4096 -- "$f"; else xxd -l 4096 -- "$f"; fi
+            printf "$(gettext '(first 4 KB; to see the readable text in the file: strings "%s")')\n" "$f" ;;
+    esac
+}
+
+[ $# -gt 0 ] || { gettext 'Usage: zeta-view FILE…
+Shows any file in the terminal, in the right way for its type:
+  text and code    colors (bat)            JSON/YAML/XML       formatted
+  CSV/TSV          table                   logs                colors, from the end
+  PDF              text of the PDF         images/audio/video  details and metadata
+  archives         list of contents        binaries            hex dump (hexyl)
+Scroll with the arrow keys, "/" searches, "q" quits. The file is never modified.'; echo; exit 1; }
+for f in "$@"; do
+    [ $# -gt 1 ] && printf '\033[1m==> %s <==\033[0m\n' "$f"
+    view_one "$f"
+done 2>&1 | $PAGER_CMD

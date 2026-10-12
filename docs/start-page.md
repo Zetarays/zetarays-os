@@ -26,13 +26,13 @@ included in the images.
 ## Where it comes from
 
 The page is **never edited by hand**: at every image build,
-`build.sh` generates it from `sito-zetarays/`, first with
-`tools/sito-font-libero.py` (which swaps Clash Display for Syne) and then with
-`tools/genera-pagina-firefox.py`. It is therefore always the same as the
+`build.sh` generates it from `site-zetarays/`, first with
+`tools/site-free-font.py` (which swaps Clash Display for Syne) and then with
+`tools/gen-firefox-start-page.py`. It is therefore always the same as the
 published site:
 
-    python3 tools/sito-font-libero.py sito-zetarays .cache/sito-font-libero
-    python3 tools/genera-pagina-firefox.py .cache/sito-font-libero \
+    python3 tools/site-free-font.py site-zetarays .cache/site-free-font
+    python3 tools/gen-firefox-start-page.py .cache/site-free-font \
         live-build/config/includes.chroot/usr/share/zetarays/start
 
 The script removes the Google Fonts links and the `canonical` link, removes
@@ -68,7 +68,7 @@ and after an update, Firefox opens the ZETA RAYS page instead of its own
 welcome pages. `/etc/firefox-esr/zeta-rays.js` (default values, which can be
 changed) turns off the "about:welcome" page and the privacy-notice tab, which
 ended on an error page without a network. Hyprland opens Firefox's main
-window at 80% of the screen (rule `zeta-browser-misura`), so the whole page is
+window at 80% of the screen (a window rule in `hyprland.lua`), so the whole page is
 visible from the first start.
 
 ## Automatic checks
@@ -87,7 +87,7 @@ headers are required. The site only has to be published.
 
 **TODO**: as of 3 October 2026, `https://zetarays.org/` redirects to
 `https://www.zetarays.org/`, which still shows Aruba's placeholder page. Until
-the site files (`sito-zetarays/`) are uploaded, Firefox shows that page when
+the site files (`site-zetarays/`) are uploaded, Firefox shows that page when
 online.
 
 ## How to test it

@@ -1,49 +1,50 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — barre del titolo per ogni finestra (hyprbars).
+# ZETA RAYS — title bars for every window (hyprbars).
 #
-# Hyprland non disegna decorazioni lato server: senza questo plugin nessuna
-# finestra avrebbe chiudi / ingrandisci / riduci. I pacchetti Debian di
-# hyprbars sono fermi a 0.53 e non caricano su Hyprland 0.55 (ABI diversa),
-# quindi il plugin si compila qui contro le intestazioni esatte di questa
-# immagine: la versione combacia sempre.
+# Hyprland draws no server-side decorations: without this plugin no window
+# would have close / maximize / minimize. The Debian hyprbars packages are
+# stuck at 0.53 and do not load on Hyprland 0.55 (different ABI), so the
+# plugin is compiled here against the exact headers of this image: the
+# version always matches.
 #
-# Non fatale: se la compilazione non riesce, la build continua e il desktop
-# resta usabile (chiusura con SUPER+Q e dal menu delle finestre).
+# Non-fatal when the build dependencies cannot be installed: the build goes
+# on and the desktop stays usable (close with SUPER+Q and from the window
+# menu). A failed compilation, however, is fatal (see below).
 set +e
-# i pacchetti di Hyprland corretto (hook 0350) non restano nell immagine,
-# qualunque sia l uscita di questo hook
-trap 'rm -rf /usr/share/zeta/hyprland-corretto' EXIT
+# the patched Hyprland packages (hook 0350) must not stay in the image,
+# whatever the exit status of this hook
+trap 'rm -rf /usr/share/zeta/hyprland-patched' EXIT
 
-SRC_TAG="v0.55.0"          # ramo dei plugin per Hyprland 0.55
+SRC_TAG="v0.55.0"          # plugin branch for Hyprland 0.55
 DEST="/usr/lib/zeta/hypr"
 
 HYPR_VER="$(dpkg-query -W -f='${Version}' hyprland 2>/dev/null)"
 if [ -z "$HYPR_VER" ]; then
-    echo "ZETA RAYS: hyprland non installato, salto hyprbars"
+    echo "ZETA RAYS: hyprland not installed, skipping hyprbars"
     exit 0
 fi
-echo "ZETA RAYS: compilo hyprbars per Hyprland $HYPR_VER…"
+echo "ZETA RAYS: building hyprbars for Hyprland $HYPR_VER…"
 
-# Pacchetti solo per la compilazione: alla fine si rimuove esattamente ciò che
-# è stato aggiunto qui (niente autoremove alla cieca sul resto del sistema).
-dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-prima.txt
+# Build-only packages: at the end exactly what was added here is removed
+# (no blind autoremove on the rest of the system).
+dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-before.txt
 BUILD_PKGS="build-essential pkg-config git hyprland-dev"
-# Hyprland corretto (hook 0350): intestazioni della stessa versione e con la
-# stessa aquamarine 0.11 del binario, non quelle piu' nuove dei backports.
-LOCALI=/usr/share/zeta/hyprland-corretto
-if ls "$LOCALI"/hyprland-dev_*.deb >/dev/null 2>&1; then
-    BUILD_PKGS="build-essential pkg-config git $(ls "$LOCALI"/hyprland-dev_*.deb "$LOCALI"/libaquamarine-dev_*.deb "$LOCALI"/libhyprutils-dev_*.deb 2>/dev/null | tr '\n' ' ')"
+# Patched Hyprland (hook 0350): headers of the same version and with the same
+# aquamarine 0.11 as the binary, not the newer ones from backports.
+LOCAL_DEBS=/usr/share/zeta/hyprland-patched
+if ls "$LOCAL_DEBS"/hyprland-dev_*.deb >/dev/null 2>&1; then
+    BUILD_PKGS="build-essential pkg-config git $(ls "$LOCAL_DEBS"/hyprland-dev_*.deb "$LOCAL_DEBS"/libaquamarine-dev_*.deb "$LOCAL_DEBS"/libhyprutils-dev_*.deb 2>/dev/null | tr '\n' ' ')"
 fi
 if ! apt-get install -y --no-install-recommends $BUILD_PKGS >/tmp/hyprbars-apt.log 2>&1; then
-    echo "ZETA RAYS: dipendenze di compilazione non installabili, salto hyprbars"
+    echo "ZETA RAYS: build dependencies cannot be installed, skipping hyprbars"
     tail -5 /tmp/hyprbars-apt.log
     exit 0
 fi
 
-# le versioni devono combaciare: il plugin viene rifiutato da Hyprland se no
+# the versions must match: otherwise Hyprland rejects the plugin
 HDR_VER="$(pkg-config --modversion hyprland 2>/dev/null)"
-echo "ZETA RAYS: intestazioni hyprland $HDR_VER"
+echo "ZETA RAYS: hyprland headers $HDR_VER"
 
 rm -rf /tmp/hyprland-plugins
 if git clone --quiet --depth 1 --branch "$SRC_TAG" \
@@ -51,41 +52,41 @@ if git clone --quiet --depth 1 --branch "$SRC_TAG" \
    make -C /tmp/hyprland-plugins/hyprbars all >/tmp/hyprbars-build.log 2>&1 &&
    [ -f /tmp/hyprland-plugins/hyprbars/hyprbars.so ]; then
     install -Dm0644 /tmp/hyprland-plugins/hyprbars/hyprbars.so "$DEST/hyprbars.so"
-    echo "ZETA RAYS: hyprbars.so installato in $DEST"
+    echo "ZETA RAYS: hyprbars.so installed in $DEST"
 else
-    echo "ZETA RAYS: ERRORE, compilazione di hyprbars non riuscita" >&2
+    echo "ZETA RAYS: ERROR, hyprbars build failed" >&2
     tail -15 /tmp/hyprbars-build.log 2>/dev/null
-    # fatale: senza hyprbars le finestre non hanno le barre del titolo
-    # (chiudi/riduci/ingrandisci). Prima si saltava in silenzio.
+    # fatal: without hyprbars windows have no title bars
+    # (close/minimize/maximize). It used to be skipped silently.
     exit 1
 fi
 rm -rf /tmp/hyprland-plugins
 
-# Ripulitura: gli strumenti di compilazione peserebbero centinaia di MB.
-# Si rimuovono SOLO i pacchetti comparsi durante questo hook, mai altro.
-dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-dopo.txt
-NUOVI=$(comm -13 /tmp/hyprbars-pkgs-prima.txt /tmp/hyprbars-pkgs-dopo.txt | tr '\n' ' ')
-if [ -n "$NUOVI" ]; then
-    echo "ZETA RAYS: rimuovo gli strumenti di compilazione"
-    apt-get purge -y $NUOVI >/dev/null 2>&1
+# Cleanup: the build tools would weigh hundreds of MB.
+# ONLY the packages that appeared during this hook are removed, nothing else.
+dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-after.txt
+NEW_PKGS=$(comm -13 /tmp/hyprbars-pkgs-before.txt /tmp/hyprbars-pkgs-after.txt | tr '\n' ' ')
+if [ -n "$NEW_PKGS" ]; then
+    echo "ZETA RAYS: removing the build tools"
+    apt-get purge -y $NEW_PKGS >/dev/null 2>&1
 fi
-rm -f /tmp/hyprbars-pkgs-prima.txt /tmp/hyprbars-pkgs-dopo.txt
+rm -f /tmp/hyprbars-pkgs-before.txt /tmp/hyprbars-pkgs-after.txt
 apt-get clean
 
-# rete di sicurezza: se la ripulitura avesse toccato Hyprland, rimettilo
+# safety net: if the cleanup touched Hyprland, reinstall it
 if ! dpkg-query -W -f='${Status}' hyprland 2>/dev/null | grep -q "install ok installed"; then
-    echo "ZETA RAYS: reinstallo hyprland dopo la ripulitura"
+    echo "ZETA RAYS: reinstalling hyprland after the cleanup"
     apt-get install -y hyprland >/dev/null 2>&1
 fi
 
-# Con le barre del titolo di ZETA RAYS su OGNI finestra, le app GTK non devono
-# disegnare anche i propri pulsanti: resterebbero due file di comandi.
-# Questo file si scrive solo se il plugin c'è davvero; altrimenti resta valido
-# 90_zeta.gschema.override (ingrandisci + chiudi disegnati da GTK).
+# With the ZETA RAYS title bars on EVERY window, GTK apps must not draw their
+# own buttons as well: there would be two rows of controls.
+# This file is written only if the plugin is really there; otherwise
+# 90_zeta.gschema.override stays in effect (maximize + close drawn by GTK).
 if [ -f "$DEST/hyprbars.so" ]; then
     cat > /usr/share/glib-2.0/schemas/95_zeta_hyprbars.gschema.override <<'EOF'
-# ZETA RAYS: i comandi finestra li disegna la barra del titolo di ZETA RAYS (hyprbars),
-# uguale per tutte le finestre. Le app GTK mostrano solo titolo e menu.
+# ZETA RAYS: window controls are drawn by the ZETA RAYS title bar (hyprbars),
+# the same for every window. GTK apps show only the title and menus.
 [org.gnome.desktop.wm.preferences]
 button-layout=':'
 EOF

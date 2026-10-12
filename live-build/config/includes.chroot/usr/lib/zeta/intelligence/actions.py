@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence — motore azioni (allowlist + livelli di permesso).
+"""ZETA RAYS Intelligence — action engine (allowlist + permission levels).
 
-L'AI non esegue comandi shell arbitrari. Può solo richiedere azioni definite
-qui, ognuna con un livello di permesso:
+The AI does not run arbitrary shell commands. It can only request the actions
+defined here, each with a permission level:
 
-  LIVELLO 0  conversazione
-  LIVELLO 1  lettura informazioni di sistema
-  LIVELLO 2  azioni utente su app/file
-  LIVELLO 3  configurazione di sistema      -> richiede conferma
-  LIVELLO 4  azioni amministrative/root      -> richiede conferma
+  LEVEL 0  conversation
+  LEVEL 1  reading system information
+  LEVEL 2  user actions on apps/files
+  LEVEL 3  system configuration          -> requires confirmation
+  LEVEL 4  administrative/root actions   -> requires confirmation
 
-Ogni azione richiesta viene registrata in ~/.local/share/zeta/actions.log.
-Le azioni di livello 3 e 4 restituiscono prima un'anteprima; vengono eseguite
-solo dopo autorizzazione esplicita.
+Every requested action is logged in ~/.local/share/zeta/actions.log.
+Level 3 and 4 actions first return a preview; they are executed only after
+explicit authorization.
 """
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ from .providers.base import ToolSpec
 
 
 def _popen(*a, **kw):
-    """Popen che aspetta la fine del programma in sottofondo (niente zombie
-    nel processo di ZETA, che resta aperto)."""
+    """Popen that waits for the program to finish in the background (no
+    zombies in the ZETA process, which stays open)."""
     import threading
     p = subprocess.Popen(*a, **kw)
     threading.Thread(target=p.wait, daemon=True).start()
@@ -43,8 +43,8 @@ def _popen(*a, **kw):
 
 LOG_FILE = Path(os.path.expanduser("~/.local/share/zeta/actions.log"))
 
-# wpctl scrive il volume con il separatore decimale della lingua (0,40 in
-# italiano): per leggerlo si chiede sempre la forma C (0.40)
+# wpctl prints the volume with the locale's decimal separator (0,40 in
+# Italian): to parse it we always ask for the C form (0.40)
 _ENV_C = dict(os.environ, LC_ALL="C")
 
 
@@ -52,7 +52,7 @@ _ENV_C = dict(os.environ, LC_ALL="C")
 class ActionResult:
     ok: bool
     output: str
-    # se serve conferma, l'azione non è ancora stata eseguita:
+    # if confirmation is needed, the action has not been executed yet:
     needs_confirmation: bool = False
     preview: str = ""
     impact: str = ""
@@ -76,7 +76,7 @@ class ActionEngine:
         self.actions: dict[str, Action] = {}
         self._register_builtin()
 
-    # --- registrazione ---
+    # --- registration ---
     def register(self, action: Action) -> None:
         self.actions[action.name] = action
 
@@ -84,20 +84,20 @@ class ActionEngine:
         return [ToolSpec(name=a.name, description=a.description, schema=a.schema)
                 for a in self.actions.values()]
 
-    # --- esecuzione ---
+    # --- execution ---
     def run(self, name: str, args: dict, *, authorized: bool = False) -> ActionResult:
         action = self.actions.get(name)
         if action is None:
             return ActionResult(False, tr("Unknown action: {name}").format(name=name))
         self._log(name, args, action.level)
-        # livelli 3/4: prima l'anteprima, poi l'esecuzione autorizzata
+        # levels 3/4: first the preview, then the authorized execution
         if action.level >= 3 and not authorized:
             preview, impact = self._preview(action, args)
             return ActionResult(True, "", needs_confirmation=True,
                                 preview=preview, impact=impact, level=action.level)
         try:
             return action.handler(args)
-        except Exception as e:  # noqa: BLE001 — mai far cadere ZETA
+        except Exception as e:  # noqa: BLE001 — never bring ZETA down
             return ActionResult(False, tr("Error during “{action}”: {error}").format(action=name, error=e))
 
     def _preview(self, action: Action, args: dict) -> tuple[str, str]:
@@ -111,7 +111,7 @@ class ActionEngine:
         try:
             LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
             if LOG_FILE.exists() and LOG_FILE.stat().st_size > 1_000_000:
-                LOG_FILE.replace(LOG_FILE.with_name(LOG_FILE.name + ".1"))   # resta corto
+                LOG_FILE.replace(LOG_FILE.with_name(LOG_FILE.name + ".1"))   # keep it short
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps({"t": time.strftime("%Y-%m-%dT%H:%M:%S"),
                                     "action": name, "level": level, "args": args},
@@ -119,9 +119,9 @@ class ActionEngine:
         except OSError:
             pass
 
-    # --- azioni predefinite ---
+    # --- built-in actions ---
     def _register_builtin(self) -> None:
-        # LIVELLO 1 — sola lettura
+        # LEVEL 1 — read only
         self.register(Action(
             "system_info", 1, tr("Shows information about ZETA RAYS OS (version, kernel, CPU, memory)."),
             {"type": "object", "properties": {}},
@@ -144,8 +144,8 @@ class ActionEngine:
             "find_files", 1, tr("Searches the home folder for files by name or extension, optionally only recently modified ones."),
             {"type": "object",
              "properties": {"pattern": {"type": "string", "description": "e.g. *.pdf or *invoice*; several extensions separated by commas: *.jpg,*.png"},
-                            "oggi": {"type": "boolean", "description": "only files modified today"},
-                            "giorni": {"type": "integer", "description": "only files modified in the last N days"}},
+                            "today": {"type": "boolean", "description": "only files modified today"},
+                            "days": {"type": "integer", "description": "only files modified in the last N days"}},
              "required": ["pattern"]},
             _find_files))
         self.register(Action(
@@ -180,7 +180,7 @@ class ActionEngine:
             {"type": "object", "properties": {}},
             lambda a: ActionResult(True, _list_applications())))
 
-        # LIVELLO 2 — azioni utente
+        # LEVEL 2 — user actions
         self.register(Action(
             "open_application", 2, tr("Opens an installed app (common name or executable)."),
             {"type": "object",
@@ -190,13 +190,13 @@ class ActionEngine:
         self.register(Action(
             "open_folder", 2, tr("Opens a folder in the file manager (e.g. documents, downloads, pictures, or a path)."),
             {"type": "object",
-             "properties": {"name": {"type": "string", "description": "documenti, download, immagini, musica, video, scrivania, home (or their English names), or a path"}},
+             "properties": {"name": {"type": "string", "description": "documents, downloads, pictures, music, videos, desktop, home, trash, or a path"}},
              "required": ["name"]},
             _open_folder))
         self.register(Action(
             "open_settings", 2, tr("Opens ZETA RAYS Settings, optionally on a specific page."),
             {"type": "object",
-             "properties": {"page": {"type": "string", "description": "page key: aspetto (appearance), rete (network), bluetooth, audio, ai, sicurezza (security), pacchetti (packages), informazioni (about)"}}},
+             "properties": {"page": {"type": "string", "description": "page key: appearance, network, bluetooth, audio, ai, security, packages, info (about)"}}},
             _open_settings))
         self.register(Action(
             "open_system_monitor", 2, tr("Opens the ZETA RAYS System Monitor (CPU, network, processes, firewall…)."),
@@ -206,41 +206,41 @@ class ActionEngine:
         self.register(Action(
             "open_security", 2, tr("Opens ZETA RAYS Security (firewall, security tools, system status)."),
             {"type": "object", "properties": {}},
-            lambda a: _launch("zeta-sicurezza", [], "ZETA RAYS Security")))
-        # Quando nessuna delle azioni qui sopra basta, ZETA non si arrende:
-        # scrive il comando che servirebbe, lo mette negli appunti e apre il
-        # terminale. A premere Invio sei tu. Cosi ZETA puo aiutare su
-        # qualunque cosa senza che un modello da un miliardo di parametri
-        # possa eseguire da solo qualcosa di irreversibile.
-        # --- energia: livello 3, perche interrompono il lavoro dell utente ---
+            lambda a: _launch("zeta-security", [], "ZETA RAYS Security")))
+        # When none of the actions above is enough, ZETA does not give up: it
+        # writes the command that would be needed, puts it in the clipboard
+        # and opens the terminal. You are the one who presses Enter. This way
+        # ZETA can help with anything without a one-billion-parameter model
+        # being able to do something irreversible on its own.
+        # --- power: level 3, because they interrupt the user's work ---
         self.register(Action(
             "lock_screen", 2, tr("Locks the screen."),
             {"type": "object", "properties": {}},
-            lambda a: _energia("lock", tr("Locking the screen."))))
+            lambda a: _power_action("lock", tr("Locking the screen."))))
         self.register(Action(
             "log_out", 3, tr("Ends the session and returns to the login screen."),
             {"type": "object", "properties": {}},
-            lambda a: _energia("logout", tr("Logging out."))))
+            lambda a: _power_action("logout", tr("Logging out."))))
         self.register(Action(
             "suspend", 3, tr("Suspends the computer."),
             {"type": "object", "properties": {}},
-            lambda a: _energia("suspend", tr("Suspending the computer."))))
+            lambda a: _power_action("suspend", tr("Suspending the computer."))))
         self.register(Action(
             "reboot", 4, tr("Restarts the computer."),
             {"type": "object", "properties": {}},
-            lambda a: _semplice(["systemctl", "reboot"], tr("Restarting."))))
+            lambda a: _simple(["systemctl", "reboot"], tr("Restarting."))))
         self.register(Action(
             "power_off", 4, tr("Shuts down the computer."),
             {"type": "object", "properties": {}},
-            lambda a: _semplice(["systemctl", "poweroff"], tr("Shutting down."))))
+            lambda a: _simple(["systemctl", "poweroff"], tr("Shutting down."))))
 
-        # --- suono e schermo ---
+        # --- sound and screen ---
         self.register(Action(
             "set_volume", 2, tr("Sets the volume (0-100), raises or lowers it by a step, or mutes it."),
             {"type": "object",
              "properties": {"level": {"type": "integer", "description": "from 0 to 100"},
-                            "step": {"type": "string", "enum": ["su", "giu"],
-                                     "description": "su = up, giu = down, relative to the current volume"},
+                            "step": {"type": "string", "enum": ["up", "down"],
+                                     "description": "up or down, relative to the current volume"},
                             "amount": {"type": "integer", "description": "by how many points (default 10)"},
                             "mute": {"type": "boolean"}}},
             _set_volume))
@@ -251,7 +251,7 @@ class ActionEngine:
              "required": ["level"]},
             _set_brightness))
 
-        # --- file e cartelle ---
+        # --- files and folders ---
         self.register(Action(
             "create_folder", 2, tr("Creates a folder in the home folder."),
             {"type": "object",
@@ -302,36 +302,36 @@ class ActionEngine:
         self.register(Action(
             "empty_trash", 3, tr("Empties the Trash. This can't be undone."),
             {"type": "object", "properties": {}},
-            lambda a: _semplice(["sh", "-c", "gio trash --empty"], tr("Trash emptied."))))
+            lambda a: _simple(["sh", "-c", "gio trash --empty"], tr("Trash emptied."))))
 
-        # --- programmi ---
+        # --- programs ---
         self.register(Action(
             "install_package", 4, tr("Installs a program from the system repositories."),
             {"type": "object",
              "properties": {"name": {"type": "string"}},
              "required": ["name"]},
-            lambda a: _pacchetto("install", a)))
+            lambda a: _package("install", a)))
         self.register(Action(
             "remove_package", 4, tr("Removes an installed program."),
             {"type": "object",
              "properties": {"name": {"type": "string"}},
              "required": ["name"]},
-            lambda a: _pacchetto("remove", a)))
+            lambda a: _package("remove", a)))
 
-        # --- rete ---
+        # --- network ---
         self.register(Action(
             "wifi_toggle", 3, tr("Turns Wi-Fi on or off."),
             {"type": "object",
              "properties": {"on": {"type": "boolean"}},
              "required": ["on"]},
-            lambda a: _semplice(["nmcli", "radio", "wifi", "on" if a.get("on") else "off"],
+            lambda a: _simple(["nmcli", "radio", "wifi", "on" if a.get("on") else "off"],
                                 tr("Wi-Fi on.") if a.get("on") else tr("Wi-Fi off."))))
 
-        # Nessuna azione «esegui un comando qualunque»: c'era (livello 4, con
-        # conferma e perfino come amministratore) e va contro una regola di
-        # ZETA RAYS: l'AI non ha mai accesso libero al sistema, men che meno
-        # da root. Quando nessuna azione basta, ZETA prepara il comando nel
-        # terminale e lo lascia decidere a chi sta davanti allo schermo.
+        # No «run any command» action: there was one (level 4, with
+        # confirmation and even as administrator) and it goes against a
+        # ZETA RAYS rule: the AI never has free access to the system, let
+        # alone as root. When no action is enough, ZETA prepares the command
+        # in the terminal and leaves the decision to whoever sits at the screen.
         self.register(Action(
             "propose_command", 2,
             tr("Prepares a command in the terminal for the user, without running it. "
@@ -361,7 +361,7 @@ class ActionEngine:
             "set_wallpaper", 3, tr("Changes the desktop wallpaper, or restores the ZETA RAYS one."),
             {"type": "object",
              "properties": {"name": {"type": "string",
-                                     "description": "path of the image, or «predefinito» to go back to the ZETA RAYS one"}}},
+                                     "description": "path of the image, or «default» to go back to the ZETA RAYS one"}}},
             _set_wallpaper))
         self.register(Action(
             "open_terminal", 2, tr("Opens the terminal."),
@@ -400,12 +400,12 @@ class ActionEngine:
             {"type": "object", "properties": {}},
             lambda a: _volume_status()))
 
-        # LIVELLO 3 — configurazione (conferma richiesta)
+        # LEVEL 3 — configuration (confirmation required)
         self.register(Action(
             "set_theme", 3, tr("Switches to the light or dark theme."),
             {"type": "object",
-             "properties": {"tema": {"type": "string", "description": "chiaro (light) or scuro (dark)"}},
-             "required": ["tema"]},
+             "properties": {"theme": {"type": "string", "description": "light or dark"}},
+             "required": ["theme"]},
             _set_theme))
         self.register(Action(
             "set_accent", 3, tr("Changes the system accent color (#RRGGBB)."),
@@ -436,22 +436,22 @@ def _system_info() -> str:
     except OSError:
         pass
     import platform
-    righe = [
+    lines = [
         ("OS:", info.get("PRETTY_NAME", "ZETA RAYS OS")),
         (tr("Version:"), info.get("VERSION_ID", "2.0")),
         (tr("Architecture:"), platform.machine()),
         ("Kernel:", "Linux %s" % platform.release()),
         (tr("Environment:"), "ZETA RAYS Shell"),
     ]
-    largo = max(15, max(len(k) for k, _v in righe) + 2)
-    return "\n".join(k.ljust(largo) + v for k, v in righe)
+    width = max(15, max(len(k) for k, _v in lines) + 2)
+    return "\n".join(k.ljust(width) + v for k, v in lines)
 
 
 def _security_status() -> str:
-    # «systemctl is-active» stampa sempre active/inactive/failed in inglese
+    # «systemctl is-active» always prints active/inactive/failed in English
     fw = (_run(["systemctl", "is-active", "nftables"], env=_ENV_C).splitlines() or [""])[0].strip()
-    stati = {"active": tr("active"), "inactive": tr("inactive"), "failed": tr("failed")}
-    return tr("Firewall: {state}").format(state=stati.get(fw, fw or tr("unknown")))
+    states = {"active": tr("active"), "inactive": tr("inactive"), "failed": tr("failed")}
+    return tr("Firewall: {state}").format(state=states.get(fw, fw or tr("unknown")))
 
 
 def _home() -> Path:
@@ -459,78 +459,78 @@ def _home() -> Path:
 
 
 def _safe_path(raw: str) -> Path | None:
-    """Confina un percorso nella cartella personale (niente '..' o percorsi assoluti fuori)."""
+    """Confines a path to the home folder (no '..' or absolute paths outside it)."""
     p = (_home() / raw).resolve() if not os.path.isabs(raw) else Path(raw).resolve()
     return p if str(p).startswith(str(_home())) else None
 
 
 def _find_files(args: dict) -> ActionResult:
-    """Cerca nella cartella personale, i più recenti prima.
+    """Searches the home folder, most recent first.
 
-    Le cartelle nascoste (.cache, .config, .local...) restano fuori: prima
-    «cerca i png» restituiva le miniature della cache invece delle foto.
-    Il comando si passa come elenco di argomenti, senza shell.
+    Hidden folders (.cache, .config, .local...) are left out: previously
+    «cerca i png» returned the cached thumbnails instead of the photos.
+    The command is passed as a list of arguments, without a shell.
     """
     pattern = (args.get("pattern") or "*").strip() or "*"
-    casa = str(_home())
-    cmd = ["find", casa, "-maxdepth", "8"]
-    if args.get("oggi"):
-        cmd.append("-daystart")          # «oggi» = da mezzanotte, non «ultime 24 ore»
-    # più estensioni separate da virgola: «*.jpg,*.png» = l'una o l'altra
-    nomi = [p.strip() for p in pattern.split(",") if p.strip()] or ["*"]
+    home = str(_home())
+    cmd = ["find", home, "-maxdepth", "8"]
+    if args.get("today"):
+        cmd.append("-daystart")          # «today» = since midnight, not «last 24 hours»
+    # several comma-separated extensions: «*.jpg,*.png» = either one
+    names = [p.strip() for p in pattern.split(",") if p.strip()] or ["*"]
     cmd += ["-not", "-path", "*/.*", "("]
-    for i, nome in enumerate(nomi):
-        cmd += (["-o"] if i else []) + ["-iname", nome]
+    for i, name in enumerate(names):
+        cmd += (["-o"] if i else []) + ["-iname", name]
     cmd += [")"]
-    if args.get("oggi"):
+    if args.get("today"):
         cmd += ["-mtime", "0"]
     else:
         try:
-            giorni = int(args.get("giorni") or 0)
+            days = int(args.get("days") or 0)
         except (TypeError, ValueError):
-            giorni = 0
-        if giorni > 0:
-            cmd += ["-mtime", "-%d" % giorni]
+            days = 0
+        if days > 0:
+            cmd += ["-mtime", "-%d" % days]
     cmd += ["-printf", "%T@\t%y\t%p\n"]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
     except subprocess.TimeoutExpired:
         return ActionResult(False, tr("The search is taking too long: try a more specific name."))
-    righe = []
-    for riga in out.splitlines():
+    lines = []
+    for line in out.splitlines():
         try:
-            t, tipo, percorso = riga.split("\t", 2)
-            righe.append((float(t), tipo, percorso))
+            t, kind, path = line.split("\t", 2)
+            lines.append((float(t), kind, path))
         except ValueError:
             continue
-    oggi = bool(args.get("oggi"))
-    giorni = args.get("giorni") if not oggi else None
-    if not righe:
-        if oggi:
-            testo = tr("No “{pattern}” files modified today in your home folder.")
-        elif giorni:
-            testo = tr("No “{pattern}” files modified in the last {days} days in your home folder.")
+    today = bool(args.get("today"))
+    days = args.get("days") if not today else None
+    if not lines:
+        if today:
+            text = tr("No “{pattern}” files modified today in your home folder.")
+        elif days:
+            text = tr("No “{pattern}” files modified in the last {days} days in your home folder.")
         else:
-            testo = tr("No “{pattern}” files in your home folder.")
-        return ActionResult(True, testo.format(pattern=pattern, days=giorni))
-    righe.sort(reverse=True)
-    elenco = ["~" + p[len(casa):] + ("/" if tipo == "d" else "") for _t, tipo, p in righe[:40]]
-    n = len(righe)
+            text = tr("No “{pattern}” files in your home folder.")
+        return ActionResult(True, text.format(pattern=pattern, days=days))
+    lines.sort(reverse=True)
+    listing = ["~" + p[len(home):] + ("/" if kind == "d" else "") for _t, kind, p in lines[:40]]
+    n = len(lines)
     if n > 40:
-        if oggi:
-            testa = tr("Found {n} files modified today, here are the 40 most recent:")
-        elif giorni:
-            testa = tr("Found {n} files modified in the last {days} days, here are the 40 most recent:")
+        if today:
+            header = tr("Found {n} files modified today, here are the 40 most recent:")
+        elif days:
+            header = tr("Found {n} files modified in the last {days} days, here are the 40 most recent:")
         else:
-            testa = tr("Found {n} files, here are the 40 most recent:")
-    elif oggi:
-        testa = ntr("Found {n} file modified today:", "Found {n} files modified today:", n)
-    elif giorni:
-        testa = ntr("Found {n} file modified in the last {days} days:",
+            header = tr("Found {n} files, here are the 40 most recent:")
+    elif today:
+        header = ntr("Found {n} file modified today:", "Found {n} files modified today:", n)
+    elif days:
+        header = ntr("Found {n} file modified in the last {days} days:",
                     "Found {n} files modified in the last {days} days:", n)
     else:
-        testa = ntr("Found {n} file:", "Found {n} files:", n)
-    return ActionResult(True, testa.format(n=n, days=giorni) + "\n" + "\n".join(elenco))
+        header = ntr("Found {n} file:", "Found {n} files:", n)
+    return ActionResult(True, header.format(n=n, days=days) + "\n" + "\n".join(listing))
 
 
 def _read_file(args: dict) -> ActionResult:
@@ -544,7 +544,8 @@ def _read_file(args: dict) -> ActionResult:
         return ActionResult(False, tr("Couldn't read it: {error}").format(error=e))
 
 
-# nomi comuni -> eseguibile reale
+# common names -> actual executable
+# i18n-data-begin: Italian and English app names
 APP_ALIASES = {
     "browser": "firefox-esr", "internet": "firefox-esr", "web": "firefox-esr",
     "firefox": "firefox-esr", "navigatore": "firefox-esr", "web browser": "firefox-esr",
@@ -553,11 +554,11 @@ APP_ALIASES = {
     "file manager": "thunar", "folders": "thunar",
     "editor": "gnome-text-editor", "testo": "gnome-text-editor", "blocco note": "gnome-text-editor",
     "text editor": "gnome-text-editor", "notepad": "gnome-text-editor",
-    "impostazioni": "zeta-impostazioni", "settings": "zeta-impostazioni", "preferenze": "zeta-impostazioni",
-    "preferences": "zeta-impostazioni",
+    "impostazioni": "zeta-settings", "settings": "zeta-settings", "preferenze": "zeta-settings",
+    "preferences": "zeta-settings",
     "monitor": "zeta-monitor", "monitor di sistema": "zeta-monitor", "sistema": "zeta-monitor",
     "system monitor": "zeta-monitor", "task manager": "zeta-monitor",
-    "sicurezza": "zeta-sicurezza", "security": "zeta-sicurezza",
+    "sicurezza": "zeta-security", "security": "zeta-security",
     "calcolatrice": "gnome-calculator", "calcolatore": "gnome-calculator", "calculator": "gnome-calculator",
     "immagini": "eog", "foto": "eog", "documenti pdf": "evince", "pdf": "evince",
     "images": "eog", "photos": "eog", "pictures": "eog",
@@ -565,6 +566,7 @@ APP_ALIASES = {
     "music": "mpv", "videos": "mpv", "packages": "synaptic-pkexec",
     "core": "zeta-core", "assistente": "zeta-core", "assistant": "zeta-core",
 }
+# i18n-data-end
 
 
 def _resolve_app(app: str) -> str | None:
@@ -572,17 +574,17 @@ def _resolve_app(app: str) -> str | None:
     cand = APP_ALIASES.get(key, app)
     if shutil.which(cand):
         return cand
-    # prova anche l'eseguibile scritto così com'è
+    # also try the executable exactly as written
     return shutil.which(app)
 
 
-def _launch(cmd: str, extra: list, label: str, aperto: str | None = None) -> ActionResult:
+def _launch(cmd: str, extra: list, label: str, opened: str | None = None) -> ActionResult:
     exe = shutil.which(cmd)
     if not exe:
         return ActionResult(False, tr("{name} isn't available on this system.").format(name=label))
     try:
         _popen([exe] + [str(x) for x in extra], start_new_session=True)
-        return ActionResult(True, aperto or tr("Opening {name}.").format(name=label))
+        return ActionResult(True, opened or tr("Opening {name}.").format(name=label))
     except OSError as e:
         return ActionResult(False, tr("Couldn't start {name}: {error}").format(name=label, error=e))
 
@@ -599,7 +601,8 @@ def _open_application(args: dict) -> ActionResult:
         return ActionResult(False, tr("Couldn't start it: {error}").format(error=e))
 
 
-# cartelle comuni -> directory reale (usa xdg-user-dir quando disponibile)
+# common folders -> actual directory (uses xdg-user-dir when available)
+# i18n-data-begin: Italian and English folder names
 FOLDER_KEYS = {
     "documenti": "DOCUMENTS", "documents": "DOCUMENTS",
     "download": "DOWNLOAD", "scaricati": "DOWNLOAD", "downloads": "DOWNLOAD",
@@ -611,6 +614,7 @@ FOLDER_KEYS = {
     "pubblici": "PUBLICSHARE", "modelli": "TEMPLATES",
     "public": "PUBLICSHARE", "templates": "TEMPLATES",
 }
+# i18n-data-end
 
 
 def _xdg_dir(key: str) -> str:
@@ -623,11 +627,11 @@ def _xdg_dir(key: str) -> str:
 def _open_folder(args: dict) -> ActionResult:
     name = (args.get("name") or "").strip()
     low = name.lower()
-    if low in ("", "home", "personale", "casa", "cartella personale", "home folder"):
+    if low in ("", "home", "personale", "casa", "cartella personale", "home folder"):  # i18n-data
         target = str(_home())
-    elif low in ("cestino", "trash", "bin", "recycle bin"):
-        # il cestino non e una cartella qualunque: il gestore file lo apre
-        # come luogo speciale, da cui si possono ripristinare i file
+    elif low in ("cestino", "trash", "bin", "recycle bin"):  # i18n-data
+        # the Trash is not an ordinary folder: the file manager opens it as a
+        # special location, from which files can be restored
         try:
             _popen(["thunar", "trash:///"], start_new_session=True)
             return ActionResult(True, tr("Opening the Trash."))
@@ -651,22 +655,22 @@ def _open_folder(args: dict) -> ActionResult:
         return ActionResult(False, tr("Couldn't open it: {error}").format(error=e))
 
 
-def _energia(azione: str, messaggio: str) -> ActionResult:
-    """Blocco, sospensione, disconnessione: passano dal modulo power, che sa
-    come farlo davvero (hyprlock, hl.dsp.exit, systemctl), invece di un comando
-    inventato che non esisterebbe."""
+def _power_action(operation: str, message: str) -> ActionResult:
+    """Lock, suspend, log out: they go through the power module, which knows
+    how to really do it (hyprlock, hl.dsp.exit, systemctl), instead of a
+    made-up command that would not exist."""
     try:
         import sys
         sys.path.insert(0, "/usr/lib/zeta")
         from system import power
-        getattr(power, azione)()
-        return ActionResult(True, messaggio)
+        getattr(power, operation)()
+        return ActionResult(True, message)
     except Exception as e:  # noqa: BLE001
         return ActionResult(False, tr("Failed: {error}").format(error=e))
 
 
-def _semplice(cmd: list, messaggio: str) -> ActionResult:
-    """Esegue un comando gia scritto qui dentro (non arriva dal modello)."""
+def _simple(cmd: list, message: str) -> ActionResult:
+    """Runs a command written here in the code (it does not come from the model)."""
     if not shutil.which(cmd[0]):
         return ActionResult(False, tr("Command not available: {command}").format(command=cmd[0]))
     try:
@@ -675,56 +679,56 @@ def _semplice(cmd: list, messaggio: str) -> ActionResult:
         return ActionResult(False, tr("Failed: {error}").format(error=e))
     if r.returncode != 0:
         return ActionResult(False, (r.stderr or "").strip() or tr("Failed."))
-    return ActionResult(True, messaggio)
+    return ActionResult(True, message)
 
 
 def _set_volume(args: dict) -> ActionResult:
-    # Passa da zeta-volume, lo stesso comando delle scorciatoie e della
-    # rotella sulla barra: cosi l'icona del volume si aggiorna subito anche
-    # quando e ZETA a cambiarlo, invece di aspettare la lettura periodica.
+    # Goes through zeta-volume, the same command used by the shortcuts and
+    # the scroll wheel on the bar: this way the volume icon updates right
+    # away even when ZETA changes it, instead of waiting for the periodic read.
     if not shutil.which("zeta-volume"):
         return ActionResult(False, tr("Volume control isn't available."))
     if args.get("mute") is not None:
-        # «muto» e un interruttore: si legge lo stato e si agisce solo se serve
-        atteso = bool(args.get("mute"))
+        # «mute» is a toggle: read the state and act only if needed
+        expected_value = bool(args.get("mute"))
         try:
-            letto = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+            volume_output = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
                                    capture_output=True, text=True, timeout=5, env=_ENV_C).stdout
-            gia_muto = "MUTED" in letto
+            already_muted = "MUTED" in volume_output
         except Exception:
-            gia_muto = not atteso
-        if gia_muto != atteso:
-            return _semplice(["zeta-volume", "muto"],
-                             tr("Audio muted.") if atteso else tr("Audio unmuted."))
-        return ActionResult(True, tr("Audio is already muted.") if atteso else tr("Audio is already on."))
-    if args.get("step") in ("su", "giu"):
-        # «alza il volume» e relativo: prima lo portava sempre all'80%,
-        # cosi da 95 «alza» lo abbassava.
+            already_muted = not expected_value
+        if already_muted != expected_value:
+            return _simple(["zeta-volume", "mute"],
+                             tr("Audio muted.") if expected_value else tr("Audio unmuted."))
+        return ActionResult(True, tr("Audio is already muted.") if expected_value else tr("Audio is already on."))
+    if args.get("step") in ("up", "down"):
+        # «alza il volume» is relative: previously it always set it to 80%,
+        # so from 95 «raise» actually lowered it.
         try:
-            passo = max(1, min(50, int(args.get("amount") or 10)))
+            amount = max(1, min(50, int(args.get("amount") or 10)))
         except (TypeError, ValueError):
-            passo = 10
-        r = _semplice(["zeta-volume", args["step"], str(passo)], "")
+            amount = 10
+        r = _simple(["zeta-volume", args["step"], str(amount)], "")
         if not r.ok:
             return r
-        ora = _volume_attuale()
-        if args["step"] == "su":
-            testo = tr("Volume up: now at {level}%.") if ora is not None else tr("Volume up.")
+        now = _current_volume()
+        if args["step"] == "up":
+            text = tr("Volume up: now at {level}%.") if now is not None else tr("Volume up.")
         else:
-            testo = tr("Volume down: now at {level}%.") if ora is not None else tr("Volume down.")
-        return ActionResult(True, testo.format(level=ora))
+            text = tr("Volume down: now at {level}%.") if now is not None else tr("Volume down.")
+        return ActionResult(True, text.format(level=now))
     try:
-        livello = int(args.get("level", -1))
+        level = int(args.get("level", -1))
     except (TypeError, ValueError):
         return ActionResult(False, tr("Invalid level."))
-    if not 0 <= livello <= 100:
+    if not 0 <= level <= 100:
         return ActionResult(False, tr("Volume goes from 0 to 100."))
-    return _semplice(["zeta-volume", "imposta", str(livello)],
-                     tr("Volume at {level}%.").format(level=livello))
+    return _simple(["zeta-volume", "set", str(level)],
+                     tr("Volume at {level}%.").format(level=level))
 
 
-def _volume_attuale():
-    """Volume in percentuale (None se non leggibile)."""
+def _current_volume():
+    """Volume as a percentage (None if it cannot be read)."""
     try:
         out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
                              capture_output=True, text=True, timeout=5, env=_ENV_C).stdout
@@ -737,20 +741,20 @@ def _set_brightness(args: dict) -> ActionResult:
     if not shutil.which("brightnessctl"):
         return ActionResult(False, tr("This screen doesn't support brightness control."))
     try:
-        livello = int(args.get("level", -1))
+        level = int(args.get("level", -1))
     except (TypeError, ValueError):
         return ActionResult(False, tr("Invalid level."))
-    if not 0 <= livello <= 100:
+    if not 0 <= level <= 100:
         return ActionResult(False, tr("Brightness goes from 0 to 100."))
-    return _semplice(["brightnessctl", "set", "%d%%" % livello],
-                     tr("Brightness at {level}%.").format(level=livello))
+    return _simple(["brightnessctl", "set", "%d%%" % level],
+                     tr("Brightness at {level}%.").format(level=level))
 
 
 def _create_folder(args: dict) -> ActionResult:
-    nome = (args.get("name") or "").strip()
-    if not nome:
+    name = (args.get("name") or "").strip()
+    if not name:
         return ActionResult(False, tr("What should it be called?"))
-    p = _safe_path(nome)
+    p = _safe_path(name)
     if p is None:
         return ActionResult(False, tr("I can only create folders inside your home folder."))
     if p.exists():
@@ -763,21 +767,22 @@ def _create_folder(args: dict) -> ActionResult:
 
 
 def _trash_file(args: dict) -> ActionResult:
-    nome = (args.get("name") or "").strip()
-    p = _safe_path(nome) if nome else None
+    name = (args.get("name") or "").strip()
+    p = _safe_path(name) if name else None
     if p is None or not p.exists():
-        return ActionResult(False, tr("Can't find “{name}”.").format(name=nome))
+        return ActionResult(False, tr("Can't find “{name}”.").format(name=name))
     if not shutil.which("gio"):
         return ActionResult(False, tr("The Trash isn't available."))
-    return _semplice(["gio", "trash", str(p)],
+    return _simple(["gio", "trash", str(p)],
                      tr("“{name}” is in the Trash: you can still restore it.").format(name=p.name))
 
 
 def _screen_off(args: dict) -> ActionResult:
-    """Spegne lo schermo, senza bloccare la sessione.
+    """Turns off the screen, without locking the session.
 
-    Non e' lo spegnimento del computer ne' il blocco: e' il monitor che si
-    spegne e si riaccende al primo tasto. Serve a chi si allontana un momento.
+    It is neither shutting down the computer nor locking it: the monitor
+    turns off and comes back on at the first key press. Useful for stepping
+    away for a moment.
     """
     if not shutil.which("hyprctl"):
         return ActionResult(False, tr("This isn't available outside the desktop."))
@@ -789,49 +794,49 @@ def _screen_off(args: dict) -> ActionResult:
 
 
 def _rename_file(args: dict) -> ActionResult:
-    """Rinomina un file o una cartella, senza spostarlo altrove.
+    """Renames a file or folder, without moving it elsewhere.
 
-    Il nome nuovo non puo' contenere percorsi: «../..» o «/etc/passwd» come
-    nome nuovo sposterebbero il file fuori dalla cartella personale, che e'
-    esattamente cio' che _safe_path serve a impedire.
+    The new name cannot contain paths: «../..» or «/etc/passwd» as the new
+    name would move the file out of the home folder, which is exactly what
+    _safe_path is there to prevent.
     """
-    nome = (args.get("name") or "").strip()
-    nuovo = (args.get("new_name") or "").strip()
-    if not nome or not nuovo:
+    name = (args.get("name") or "").strip()
+    new = (args.get("new_name") or "").strip()
+    if not name or not new:
         return ActionResult(False, tr("I need both the current name and the new one."))
-    if "/" in nuovo or nuovo in (".", ".."):
+    if "/" in new or new in (".", ".."):
         return ActionResult(False, tr("The new name can't contain paths."))
-    p = _safe_path(nome)
+    p = _safe_path(name)
     if p is None or not p.exists():
-        return ActionResult(False, tr("Can't find “{name}”.").format(name=nome))
-    dest = p.parent / nuovo
+        return ActionResult(False, tr("Can't find “{name}”.").format(name=name))
+    dest = p.parent / new
     if dest.exists():
-        return ActionResult(False, tr("“{name}” already exists.").format(name=nuovo))
+        return ActionResult(False, tr("“{name}” already exists.").format(name=new))
     try:
         p.rename(dest)
     except OSError as e:
         return ActionResult(False, tr("Failed: {error}").format(error=e))
-    return ActionResult(True, tr("“{old}” is now called “{new}”.").format(old=p.name, new=nuovo))
+    return ActionResult(True, tr("“{old}” is now called “{new}”.").format(old=p.name, new=new))
 
 
 def _move_file(args: dict) -> ActionResult:
-    """Sposta un file o una cartella dentro un'altra cartella."""
-    nome = (args.get("name") or "").strip()
-    dove = (args.get("folder") or "").strip()
-    if not nome or not dove:
+    """Moves a file or folder into another folder."""
+    name = (args.get("name") or "").strip()
+    folder = (args.get("folder") or "").strip()
+    if not name or not folder:
         return ActionResult(False, tr("I need the file and the destination folder."))
-    p = _safe_path(nome)
-    low = dove.lower()
+    p = _safe_path(name)
+    low = folder.lower()
     if low in FOLDER_KEYS:
         d = Path(_xdg_dir(FOLDER_KEYS[low]))
-    elif low in ("", "home", "personale", "casa", "home folder"):
+    elif low in ("", "home", "personale", "casa", "home folder"):  # i18n-data
         d = _home()
     else:
-        d = _safe_path(dove)
+        d = _safe_path(folder)
     if p is None or not p.exists():
-        return ActionResult(False, tr("Can't find “{name}”.").format(name=nome))
+        return ActionResult(False, tr("Can't find “{name}”.").format(name=name))
     if d is None or not d.is_dir():
-        return ActionResult(False, tr("“{name}” isn't a folder.").format(name=dove))
+        return ActionResult(False, tr("“{name}” isn't a folder.").format(name=folder))
     dest = d / p.name
     if dest.exists():
         return ActionResult(False, tr("“{folder}” already contains “{name}”.").format(
@@ -844,29 +849,29 @@ def _move_file(args: dict) -> ActionResult:
 
 
 def _close_application(args: dict) -> ActionResult:
-    """Chiude un programma per nome, con garbo: la stessa chiusura dell'agente
-    (finestre chiuse con la richiesta normale, verifica che siano sparite, mai
-    KILL). Prima qui c'era «pkill -f <nome>», che chiudeva qualunque processo
-    con quella parola nella riga di comando e diceva «chiuso» senza guardare."""
-    from .agente import capacita
-    es = capacita.close_application({"app": (args.get("app") or "").strip()})
-    return ActionResult(bool(es.ok), es.messaggio)
+    """Closes a program by name, gracefully: the same close as the agent
+    (windows closed with the normal request, a check that they are gone,
+    never KILL). This used to be «pkill -f <name>», which closed any process
+    with that word in its command line and said «closed» without checking."""
+    from .agent import capabilities
+    es = capabilities.close_application({"app": (args.get("app") or "").strip()})
+    return ActionResult(bool(es.ok), es.message)
 
 
 def _screenshot(args: dict) -> ActionResult:
-    """Salva una schermata nella cartella Immagini."""
+    """Saves a screenshot in the Pictures folder."""
     if not shutil.which("grim"):
         return ActionResult(False, tr("The screenshot tool isn't available."))
-    # la cartella Immagini ha un nome diverso in ogni lingua (Pictures...):
-    # si chiede a xdg-user-dir, come per le altre cartelle
-    cartella = Path(_xdg_dir("PICTURES"))
-    if cartella == _home():
-        cartella = _home() / "Immagini"
-    cartella.mkdir(parents=True, exist_ok=True)
-    dest = cartella / (tr("screenshot-{time}.png").format(time=time.strftime("%Y%m%d-%H%M%S")))
-    # Con un limite di tempo: se il compositore non risponde alla richiesta di
-    # copia dello schermo, meglio un messaggio dopo dodici secondi che una
-    # finestra ferma per sempre.
+    # the Pictures folder has a different name in every language (Immagini...):
+    # ask xdg-user-dir, as for the other folders
+    folder = Path(_xdg_dir("PICTURES"))
+    if folder == _home():
+        folder = _home() / "Immagini"  # i18n-data: historical fallback name
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / (tr("screenshot-{time}.png").format(time=time.strftime("%Y%m%d-%H%M%S")))
+    # With a time limit: if the compositor does not answer the screen copy
+    # request, a message after twelve seconds is better than a window stuck
+    # forever.
     try:
         r = subprocess.run(["grim", str(dest)], capture_output=True, text=True, timeout=12)
     except subprocess.TimeoutExpired:
@@ -875,103 +880,103 @@ def _screenshot(args: dict) -> ActionResult:
     if r.returncode != 0 or not dest.exists():
         return ActionResult(False, (r.stderr or "").strip() or tr("Screenshot failed."))
     return ActionResult(True, tr("Screenshot saved in {folder}: {name}").format(
-        folder=cartella.name, name=dest.name))
+        folder=folder.name, name=dest.name))
 
 
 def _search_content(args: dict) -> ActionResult:
-    """Cerca una parola DENTRO i file, non solo nei nomi.
+    """Searches for a word INSIDE files, not just in their names.
 
-    Usa l'indice di zeta-cerca, che legge anche il testo dei PDF e quello
-    riconosciuto nelle immagini: e' l'unico modo per trovare «la fattura di
-    marzo» quando il file si chiama «scan_0012.pdf».
+    It uses the zeta-search index, which also reads the text of PDFs and the
+    text recognized in images: it is the only way to find «la fattura di
+    marzo» when the file is called «scan_0012.pdf».
     """
-    testo = (args.get("text") or "").strip()
-    if not testo:
+    text = (args.get("text") or "").strip()
+    if not text:
         return ActionResult(False, tr("What should I search for?"))
     if not shutil.which("zeta-index"):
         return ActionResult(False, tr("Content search isn't available."))
     try:
-        r = subprocess.run(["zeta-index", "cerca", testo], capture_output=True,
+        r = subprocess.run(["zeta-index", "--search", text], capture_output=True,
                            text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
         return ActionResult(False, tr("Search failed: {error}").format(error=e))
-    righe = [x for x in (r.stdout or "").splitlines() if x.strip()][:15]
-    if not righe:
-        return ActionResult(True, tr("No file contains “{text}”.").format(text=testo))
-    return ActionResult(True, ntr("Found in {n} file:", "Found in {n} files:", len(righe)).format(
-        n=len(righe)) + "\n" + "\n".join(righe))
+    lines = [x for x in (r.stdout or "").splitlines() if x.strip()][:15]
+    if not lines:
+        return ActionResult(True, tr("No file contains “{text}”.").format(text=text))
+    return ActionResult(True, ntr("Found in {n} file:", "Found in {n} files:", len(lines)).format(
+        n=len(lines)) + "\n" + "\n".join(lines))
 
 
-def _pacchetto(azione: str, args: dict) -> ActionResult:
-    nome = (args.get("name") or "").strip()
-    if not nome or not all(c.isalnum() or c in ".+-" for c in nome):
+def _package(operation: str, args: dict) -> ActionResult:
+    name = (args.get("name") or "").strip()
+    if not name or not all(c.isalnum() or c in ".+-" for c in name):
         return ActionResult(False, tr("Invalid program name."))
     if not shutil.which("pkexec"):
         return ActionResult(False, tr("I can't ask for administrator permissions."))
-    fatto = tr("Installed {name}.") if azione == "install" else tr("Removed {name}.")
-    return _semplice(["pkexec", "apt-get", "-y", azione, nome], fatto.format(name=nome))
+    done = tr("Installed {name}.") if operation == "install" else tr("Removed {name}.")
+    return _simple(["pkexec", "apt-get", "-y", operation, name], done.format(name=name))
 
 
 def _propose_command(args: dict) -> ActionResult:
-    """Prepara un comando per l utente: negli appunti e con il terminale aperto.
+    """Prepares a command for the user: in the clipboard, with the terminal open.
 
-    Non esegue nulla. E il modo di dire «so cosa serve, eccolo» lasciando la
-    decisione a chi sta davanti allo schermo.
+    It runs nothing. It is a way of saying «I know what is needed, here it
+    is» while leaving the decision to whoever sits at the screen.
     """
-    comando = (args.get("command") or "").strip()
-    if not comando:
+    command = (args.get("command") or "").strip()
+    if not command:
         return ActionResult(False, tr("No command to suggest."))
-    perche = (args.get("why") or "").strip()
-    copiato = False
-    for strumento in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
-        if shutil.which(strumento[0]):
+    reason = (args.get("why") or "").strip()
+    copied = False
+    for tool in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        if shutil.which(tool[0]):
             try:
-                subprocess.run(strumento, input=comando, text=True, timeout=5)
-                copiato = True
+                subprocess.run(tool, input=command, text=True, timeout=5)
+                copied = True
                 break
             except (OSError, subprocess.SubprocessError):
                 pass
-    terminale = shutil.which("foot")
-    if terminale:
+    terminal = shutil.which("foot")
+    if terminal:
         try:
-            _popen([terminale], start_new_session=True)
+            _popen([terminal], start_new_session=True)
         except OSError:
             pass
-    testo = tr("You need this command:") + "\n\n    %s\n" % comando
-    if perche:
-        testo += "\n(%s)\n" % perche
-    testo += "\n" + (tr("I copied it to the clipboard and opened the terminal: paste it "
-                        "with Ctrl+Shift+V and press Enter.") if copiato
+    text = tr("You need this command:") + "\n\n    %s\n" % command
+    if reason:
+        text += "\n(%s)\n" % reason
+    text += "\n" + (tr("I copied it to the clipboard and opened the terminal: paste it "
+                        "with Ctrl+Shift+V and press Enter.") if copied
                      else tr("I opened the terminal: type it there and press Enter."))
-    return ActionResult(True, testo)
+    return ActionResult(True, text)
 
 
 def _open_file(args: dict) -> ActionResult:
-    """Apre un file con il programma predefinito del sistema.
+    """Opens a file with the system's default program.
 
-    Il percorso resta confinato nella cartella personale, come per le
-    cartelle: ZETA non deve poter aprire file di sistema a comando.
+    The path stays confined to the home folder, as for folders: ZETA must
+    not be able to open system files on command.
     """
-    nome = (args.get("name") or "").strip()
-    if not nome:
+    name = (args.get("name") or "").strip()
+    if not name:
         return ActionResult(False, tr("Which file?"))
-    p = _safe_path(nome)
+    p = _safe_path(name)
     if p is None or not p.is_file():
-        # non è un percorso: si cerca per nome nella cartella personale
-        trovati = _run(["sh", "-c",
+        # not a path: search by name in the home folder
+        found = _run(["sh", "-c",
                         "find %s -maxdepth 6 -iname %s -type f 2>/dev/null | head -n 5"
-                        % (shlex.quote(str(_home())), shlex.quote("*%s*" % nome))])
-        righe = [r for r in trovati.splitlines() if r.strip()]
-        if not righe:
-            return ActionResult(False, tr("Can't find any file called “{name}”.").format(name=nome))
-        if len(righe) > 1:
-            elenco = "\n".join("  " + os.path.relpath(r, str(_home())) for r in righe)
-            return ActionResult(False, tr("There's more than one, tell me which:") + "\n" + elenco)
-        p = Path(righe[0])
-    apri = shutil.which("gio") or shutil.which("xdg-open")
-    if not apri:
+                        % (shlex.quote(str(_home())), shlex.quote("*%s*" % name))])
+        lines = [r for r in found.splitlines() if r.strip()]
+        if not lines:
+            return ActionResult(False, tr("Can't find any file called “{name}”.").format(name=name))
+        if len(lines) > 1:
+            listing = "\n".join("  " + os.path.relpath(r, str(_home())) for r in lines)
+            return ActionResult(False, tr("There's more than one, tell me which:") + "\n" + listing)
+        p = Path(lines[0])
+    open_at = shutil.which("gio") or shutil.which("xdg-open")
+    if not open_at:
         return ActionResult(False, tr("No app available to open files."))
-    cmd = [apri, "open", str(p)] if os.path.basename(apri) == "gio" else [apri, str(p)]
+    cmd = [open_at, "open", str(p)] if os.path.basename(open_at) == "gio" else [open_at, str(p)]
     try:
         _popen(cmd, start_new_session=True)
         return ActionResult(True, tr("Opening {name}.").format(name=p.name))
@@ -980,11 +985,11 @@ def _open_file(args: dict) -> ActionResult:
 
 
 def _open_url(args: dict) -> ActionResult:
-    """Apre un indirizzo nel navigatore.
+    """Opens an address in the browser.
 
-    Solo http e https: altri schemi (file://, comandi, percorsi locali) non
-    passano di qui, altrimenti ZETA diventerebbe un modo per far
-    aprire al sistema qualunque cosa.
+    Only http and https: other schemes (file://, commands, local paths) do
+    not go through here, otherwise ZETA would become a way to make the
+    system open anything.
     """
     url = (args.get("url") or "").strip()
     if not url:
@@ -1004,47 +1009,50 @@ def _open_url(args: dict) -> ActionResult:
 
 
 def _set_wallpaper(args: dict) -> ActionResult:
-    """Cambia lo sfondo, o torna a quello generato da ZETA RAYS."""
-    nome = (args.get("name") or "").strip()
-    if not shutil.which("zeta-sfondo"):
+    """Changes the wallpaper, or goes back to the one generated by ZETA RAYS."""
+    name = (args.get("name") or "").strip()
+    if not shutil.which("zeta-wallpaper"):
         return ActionResult(False, tr("The wallpaper command isn't available."))
-    if not nome or nome.lower() in ("predefinito", "default", "zeta", "zeta rays", "originale", "original"):
-        r = _run(["zeta-sfondo", "reset"])
+    if not name or name.lower() in ("predefinito", "default", "zeta", "zeta rays", "originale", "original"):  # i18n-data
+        r = _run(["zeta-wallpaper", "reset"])
         return ActionResult(True, tr("Restored the ZETA RAYS wallpaper.") + (" " + r if r else ""))
-    from system import sfondi
-    ufficiale = sfondi.cerca(nome)
-    if ufficiale:
-        _run(["zeta-sfondo", "set", ufficiale])
-        # si dice «fatto» solo se zeta-sfondo conferma davvero la scelta
-        if _run(["zeta-sfondo", "get"]).split("\n")[0].strip() != ufficiale:
+    from system import wallpapers
+    official = wallpapers.search(name)
+    if official:
+        _run(["zeta-wallpaper", "set", official])
+        # report «done» only if zeta-wallpaper really confirms the choice
+        if _run(["zeta-wallpaper", "get"]).split("\n")[0].strip() != official:
             return ActionResult(False, tr("I couldn't change the wallpaper."))
-        return ActionResult(True, tr("Wallpaper changed: {name}.").format(name=sfondi.nome_di(ufficiale)))
-    p = _safe_path(nome)
+        return ActionResult(True, tr("Wallpaper changed: {name}.").format(name=wallpapers.name_of(official)))
+    p = _safe_path(name)
     if p is None or not p.is_file():
-        return ActionResult(False, tr("Can't find the image “{name}”.").format(name=nome))
-    r = _run(["zeta-sfondo", "set", str(p)])
+        return ActionResult(False, tr("Can't find the image “{name}”.").format(name=name))
+    r = _run(["zeta-wallpaper", "set", str(p)])
     return ActionResult(True, tr("Wallpaper changed to {name}.").format(name=p.name) + (" " + r if r else ""))
 
 
-SETTINGS_PAGES = {"aspetto", "rete", "bluetooth", "audio", "ai", "sicurezza", "pacchetti", "informazioni"}
-SETTINGS_ALIASES = {"wifi": "rete", "wi-fi": "rete", "network": "rete", "suono": "audio",
-                    "intelligenza": "ai", "assistente": "ai", "tema": "aspetto", "colore": "aspetto",
-                    "info": "informazioni", "sistema": "informazioni",
-                    "appearance": "aspetto", "theme": "aspetto", "color": "aspetto", "wallpaper": "aspetto",
-                    "sound": "audio", "assistant": "ai", "security": "sicurezza",
-                    "packages": "pacchetti", "about": "informazioni", "system": "informazioni"}
+SETTINGS_PAGES = {"appearance", "network", "bluetooth", "audio", "ai", "security", "packages", "info"}
+# words the user (or the model) may use for a page -> page key  # i18n-data-begin
+SETTINGS_ALIASES = {"wifi": "network", "wi-fi": "network", "rete": "network", "suono": "audio",
+                    "intelligenza": "ai", "assistente": "ai", "tema": "appearance", "colore": "appearance",
+                    "aspetto": "appearance", "sicurezza": "security", "pacchetti": "packages",
+                    "informazioni": "info", "sistema": "info",
+                    "theme": "appearance", "color": "appearance", "wallpaper": "appearance",
+                    "sound": "audio", "assistant": "ai",
+                    "about": "info", "system": "info"}
+# i18n-data-end
 
 
-def nome_pagina(page: str) -> str:
-    """Nome mostrato di una pagina delle Impostazioni (la chiave resta italiana)."""
-    nomi = {"aspetto": tr("Appearance"), "rete": tr("Network"), "bluetooth": "Bluetooth",
-            "audio": tr("Sound"), "ai": "AI", "sicurezza": tr("Security"),
-            "pacchetti": tr("Packages"), "informazioni": tr("About")}
-    return nomi.get(page, page)
+def page_name(page: str) -> str:
+    """Display name of a Settings page."""
+    names = {"appearance": tr("Appearance"), "network": tr("Network"), "bluetooth": "Bluetooth",
+            "audio": tr("Sound"), "ai": "AI", "security": tr("Security"),
+            "packages": tr("Packages"), "info": tr("About")}
+    return names.get(page, page)
 
 
 def _open_settings(args: dict) -> ActionResult:
-    exe = shutil.which("zeta-impostazioni")
+    exe = shutil.which("zeta-settings")
     if not exe:
         return ActionResult(False, tr("Settings isn't available."))
     page = (args.get("page") or "").strip().lower()
@@ -1053,29 +1061,29 @@ def _open_settings(args: dict) -> ActionResult:
     try:
         _popen(cmd, start_new_session=True)
         if page in SETTINGS_PAGES:
-            return ActionResult(True, tr("Opening Settings › {page}.").format(page=nome_pagina(page)))
+            return ActionResult(True, tr("Opening Settings › {page}.").format(page=page_name(page)))
         return ActionResult(True, tr("Opening Settings."))
     except OSError as e:
         return ActionResult(False, tr("Couldn't open Settings: {error}").format(error=e))
 
 
-_GIORNI = (tr("Monday"), tr("Tuesday"), tr("Wednesday"), tr("Thursday"), tr("Friday"),
+_WEEKDAYS = (tr("Monday"), tr("Tuesday"), tr("Wednesday"), tr("Thursday"), tr("Friday"),
            tr("Saturday"), tr("Sunday"))
-_MESI = (tr("January"), tr("February"), tr("March"), tr("April"), tr("May"), tr("June"),
+_MONTHS = (tr("January"), tr("February"), tr("March"), tr("April"), tr("May"), tr("June"),
          tr("July"), tr("August"), tr("September"), tr("October"), tr("November"), tr("December"))
 
 
 def _current_time() -> ActionResult:
     import datetime
-    ora = datetime.datetime.now()
-    return ActionResult(True, tr("It's {time}.").format(time=ora.strftime("%H:%M")))
+    now = datetime.datetime.now()
+    return ActionResult(True, tr("It's {time}.").format(time=now.strftime("%H:%M")))
 
 
 def _current_date() -> ActionResult:
     import datetime
     o = datetime.date.today()
     return ActionResult(True, tr("Today is {weekday}, {month} {day}, {year}.").format(
-        weekday=_GIORNI[o.weekday()], day=o.day, month=_MESI[o.month - 1], year=o.year))
+        weekday=_WEEKDAYS[o.weekday()], day=o.day, month=_MONTHS[o.month - 1], year=o.year))
 
 
 def _battery_status() -> ActionResult:
@@ -1086,10 +1094,10 @@ def _battery_status() -> ActionResult:
     b = power.battery()
     if not b:
         return ActionResult(True, tr("This computer doesn't have a battery."))
-    stato = b.get("state") or ""
-    if stato:
+    state = b.get("state") or ""
+    if state:
         return ActionResult(True, tr("Battery at {percent}% — {state}.").format(
-            percent=b.get("percent", "?"), state=stato))
+            percent=b.get("percent", "?"), state=state))
     return ActionResult(True, tr("Battery at {percent}%.").format(percent=b.get("percent", "?")))
 
 
@@ -1097,13 +1105,13 @@ def _volume_status() -> ActionResult:
     out = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], timeout=4, env=_ENV_C)
     if not out or "Volume" not in out:
         return ActionResult(False, tr("I can't read the volume."))
-    muto = "MUTED" in out
+    muted = "MUTED" in out
     try:
-        valore = float(out.split()[1])
+        value = float(out.split()[1])
     except (IndexError, ValueError):
         return ActionResult(False, tr("I can't read the volume."))
-    testo = tr("Volume at {level}% (muted).") if muto else tr("Volume at {level}%.")
-    return ActionResult(True, testo.format(level=round(valore * 100)))
+    text = tr("Volume at {level}% (muted).") if muted else tr("Volume at {level}%.")
+    return ActionResult(True, text.format(level=round(value * 100)))
 
 
 def _windows():
@@ -1134,26 +1142,28 @@ def _list_windows() -> ActionResult:
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return ActionResult(False, tr("No desktop session is running."))
     w = _windows()
-    aperte = w.open_windows()
-    ridotte = w.minimized()
-    nessuna = "  " + tr("(none)")
-    righe = [tr("Open windows:")]
-    righe += ["  • " + tr("{title} (workspace {n})").format(title=x["title"][:50], n=x["workspace"])
-              for x in aperte] or [nessuna]
-    righe.append(tr("Minimized:"))
-    righe += ["  • %s" % x["title"][:50] for x in ridotte] or [nessuna]
-    return ActionResult(True, "\n".join(righe))
+    open_windows = w.open_windows()
+    minimized = w.minimized()
+    none_label = "  " + tr("(none)")
+    lines = [tr("Open windows:")]
+    lines += ["  • " + tr("{title} (workspace {n})").format(title=x["title"][:50], n=x["workspace"])
+              for x in open_windows] or [none_label]
+    lines.append(tr("Minimized:"))
+    lines += ["  • %s" % x["title"][:50] for x in minimized] or [none_label]
+    return ActionResult(True, "\n".join(lines))
 
 
 def _set_theme(args: dict) -> ActionResult:
-    tema = (args.get("tema") or "").strip().lower()
-    tema = {"light": "chiaro", "dark": "scuro"}.get(tema, tema)
-    if tema not in ("chiaro", "scuro"):
+    theme = (args.get("theme") or "").strip().lower()
+    # the model may answer in Italian too  # i18n-data
+    theme = ("light" if theme.startswith(("light", "chiar")) else  # i18n-data
+             "dark" if theme.startswith(("dark", "scur")) else "")  # i18n-data
+    if theme not in ("light", "dark"):
         return ActionResult(False, tr("Invalid theme: use “light” or “dark”."))
-    p = subprocess.run(["zeta-aspetto", "set", "tema", tema],
+    p = subprocess.run(["zeta-appearance", "set", "theme", theme],
                        capture_output=True, text=True)
     if p.returncode == 0:
-        return ActionResult(True, tr("Light theme applied.") if tema == "chiaro"
+        return ActionResult(True, tr("Light theme applied.") if theme == "light"
                             else tr("Dark theme applied."))
     return ActionResult(False, tr("I couldn't change the theme."))
 
@@ -1161,7 +1171,7 @@ def _set_theme(args: dict) -> ActionResult:
 def _close_active_window() -> ActionResult:
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return ActionResult(False, tr("No desktop session is running."))
-    # Hyprland di ZETA RAYS usa i dispatcher Lua: la forma classica non funziona.
+    # ZETA RAYS's Hyprland uses Lua dispatchers: the classic form does not work.
     p = subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close()"],
                        capture_output=True, text=True)
     if p.returncode == 0 and "ok" in (p.stdout or "").lower():
@@ -1210,13 +1220,13 @@ def _ip_address() -> str:
 
 
 def _list_applications() -> str:
-    """Le app del menu (registro unico: anche Flatpak e AppImage)."""
+    """The menu apps (single registry: Flatpak and AppImage too)."""
     import sys
     if "/usr/lib/zeta" not in sys.path:
         sys.path.insert(0, "/usr/lib/zeta")
-    from system import applicazioni
-    nomi = [a.nome for a in applicazioni.menu()]
-    return tr("Available apps:") + "\n" + ", ".join(nomi[:60]) if nomi else tr("No apps found.")
+    from system import applications
+    names = [a.name for a in applications.menu()]
+    return tr("Available apps:") + "\n" + ", ".join(names[:60]) if names else tr("No apps found.")
 
 
 def _set_accent(args: dict) -> ActionResult:

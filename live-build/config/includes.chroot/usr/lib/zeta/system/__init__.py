@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — accesso al sistema (audio, rete, Bluetooth, energia) per le app ZETA RAYS.
+"""ZETA RAYS — system access (audio, network, Bluetooth, power) for the ZETA RAYS apps.
 
-Funzioni semplici e senza stato che chiamano gli strumenti standard
-(wpctl, nmcli, busctl, systemctl, loginctl). Non sollevano eccezioni:
-se qualcosa manca restituiscono valori vuoti e la UI si adegua.
+Simple, stateless functions that call the standard tools
+(wpctl, nmcli, busctl, systemctl, loginctl). They never raise:
+if something is missing they return empty values and the UI adapts.
 """
 import os
 import signal
@@ -11,16 +11,15 @@ import subprocess
 
 
 def run(cmd, timeout=6, check=False):
-    """Esegue un comando; restituisce lo stdout ("" in caso di errore, None con check).
+    """Run a command; return its stdout ("" on error, None with check).
 
-    Allo scadere del tempo termina l'intero gruppo di processi: nessun comando
-    resta appeso in background.
+    When the timeout expires the whole process group is killed: no command
+    is left hanging in the background.
 
-    Lo stdout lo leggono le app, non le persone: gli strumenti di sistema
-    rispondono in inglese (LC_ALL=C.UTF-8), qualunque sia la lingua scelta
-    (es. «nmcli radio wifi» stampa «enabled», non «abilitato»). I programmi
-    di ZETA (zeta-*) restano nella lingua dell'utente: possono mostrare
-    notifiche.
+    The stdout is read by apps, not people: system tools answer in English
+    (LC_ALL=C.UTF-8) whatever language is selected (e.g. "nmcli radio wifi"
+    prints "enabled", not its localized equivalent). ZETA programs (zeta-*)
+    keep the user's language: they may show notifications.
     """
     env = None
     if not os.path.basename(str(cmd[0] if cmd else "")).startswith("zeta-"):
@@ -46,7 +45,7 @@ def run(cmd, timeout=6, check=False):
 
 
 def spawn(cmd):
-    """Avvia un programma staccato dall'app (non attende)."""
+    """Start a program detached from the app (does not wait)."""
     try:
         subprocess.Popen(cmd, start_new_session=True, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

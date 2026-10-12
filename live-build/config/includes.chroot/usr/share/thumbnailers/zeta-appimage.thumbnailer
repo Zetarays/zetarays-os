@@ -1,4 +1,4 @@
 [Thumbnailer Entry]
-TryExec=/usr/libexec/zeta-appimage-anteprima
-Exec=/usr/libexec/zeta-appimage-anteprima %i %o %s
+TryExec=/usr/libexec/zeta-appimage-thumbnail
+Exec=/usr/libexec/zeta-appimage-thumbnail %i %o %s
 MimeType=application/vnd.appimage;application/x-iso9660-appimage;

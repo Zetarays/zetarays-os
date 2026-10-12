@@ -1,16 +1,16 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Monitor — monitoraggio del sistema in tempo reale.
+"""ZETA RAYS Monitor — real-time system monitoring.
 
-Panoramica · Traffico · Mappa · Rete · VPN e proxy · Firewall · Connessioni ·
-Utenti · Sicurezza · Processi · Servizi · Sistema
+Overview · Traffic · Map · Network · VPN and proxy · Firewall · Connections ·
+Users · Security · Processes · Services · System
 
-Local-first: le sole richieste esterne sono la geolocalizzazione degli IP
-(IP pubblico e destinazioni delle connessioni), esplicite e disattivabili.
-I dati si raccolgono in un thread separato: l'interfaccia non si blocca mai.
-I dati che richiedono privilegi (regole del firewall, connessioni di tutti i
-processi, registro degli accessi) arrivano da /usr/libexec/zeta-monitor-helper
-(sola lettura, vedi /etc/sudoers.d/zeta-monitor).
+Local-first: the only external requests are IP geolocation lookups (public
+IP and connection destinations), explicit and can be disabled.
+Data is collected in a separate thread: the interface never freezes.
+Data that needs privileges (firewall rules, connections of all processes,
+login records) comes from /usr/libexec/zeta-monitor-helper (read-only, see
+/etc/sudoers.d/zeta-monitor).
 """
 import os
 import subprocess
@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import ntr, tr  # noqa: E402
-from ui import tema  # noqa: E402
+from ui import theme  # noqa: E402
 
 import gi  # noqa: E402
 
@@ -99,11 +99,13 @@ SECTIONS = [
     ("services", tr("Services")), ("system", tr("System")),
 ]
 # Italian section names, still accepted on the command line (the assistant may pass them)
+# i18n-data-begin
 SECTION_ALIASES = {
     "panoramica": "overview", "traffico": "traffic", "mappa": "map", "rete": "network",
     "vpn e proxy": "vpn", "connessioni": "connections", "utenti": "users", "sicurezza": "security",
     "processi": "processes", "servizi": "services", "sistema": "system",
 }
+# i18n-data-end
 
 
 def panel(title, expand=False):
@@ -135,11 +137,11 @@ def metric(value, unit="", cls="metric"):
 
 
 def kv_grid(keys):
-    """Griglia chiave/valore da [(chiave, etichetta)]; restituisce (widget, {chiave: label_valore})."""
+    """Key/value grid from [(key, label)]; returns (widget, {key: value_label})."""
     g = Gtk.Grid(column_spacing=16, row_spacing=6)
     vals = {}
-    for i, (k, etichetta) in enumerate(keys):
-        g.attach(Gtk.Label(label=etichetta, xalign=0, css_classes=["kv-key"]), 0, i, 1, 1)
+    for i, (k, label) in enumerate(keys):
+        g.attach(Gtk.Label(label=label, xalign=0, css_classes=["kv-key"]), 0, i, 1, 1)
         v = Gtk.Label(label="—", xalign=0, hexpand=True, css_classes=["kv-val", "mono"], selectable=True,
                       wrap=True)
         g.attach(v, 1, i, 1, 1)
@@ -147,11 +149,11 @@ def kv_grid(keys):
     return g, vals
 
 
-COUNTRY_IT = country_names()      # nomi dei paesi nella lingua dell'interfaccia
+COUNTRY_NAMES = country_names()      # country names in the interface language
 
 
-def country_it(g):
-    return COUNTRY_IT.get((g or {}).get("iso", ""), (g or {}).get("country", "")) if g else ""
+def country_name(g):
+    return COUNTRY_NAMES.get((g or {}).get("iso", ""), (g or {}).get("country", "")) if g else ""
 
 
 def chip(text, style=None):
@@ -168,8 +170,8 @@ def set_chip(lb, text, style):
 
 
 def scrolled(child, vertical=True):
-    """Contenitore della pagina: la finestra non supera mai lo schermo, al limite
-    la pagina scorre (anche in orizzontale sugli schermi piccoli)."""
+    """Page container: the window never exceeds the screen; at worst the page
+    scrolls (horizontally too on small screens)."""
     s = Gtk.ScrolledWindow(vexpand=True, hexpand=True, hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
                            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC if vertical else Gtk.PolicyType.NEVER)
     s.set_child(child)
@@ -186,7 +188,7 @@ AUTH_TEXT = {
 
 
 def parse_auth(raw):
-    """Eventi di accesso dal journal (JSON per riga) -> [(ora, testo, dettaglio, livello)]."""
+    """Login events from the journal (one JSON per line) -> [(time, text, detail, level)]."""
     import json
     import re
     out = []
@@ -221,7 +223,7 @@ def parse_auth(raw):
                 kind, status = "sudo", "fail"
         elif comm in ("sddm-helper", "login"):
             if user == "sddm":
-                continue            # la schermata di accesso stessa
+                continue            # the login screen itself
             if "session opened" in low:
                 kind, status = "login", "ok"
             elif "authentication failure" in low:
@@ -245,15 +247,15 @@ class Monitor(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="ZETA RAYS Monitor", default_width=1180, default_height=760)
         self.col = Collectors()
-        self.pages = {}             # chiave -> (raccolta, applicazione)
+        self.pages = {}             # key -> (collect, apply)
         self.section = "overview"
         self.geo_enabled = True
-        self.me = None              # posizione dell'IP pubblico
-        self.dest = []              # destinazioni geolocalizzate
+        self.me = None              # location of the public IP
+        self.dest = []              # geolocated destinations
         self.ping_targets = {}
         self.ping_lock = threading.Lock()
         self.data_lock = threading.Lock()
-        self.last = {}              # ultimi dati raccolti
+        self.last = {}              # latest collected data
         self.fw_busy = False
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -265,7 +267,7 @@ class Monitor(Adw.ApplicationWindow):
         for key, _l in SECTIONS:
             page = getattr(self, "_page_" + key)()
             if not isinstance(page, Gtk.ScrolledWindow):
-                page = scrolled(page, vertical=False)   # le tabelle scorrono da sole
+                page = scrolled(page, vertical=False)   # tables scroll on their own
             self.stack.add_named(page, key)
         self.stack.set_margin_start(12)
         self.stack.set_margin_end(12)
@@ -276,14 +278,14 @@ class Monitor(Adw.ApplicationWindow):
         self.toasts = Adw.ToastOverlay(child=root)
         self.set_content(self.toasts)
 
-        # Quando la finestra non si vede (ridotta a icona, coperta, su un altro
-        # spazio di lavoro) non ha senso continuare a raccogliere dati: sono
-        # calcoli e letture da /proc per un pannello che nessuno sta guardando.
-        # Il segnale più onesto è il disegno: se Hyprland non chiede più
-        # fotogrammi, la finestra non è visibile.
-        self._ultimo_disegno = time.monotonic()
-        self.connect("map", lambda *_: self._segui_disegno())
-        self._segui_disegno()
+        # When the window is not visible (minimized, covered, on another
+        # workspace) there is no point in collecting data: it means computing
+        # and reading /proc for a panel nobody is looking at.
+        # The most honest signal is drawing: if Hyprland stops requesting
+        # frames, the window is not visible.
+        self._last_draw = time.monotonic()
+        self.connect("map", lambda *_: self._follow_paint())
+        self._follow_paint()
 
         threading.Thread(target=self._geo_me_worker, daemon=True).start()
         threading.Thread(target=self._dest_worker, daemon=True).start()
@@ -291,21 +293,21 @@ class Monitor(Adw.ApplicationWindow):
         GLib.timeout_add(1000, self._tick_net)
         self._gw_started = False
 
-    def _segui_disegno(self):
-        orologio = self.get_frame_clock()
-        if orologio is None or getattr(self, "_orologio_agganciato", False):
+    def _follow_paint(self):
+        clock = self.get_frame_clock()
+        if clock is None or getattr(self, "_clock_hooked", False):
             return
-        self._orologio_agganciato = True
-        orologio.connect("after-paint", self._disegnata)
+        self._clock_hooked = True
+        clock.connect("after-paint", self._on_drawn)
 
-    def _disegnata(self, _clock):
-        self._ultimo_disegno = time.monotonic()
+    def _on_drawn(self, _clock):
+        self._last_draw = time.monotonic()
 
-    def visibile(self):
-        """Vero se la finestra è stata disegnata di recente."""
-        return (time.monotonic() - self._ultimo_disegno) < 3.0
+    def is_shown(self):
+        """True if the window was drawn recently."""
+        return (time.monotonic() - self._last_draw) < 3.0
 
-    # ---------------- struttura ----------------
+    # ---------------- structure ----------------
     def _topbar(self):
         bar = Gtk.Box(spacing=18, margin_top=12, margin_bottom=10, margin_start=16, margin_end=16)
         title = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -346,15 +348,15 @@ class Monitor(Adw.ApplicationWindow):
     def toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
 
-    # ---------------- raccolta in background ----------------
+    # ---------------- background collection ----------------
     def _collector(self):
-        """Ogni secondo raccoglie i dati della pagina visibile (+ riepilogo) fuori dalla UI."""
+        """Every second, collect the visible page's data (+ summary) off the UI thread."""
         tick = 0
         while True:
             key = self.section
-            if not self.visibile():
-                # Finestra non visibile: si controlla ogni secondo se torna,
-                # ma non si raccoglie nulla.
+            if not self.is_shown():
+                # Window not visible: check every second whether it comes
+                # back, but collect nothing.
                 time.sleep(1.0)
                 continue
             try:
@@ -383,19 +385,22 @@ class Monitor(Adw.ApplicationWindow):
 
     def _collect_status(self):
         fw = C.firewall_info()
-        failed = subprocess.run(["systemctl", "--failed", "--no-legend", "--plain"], capture_output=True,
-                                text=True).stdout.strip()
-        return {"fw": fw, "failed": [l.split()[0] for l in failed.splitlines() if l.strip()],
-                "sys": self.col.system()}
+        failed, warnings = C.failed_services()
+        return {"fw": fw, "failed": failed, "warnings": warnings, "sys": self.col.system()}
 
     def _apply_status(self, st):
         self.status = st
         fw_ok = st["fw"]["active"]
+        # a service that is down is an error; a periodic job that failed
+        # (it runs again later) is only worth attention
         if st["failed"]:
             n = len(st["failed"])
-            text, style = ntr("● {n} FAILED SERVICE", "● {n} FAILED SERVICES", n).format(n=n), "warn"
+            text, style = ntr("● {n} FAILED SERVICE", "● {n} FAILED SERVICES", n).format(n=n), "alert"
         elif not fw_ok:
             text, style = tr("● FIREWALL OFF"), "warn"
+        elif st.get("warnings"):
+            n = len(st["warnings"])
+            text, style = ntr("● {n} JOB NEEDS ATTENTION", "● {n} JOBS NEED ATTENTION", n).format(n=n), "warn"
         else:
             text, style = tr("● SYSTEM PROTECTED"), "ok"
         self.top_status.set_text(text)
@@ -403,7 +408,7 @@ class Monitor(Adw.ApplicationWindow):
         return False
 
     def _tick_net(self):
-        """Traffico ogni secondo per i grafici, anche fuori dalla loro pagina."""
+        """Traffic every second for the charts, even outside their page."""
         net = self.col.net_io()
         if net["in_rate"] is not None:
             for chart in (self.ov_chart, self.tr_chart):
@@ -421,11 +426,11 @@ class Monitor(Adw.ApplicationWindow):
             self._gw_started = True
         return True
 
-    # =============================== PAGINE ===============================
+    # =============================== PAGES ================================
     def _grid(self):
         return Gtk.Grid(column_spacing=12, row_spacing=12, column_homogeneous=True)
 
-    # --- Panoramica ---
+    # --- Overview ---
     def _page_overview(self):
         g = self._grid()
         p = panel(tr("System health"))
@@ -441,8 +446,8 @@ class Monitor(Adw.ApplicationWindow):
         p.inner.append(row)
         self.ov_cpu = Sparkline(ACC, height=46)
         p.inner.append(self.ov_cpu)
-        # dettagli in una riga ciascuno: per core, memoria di scambio, carico,
-        # temperatura, disco e scheda grafica
+        # details on one line each: per core, swap, load, temperature, disk
+        # and graphics card
         self.ov_det = {}
         for k in ("core", "mem", "sys", "gpu"):
             lb = Gtk.Label(label="", xalign=0, wrap=True, css_classes=["dim", "mono"])
@@ -526,25 +531,25 @@ class Monitor(Adw.ApplicationWindow):
                         swap_used=_fmt_bytes(m["swap_used"]), swap_total=_fmt_bytes(m["swap_total"]),
                         swap_pct="%.0f" % m["swap_percent"]))
             sy, st = d["sys"], d["st"]
-            lettura, scrittura = (fmt_rate(v) if isinstance(v, (int, float)) else NA
+            read_rate, write_rate = (fmt_rate(v) if isinstance(v, (int, float)) else NA
                                   for v in (st.get("read_rate"), st.get("write_rate")))
             self.ov_det["sys"].set_text(
                 tr("Load {load}  ·  {temp}  ·  Disk ↓ {read} ↑ {write}  ·  Up for {uptime}").format(
                     load=sy["load"],
                     temp=("CPU %s" % sy["cpu_temp"]) if sy["cpu_temp"] not in (None, NA)
                     else tr("CPU temperature not available"),
-                    read=lettura, write=scrittura, uptime=sy["uptime"]))
-            dettagli = [gp["name"]]
+                    read=read_rate, write=write_rate, uptime=sy["uptime"]))
+            details = [gp["name"]]
             if gp["driver"] not in (None, NA):
-                dettagli.append("driver %s" % gp["driver"])
+                details.append("driver %s" % gp["driver"])
             if gp["freq"]:
-                dettagli.append("%d MHz" % gp["freq"])
+                details.append("%d MHz" % gp["freq"])
             if gp["vram_total"]:
-                dettagli.append(tr("video memory {used} of {total}").format(
+                details.append(tr("video memory {used} of {total}").format(
                     used=_fmt_bytes(gp["vram_used"]), total=_fmt_bytes(gp["vram_total"])))
             if gp["busy"] is None:
-                dettagli.append(tr("usage not measurable with this driver"))
-            self.ov_det["gpu"].set_text("GPU: " + "  ·  ".join(dettagli))
+                details.append(tr("usage not measurable with this driver"))
+            self.ov_det["gpu"].set_text("GPU: " + "  ·  ".join(details))
             n = getattr(self, "net_now", None)
             if n:
                 self.ov_down.set_text("↓ " + fmt_rate(n["in_rate"]))
@@ -576,7 +581,7 @@ class Monitor(Adw.ApplicationWindow):
         self.pages["overview"] = (collect, apply)
         return scrolled(g)
 
-    # --- Traffico ---
+    # --- Traffic ---
     def _page_traffic(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         p = panel(tr("Network traffic (last 2 minutes)"))
@@ -647,7 +652,7 @@ class Monitor(Adw.ApplicationWindow):
         self.pages["traffic"] = (collect, apply)
         return scrolled(box)
 
-    # --- Mappa ---
+    # --- Map ---
     def _page_map(self):
         box = Gtk.Box(spacing=12)
         p = panel(tr("Connection map"), expand=True)
@@ -668,8 +673,8 @@ class Monitor(Adw.ApplicationWindow):
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         side.set_size_request(330, -1)
         p = panel(tr("Your location"))
-        grid, self.map_me = kv_grid([("IP pubblico", tr("Public IP")), ("Città", tr("City")),
-                                     ("Paese", tr("Country")), ("Fornitore", tr("Provider")), ("ASN", "ASN")])
+        grid, self.map_me = kv_grid([("public_ip", tr("Public IP")), ("city", tr("City")),
+                                     ("country", tr("Country")), ("provider", tr("Provider")), ("ASN", "ASN")])
         p.inner.append(grid)
         side.append(p)
         p = panel(tr("Destinations"), expand=True)
@@ -684,8 +689,8 @@ class Monitor(Adw.ApplicationWindow):
         def apply(_d):
             if self.me:
                 m = self.me
-                for k, v in (("IP pubblico", m.get("ip")), ("Città", m.get("city")),
-                             ("Paese", country_it(m)), ("Fornitore", m.get("isp")), ("ASN", m.get("asn"))):
+                for k, v in (("public_ip", m.get("ip")), ("city", m.get("city")),
+                             ("country", country_name(m)), ("provider", m.get("isp")), ("ASN", m.get("asn"))):
                     self.map_me[k].set_text(str(v or "—"))
             self.map_dest.update([(i, [d["country"], d["city"], d["process"]])
                                   for i, d in enumerate(self.dest[:40])]
@@ -704,7 +709,7 @@ class Monitor(Adw.ApplicationWindow):
 
     def _geo_apply(self):
         m = self.me
-        label = ", ".join(x for x in (m.get("city"), country_it(m)) if x) if m else ""
+        label = ", ".join(x for x in (m.get("city"), country_name(m)) if x) if m else ""
         for mp in (self.map, self.ov_map):
             if m and self.geo_enabled:
                 mp.set_me(m.get("lat"), m.get("lon"), label)
@@ -714,10 +719,10 @@ class Monitor(Adw.ApplicationWindow):
 
     def _geo_line(self):
         m = self.me
-        return "%s · %s, %s · %s" % (m.get("ip"), m.get("city"), country_it(m), m.get("isp"))
+        return "%s · %s, %s · %s" % (m.get("ip"), m.get("city"), country_name(m), m.get("isp"))
 
     def _dest_worker(self):
-        """Geolocalizza le destinazioni delle connessioni stabilite (con cache)."""
+        """Geolocate the destinations of established connections (cached)."""
         while True:
             if self.geo_enabled:
                 socks = C.sockets_all() or []
@@ -730,7 +735,7 @@ class Monitor(Adw.ApplicationWindow):
                     g = geo.lookup(ip)
                     if g and g.get("lat") is not None:
                         dest.append({"ip": ip, "lat": g["lat"], "lon": g["lon"], "iso": g.get("iso", ""),
-                                     "country": country_it(g), "city": g.get("city", ""),
+                                     "country": country_name(g), "city": g.get("city", ""),
                                      "process": proc, "label": g.get("city", "")})
                 self.dest = dest
                 GLib.idle_add(self._dest_apply)
@@ -754,7 +759,7 @@ class Monitor(Adw.ApplicationWindow):
                              daemon=True).start()
         return False
 
-    # --- Rete ---
+    # --- Network ---
     def _page_network(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         g = self._grid()
@@ -763,8 +768,8 @@ class Monitor(Adw.ApplicationWindow):
         p.inner.append(self.net_if)
         g.attach(p, 0, 0, 1, 1)
         p = panel(tr("Addresses"))
-        grid, self.net_kv = kv_grid([("Connessione", tr("Connection")), ("IP locale", tr("Local IP")),
-                                     ("IP pubblico", tr("Public IP")), ("Gateway", "Gateway"), ("DNS", "DNS")])
+        grid, self.net_kv = kv_grid([("connection", tr("Connection")), ("local_ip", tr("Local IP")),
+                                     ("public_ip", tr("Public IP")), ("Gateway", "Gateway"), ("DNS", "DNS")])
         p.inner.append(grid)
         g.attach(p, 1, 0, 1, 1)
         box.append(g)
@@ -790,10 +795,10 @@ class Monitor(Adw.ApplicationWindow):
                                  [None, None, None, "ok" if i["up"] else "dim"]) for i in d["ifs"]])
             st = d["st"]
             kind = {"wifi": "Wi-Fi", "ethernet": "Ethernet"}.get(st["kind"], "—")
-            self.net_kv["Connessione"].set_text("%s · %s" % (kind, st.get("label") or st["name"]) if st["connected"]
+            self.net_kv["connection"].set_text("%s · %s" % (kind, st.get("label") or st["name"]) if st["connected"]
                                                 else tr("Not connected"))
-            self.net_kv["IP locale"].set_text(st["ip"] or "—")
-            self.net_kv["IP pubblico"].set_text((self.me or {}).get("ip") or
+            self.net_kv["local_ip"].set_text(st["ip"] or "—")
+            self.net_kv["public_ip"].set_text((self.me or {}).get("ip") or
                                                 (tr("disabled") if not self.geo_enabled else "—"))
             self.net_kv["Gateway"].set_text(d["gd"]["gateway"])
             self.net_kv["DNS"].set_text(", ".join(d["gd"]["dns"]))
@@ -801,7 +806,7 @@ class Monitor(Adw.ApplicationWindow):
         self.pages["network"] = (collect, apply)
         return scrolled(box)
 
-    # --- VPN e proxy ---
+    # --- VPN and proxy ---
     def _page_vpn(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         g = self._grid()
@@ -813,18 +818,18 @@ class Monitor(Adw.ApplicationWindow):
         p.inner.append(self.vpn_table)
         g.attach(p, 0, 0, 1, 1)
         p = panel(tr("Exit to the Internet"))
-        grid, self.vpn_kv = kv_grid([("IP pubblico", tr("Public IP")), ("Paese", tr("Country")),
-                                     ("Fornitore", tr("Provider")), ("Tunnel attivi", tr("Active tunnels")),
+        grid, self.vpn_kv = kv_grid([("public_ip", tr("Public IP")), ("country", tr("Country")),
+                                     ("provider", tr("Provider")), ("tunnels", tr("Active tunnels")),
                                      ("DNS", "DNS")])
         p.inner.append(grid)
         g.attach(p, 1, 0, 1, 1)
         box.append(g)
         p = panel("Proxy")
-        grid, self.px_kv = kv_grid([("Modalità", tr("Mode")), ("Server", "Server"), ("File PAC", tr("PAC file")),
-                                    ("Variabili d'ambiente", tr("Environment variables"))])
+        grid, self.px_kv = kv_grid([("mode", tr("Mode")), ("Server", "Server"), ("pac_file", tr("PAC file")),
+                                    ("env_vars", tr("Environment variables"))])
         p.inner.append(grid)
         cfg = Gtk.Button(label=tr("Configure VPN and proxy…"), css_classes=["rbtn"], halign=Gtk.Align.START)
-        cfg.connect("clicked", lambda *_: subprocess.Popen(["zeta-impostazioni", "rete"]))
+        cfg.connect("clicked", lambda *_: subprocess.Popen(["zeta-settings", "network"]))
         p.inner.append(cfg)
         box.append(p)
 
@@ -845,17 +850,17 @@ class Monitor(Adw.ApplicationWindow):
                                     [None, None, "ok" if v["active"] else "dim"]) for v in d["vpns"]]
                                   or [("x", [tr("No VPN configured"), "", ""], ["dim", None, None])])
             m = self.me or {}
-            self.vpn_kv["IP pubblico"].set_text(m.get("ip") or (tr("disabled") if not self.geo_enabled else "—"))
-            self.vpn_kv["Paese"].set_text(country_it(m) or "—")
-            self.vpn_kv["Fornitore"].set_text(m.get("isp") or "—")
-            self.vpn_kv["Tunnel attivi"].set_text(", ".join("%s (%s)" % (t["name"], t["ip"]) for t in d["tun"]) or tr("none"))
+            self.vpn_kv["public_ip"].set_text(m.get("ip") or (tr("disabled") if not self.geo_enabled else "—"))
+            self.vpn_kv["country"].set_text(country_name(m) or "—")
+            self.vpn_kv["provider"].set_text(m.get("isp") or "—")
+            self.vpn_kv["tunnels"].set_text(", ".join("%s (%s)" % (t["name"], t["ip"]) for t in d["tun"]) or tr("none"))
             self.vpn_kv["DNS"].set_text(", ".join(d["gd"]["dns"]))
             px = d["px"]
-            self.px_kv["Modalità"].set_text({"none": tr("No proxy"), "manual": tr("Manual"),
+            self.px_kv["mode"].set_text({"none": tr("No proxy"), "manual": tr("Manual"),
                                             "auto": tr("Automatic (PAC)")}.get(px["mode"], px["mode"]))
             self.px_kv["Server"].set_text("%s:%s" % (px["host"], px["port"]) if px["mode"] == "manual" and px["host"] else "—")
-            self.px_kv["File PAC"].set_text(px["url"] if px["mode"] == "auto" and px["url"] else "—")
-            self.px_kv["Variabili d'ambiente"].set_text(d["env"] or tr("no variables"))
+            self.px_kv["pac_file"].set_text(px["url"] if px["mode"] == "auto" and px["url"] else "—")
+            self.px_kv["env_vars"].set_text(d["env"] or tr("no variables"))
         self.pages["vpn"] = (collect, apply)
         return scrolled(box)
 
@@ -876,9 +881,9 @@ class Monitor(Adw.ApplicationWindow):
         p = panel(tr("Firewall status"))
         self.fw_state = Gtk.Label(label="—", xalign=0, css_classes=["metric-sm"], wrap=True)
         p.inner.append(self.fw_state)
-        grid, self.fw_kv = kv_grid([("Motore", tr("Engine")), ("In entrata", tr("Incoming")),
-                                    ("In uscita", tr("Outgoing")), ("Regole", tr("Rules")),
-                                    ("All'avvio", tr("At startup"))])
+        grid, self.fw_kv = kv_grid([("engine", tr("Engine")), ("incoming", tr("Incoming")),
+                                    ("outgoing", tr("Outgoing")), ("rules", tr("Rules")),
+                                    ("at_startup", tr("At startup"))])
         p.inner.append(grid)
         self.fw_btn = Gtk.Button(label="…", css_classes=["rbtn"], halign=Gtk.Align.START)
         self.fw_btn.connect("clicked", lambda *_: self._toggle_fw())
@@ -915,11 +920,11 @@ class Monitor(Adw.ApplicationWindow):
                 self.fw_btn.set_label(tr("Turn On Firewall"))
             self.fw_btn.set_sensitive(not self.fw_busy)
             pol = {"drop": tr("blocked (except replies)"), "accept": tr("allowed"), NA: "—", "": "—"}
-            self.fw_kv["Motore"].set_text("nftables" if fw["known"] or fw["active"] else "—")
-            self.fw_kv["In entrata"].set_text(pol.get(fw["policy_in"], fw["policy_in"]) if fw["active"] else tr("allowed"))
-            self.fw_kv["In uscita"].set_text(pol.get(fw["policy_out"], fw["policy_out"]) if fw["active"] else tr("allowed"))
-            self.fw_kv["Regole"].set_text(str(fw["rules"]) if fw["known"] else tr("permission required"))
-            self.fw_kv["All'avvio"].set_text(tr("yes") if fw["enabled"] else tr("no"))
+            self.fw_kv["engine"].set_text("nftables" if fw["known"] or fw["active"] else "—")
+            self.fw_kv["incoming"].set_text(pol.get(fw["policy_in"], fw["policy_in"]) if fw["active"] else tr("allowed"))
+            self.fw_kv["outgoing"].set_text(pol.get(fw["policy_out"], fw["policy_out"]) if fw["active"] else tr("allowed"))
+            self.fw_kv["rules"].set_text(str(fw["rules"]) if fw["known"] else tr("permission required"))
+            self.fw_kv["at_startup"].set_text(tr("yes") if fw["enabled"] else tr("no"))
             self.fw_text.get_buffer().set_text(fw["text"] or tr("Rules can't be read without administrator permissions."))
             socks = d["socks"]
             if socks is None:
@@ -950,7 +955,7 @@ class Monitor(Adw.ApplicationWindow):
                           if r.returncode == 0 else tr("Operation canceled"))
         threading.Thread(target=work, daemon=True).start()
 
-    # --- Connessioni ---
+    # --- Connections ---
     def _page_connections(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         top = Gtk.Box(spacing=8)
@@ -982,7 +987,7 @@ class Monitor(Adw.ApplicationWindow):
             out = []
             for i, r in enumerate(rows[:200]):
                 g = geo.cached(r["rhost"]) if self.geo_enabled else None
-                country = country_it(g) if g else (tr("local") if not geo.is_public(r["rhost"]) else "—")
+                country = country_name(g) if g else (tr("local") if not geo.is_public(r["rhost"]) else "—")
                 out.append((i, [r["proto"], C.STATE_IT.get(r["state"], r["state"]),
                                 "%s:%s" % (r["lhost"], r["lport"]), "%s:%s" % (r["rhost"], r["rport"]),
                                 country, r["process"]],
@@ -991,7 +996,7 @@ class Monitor(Adw.ApplicationWindow):
         self.pages["connections"] = (collect, apply)
         return box
 
-    # --- Utenti ---
+    # --- Users ---
     def _page_users(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         p = panel(tr("Accounts"))
@@ -1028,7 +1033,7 @@ class Monitor(Adw.ApplicationWindow):
         self.pages["users"] = (collect, apply)
         return scrolled(box)
 
-    # --- Sicurezza ---
+    # --- Security ---
     def _page_security(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         p = panel(tr("Login and security events (last 24 hours)"), expand=True)
@@ -1060,7 +1065,7 @@ class Monitor(Adw.ApplicationWindow):
         self.pages["security"] = (collect, apply)
         return box
 
-    # --- Processi ---
+    # --- Processes ---
     def _page_processes(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         tools = Gtk.Box(spacing=8, margin_bottom=4)
@@ -1068,9 +1073,9 @@ class Monitor(Adw.ApplicationWindow):
         tools.append(self.proc_search)
         tools.append(Gtk.Label(label=tr("Sort:"), css_classes=["dim"]))
         self.proc_sort = "CPU"
-        for chiave, lab in (("CPU", "CPU"), ("RAM", "RAM"), ("PID", "PID"), ("NOME", tr("NAME"))):
+        for key, lab in (("CPU", "CPU"), ("RAM", "RAM"), ("PID", "PID"), ("NAME", tr("NAME"))):
             b = Gtk.Button(label=lab, css_classes=["rbtn"])
-            b.connect("clicked", lambda _b, s=chiave: setattr(self, "proc_sort", s))
+            b.connect("clicked", lambda _b, s=key: setattr(self, "proc_sort", s))
             tools.append(b)
         box.append(tools)
         split = Gtk.Box(spacing=12, vexpand=True)
@@ -1094,12 +1099,12 @@ class Monitor(Adw.ApplicationWindow):
         btns.append(tb)
         btns.append(fb)
         det.inner.append(btns)
-        # il programma intero (con i sottoprocessi), riavvio, cartella
+        # the whole program (with its subprocesses), restart, folder
         btns2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        for testo, fn in ((tr("Close with Subprocesses"), lambda *_: self._azione("albero")),
-                          (tr("Restart"), lambda *_: self._azione("riavvia")),
-                          (tr("Open Folder"), lambda *_: self._apri_cartella())):
-            b = Gtk.Button(label=testo, css_classes=["rbtn"])
+        for text, fn in ((tr("Close with Subprocesses"), lambda *_: self._action("tree")),
+                          (tr("Restart"), lambda *_: self._action("restart")),
+                          (tr("Open Folder"), lambda *_: self._open_folder())):
+            b = Gtk.Button(label=text, css_classes=["rbtn"])
             b.connect("clicked", fn)
             btns2.append(b)
         det.inner.append(btns2)
@@ -1116,7 +1121,7 @@ class Monitor(Adw.ApplicationWindow):
             q = self.proc_search.get_text().strip().lower()
             if q:
                 rows = [r for r in rows if q in r["name"].lower() or q == str(r["pid"])]
-            key = {"CPU": "cpu", "RAM": "mem_pct", "PID": "pid", "NOME": "name"}[self.proc_sort]
+            key = {"CPU": "cpu", "RAM": "mem_pct", "PID": "pid", "NAME": "name"}[self.proc_sort]
             rows = sorted(rows, key=lambda r: r[key], reverse=(self.proc_sort in ("CPU", "RAM")))
             self.proc_table.update([(r["pid"], [r["pid"], r["name"], r["user"], "%.1f" % r["cpu"],
                                                 "%.1f" % r["mem_pct"], _fmt_bytes(r["rss"]),
@@ -1132,8 +1137,8 @@ class Monitor(Adw.ApplicationWindow):
             self.proc_detail.set_text("—")
             return
         ch = ", ".join("%s (%s)" % (n, p) for p, n in d["children"][:6]) or tr("none")
-        if d.get("albero", 0) > len(d["children"]):
-            ch += " · " + ntr("{n} subprocess in all", "{n} subprocesses in all", d["albero"]).format(n=d["albero"])
+        if d.get("tree", 0) > len(d["children"]):
+            ch += " · " + ntr("{n} subprocess in all", "{n} subprocesses in all", d["tree"]).format(n=d["tree"])
         io = (tr("read {read}, written {written}").format(read=_fmt_bytes(d["io"][0]), written=_fmt_bytes(d["io"][1]))
               if d.get("io") else tr("permission required"))
         self.proc_detail.set_text(
@@ -1149,41 +1154,41 @@ class Monitor(Adw.ApplicationWindow):
         d = self.col.process_detail(self.sel_pid)
         name = d["name"] if d else str(self.sel_pid)
         pid = self.sel_pid
-        corpo = (tr("Force quit the process {name} (PID {pid}). Unsaved data will be lost.") if force
+        body = (tr("Force quit the process {name} (PID {pid}). Unsaved data will be lost.") if force
                  else tr("Quit the process {name} (PID {pid}). Unsaved data will be lost."))
         dlg = Adw.AlertDialog(heading=tr("Close {name}?").format(name=name),
-                              body=corpo.format(name=name, pid=pid))
+                              body=body.format(name=name, pid=pid))
         dlg.add_response("no", tr("Cancel"))
         dlg.add_response("yes", tr("Force Quit") if force else tr("Quit"))
         dlg.set_response_appearance("yes", Adw.ResponseAppearance.DESTRUCTIVE)
-        dlg.connect("response", lambda _d, r: self._chiudi(pid, force) if r == "yes" else None)
+        dlg.connect("response", lambda _d, r: self._close(pid, force) if r == "yes" else None)
         dlg.present(self)
 
-    def _azione(self, quale):
+    def _action(self, which):
         if not self.sel_pid:
             return
         pid = self.sel_pid
         d = self.col.process_detail(pid)
-        nome = d["name"] if d else str(pid)
-        testo = {"albero": (tr("Close {name} and its subprocesses?").format(name=nome), tr("Close All"),
+        name = d["name"] if d else str(pid)
+        text = {"tree": (tr("Close {name} and its subprocesses?").format(name=name), tr("Close All"),
                             tr("First they are asked to close; whatever doesn't respond within 3 seconds "
                                "is closed by force. Unsaved data will be lost.")),
-                 "riavvia": (tr("Restart {name}?").format(name=nome), tr("Restart"),
+                 "restart": (tr("Restart {name}?").format(name=name), tr("Restart"),
                              tr("It will be closed (with its subprocesses) and reopened with the same command. "
-                                "Unsaved data will be lost."))}[quale]
-        dlg = Adw.AlertDialog(heading=testo[0], body=testo[2])
+                                "Unsaved data will be lost."))}[which]
+        dlg = Adw.AlertDialog(heading=text[0], body=text[2])
         dlg.add_response("no", tr("Cancel"))
-        dlg.add_response("yes", testo[1])
+        dlg.add_response("yes", text[1])
         dlg.set_response_appearance("yes", Adw.ResponseAppearance.DESTRUCTIVE)
 
-        def lavoro():
-            ok, msg = (self.col.chiudi_albero(pid) if quale == "albero" else self.col.riavvia(pid))
+        def job():
+            ok, msg = (self.col.close_tree(pid) if which == "tree" else self.col.restart(pid))
             GLib.idle_add(self.toast, msg)
-        dlg.connect("response", lambda _d, r: threading.Thread(target=lavoro, daemon=True).start()
+        dlg.connect("response", lambda _d, r: threading.Thread(target=job, daemon=True).start()
                     if r == "yes" else None)
         dlg.present(self)
 
-    def _apri_cartella(self):
+    def _open_folder(self):
         if not self.sel_pid:
             return
         d = self.col.process_detail(self.sel_pid)
@@ -1194,15 +1199,15 @@ class Monitor(Adw.ApplicationWindow):
         subprocess.Popen(["thunar", os.path.dirname(exe)],
                          start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def _chiudi(self, pid, force):
-        # la verifica aspetta fino a 3 secondi: fuori dal thread della
-        # finestra, che altrimenti resterebbe bloccata nel frattempo
-        def lavoro():
-            _ok, messaggio = self.col.terminate(pid, force)
-            GLib.idle_add(self.toast, messaggio)
-        threading.Thread(target=lavoro, daemon=True).start()
+    def _close(self, pid, force):
+        # the check waits up to 3 seconds: off the window's thread, which
+        # would otherwise stay frozen in the meantime
+        def job():
+            _ok, message = self.col.terminate(pid, force)
+            GLib.idle_add(self.toast, message)
+        threading.Thread(target=job, daemon=True).start()
 
-    # --- Servizi ---
+    # --- Services ---
     def _page_services(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.svc_search = Gtk.SearchEntry(placeholder_text=tr("filter services"))
@@ -1226,10 +1231,12 @@ class Monitor(Adw.ApplicationWindow):
         split.append(act)
         box.append(split)
         self.sel_svc = None
-        st_it = {"RUNNING": tr("active"), "FAILED": tr("error"), "STOPPED": tr("stopped")}
-        sub_it = {"running": tr("running"), "exited": tr("completed"), "dead": tr("not started"),
-                  "failed": tr("failed"), "waiting": tr("waiting"), "auto-restart": tr("restarting"),
-                  "start": tr("starting")}
+        st_labels = {"RUNNING": tr("active"), "DONE": tr("completed"), "FAILED": tr("error"),
+                     "WARNING": tr("attention"), "STOPPED": tr("stopped"),
+                     "NOT_APPLICABLE": tr("not applicable")}
+        sub_labels = {"running": tr("running"), "exited": tr("completed"), "dead": tr("not started"),
+                      "failed": tr("failed"), "waiting": tr("waiting"), "auto-restart": tr("restarting"),
+                      "start": tr("starting")}
 
         def collect():
             return self.col.services(limit=250)
@@ -1238,9 +1245,10 @@ class Monitor(Adw.ApplicationWindow):
             q = self.svc_search.get_text().strip().lower()
             if q:
                 rows = [r for r in rows if q in r["name"].lower()]
-            self.svc_table.update([(r["name"], [r["name"], st_it.get(r["state"], r["state"]),
-                                                sub_it.get(r["sub"], r["sub"])],
-                                    [None, {"RUNNING": "ok", "FAILED": "alert"}.get(r["state"], "dim"), None])
+            self.svc_table.update([(r["name"], [r["name"], st_labels.get(r["state"], r["state"]),
+                                                sub_labels.get(r["sub"], r["sub"])],
+                                    [None, {"RUNNING": "ok", "DONE": "ok", "FAILED": "alert",
+                                            "WARNING": "warn"}.get(r["state"], "dim"), None])
                                    for r in rows[:150]])
         self.pages["services"] = (collect, apply)
         return box
@@ -1253,10 +1261,10 @@ class Monitor(Adw.ApplicationWindow):
         if not self.sel_svc:
             return
         name = self.sel_svc
-        domanda, verb = {"start": (tr("Start the {name} service?"), tr("Start")),
+        question, verb = {"start": (tr("Start the {name} service?"), tr("Start")),
                          "stop": (tr("Stop the {name} service?"), tr("Stop")),
                          "restart": (tr("Restart the {name} service?"), tr("Restart"))}[action]
-        dlg = Adw.AlertDialog(heading=domanda.format(name=name))
+        dlg = Adw.AlertDialog(heading=question.format(name=name))
         dlg.add_response("no", tr("Cancel"))
         dlg.add_response("yes", verb)
         dlg.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
@@ -1270,14 +1278,14 @@ class Monitor(Adw.ApplicationWindow):
         dlg.connect("response", do)
         dlg.present(self)
 
-    # --- Sistema ---
+    # --- System ---
     def _page_system(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         top = self._grid()
         p = panel(tr("System"))
-        grid, self.sys_kv = kv_grid([("Computer", tr("Computer")), ("Sistema", tr("System")), ("Kernel", "Kernel"),
-                                     ("Architettura", tr("Architecture")), ("Attivo da", tr("Uptime")),
-                                     ("Carico", tr("Load")), ("Temperatura CPU", tr("CPU temperature"))])
+        grid, self.sys_kv = kv_grid([("Computer", tr("Computer")), ("os", tr("System")), ("Kernel", "Kernel"),
+                                     ("arch", tr("Architecture")), ("uptime", tr("Uptime")),
+                                     ("load", tr("Load")), ("cpu_temp", tr("CPU temperature"))])
         p.inner.append(grid)
         top.attach(p, 0, 0, 1, 1)
         p = panel("CPU per core")
@@ -1305,9 +1313,9 @@ class Monitor(Adw.ApplicationWindow):
 
         def apply(d):
             s = d["s"]
-            for k, v in (("Computer", s["host"]), ("Sistema", s["os"]), ("Kernel", s["kernel"]),
-                         ("Architettura", s["arch"]), ("Attivo da", s["uptime"]), ("Carico", s["load"]),
-                         ("Temperatura CPU", s["cpu_temp"])):
+            for k, v in (("Computer", s["host"]), ("os", s["os"]), ("Kernel", s["kernel"]),
+                         ("arch", s["arch"]), ("uptime", s["uptime"]), ("load", s["load"]),
+                         ("cpu_temp", s["cpu_temp"])):
                 self.sys_kv[k].set_text(str(v).replace(NA, "—"))
             cores = d["cpu"]["per_core"]
             if len(self.core_bars) != len(cores):
@@ -1389,15 +1397,15 @@ class App(Adw.Application):
         super().__init__(application_id="org.zetarays.Monitor", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
 
     def do_activate(self):
-        tema.apply(CSS)
+        theme.apply(CSS)
         win = self.props.active_window or Monitor(self)
-        # la sezione per chiave («processes») o per nome («Processi»)
+        # the section by key ("processes") or by its translated name
         if len(sys.argv) > 1:
-            voluta = sys.argv[1].strip().lower()
-            voluta = SECTION_ALIASES.get(voluta, voluta)
-            for chiave, nome in SECTIONS:
-                if voluta in (chiave, nome.lower()):
-                    win._go(chiave)
+            requested = sys.argv[1].strip().lower()
+            requested = SECTION_ALIASES.get(requested, requested)
+            for key, label in SECTIONS:
+                if requested in (key, label.lower()):
+                    win._go(key)
                     break
         win.present()
 

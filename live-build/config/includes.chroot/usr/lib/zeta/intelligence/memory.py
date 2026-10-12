@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence — memoria locale opzionale.
+"""ZETA RAYS Intelligence — optional local memory.
 
-La memoria è LOCALE per impostazione predefinita e disattivabile. Nessun dato
-viene inviato al cloud se non come parte della richiesta al provider scelto.
-Controlli: attiva/disattiva, cancella tutto, esporta.
+Memory is LOCAL by default and can be turned off. No data is sent to the
+cloud except as part of the request to the chosen provider.
+Controls: enable/disable, clear everything, export.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .providers.base import Message
 STATE_DIR = Path(os.path.expanduser("~/.local/share/zeta"))
 HISTORY_FILE = STATE_DIR / "history.jsonl"
 PREFS_FILE = Path(os.path.expanduser("~/.config/zeta/memory.json"))
-MAX_TURNS = 20     # quante coppie tenere in contesto
+MAX_TURNS = 20     # how many user/assistant pairs to keep in context
 
 
 class Memory:
@@ -46,10 +46,10 @@ class Memory:
                 lines = f.readlines()[-MAX_TURNS * 2:]
             for line in lines:
                 d = json.loads(line)
-                # i comandi eseguiti restano nel file ma non nel contesto:
-                # un modello piccolo li rileggeva e rispondeva imitandoli
-                # («Schermata salvata…» a una domanda qualsiasi, visto davvero)
-                if d.get("azione"):
+                # executed commands stay in the file but not in the context:
+                # a small model would reread them and answer by imitating them
+                # ("Schermata salvata…" in reply to any question; actually seen)
+                if d.get("action"):
                     continue
                 msgs.append(Message(d["role"], d["content"]))
         except (FileNotFoundError, ValueError, KeyError):
@@ -57,23 +57,23 @@ class Memory:
         return msgs
 
     @staticmethod
-    def _senza_segreti(testo: str) -> str:
-        """«connettiti a Casa con password abc123» -> «... password ***»:
-        una password detta a ZETA non resta scritta nella cronologia."""
+    def _without_secrets(text: str) -> str:
+        """"connettiti a Casa con password abc123" -> "... password ***":
+        a password spoken to ZETA is never left written in the history."""
         import re
-        return re.sub(r"(?i)\b(password|passwd|pass|chiave|psk|pin|token|passphrase|passcode|key)\b(\s*[:=]?\s*)\S+", r"\1\2***", testo)
+        return re.sub(r"(?i)\b(password|passwd|pass|chiave|psk|pin|token|passphrase|passcode|key)\b(\s*[:=]?\s*)\S+", r"\1\2***", text)  # i18n-data: «chiave»
 
-    def save_turn(self, user_text: str, assistant_text: str, azione: bool = False) -> None:
+    def save_turn(self, user_text: str, assistant_text: str, operation: bool = False) -> None:
         if not self.enabled:
             return
-        user_text = self._senza_segreti(user_text)
+        user_text = self._without_secrets(user_text)
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         with open(HISTORY_FILE, "a") as f:
             for role, content in (("user", user_text), ("assistant", assistant_text)):
-                riga = {"t": time.time(), "role": role, "content": content}
-                if azione:
-                    riga["azione"] = True
-                f.write(json.dumps(riga, ensure_ascii=False) + "\n")
+                line = {"t": time.time(), "role": role, "content": content}
+                if operation:
+                    line["action"] = True
+                f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
     def clear(self) -> None:
         try:

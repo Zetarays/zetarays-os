@@ -1,8 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Preparazione dell'ambiente LIVE (non del sistema installato):
-# password utente live zeta/zeta + autologin nel display manager.
-# Si attiva solo in live (boot=live sulla riga di comando del kernel).
+# Sets up the LIVE environment (not the installed system):
+# live user password zeta/zeta + autologin in the display manager.
+# Only runs in live mode (boot=live on the kernel command line).
 grep -qw boot=live /proc/cmdline 2>/dev/null || exit 0
 
 id zeta >/dev/null 2>&1 && echo "zeta:zeta" | chpasswd || true
@@ -14,11 +14,11 @@ Session=zeta.desktop
 Relogin=false
 CONF
 
-# Firefox nella sessione live: niente cache su disco. Qui il «disco» e' la
-# RAM (tutto cio' che si scrive resta in memoria fino allo spegnimento) e la
-# cache arrivava a centinaia di MB. Il sistema installato non e' toccato:
-# questo file nasce solo nella sessione live e l'installer copia l'immagine,
-# non la sessione.
+# Firefox in the live session: no disk cache. Here the «disk» is RAM
+# (everything written stays in memory until shutdown) and the cache grew to
+# hundreds of MB. The installed system is not affected: this file is only
+# created in the live session, and the installer copies the image, not the
+# session.
 cat > /etc/firefox-esr/zeta-live.js <<'PREF'
 // ZETA RAYS live session: no disk cache (the disk is RAM here)
 pref("browser.cache.disk.enable", false);

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Genera tz_it_IT.ts (fusi orari in italiano per Calamares) da tz_en_upstream.ts.
-Upstream non ha una traduzione italiana: regioni e città con nome italiano."""
+"""Generate tz_it_IT.ts (Italian time zone names for Calamares) from tz_en_upstream.ts.
+Upstream has no Italian translation: regions and cities that have an Italian name."""
 import re
 from xml.sax.saxutils import escape
 
+# i18n-data-begin: Italian names of regions and cities (localization data)
 REGIONS = {"Africa": "Africa", "America": "America", "Antarctica": "Antartide", "Arctic": "Artico",
            "Asia": "Asia", "Atlantic": "Atlantico", "Australia": "Australia", "Europe": "Europa",
            "Indian": "Oceano Indiano", "Pacific": "Pacifico"}
@@ -55,6 +56,7 @@ NAMES = {
  "Godthab": "Nuuk", "Muscat": "Mascate", "Amman": "Amman", "Aden": "Aden", "Bahrain": "Bahrein",
  "Gaza": "Gaza", "Hebron": "Hebron", "Djibouti": "Gibuti", "Asmara": "Asmara", "Tokelau": "Tokelau",
 }
+# i18n-data-end
 
 def main():
     s = open("tz_en_upstream.ts", encoding="utf-8").read()
@@ -70,6 +72,6 @@ def main():
     s = re.sub(r'(<source>(.*?)</source>\s*)(<comment>(.*?)</comment>\s*)<translation type="unfinished"></translation>',
                repl, s)
     open("tz_it_IT.ts", "w", encoding="utf-8").write(s)
-    print("tradotte:", s.count("<translation>"))
+    print("translated:", s.count("<translation>"))
 
 main()

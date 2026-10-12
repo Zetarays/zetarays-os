@@ -1,31 +1,32 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence — gestore dei provider.
+"""ZETA RAYS Intelligence — provider manager.
 
-Legge la configurazione da ~/.config/zeta/intelligence.json. Le chiavi API non
-stanno in quel file: hanno un posto loro, e mai vengono scritte nel codice o
-inviate a servizi diversi da quello del provider scelto.
+Reads the configuration from ~/.config/zeta/intelligence.json. API keys are
+not in that file: they have a place of their own, and they are never written
+into the code or sent to any service other than the chosen provider's.
 
-Dove finiscono le chiavi
-------------------------
-Prima si prova il portachiavi del sistema (Secret Service, tramite
-`secret-tool`). ZETA RAYS però è minimale e NON installa un demone che
-implementi quel servizio: su un sistema appena installato `secret-tool store`
-fallisce con «org.freedesktop.secrets was not provided by any .service files»,
-e la chiave veniva buttata via in silenzio mentre le Impostazioni scrivevano
-«Chiave salvata». Per questo c'è la seconda strada, che è quella usata di
-solito: le credenziali cifrate di systemd (`systemd-creds --user`). Ogni chiave
-è un file cifrato in ~/.config/zeta/chiavi/ (cartella 0700, file 0600) con la
-chiave segreta della macchina, custodita da systemd e leggibile solo da root
-(e dal chip TPM, se c'è): la decifra solo lo stesso utente, solo su questo
-computer. Copiato altrove, o letto da un altro utente, il file è inutile.
-Nessun demone in più, nessuna password da digitare.
-Il vecchio file in chiaro (chiavi.json) viene convertito e poi cancellato.
-Solo se systemd-creds mancasse si ripiega su quel file, solo dell'utente.
+Where the keys end up
+---------------------
+First the system keyring is tried (Secret Service, through `secret-tool`).
+ZETA RAYS, however, is minimal and does NOT install a daemon implementing that
+service: on a freshly installed system `secret-tool store` fails with
+«org.freedesktop.secrets was not provided by any .service files», and the key
+used to be silently thrown away while Settings displayed «Key saved». Hence
+the second route, which is the one normally used: systemd encrypted
+credentials (`systemd-creds --user`). Each key is an encrypted file in
+~/.config/zeta/keys/ (folder 0700, file 0600), encrypted with the machine's
+secret key, which systemd keeps readable by root only (and by the TPM chip, if
+present): only the same user, only on this computer, can decrypt it. Copied
+elsewhere, or read by another user, the file is useless.
+No extra daemon, no password to type.
+The old plain-text file (keys.json) is converted and then deleted.
+Only if systemd-creds were missing does it fall back to that file, readable
+by the user only.
 
-Ordine di scelta del provider predefinito:
-  1. il provider indicato dall'utente
-  2. Ollama, se è in esecuzione con un modello locale (offline-first)
-  3. il primo provider cloud con una chiave configurata
+Order in which the default provider is chosen:
+  1. the provider chosen by the user
+  2. Ollama, if it is running with a local model (offline-first)
+  3. the first cloud provider with a configured key
 """
 from __future__ import annotations
 
@@ -45,7 +46,7 @@ from .providers.openai_compat import OpenAICompatProvider
 CONFIG_DIR = Path(os.path.expanduser("~/.config/zeta"))
 CONFIG_FILE = CONFIG_DIR / "intelligence.json"
 
-# provider disponibili: id -> (classe, etichetta, tipo)
+# available providers: id -> (class, label, kind)
 CATALOG = {
     "claude":   (ClaudeProvider,       "Claude",   "cloud"),
     "gemini":   (GeminiProvider,       "Gemini",   "cloud"),
@@ -57,25 +58,25 @@ CATALOG = {
     "groq":     (OpenAICompatProvider, "Groq",     "cloud"),
     "xai":      (OpenAICompatProvider, "xAI Grok", "cloud"),
     "openrouter": (OpenAICompatProvider, "OpenRouter", "cloud"),
-    # Qualsiasi servizio compatibile OpenAI, in rete o sul computer (LM Studio,
-    # vLLM, llama.cpp): indirizzo e modello li scrive l'utente.
-    "personalizzato": (OpenAICompatProvider, tr("Custom (OpenAI-compatible)"), "cloud"),
+    # Any OpenAI-compatible service, on the network or on the computer (LM
+    # Studio, vLLM, llama.cpp): the user enters the address and the model.
+    "custom": (OpenAICompatProvider, tr("Custom (OpenAI-compatible)"), "cloud"),
     "ollama":   (OllamaProvider,       "Ollama",   "local"),
 }
 
-# Istruzioni brevi e in positivo: il modello locale (1B) con un elenco di
-# divieti rifiutava anche richieste innocue («scrivi una frase su Roma»:
-# visto). Provate su 8 richieste normali: 0 rifiuti, contro 1-2 di prima.
-# In inglese (i modelli piccoli le seguono meglio), con la lingua della
-# risposta lasciata a chi scrive; la lingua del sistema serve quando la
-# richiesta non ne ha una chiara.
-_NOMI_LINGUE = {"it": "Italian", "en": "English", "de": "German", "fr": "French",
+# Short, positively worded instructions: given a list of prohibitions, the
+# local model (1B) refused even harmless requests («write a sentence about
+# Rome»: observed). Tested on 8 normal requests: 0 refusals, versus 1-2
+# before. In English (small models follow them better), with the reply
+# language left to whoever writes; the system language is used when the
+# request has no clear language.
+_LANGUAGE_NAMES = {"it": "Italian", "en": "English", "de": "German", "fr": "French",
                 "es": "Spanish", "pt": "Portuguese", "nl": "Dutch", "pl": "Polish"}
 
 
-def _prompt_predefinito() -> str:
-    lingua = language()
-    nome = _NOMI_LINGUE.get(lingua, lingua)
+def _default_prompt() -> str:
+    lang = language()
+    name = _LANGUAGE_NAMES.get(lang, lang)
     return (
         "You are ZETA, the assistant of ZETA RAYS OS. Always reply in the language the user "
         "writes in (if unclear, use %s), briefly, clearly and kindly. Be glad to help: write "
@@ -83,27 +84,27 @@ def _prompt_predefinito() -> str:
         "clearly illegal or harm other people; security work on your own or authorized systems "
         "is legitimate. Never say you performed an action on the computer: the system performs "
         "actions and reports the real outcome. The operating system is called ZETA RAYS OS."
-        % nome
+        % name
     )
 
 
-DEFAULT_SYSTEM = _prompt_predefinito()
+DEFAULT_SYSTEM = _default_prompt()
 
 
-KEYS_FILE = CONFIG_DIR / "chiavi.json"          # vecchio formato, in chiaro
-CREDS_DIR = CONFIG_DIR / "chiavi"               # chiavi cifrate (systemd-creds)
-_decifrate: dict = {}                            # nella memoria di questo processo
+KEYS_FILE = CONFIG_DIR / "keys.json"            # old format, plain text
+CREDS_DIR = CONFIG_DIR / "keys"                 # encrypted keys (systemd-creds)
+_decrypted: dict = {}                            # in this process's memory
 
 
 def _creds_ok() -> bool:
-    """systemd-creds --user funziona qui? (una prova per processo)"""
+    """Does systemd-creds --user work here? (one probe per process)"""
     cached = getattr(_creds_ok, "_cache", None)
     if cached is not None:
         return cached
     ok = False
     try:
-        p = subprocess.run(["systemd-creds", "encrypt", "--user", "--name=zeta-sonda", "-", "-"],
-                           input=b"sonda", capture_output=True, timeout=10)
+        p = subprocess.run(["systemd-creds", "encrypt", "--user", "--name=zeta-probe", "-", "-"],
+                           input=b"probe", capture_output=True, timeout=10)
         ok = p.returncode == 0 and len(p.stdout) > 20
     except (FileNotFoundError, subprocess.SubprocessError):
         ok = False
@@ -112,13 +113,13 @@ def _creds_ok() -> bool:
 
 
 def _cred_file(name: str) -> Path:
-    sicuro = "".join(c for c in name if c.isalnum() or c in "-_") or "chiave"
-    return CREDS_DIR / (sicuro + ".cred")
+    safe_name = "".join(c for c in name if c.isalnum() or c in "-_") or "key"
+    return CREDS_DIR / (safe_name + ".cred")
 
 
 def _cred_get(name: str) -> str:
-    if name in _decifrate:
-        return _decifrate[name]
+    if name in _decrypted:
+        return _decrypted[name]
     f = _cred_file(name)
     if not f.exists():
         return ""
@@ -128,12 +129,12 @@ def _cred_get(name: str) -> str:
         v = p.stdout.decode("utf-8", "replace").strip() if p.returncode == 0 else ""
     except (FileNotFoundError, subprocess.SubprocessError):
         v = ""
-    _decifrate[name] = v
+    _decrypted[name] = v
     return v
 
 
 def _cred_set(name: str, value: str) -> bool:
-    _decifrate.pop(name, None)
+    _decrypted.pop(name, None)
     f = _cred_file(name)
     if not value:
         try:
@@ -158,26 +159,26 @@ def _cred_set(name: str, value: str) -> bool:
         os.replace(tmp, f)
     except (OSError, subprocess.SubprocessError):
         return False
-    # si controlla che si rilegga davvero, prima di dire «salvata»
+    # check that it really reads back before reporting «saved»
     return _cred_get(name) == value
 
 
-def _migra_file_in_chiaro() -> None:
-    """chiavi.json (in chiaro, versioni precedenti) -> file cifrati, poi via."""
-    if getattr(_migra_file_in_chiaro, "_fatto", False):
+def _migrate_plaintext_file() -> None:
+    """keys.json (plain text, older versions) -> encrypted files, then removed."""
+    if getattr(_migrate_plaintext_file, "_done", False):
         return
-    _migra_file_in_chiaro._fatto = True
+    _migrate_plaintext_file._done = True
     if not KEYS_FILE.exists() or not _creds_ok():
         return
-    vecchie = _file_keys()
-    for nome, valore in vecchie.items():
-        valore = str(valore).strip()
-        if valore and not _cred_set(nome, valore):
-            return                      # qualcosa non va: il file resta, niente si perde
+    old_entries = _file_keys()
+    for name, value in old_entries.items():
+        value = str(value).strip()
+        if value and not _cred_set(name, value):
+            return                      # something is wrong: the file stays, nothing is lost
     try:
-        dim = KEYS_FILE.stat().st_size
-        with open(KEYS_FILE, "r+b") as fh:          # si sovrascrive prima di cancellare
-            fh.write(b"\0" * dim)
+        size = KEYS_FILE.stat().st_size
+        with open(KEYS_FILE, "r+b") as fh:          # overwritten before deleting
+            fh.write(b"\0" * size)
             fh.flush()
             os.fsync(fh.fileno())
         KEYS_FILE.unlink()
@@ -186,21 +187,21 @@ def _migra_file_in_chiaro() -> None:
 
 
 def _secret_service() -> bool:
-    """Vero solo se sul sistema c'è davvero un portachiavi che risponde.
+    """True only if the system really has a keyring that answers.
 
-    Non basta che `secret-tool` sia installato: è solo il programma che chiede.
-    Serve un demone che offra org.freedesktop.secrets. La risposta si tiene in
-    memoria: la domanda si fa una volta per processo, non a ogni chiave.
+    Having `secret-tool` installed is not enough: it is only the client.
+    A daemon providing org.freedesktop.secrets is needed. The answer is
+    cached: the question is asked once per process, not for every key.
     """
     cached = getattr(_secret_service, "_cache", None)
     if cached is not None:
         return cached
     ok = False
     try:
-        out = subprocess.run(["secret-tool", "search", "--unlock", "zeta-provider", "_sonda"],
+        out = subprocess.run(["secret-tool", "search", "--unlock", "zeta-provider", "_probe"],
                              capture_output=True, text=True, timeout=5)
-        # 0 = trovato, 1 = non trovato ma il servizio c'è; l'assenza del
-        # servizio si riconosce dal messaggio, non dal codice di uscita.
+        # 0 = found, 1 = not found but the service exists; a missing service
+        # is recognized from the message, not from the exit code.
         ok = "not provided by any .service" not in (out.stderr or "")
     except (FileNotFoundError, subprocess.SubprocessError):
         ok = False
@@ -218,11 +219,11 @@ def _file_keys() -> dict:
 
 
 def _file_keys_write(d: dict) -> bool:
-    """Scrive il file delle chiavi leggibile solo dall'utente.
+    """Writes the keys file readable by the user only.
 
-    I permessi si mettono PRIMA di scrivere il contenuto: creare il file e poi
-    restringerlo lascia una finestra, per quanto breve, in cui la chiave è
-    leggibile da chiunque sul computer.
+    Permissions are set BEFORE writing the content: creating the file and
+    restricting it afterwards leaves a window, however short, in which the key
+    is readable by anyone on the computer.
     """
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -239,7 +240,7 @@ def _file_keys_write(d: dict) -> bool:
 
 
 def _keyring_get(name: str) -> str:
-    """La chiave API di un provider. Stringa vuota se non c'è."""
+    """A provider's API key. Empty string if there is none."""
     if _secret_service():
         try:
             out = subprocess.run(["secret-tool", "lookup", "zeta-provider", name],
@@ -248,18 +249,18 @@ def _keyring_get(name: str) -> str:
                 return out.stdout.strip()
         except (FileNotFoundError, subprocess.SubprocessError):
             pass
-    _migra_file_in_chiaro()
+    _migrate_plaintext_file()
     if _creds_ok():
         return _cred_get(name)
     return str(_file_keys().get(name, "")).strip()
 
 
 def keyring_set(name: str, value: str) -> bool:
-    """Salva (o cancella, con valore vuoto) la chiave di un provider.
+    """Saves (or deletes, with an empty value) a provider's key.
 
-    Restituisce True SOLO se la chiave è davvero finita da qualche parte: chi
-    chiama deve dirlo all'utente. Prima questo valore veniva ignorato e le
-    Impostazioni scrivevano «Chiave salvata» anche quando non era vero.
+    Returns True ONLY if the key really ended up somewhere: the caller must
+    tell the user. This value used to be ignored, and Settings displayed
+    «Key saved» even when it was not true.
     """
     value = (value or "").strip()
     if _secret_service():
@@ -274,7 +275,7 @@ def keyring_set(name: str, value: str) -> bool:
                 return True
         except (FileNotFoundError, subprocess.SubprocessError):
             pass
-    _migra_file_in_chiaro()
+    _migrate_plaintext_file()
     if _creds_ok():
         return _cred_set(name, value)
     d = _file_keys()
@@ -286,11 +287,11 @@ def keyring_set(name: str, value: str) -> bool:
 
 
 def keyring_where() -> str:
-    """Dove vengono tenute le chiavi, da mostrare nelle Impostazioni."""
+    """Where the keys are kept, to show in Settings."""
     if _secret_service():
         return tr("system keyring")
     if _creds_ok():
-        # zeta-prove e le Impostazioni tengono solo la parte prima di " ("
+        # zeta-selftest and Settings only keep the part before " ("
         return tr("encrypted in {path} (only you, only on this computer)").format(path=CREDS_DIR)
     return str(KEYS_FILE)
 
@@ -325,8 +326,8 @@ class Registry:
             endpoint=opts.get("endpoint", ""),
             api_key="" if kind == "local" else _keyring_get(provider_id),
             temperature=float(opts.get("temperature", 0.7)),
-            # il modello locale risponde breve di proposito (veloce anche su
-            # computer lenti): senza una scelta dell'utente resta cosi'
+            # the local model answers briefly on purpose (fast even on slow
+            # computers): it stays that way unless the user chooses otherwise
             max_tokens=int(opts.get("max_tokens",
                                     OllamaProvider.MAX_TOKEN if kind == "local" else 4096)),
             timeout=float(opts.get("timeout", 0) or 0),
@@ -339,8 +340,8 @@ class Registry:
         cls = CATALOG[provider_id][0]
         return cls(self._config(provider_id))
 
-    def scegli(self, provider_id: str) -> None:
-        """Imposta quale AI usare. «auto» torna alla scelta automatica."""
+    def choose(self, provider_id: str) -> None:
+        """Sets which AI to use. «auto» goes back to automatic choice."""
         s = dict(self.settings)
         if provider_id in (None, "", "auto"):
             s.pop("default", None)
@@ -352,7 +353,7 @@ class Registry:
         self.settings = s
 
     def set_option(self, provider_id: str, key: str, value) -> None:
-        """Salva un'opzione di un provider (modello, endpoint...)."""
+        """Saves a provider option (model, endpoint...)."""
         s = dict(self.settings)
         prov = dict(s.get("providers", {}))
         conf = dict(prov.get(provider_id, {}))
@@ -366,50 +367,50 @@ class Registry:
         self.settings = s
 
     def test(self, provider_id: str) -> tuple[bool, str]:
-        """Prova il collegamento di un provider e restituisce (riuscito, messaggio)."""
+        """Tests a provider's connection and returns (success, message)."""
         if provider_id not in CATALOG:
             return False, tr("Unknown provider.")
         try:
             return self.get(provider_id).test()
-        except Exception as e:  # noqa: BLE001 - una prova non deve mai far cadere l'app
+        except Exception as e:  # noqa: BLE001 - a test must never bring the app down
             return False, tr("Unexpected error: {error}").format(error=e)
 
     def resolve_default(self) -> Provider:
-        """Sceglie il provider da usare (vedi ordine in cima al file)."""
+        """Chooses the provider to use (see the order at the top of the file)."""
         chosen = self.settings.get("default")
         if chosen and chosen in CATALOG:
             prov = self.get(chosen)
             if prov.available():
                 return prov
-        # offline-first: prova Ollama
+        # offline-first: try Ollama
         ollama = self.get("ollama")
         if ollama.available():
             return ollama
-        # primo cloud con chiave
+        # first cloud provider with a key
         for pid, (_cls, _label, kind) in CATALOG.items():
             if kind == "cloud":
                 prov = self.get(pid)
                 if prov.available():
                     return prov
-        return ollama  # anche se non pronto: ZETA mostrerà come configurarlo
+        return ollama  # even if not ready: ZETA will show how to set it up
 
     def status(self) -> list[dict]:
-        """Stato di ogni provider, per le Impostazioni e la diagnostica."""
+        """Status of every provider, for Settings and diagnostics."""
         rows = []
         for pid, (_cls, label, kind) in CATALOG.items():
             prov = self.get(pid)
             row = {"id": pid, "label": label, "kind": kind,
                    "ready": prov.available(), "model": prov.config.model,
                    "endpoint": prov.config.endpoint,
-                   "model_default": modello_predefinito(pid)}
+                   "model_default": default_model(pid)}
             if pid == "ollama":
                 row["local_models"] = prov.list_models()
             rows.append(row)
         return rows
 
 
-def modello_predefinito(provider_id: str) -> str:
-    """Il modello usato quando l'utente non ne sceglie uno."""
+def default_model(provider_id: str) -> str:
+    """The model used when the user does not choose one."""
     from .providers import claude, gemini, openai_compat
     if provider_id == "claude":
         return claude.DEFAULT_MODEL

@@ -20,15 +20,15 @@ ZETA RAYS/
 │   └── config/includes.chroot/
 │       ├── usr/lib/zeta/           ZETA RAYS subsystems
 │       │   ├── intelligence/       ZETA RAYS Intelligence (AI)
-│       │   │   ├── agente/         understanding, actions, verification
+│       │   │   ├── agent/         understanding, actions, verification
 │       │   │   └── providers/      Claude, Gemini, OpenAI-compatible, Ollama
 │       │   ├── system/             apps registry, network, audio, printers...
 │       │   ├── ui/                 shared GTK4 pages and menus
 │       │   ├── security/           ZETA RAYS Security (audit)
 │       │   ├── monitor/ search/ core/
 │       │   └── i18n.py             translations (gettext, domain "zetarays")
-│       ├── usr/local/bin/          commands: zeta, zeta-core, zeta-sicurezza,
-│       │                           zeta-impostazioni, zeta-app, zeta-launcher...
+│       ├── usr/local/bin/          commands: zeta, zeta-core, zeta-security,
+│       │                           zeta-settings, zeta-app, zeta-launcher...
 │       ├── usr/share/zeta/         brand, shell, languages, documentation
 │       └── etc/skel/.config/       default user configuration
 ├── po/                translations (it.po: English source text -> Italian)
@@ -51,10 +51,10 @@ ZETA RAYS/
 | Assistant | ZETA RAYS Intelligence | system assistant (text and voice) |
 | ZETA | GTK4 + Cairo | AI interface with the particle sphere |
 | Title bars | hyprbars (compiled at build time) | close, minimize, maximize on every window |
-| Minimized windows | `zeta-finestre` | list of open and minimized windows |
-| Desktop | `zeta-scrivania` | files, folders and icons on the wallpaper |
-| Search | `zeta-cerca` | apps, actions, file names and content (OCR included) |
-| Appearance | `zeta-aspetto` + `zeta-accent` | light/dark theme, text, icons, pointer, scale |
+| Minimized windows | `zeta-windows` | list of open and minimized windows |
+| Desktop | `zeta-desktop` | files, folders and icons on the wallpaper |
+| Search | `zeta-search` | apps, actions, file names and content (OCR included) |
+| Appearance | `zeta-appearance` + `zeta-accent` | light/dark theme, text, icons, pointer, scale |
 | Apps | `zeta-app` | single app registry: menu, Dock, Desktop, icons, install, uninstall, "where is" |
 
 ## Languages
@@ -64,10 +64,10 @@ code is English; `po/it.po` holds the Italian translation, compiled at build
 time into `/usr/share/locale/it/LC_MESSAGES/zetarays.mo` (the build stops if a
 string has no translation). The installer (Calamares) writes the chosen
 language, keyboard and time zone into the installed system. Settings >
-Language & Region (`ui/pagina_lingua.py`, with the privileged helper
-`/usr/libexec/zeta-lingua`) changes language, regional formats, keyboard
+Language & Region (`ui/language_page.py`, with the privileged helper
+`/usr/libexec/zeta-language`) changes language, regional formats, keyboard
 layout and the Fcitx 5 input method; the supported languages are listed in
-`/usr/share/zeta/lingue.json`. With a language other than English or Italian,
+`/usr/share/zeta/languages.json`. With a language other than English or Italian,
 the ZETA RAYS apps stay in English.
 
 ## Keyboard shortcuts
@@ -90,6 +90,7 @@ the ZETA RAYS apps stay in English.
 | `Super + Shift + T` | Text from an area of the screen (OCR), copied to the clipboard |
 | `Super + Shift + S` | Screenshot of an area, copied to the clipboard |
 | `Ctrl + Tab` | App switcher (`Ctrl + Q` inside it closes the chosen app) |
+| `Super + Shift + W` | Every window back inside the screen, title bar and buttons within reach |
 | `Ctrl + Alt + Esc` | Force quit: crosshair, click the frozen window (background = full list, including programs without a window) |
 | `Ctrl + Shift + Esc` | Emergency: closes the active window at once, without any interface |
 | `Ctrl + Alt + Delete` | Emergency panel |
@@ -101,7 +102,7 @@ the ZETA RAYS apps stay in English.
 Desktop icons are used with the mouse: double-click to open, right-click to
 rename, move to the Trash, create folders and documents, and change the icon
 of a shortcut ("Change Icon…", also from Properties). The chosen image is
-copied to `~/.local/share/zeta/icone`, so it stays in place even if the
+copied to `~/.local/share/zeta/icons`, so it stays in place even if the
 original is moved or deleted. The desktop deliberately does not take keyboard
 focus: a full-screen surface holding the focus would stop you from typing in
 any other window.

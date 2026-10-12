@@ -11,7 +11,7 @@ weakness, please tell us privately first.
 - write to **info@zetarays.org** with "SECURITY" in the subject.
 
 Please include: the image you used (`zetarays-2.0-amd64.iso`, …), what you did,
-what happened, and if possible the output of `sudo zeta-diagnosi`. Do not open
+what happened, and if possible the output of `sudo zeta-diagnostics`. Do not open
 a public issue for security problems.
 
 We will confirm receipt, fix confirmed issues in a new image, and credit you in

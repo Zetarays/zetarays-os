@@ -1,0 +1,53 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-default-app — open the default app of a category.
+
+  zeta-default-app terminal           the chosen terminal
+  zeta-default-app browser [URL]      the chosen browser
+  zeta-default-app file [FOLDER]      the chosen file manager
+  zeta-default-app mail | editor | video | images | pdf [FILE]
+  zeta-default-app list               the current choices
+
+The choice is made in Settings › Default Apps. The ZETA RAYS shortcuts
+(Super+Enter, Super+E, Super+B) go through this command.
+"""
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import default_apps as P  # noqa: E402
+from i18n import tr  # noqa: E402
+
+USAGE = tr("""zeta-default-app — open the default app of a category.
+
+  zeta-default-app terminal           the chosen terminal
+  zeta-default-app browser [URL]      the chosen browser
+  zeta-default-app file [FOLDER]      the chosen file manager
+  zeta-default-app mail | editor | video | images | pdf [FILE]
+  zeta-default-app list               the current choices
+
+Choose the apps in Settings › Default Apps. The ZETA RAYS shortcuts
+(Super+Enter, Super+E, Super+B) go through this command.
+""")
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(USAGE)
+        return 0 if len(argv) >= 2 else 1
+    cat = argv[1]
+    if cat == "list":
+        for c in P.ORDER:
+            print("%-10s %s" % (c, P.current(c) or "-"))
+        return 0
+    if cat not in P.CATEGORIES:
+        print(tr("Unknown category: {category}").format(category=cat), file=sys.stderr)
+        return 2
+    ok, msg = P.launch(cat, argv[2:])
+    if not ok:
+        print(msg, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

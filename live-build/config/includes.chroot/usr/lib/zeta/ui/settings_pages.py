@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Impostazioni — pagine Rete, Bluetooth, Stampanti e Audio (libadwaita).
+"""ZETA RAYS Settings — Network, Bluetooth, Printers and Audio pages (libadwaita).
 
-Sostituiscono le finestre generiche (nm-connection-editor, blueman, pavucontrol):
-stesso aspetto del resto di ZETA RAYS. I comandi lenti girano in thread; la UI si
-aggiorna con GLib.idle_add e non si blocca mai.
+They replace the generic windows (nm-connection-editor, blueman, pavucontrol)
+with the same look as the rest of ZETA RAYS. Slow commands run in threads; the
+UI is updated through GLib.idle_add and never blocks.
 """
 import os
 import re
@@ -16,11 +16,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from i18n import tr, trc  # noqa: E402
-from system import audio, bluetooth, network, run, stampanti  # noqa: E402
+from system import audio, bluetooth, network, run, printers  # noqa: E402
 
 
 def bg(work, done=None):
-    """Esegue work() in un thread e poi done(risultato) nel thread della UI."""
+    """Run work() in a thread, then done(result) in the UI thread."""
     def runner():
         res = work()
         if done:
@@ -46,13 +46,13 @@ def toast(widget, text):
         w.toast(text)
 
 
-# =============================== RETE ===============================
+# =============================== NETWORK ===============================
 class NetworkPage(Adw.PreferencesPage):
     def __init__(self):
         super().__init__()
         self.wifi_rows, self.vpn_rows = [], []
 
-        # Stato
+        # Status
         self.g_state = Adw.PreferencesGroup(title=tr("Status"))
         self.r_conn = status_row(tr("Connection"), "…")
         self.r_ip = status_row(tr("IP address"), "…")
@@ -62,26 +62,26 @@ class NetworkPage(Adw.PreferencesPage):
             self.g_state.add(r)
         self.add(self.g_state)
 
-        # il Wi-Fi subito dopo lo stato: e' la cosa che si usa di piu'; gli
-        # indirizzi IP manuali sono per pochi e stanno sotto
+        # Wi-Fi right after the status: it is what people use most; manual
+        # IP addresses are for a few and go further down
         self.g_wifi = Adw.PreferencesGroup(title="Wi-Fi")
         self.sw_wifi = Adw.SwitchRow(title="Wi-Fi")
         self.sw_wifi.connect("notify::active", self.on_wifi_switch)
         self.g_wifi.add(self.sw_wifi)
-        # una rete che non trasmette il nome non compare nell'elenco: si scrive a mano
-        nascosta = Adw.ActionRow(title=tr("Hidden network"),
+        # a network that does not broadcast its name is not listed: it is typed by hand
+        is_hidden = Adw.ActionRow(title=tr("Hidden network"),
                                  subtitle=tr("Not shown in the list: enter its name and password"))
         bn = Gtk.Button(label=tr("Connect…"), valign=Gtk.Align.CENTER)
-        bn.connect("clicked", lambda *_: self._chiedi_nascosta())
-        nascosta.add_suffix(bn)
-        self.g_wifi.add(nascosta)
+        bn.connect("clicked", lambda *_: self._ask_hidden())
+        is_hidden.add_suffix(bn)
+        self.g_wifi.add(is_hidden)
         rescan = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER,
                             tooltip_text=tr("Search for networks"), css_classes=["flat"])
         rescan.connect("clicked", lambda *_: self.load_wifi(rescan=True))
         self.g_wifi.set_header_suffix(rescan)
         self.add(self.g_wifi)
 
-        # Configurazione IPv4 della connessione attiva
+        # IPv4 configuration of the active connection
         self.g_ip = Adw.PreferencesGroup(title=tr("IPv4 address"),
                                          description=tr("Automatic (DHCP) is right almost always."))
         self.ip_mode = Adw.ComboRow(title=tr("Configuration"),
@@ -98,10 +98,10 @@ class NetworkPage(Adw.PreferencesPage):
         self.add(self.g_ip)
 
         # Wi-Fi
-        # IPv6: molte reti (e tutti gli operatori mobili moderni) lo usano, e
-        # senza questi controlli l'unico modo di toccarlo era la riga di
-        # comando. «Disattivato» serve a chi ha una rete che con IPv6 va in
-        # confusione: è il rimedio classico, e prima non c'era.
+        # IPv6: many networks (and every modern mobile carrier) use it, and
+        # without these controls the only way to change it was the command
+        # line. "Off" is for people whose network gets confused by IPv6: it is
+        # the classic fix, and it was missing before.
         self.g_ip6 = Adw.PreferencesGroup(
             title=tr("IPv6 address"),
             description=tr("Automatic is right almost always. Turn it off only if the network has problems."))
@@ -121,9 +121,10 @@ class NetworkPage(Adw.PreferencesPage):
         self.add(self.g_ip6)
 
 
-        # Accesso remoto (SSH): acceso apre la porta 22 alla sola rete locale;
-        # «Anche da internet» la apre anche da fuori (serve l'inoltro sul
-        # router). Tutto passa da zeta-ssh, con la password, e resta dopo il riavvio.
+        # Remote access (SSH): on opens port 22 to the local network only;
+        # "Also from the internet" opens it to the outside too (needs port
+        # forwarding on the router). Everything goes through zeta-ssh, with the
+        # password, and persists across reboots.
         self.g_ssh = Adw.PreferencesGroup(
             title=tr("Remote access (SSH)"),
             description=tr("To sign in to this computer from another one on the same network "
@@ -131,14 +132,14 @@ class NetworkPage(Adw.PreferencesPage):
         self.sw_ssh = Adw.SwitchRow(title=tr("Remote access"), subtitle="…")
         self.sw_ssh.connect("notify::active", self.on_ssh_switch)
         self.g_ssh.add(self.sw_ssh)
-        self.sw_ssh_remoto = Adw.SwitchRow(
+        self.sw_ssh_remote = Adw.SwitchRow(
             title=tr("Also from the internet"),
             subtitle=tr("Off: local network only. Port 22 must also be forwarded on the router."))
-        self.sw_ssh_remoto.set_sensitive(False)
-        self.sw_ssh_remoto.connect("notify::active", self.on_ssh_remoto_switch)
-        self.g_ssh.add(self.sw_ssh_remoto)
+        self.sw_ssh_remote.set_sensitive(False)
+        self.sw_ssh_remote.connect("notify::active", self.on_ssh_remote_switch)
+        self.g_ssh.add(self.sw_ssh_remote)
         self.add(self.g_ssh)
-        self._leggi_ssh()
+        self._read_ssh()
 
         # VPN
         self.g_vpn = Adw.PreferencesGroup(title="VPN",
@@ -167,16 +168,16 @@ class NetworkPage(Adw.PreferencesPage):
         self.g_proxy.set_header_suffix(papply)
         self.add(self.g_proxy)
 
-        # Server e condivisioni: file di altri computer (Windows, Mac, NAS,
-        # SSH, FTP, WebDAV, NFS), con la finestra «Connetti a un server»
+        # Servers and shares: files on other computers (Windows, Mac, NAS,
+        # SSH, FTP, WebDAV, NFS), through the "Connect to a server" window
         g_server = Adw.PreferencesGroup(title=tr("Servers and shares"))
         srv = Adw.ActionRow(title=tr("Connect to a server"),
                             subtitle=tr("Folders on Windows PCs, Macs and NAS drives, SSH, FTP, WebDAV and NFS "
                                         "servers, on your home network or on the internet"),
                             activatable=True)
-        srv.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
+        srv.add_prefix(Gtk.Image(icon_name="zeta-server-network"))
         srv.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        srv.connect("activated", lambda *_: _avvia_staccato("zeta-server"))
+        srv.connect("activated", lambda *_: _launch_detached("zeta-server"))
         g_server.add(srv)
         self.add(g_server)
 
@@ -184,7 +185,7 @@ class NetworkPage(Adw.PreferencesPage):
         self.refresh()
         self.load_proxy()
 
-    # ---- stato ----
+    # ---- status ----
     def refresh(self):
         def work():
             st = network.status()
@@ -217,8 +218,8 @@ class NetworkPage(Adw.PreferencesPage):
             self.ip_addr.set_text(conf.get("ipv4.addresses", "").split(",")[0])
             self.ip_gw.set_text(conf.get("ipv4.gateway", "").replace("--", ""))
             self.ip_dns.set_text(conf.get("ipv4.dns", "").replace(",", " ").replace("--", ""))
-            metodo6 = conf.get("ipv6.method", "auto")
-            self.ip6_mode.set_selected({"manual": 1, "disabled": 2, "ignore": 2}.get(metodo6, 0))
+            ipv6_method = conf.get("ipv6.method", "auto")
+            self.ip6_mode.set_selected({"manual": 1, "disabled": 2, "ignore": 2}.get(ipv6_method, 0))
             self.ip6_addr.set_text(conf.get("ipv6.addresses", "").split(",")[0].replace("--", ""))
             self.ip6_gw.set_text(conf.get("ipv6.gateway", "").replace("--", ""))
             self.ip6_dns.set_text(conf.get("ipv6.dns", "").replace(",", " ").replace("--", ""))
@@ -246,15 +247,15 @@ class NetworkPage(Adw.PreferencesPage):
         if not self.active_conn:
             return
         c = self.active_conn
-        scelta = self.ip6_mode.get_selected()
-        if scelta == 1:
+        choice = self.ip6_mode.get_selected()
+        if choice == 1:
             addr = self.ip6_addr.get_text().strip()
             if addr and "/" not in addr:
                 addr += "/64"
             args = ["ipv6.method", "manual", "ipv6.addresses", addr,
                     "ipv6.gateway", self.ip6_gw.get_text().strip(),
                     "ipv6.dns", self.ip6_dns.get_text().strip().replace(" ", ",")]
-        elif scelta == 2:
+        elif choice == 2:
             args = ["ipv6.method", "disabled", "ipv6.addresses", "",
                     "ipv6.gateway", "", "ipv6.dns", ""]
         else:
@@ -292,103 +293,103 @@ class NetworkPage(Adw.PreferencesPage):
         bg(work, lambda ok: (toast(self, tr("Configuration applied") if ok else
                                    tr("Could not apply: check the values")), self.refresh()))
 
-    # ---- Accesso remoto (SSH) ----
-    def _leggi_ssh(self):
+    # ---- Remote access (SSH) ----
+    def _read_ssh(self):
         def work():
             try:
-                r = subprocess.run(["zeta-ssh", "stato"], capture_output=True, text=True, timeout=10)
+                r = subprocess.run(["zeta-ssh", "status"], capture_output=True, text=True, timeout=10)
                 c = subprocess.run(["zeta-ssh", "config"], capture_output=True, text=True, timeout=10)
                 return r.returncode, r.stdout.strip(), "SSH_REMOTE_ACCESS=true" in c.stdout
             except (OSError, subprocess.SubprocessError) as e:
                 return 9, str(e), False
-        bg(work, self._mostra_ssh)
+        bg(work, self._show_ssh)
 
-    def _mostra_ssh(self, res):
-        rc, testo, remoto = res
-        acceso = rc == 0
-        # i comandi «ssh utente@indirizzo» che zeta-ssh stampa per la rete
-        # locale: si cercano per forma (indirizzo IP numerico), non per il
-        # testo che li accompagna, che cambia con la lingua. La riga «da
-        # internet» ha «<indirizzo pubblico...>» e resta fuori.
-        comandi = re.findall(r"\bssh \S+@[0-9A-Fa-f.:]+(?=\s|$)", testo, re.M)
-        if acceso:
-            sotto = tr("On. {details}").format(
-                details="  ".join(comandi) or tr("Port 22 open to the local network."))
+    def _show_ssh(self, res):
+        rc, text, remote = res
+        enabled = rc == 0
+        # the "ssh user@address" commands that zeta-ssh prints for the local
+        # network: they are matched by shape (numeric IP address), not by the
+        # text around them, which changes with the language. The "from the
+        # internet" line has "<public address...>" and is left out.
+        commands = re.findall(r"\bssh \S+@[0-9A-Fa-f.:]+(?=\s|$)", text, re.M)
+        if enabled:
+            below = tr("On. {details}").format(
+                details="  ".join(commands) or tr("Port 22 open to the local network."))
         elif rc == 9:
-            sotto = tr("Not available: {error}").format(error=testo[:80])
+            below = tr("Not available: {error}").format(error=text[:80])
         elif rc == 2:
-            sotto = tr("Half set up: turn it off and on again.")
+            below = tr("Half set up: turn it off and on again.")
         else:
-            sotto = tr("Off.")
-        self._ssh_aggiorna = True
-        self.sw_ssh.set_active(acceso)
-        self.sw_ssh_remoto.set_active(acceso and remoto)
-        self._ssh_aggiorna = False
-        self.sw_ssh.set_subtitle(sotto)
-        dal_vivo = os.path.exists("/run/live/medium")
-        self.sw_ssh_remoto.set_sensitive(acceso and not dal_vivo)
-        if dal_vivo:
-            self.sw_ssh_remoto.set_subtitle(
+            below = tr("Off.")
+        self._ssh_updating = True
+        self.sw_ssh.set_active(enabled)
+        self.sw_ssh_remote.set_active(enabled and remote)
+        self._ssh_updating = False
+        self.sw_ssh.set_subtitle(below)
+        is_live = os.path.exists("/run/live/medium")
+        self.sw_ssh_remote.set_sensitive(enabled and not is_live)
+        if is_live:
+            self.sw_ssh_remote.set_subtitle(
                 tr("Not available in the live session (its password “zeta” is known to everyone)."))
-        elif acceso and remoto:
-            self.sw_ssh_remoto.set_subtitle(tr("Open from the internet too. Root cannot sign in; too many "
+        elif enabled and remote:
+            self.sw_ssh_remote.set_subtitle(tr("Open from the internet too. Root cannot sign in; too many "
                                                "attempts from the same address are dropped."))
         else:
-            self.sw_ssh_remoto.set_subtitle(
+            self.sw_ssh_remote.set_subtitle(
                 tr("Off: local network only. Port 22 must also be forwarded on the router."))
 
-    def on_ssh_remoto_switch(self, row, _p):
-        if getattr(self, "_ssh_aggiorna", False):
+    def on_ssh_remote_switch(self, row, _p):
+        if getattr(self, "_ssh_updating", False):
             return
-        apri = row.get_active()
-        self.sw_ssh_remoto.set_subtitle(tr("Opening…") if apri else tr("Closing…"))
+        open_at = row.get_active()
+        self.sw_ssh_remote.set_subtitle(tr("Opening…") if open_at else tr("Closing…"))
 
         def work():
             try:
-                r = subprocess.run(["pkexec", "zeta-ssh", "remoto", "attiva" if apri else "disattiva"],
+                r = subprocess.run(["pkexec", "zeta-ssh", "remote", "on" if open_at else "off"],
                                    capture_output=True, text=True, timeout=120)
                 return r.returncode, (r.stdout + r.stderr).strip()
             except (OSError, subprocess.SubprocessError) as e:
                 return 1, str(e)
 
-        def fatto(res):
-            rc, testo = res
+        def done(res):
+            rc, text = res
             if rc == 0:
-                toast(self, tr("SSH open from the internet too") if apri else tr("SSH from the local network only"))
+                toast(self, tr("SSH open from the internet too") if open_at else tr("SSH from the local network only"))
             elif rc in (126, 127):
                 toast(self, tr("Canceled"))
             else:
                 toast(self, tr("Failed: {error}").format(
-                    error=testo.splitlines()[-1] if testo else tr("error")))
-            self._leggi_ssh()
-        bg(work, fatto)
+                    error=text.splitlines()[-1] if text else tr("error")))
+            self._read_ssh()
+        bg(work, done)
 
     def on_ssh_switch(self, row, _p):
-        if getattr(self, "_ssh_aggiorna", False):
+        if getattr(self, "_ssh_updating", False):
             return
-        accendi = row.get_active()
-        self.sw_ssh.set_subtitle(tr("Turning on…") if accendi else tr("Turning off…"))
+        turn_on = row.get_active()
+        self.sw_ssh.set_subtitle(tr("Turning on…") if turn_on else tr("Turning off…"))
 
         def work():
-            # pkexec chiede la password dell'amministratore (cambia il firewall)
+            # pkexec asks for the administrator password (it changes the firewall)
             try:
-                r = subprocess.run(["pkexec", "zeta-ssh", "attiva" if accendi else "disattiva"],
+                r = subprocess.run(["pkexec", "zeta-ssh", "on" if turn_on else "off"],
                                    capture_output=True, text=True, timeout=120)
                 return r.returncode, (r.stdout + r.stderr).strip()
             except (OSError, subprocess.SubprocessError) as e:
                 return 1, str(e)
 
-        def fatto(res):
-            rc, testo = res
+        def done(res):
+            rc, text = res
             if rc == 0:
-                toast(self, tr("Remote access on") if accendi else tr("Remote access off"))
+                toast(self, tr("Remote access on") if turn_on else tr("Remote access off"))
             elif rc in (126, 127):
                 toast(self, tr("Canceled"))
             else:
                 toast(self, tr("Failed: {error}").format(
-                    error=testo.splitlines()[-1] if testo else tr("error")))
-            self._leggi_ssh()          # si mostra lo stato vero, non quello chiesto
-        bg(work, fatto)
+                    error=text.splitlines()[-1] if text else tr("error")))
+            self._read_ssh()          # show the real state, not the requested one
+        bg(work, done)
 
     # ---- Wi-Fi ----
     def on_wifi_switch(self, row, _p):
@@ -399,50 +400,50 @@ class NetworkPage(Adw.PreferencesPage):
     def load_wifi(self, rescan=False):
         bg(lambda: (network.wifi_networks(rescan), network.known_wifi()), self.show_wifi)
 
-    def show_wifi(self, dati):
-        nets, salvate = dati
+    def show_wifi(self, data):
+        nets, saved = data
         clear_group(self.g_wifi, self.wifi_rows)
         if not nets:
             r = Adw.ActionRow(title=tr("No networks found"))
             self.g_wifi.add(r)
             self.wifi_rows.append(r)
-        in_corso = getattr(self, "_wifi_in_corso", None)
+        in_progress = getattr(self, "_wifi_in_progress", None)
         for n in nets[:12]:
             lvl = 3 if n["signal"] > 66 else 2 if n["signal"] > 33 else 1
-            nota = (trc("wifi network", "Connected") if n["active"] else
-                    trc("wifi network", "Connecting…") if n["ssid"] == in_corso else
-                    trc("wifi network", "Saved") if n["ssid"] in salvate else
+            note = (trc("wifi network", "Connected") if n["active"] else
+                    trc("wifi network", "Connecting…") if n["ssid"] == in_progress else
+                    trc("wifi network", "Saved") if n["ssid"] in saved else
                     trc("wifi network", "Secured") if n["secure"] else trc("wifi network", "Open"))
-            r = Adw.ActionRow(title=n["ssid"], subtitle=nota)
+            r = Adw.ActionRow(title=n["ssid"], subtitle=note)
             r.add_prefix(Gtk.Image(icon_name="zeta-wifi-%d" % lvl))
-            if n["ssid"] in salvate and n["secure"]:
+            if n["ssid"] in saved and n["secure"]:
                 cp = Gtk.Button(icon_name="dialog-password-symbolic", valign=Gtk.Align.CENTER,
                                 css_classes=["flat"], tooltip_text=tr("Change password"))
-                cp.connect("clicked", lambda _b, n=n: self._chiedi_password(n["ssid"]))
+                cp.connect("clicked", lambda _b, n=n: self._ask_password(n["ssid"]))
                 r.add_suffix(cp)
-            if n["ssid"] in salvate:
+            if n["ssid"] in saved:
                 dm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
                                 css_classes=["flat"], tooltip_text=tr("Forget network"))
-                dm.connect("clicked", lambda _b, n=n: self._dimentica(n["ssid"]))
+                dm.connect("clicked", lambda _b, n=n: self._forget(n["ssid"]))
                 r.add_suffix(dm)
             if not n["active"]:
                 b = Gtk.Button(label=tr("Connect"), valign=Gtk.Align.CENTER,
-                               sensitive=in_corso is None)
-                b.connect("clicked", lambda _b, n=n, s=salvate: self.connect_wifi(n, s))
+                               sensitive=in_progress is None)
+                b.connect("clicked", lambda _b, n=n, s=saved: self.connect_wifi(n, s))
                 r.add_suffix(b)
             self.g_wifi.add(r)
             self.wifi_rows.append(r)
 
-    def connect_wifi(self, n, salvate=()):
-        if n["secure"] and n["ssid"] not in salvate:
-            self._chiedi_password(n["ssid"])
+    def connect_wifi(self, n, saved=()):
+        if n["secure"] and n["ssid"] not in saved:
+            self._ask_password(n["ssid"])
         else:
             self._do_connect(n["ssid"], None)
 
-    def _chiedi_password(self, ssid, errore=""):
-        """Chiede la password; dopo un tentativo fallito la richiede con il
-        motivo scritto sopra, invece di lasciare l'utente senza risposta."""
-        dlg = Adw.AlertDialog(heading=tr("Password for “{name}”").format(name=ssid), body=errore)
+    def _ask_password(self, ssid, error=""):
+        """Ask for the password; after a failed attempt ask again with the
+        reason shown above, instead of leaving the user without an answer."""
+        dlg = Adw.AlertDialog(heading=tr("Password for “{name}”").format(name=ssid), body=error)
         entry = Gtk.PasswordEntry(show_peek_icon=True, activates_default=True)
         dlg.set_extra_child(entry)
         dlg.add_response("cancel", tr("Cancel"))
@@ -451,26 +452,26 @@ class NetworkPage(Adw.PreferencesPage):
         dlg.set_default_response("ok")
         dlg.set_close_response("cancel")
 
-        def risposta(_d, resp):
+        def answer(_d, resp):
             pw = entry.get_text()
             if resp != "ok":
                 return
             if not pw:
-                GLib.idle_add(self._chiedi_password, ssid, tr("Enter the network password."))
+                GLib.idle_add(self._ask_password, ssid, tr("Enter the network password."))
                 return
             self._do_connect(ssid, pw)
-        dlg.connect("response", risposta)
+        dlg.connect("response", answer)
         dlg.present(self.get_root())
         entry.grab_focus()
         return False
 
-    def _chiedi_nascosta(self, errore=""):
-        dlg = Adw.AlertDialog(heading=tr("Hidden network"), body=errore)
+    def _ask_hidden(self, error=""):
+        dlg = Adw.AlertDialog(heading=tr("Hidden network"), body=error)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        nome = Gtk.Entry(placeholder_text=tr("Network name (SSID)"), activates_default=True)
+        name_entry = Gtk.Entry(placeholder_text=tr("Network name (SSID)"), activates_default=True)
         pw = Gtk.PasswordEntry(show_peek_icon=True, activates_default=True,
                                placeholder_text=tr("Password (empty if the network is open)"))
-        box.append(nome)
+        box.append(name_entry)
         box.append(pw)
         dlg.set_extra_child(box)
         dlg.add_response("cancel", tr("Cancel"))
@@ -479,44 +480,44 @@ class NetworkPage(Adw.PreferencesPage):
         dlg.set_default_response("ok")
         dlg.set_close_response("cancel")
 
-        def risposta(_d, resp):
+        def answer(_d, resp):
             if resp != "ok":
                 return
-            ssid = nome.get_text().strip()
+            ssid = name_entry.get_text().strip()
             if not ssid:
-                GLib.idle_add(self._chiedi_nascosta, tr("Enter the network name."))
+                GLib.idle_add(self._ask_hidden, tr("Enter the network name."))
                 return
-            self._do_connect(ssid, pw.get_text() or None, nascosta=True)
-        dlg.connect("response", risposta)
+            self._do_connect(ssid, pw.get_text() or None, is_hidden=True)
+        dlg.connect("response", answer)
         dlg.present(self.get_root())
-        nome.grab_focus()
+        name_entry.grab_focus()
         return False
 
-    def _do_connect(self, ssid, pw, nascosta=False):
-        if getattr(self, "_wifi_in_corso", None):
-            return                                   # un tentativo alla volta
-        self._wifi_in_corso = ssid
+    def _do_connect(self, ssid, pw, is_hidden=False):
+        if getattr(self, "_wifi_in_progress", None):
+            return                                   # one attempt at a time
+        self._wifi_in_progress = ssid
         toast(self, tr("Connecting to “{name}”…").format(name=ssid))
         self.load_wifi()
 
-        def fatto(res):
-            ok, msg, motivo = res
-            self._wifi_in_corso = None
+        def done(res):
+            ok, msg, reason = res
+            self._wifi_in_progress = None
             toast(self, msg)
             self.refresh()
-            self._rileggi_dopo()
-            if motivo == "password" and nascosta:
-                self._chiedi_nascosta(msg)
-            elif motivo == "password":
-                self._chiedi_password(ssid, msg)
-        bg(lambda: network.connect_wifi_esito(ssid, pw, nascosta=nascosta), fatto)
+            self._reload_later()
+            if reason == "password" and is_hidden:
+                self._ask_hidden(msg)
+            elif reason == "password":
+                self._ask_password(ssid, msg)
+        bg(lambda: network.connect_wifi_outcome(ssid, pw, is_hidden=is_hidden), done)
 
-    def _rileggi_dopo(self):
-        """NetworkManager finisce di collegare o scollegare un attimo dopo aver
-        risposto: l'elenco si rilegge di nuovo, altrimenti resta «Connessa»."""
+    def _reload_later(self):
+        """NetworkManager finishes connecting or disconnecting a moment after
+        replying: reload the list again, otherwise it stays "Connected"."""
         GLib.timeout_add(2500, lambda: (self.load_wifi(), False)[1])
 
-    def _dimentica(self, ssid):
+    def _forget(self, ssid):
         dlg = Adw.AlertDialog(heading=tr("Forget “{name}”?").format(name=ssid),
                               body=tr("The saved password will be deleted; to reconnect you will "
                                       "have to enter it again."))
@@ -528,7 +529,7 @@ class NetworkPage(Adw.PreferencesPage):
             lambda: network.forget_wifi(ssid),
             lambda ok: (toast(self, (tr("“{name}” forgotten") if ok else
                                      tr("Could not forget “{name}”")).format(name=ssid)),
-                        self.refresh(), self._rileggi_dopo())) if resp == "ok" else None)
+                        self.refresh(), self._reload_later())) if resp == "ok" else None)
         dlg.present(self.get_root())
 
     # ---- VPN ----
@@ -690,21 +691,21 @@ class BluetoothPage(Adw.PreferencesPage):
                lambda ok: (toast(self, tr("Connected") if ok else tr("Connection failed")), self.refresh()))
 
 
-# =============================== STAMPANTI ===============================
-STATI_STAMPANTE = {"pronta": tr("Ready"), "stampa": tr("Printing"), "ferma": tr("Stopped")}
+# =============================== PRINTERS ===============================
+PRINTER_STATES = {"ready": tr("Ready"), "printing": tr("Printing"), "stopped": tr("Stopped")}
 
 
 class PrintersPage(Adw.PreferencesPage):
-    """Stampanti senza finestre tecniche: quelle in rete (Wi-Fi o cavo) e
-    USB compaiono da sole, si aggiungono con un clic e si provano subito.
-    Le opzioni rare (driver a mano, code condivise) restano nelle
-    impostazioni avanzate di CUPS."""
+    """Printers without technical dialogs: network (Wi-Fi or cable) and USB
+    printers show up on their own, are added with one click and can be tested
+    right away. Rare options (manually chosen drivers, shared queues) stay in
+    the advanced CUPS settings."""
 
     def __init__(self):
         super().__init__()
         self.rows, self.found_rows = [], []
-        self._cercando = False
-        self._cercato = False
+        self._searching = False
+        self._searched = False
 
         self.g = Adw.PreferencesGroup(title=tr("Your printers"))
         self.add(self.g)
@@ -713,13 +714,13 @@ class PrintersPage(Adw.PreferencesPage):
             title=tr("Printers found"),
             description=tr("Turn on the printer: printers on the same network as this computer "
                            "(Wi-Fi or cable) and those connected by USB show up here on their own."))
-        testa = Gtk.Box(spacing=8)
+        header = Gtk.Box(spacing=8)
         self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
-        self.cerca_btn = Gtk.Button(label=tr("Search again"), valign=Gtk.Align.CENTER)
-        self.cerca_btn.connect("clicked", lambda *_: self.cerca())
-        testa.append(self.spinner)
-        testa.append(self.cerca_btn)
-        self.g_found.set_header_suffix(testa)
+        self.search_btn = Gtk.Button(label=tr("Search again"), valign=Gtk.Align.CENTER)
+        self.search_btn.connect("clicked", lambda *_: self.search())
+        header.append(self.spinner)
+        header.append(self.search_btn)
+        self.g_found.set_header_suffix(header)
         self.add(self.g_found)
 
         self.g_ip = Adw.PreferencesGroup(
@@ -728,7 +729,7 @@ class PrintersPage(Adw.PreferencesPage):
                            "settings, or it is on the configuration page the printer prints itself."))
         self.ip = Adw.EntryRow(title=tr("Printer address (e.g. 192.168.1.50)"),
                                show_apply_button=True)
-        self.ip.connect("apply", lambda *_: self.aggiungi_ip())
+        self.ip.connect("apply", lambda *_: self.add_ip())
         self.g_ip.add(self.ip)
         wifi = Adw.ActionRow(
             title=tr("Printer not on Wi-Fi yet?"),
@@ -736,12 +737,12 @@ class PrintersPage(Adw.PreferencesPage):
                         "the router's WPS button, then press “Search again”."))
         wifi.add_prefix(Gtk.Image(icon_name="zeta-wifi"))
         self.g_ip.add(wifi)
-        avanzate = Adw.ActionRow(title=tr("Advanced settings"),
+        advanced = Adw.ActionRow(title=tr("Advanced settings"),
                                  subtitle=tr("Manually chosen driver, options and print queues"),
                                  activatable=True)
-        avanzate.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        avanzate.connect("activated", lambda *_: _avvia_staccato("system-config-printer"))
-        self.g_ip.add(avanzate)
+        advanced.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        advanced.connect("activated", lambda *_: _launch_detached("system-config-printer"))
+        self.g_ip.add(advanced)
         self.add(self.g_ip)
 
         self.none = Adw.StatusPage(icon_name="zeta-printer", title=tr("Printing service not running"),
@@ -750,189 +751,189 @@ class PrintersPage(Adw.PreferencesPage):
         self.none_group.add(self.none)
         self.none_group.set_visible(False)
         self.add(self.none_group)
-        # la ricerca parte quando la pagina si apre, non all'avvio delle
-        # Impostazioni: chi apre l'Aspetto non deve aspettare le stampanti
-        self.connect("map", lambda *_: self.refresh(cerca=not self._cercato))
+        # the search starts when the page is opened, not when Settings
+        # starts: someone opening Appearance must not wait for printers
+        self.connect("map", lambda *_: self.refresh(search=not self._searched))
 
-    # ---- elenco ----
-    def refresh(self, cerca=False):
-        def leggi():
-            attivo = stampanti.servizio_attivo()
-            if attivo:
-                stampanti.assicura_predefinita()
-            return attivo, stampanti.gestibili(), stampanti.elenco()
-        bg(leggi, lambda res: self._apply(res, cerca))
+    # ---- list ----
+    def refresh(self, search=False):
+        def read():
+            active = printers.service_active()
+            if active:
+                printers.ensure_default()
+            return active, printers.manageable(), printers.listing()
+        bg(read, lambda res: self._apply(res, search))
 
-    def _apply(self, res, cerca):
-        attivo, gestibili, elenco = res
-        self.none_group.set_visible(not attivo or not gestibili)
+    def _apply(self, res, search):
+        active, manageable, listing = res
+        self.none_group.set_visible(not active or not manageable)
         for g in (self.g_found, self.g_ip):
-            g.set_visible(attivo and gestibili)
-        if not attivo:
+            g.set_visible(active and manageable)
+        if not active:
             self.none.set_title(tr("Printing service not running"))
             self.none.set_description(tr("CUPS is not responding. Restart the computer; if that is not enough, "
                                          "in a terminal: sudo systemctl restart cups"))
-        elif not gestibili:
+        elif not manageable:
             self.none.set_title(tr("Printer permission required"))
             self.none.set_description(tr("This user is not in the lpadmin group. In a terminal: "
                                          "sudo usermod -aG lpadmin $USER, then sign out and back in."))
         clear_group(self.g, self.rows)
-        if not elenco:
+        if not listing:
             r = Adw.ActionRow(title=tr("No printers"),
                               subtitle=tr("Choose one of those found below."))
             r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
             self.g.add(r)
             self.rows.append(r)
-        for s in elenco:
-            self.g.add(self._riga_stampante(s))
-        # mentre stampa, lo stato si aggiorna da solo (finche' la pagina e'
-        # aperta): «1 in coda» non deve restare quando la stampa e' finita
-        if any(s["lavori"] or s["stato"] == "stampa" for s in elenco) and \
-                not getattr(self, "_segue", False):
-            self._segue = True
+        for s in listing:
+            self.g.add(self._printer_row(s))
+        # while printing, the status refreshes by itself (as long as the page
+        # is open): "1 queued" must not linger once the job is done
+        if any(s["jobs"] or s["state"] == "printing" for s in listing) and \
+                not getattr(self, "_polling", False):
+            self._polling = True
 
-            def ancora():
-                self._segue = False
+            def again():
+                self._polling = False
                 if self.get_mapped():
                     self.refresh()
                 return False
-            GLib.timeout_add_seconds(3, ancora)
-        if cerca and attivo and gestibili:
-            self.cerca()
+            GLib.timeout_add_seconds(3, again)
+        if search and active and manageable:
+            self.search()
 
-    def _riga_stampante(self, s):
-        parti = []
-        if s["predefinita"]:
-            parti.append(tr("Default"))
-        parti.append(STATI_STAMPANTE.get(s["stato"], s["stato"]))
-        parti.append(s["collegamento"])
-        if s["lavori"]:
-            parti.append(tr("{n} queued").format(n=s["lavori"]))
-        r = Adw.ActionRow(title=s["descrizione"], subtitle=" · ".join(parti), use_markup=False)
+    def _printer_row(self, s):
+        pieces = []
+        if s["default"]:
+            pieces.append(tr("Default"))
+        pieces.append(PRINTER_STATES.get(s["state"], s["state"]))
+        pieces.append(s["connection"])
+        if s["jobs"]:
+            pieces.append(tr("{n} queued").format(n=s["jobs"]))
+        r = Adw.ActionRow(title=s["description"], subtitle=" · ".join(pieces), use_markup=False)
         r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
-        if s["stato"] == "ferma":
+        if s["state"] == "stopped":
             b = Gtk.Button(label=tr("Resume"), valign=Gtk.Align.CENTER)
-            b.connect("clicked", lambda _b: self._azione(stampanti.riprendi, s, tr("Printer resumed")))
+            b.connect("clicked", lambda _b: self._action(printers.resume, s, tr("Printer resumed")))
             r.add_suffix(b)
-        if s["lavori"]:
+        if s["jobs"]:
             b = Gtk.Button(label=tr("Cancel print jobs"), valign=Gtk.Align.CENTER)
-            b.connect("clicked", lambda _b: self._azione(stampanti.annulla_lavori, s, tr("Print jobs canceled")))
+            b.connect("clicked", lambda _b: self._action(printers.cancel_jobs, s, tr("Print jobs canceled")))
             r.add_suffix(b)
-        prova = Gtk.Button(label=tr("Test page"), valign=Gtk.Align.CENTER)
-        prova.connect("clicked", lambda _b: self._azione(
-            stampanti.pagina_di_prova, s, tr("Test page sent to {name}").format(name=s["descrizione"])))
-        r.add_suffix(prova)
-        if not s["predefinita"]:
+        test = Gtk.Button(label=tr("Test page"), valign=Gtk.Align.CENTER)
+        test.connect("clicked", lambda _b: self._action(
+            printers.test_page, s, tr("Test page sent to {name}").format(name=s["description"])))
+        r.add_suffix(test)
+        if not s["default"]:
             st = Gtk.Button(icon_name="starred-symbolic", valign=Gtk.Align.CENTER,
                             css_classes=["flat"], tooltip_text=tr("Make default"))
-            st.connect("clicked", lambda _b: self._azione(
-                stampanti.imposta_predefinita, s, tr("{name} is now the default").format(name=s["descrizione"])))
+            st.connect("clicked", lambda _b: self._action(
+                printers.set_default, s, tr("{name} is now the default").format(name=s["description"])))
             r.add_suffix(st)
         rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
                         css_classes=["flat"], tooltip_text=tr("Remove"))
-        rm.connect("clicked", lambda _b: self._rimuovi(s))
+        rm.connect("clicked", lambda _b: self._remove(s))
         r.add_suffix(rm)
         self.rows.append(r)
         return r
 
-    def _azione(self, funzione, s, messaggio, cerca=False):
-        def fatto(res):
+    def _action(self, func, s, message, search=False):
+        def done(res):
             ok, err = res
-            toast(self, messaggio if ok else tr("Failed: {error}").format(error=err or tr("CUPS error")))
-            self.refresh(cerca=cerca)
-        bg(lambda: funzione(s["nome"]), fatto)
+            toast(self, message if ok else tr("Failed: {error}").format(error=err or tr("CUPS error")))
+            self.refresh(search=search)
+        bg(lambda: func(s["name"]), done)
 
-    def _rimuovi(self, s):
-        dlg = Adw.AlertDialog(heading=tr("Remove “{name}”?").format(name=s["descrizione"]),
+    def _remove(self, s):
+        dlg = Adw.AlertDialog(heading=tr("Remove “{name}”?").format(name=s["description"]),
                               body=tr("You can add it again whenever you like."))
         dlg.add_response("cancel", tr("Cancel"))
         dlg.add_response("rm", tr("Remove"))
         dlg.set_response_appearance("rm", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.set_close_response("cancel")
-        dlg.connect("response", lambda _d, resp: self._azione(
-            stampanti.rimuovi, s, tr("“{name}” removed").format(name=s["descrizione"]), cerca=True)
+        dlg.connect("response", lambda _d, resp: self._action(
+            printers.remove, s, tr("“{name}” removed").format(name=s["description"]), search=True)
             if resp == "rm" else None)
         dlg.present(self.get_root())
 
-    # ---- ricerca ----
-    def cerca(self):
-        if self._cercando:
+    # ---- search ----
+    def search(self):
+        if self._searching:
             return
-        self._cercando = True
-        self._cercato = True
+        self._searching = True
+        self._searched = True
         self.spinner.start()
-        self.cerca_btn.set_sensitive(False)
-        self.cerca_btn.set_label(tr("Searching…"))
-        bg(lambda: stampanti.cerca(8), self._trovate)
+        self.search_btn.set_sensitive(False)
+        self.search_btn.set_label(tr("Searching…"))
+        bg(lambda: printers.search(8), self._found)
 
-    def _trovate(self, trovate):
-        self._cercando = False
+    def _found(self, found):
+        self._searching = False
         self.spinner.stop()
-        self.cerca_btn.set_sensitive(True)
-        self.cerca_btn.set_label(tr("Search again"))
+        self.search_btn.set_sensitive(True)
+        self.search_btn.set_label(tr("Search again"))
         clear_group(self.g_found, self.found_rows)
-        if not trovate:
+        if not found:
             r = Adw.ActionRow(title=tr("No new printers found"),
                               subtitle=tr("Check that it is turned on and on the same network, "
                                           "or enter its address below."))
             self.g_found.add(r)
             self.found_rows.append(r)
-        for t in trovate:
-            sotto = t["collegamento"]
-            if t["modello"] and t["modello"].lower() not in t["nome"].lower():
-                sotto += " · " + t["modello"]
-            r = Adw.ActionRow(title=t["nome"], subtitle=sotto, use_markup=False)
+        for t in found:
+            below = t["connection"]
+            if t["model"] and t["model"].lower() not in t["name"].lower():
+                below += " · " + t["model"]
+            r = Adw.ActionRow(title=t["name"], subtitle=below, use_markup=False)
             r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
             b = Gtk.Button(label=tr("Add"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
-            b.connect("clicked", lambda btn, t=t: self._aggiungi(btn, t))
+            b.connect("clicked", lambda btn, t=t: self._add(btn, t))
             r.add_suffix(b)
             self.g_found.add(r)
             self.found_rows.append(r)
 
-    def _aggiungi(self, btn, t):
+    def _add(self, btn, t):
         btn.set_sensitive(False)
         btn.set_label(tr("Adding…"))
 
-        def fatto(res):
+        def done(res):
             ok, msg = res
             toast(self, msg)
             if ok:
-                self.refresh(cerca=True)
+                self.refresh(search=True)
             else:
                 btn.set_sensitive(True)
                 btn.set_label(tr("Add"))
-        bg(lambda: stampanti.aggiungi(t["uri"], t["nome"], t["device_id"], t["modello"]), fatto)
+        bg(lambda: printers.add(t["uri"], t["name"], t["device_id"], t["model"]), done)
 
-    def aggiungi_ip(self):
-        testo = self.ip.get_text().strip()
-        if not testo:
+    def add_ip(self):
+        text = self.ip.get_text().strip()
+        if not text:
             return
         self.ip.set_sensitive(False)
-        toast(self, tr("Connecting to {address}…").format(address=testo))
+        toast(self, tr("Connecting to {address}…").format(address=text))
 
-        def fatto(res):
+        def done(res):
             ok, msg = res
             self.ip.set_sensitive(True)
             if ok:
                 self.ip.set_text("")
             toast(self, msg)
             self.refresh()
-        bg(lambda: stampanti.aggiungi_indirizzo(testo), fatto)
+        bg(lambda: printers.add_address(text), done)
 
 
-_FIGLI = set()
+_CHILDREN = set()
 
 
-def _avvia_staccato(prog):
+def _launch_detached(prog):
     try:
         p = subprocess.Popen([prog], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        _FIGLI.add(p)                 # niente zombie e niente doppia raccolta
+        _CHILDREN.add(p)                 # no zombies and no double reaping
 
-        def finito(_pid, stato, proc=p):
-            proc.returncode = stato
-            _FIGLI.discard(proc)
-        GLib.child_watch_add(GLib.PRIORITY_DEFAULT_IDLE, p.pid, finito)
+        def finished(_pid, state, proc=p):
+            proc.returncode = state
+            _CHILDREN.discard(proc)
+        GLib.child_watch_add(GLib.PRIORITY_DEFAULT_IDLE, p.pid, finished)
     except OSError:
         pass
 

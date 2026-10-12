@@ -1,0 +1,12 @@
+[Unit]
+Description=ZETA RAYS: health check every two minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=20s
+# no catch-up at power on: a missed check does not need to run again
+Persistent=false
+
+[Install]
+WantedBy=timers.target

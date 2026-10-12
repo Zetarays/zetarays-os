@@ -1,11 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Anteprima dell'interfaccia ZETA RAYS senza costruire l'ISO:
-# avvia un compositor Wayland "headless" in un container Debian 13 e
-# fa screenshot di barra, launcher, Impostazioni e schermata di accesso.
-# Nota: l'anteprima usa sway (headless) al posto di Hyprland, quindi
-# sfocatura, ombre e bordi delle finestre qui non si vedono.
-# Uso: tools/preview.sh [#RRGGBB]
+# Preview of the ZETA RAYS interface without building the ISO:
+# starts a "headless" Wayland compositor in a Debian 13 container and
+# takes screenshots of the bar, launcher, Settings and login screen.
+# Note: the preview uses sway (headless) instead of Hyprland, so blur,
+# shadows and window borders are not visible here.
+# Usage: tools/preview.sh [#RRGGBB]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,17 +35,17 @@ grim /out/2-launcher.png
 kill $LP 2>/dev/null || true
 sleep 1
 
-zeta-impostazioni >/tmp/impostazioni.log 2>&1 &
-IP=$!
+zeta-settings >/tmp/settings.log 2>&1 &
+SP=$!
 sleep 4
-grim /out/3-impostazioni.png
-kill $IP 2>/dev/null || true
+grim /out/3-settings.png
+kill $SP 2>/dev/null || true
 sleep 1
 
 QT_QPA_PLATFORM=wayland sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/zeta >/tmp/greeter.log 2>&1 &
 GP=$!
 sleep 6
-grim /out/4-accesso.png
+grim /out/4-login.png
 kill $GP 2>/dev/null || true
 EOS
 
@@ -68,7 +68,7 @@ docker run --rm --privileged --platform linux/arm64 \
     useradd -m -s /bin/bash zeta && cp -r /zeta/etc/skel/.config /home/zeta/ && chown -R zeta /home/zeta
     mkdir -p /tmp/xdg && chown zeta /tmp/xdg && chmod 700 /tmp/xdg
     su zeta -c "ACCENT=\"'"$ACCENT"'\" dbus-run-session -- bash /out/session.sh" || true
-    for f in waybar launcher impostazioni greeter; do
+    for f in waybar launcher settings greeter; do
       echo "===== $f"; grep -viE "^$|debug|\] \[info\]" /tmp/$f.log | tail -12 || true
     done
   '

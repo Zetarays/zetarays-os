@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — dock personalizzabile.
+"""ZETA RAYS — customizable dock.
 
-Il dock non è fisso: l'utente sceglie quali applicazioni mostrare (da
-Impostazioni › Dock). La scelta è salvata in ~/.config/zeta/dock.json e da qui
-si rigenera la configurazione di Waybar (~/.config/waybar/config.jsonc), che
-viene ricaricata a caldo. Se qualcosa va storto, la barra esistente resta
-intatta: non si genera mai un file rotto.
+The dock is not fixed: the user chooses which applications to show (from
+Settings › Dock). The choice is saved in ~/.config/zeta/dock.json and from it
+the Waybar configuration (~/.config/waybar/config.jsonc) is regenerated and
+hot-reloaded. If something goes wrong, the existing bar stays intact: a
+broken file is never generated.
 """
 from __future__ import annotations
 
@@ -27,54 +27,54 @@ CFG = HOME / ".config" / "zeta"
 DOCK_FILE = CFG / "dock.json"
 WAYBAR = HOME / ".config" / "waybar" / "config.jsonc"
 
-SEGNALE_DOCK = 12        # SIGRTMIN+12: finestre aperte/chiuse (lo manda zeta-spazi)
+DOCK_SIGNAL = 12        # SIGRTMIN+12: windows opened/closed (sent by zeta-workspaces)
 
-# Dock predefinito: accesso immediato alle funzioni principali del sistema.
+# Default dock: quick access to the system's main functions.
 DEFAULT = [
     {"cmd": "thunar",             "name": tr("Files"),     "icon": "org.xfce.thunar"},
     {"cmd": "foot",               "name": tr("Terminal"),  "icon": "foot"},
     {"cmd": "firefox-esr",        "name": "Firefox",       "icon": "firefox-esr"},
-    # Posta (Thunderbird): suggerimento, puntino quando e' aperta, «Nuovo
-    # messaggio» nel menu. Lo stato lo chiede il dock solo quando si apre o si chiude
-    # una finestra (segnale di zeta-spazi): nessun controllo periodico.
-    {"cmd": "zeta-posta",         "name": tr("Mail"),      "icon": "zeta-posta",
-     "stato": "zeta-posta stato", "voci": [[tr("New Message"), "zeta-posta nuovo"]]},
+    # Mail (Thunderbird): tooltip, a dot while it is open, "New Message" in
+    # the menu. The dock asks for the state only when a window opens or closes
+    # (signal from zeta-workspaces): no periodic polling.
+    {"cmd": "zeta-mail",         "name": tr("Mail"),      "icon": "zeta-mail",
+     "status": "zeta-mail status", "actions": [[tr("New Message"), "zeta-mail new"]]},
     {"cmd": "gnome-text-editor",  "name": tr("Editor"),    "icon": "org.gnome.TextEditor"},
     {"cmd": "zeta-monitor",       "name": tr("Monitor"),   "icon": "zeta-monitor"},
-    {"cmd": "zeta-sicurezza",     "name": tr("Security"),  "icon": "zeta-sicurezza"},
+    {"cmd": "zeta-security",     "name": tr("Security"),  "icon": "zeta-security"},
     {"cmd": "synaptic-pkexec",    "name": tr("Packages"),  "icon": "synaptic"},
-    {"cmd": "zeta-impostazioni",  "name": tr("Settings"),  "icon": "zeta-impostazioni"},
+    {"cmd": "zeta-settings",  "name": tr("Settings"),  "icon": "zeta-settings"},
 ]
 
 
-def _registro():
+def _app_registry():
     import sys
     if "/usr/lib/zeta" not in sys.path:
         sys.path.insert(0, "/usr/lib/zeta")
-    from system import applicazioni
-    return applicazioni
+    from system import applications
+    return applications
 
 
 def resolve_icon(name: str) -> str:
-    """Nome icona -> percorso di un file: lo stesso risultato del menu delle
-    app (tema ZETA RAYS, Adwaita, hicolor in tutte le misure, app Flatpak e
-    della home, pixmaps). Prima qui si guardavano solo tre cartelle e le app
-    con l'icona solo in PNG (48x48, 256x256...) avevano nel Dock quella
-    generica."""
-    return _registro().icona_file(name)
+    """Icon name -> file path: the same result as the app menu (ZETA RAYS
+    theme, Adwaita, hicolor in every size, Flatpak and home-directory apps,
+    pixmaps). Previously only three folders were checked here, and apps whose
+    icon existed only as PNG (48x48, 256x256...) got the generic one in the
+    Dock."""
+    return _app_registry().icon_file(name)
 
 
 def installed_apps() -> list[dict]:
-    """Applicazioni per la scelta del Dock: le stesse del menu."""
-    return [{"id": a.id, "name": a.nome, "icon": a.icona, "exec": a.comando}
-            for a in _registro().menu()]
+    """Applications offered for the Dock: the same as in the menu."""
+    return [{"id": a.id, "name": a.name, "icon": a.icon, "exec": a.command}
+            for a in _app_registry().menu()]
 
 
-def voce_da_app(app) -> dict:
-    """Voce del Dock per un'app del registro: si avvia come dal menu
-    (zeta-app avvia), e l'id evita i doppioni e serve a toglierla."""
-    return {"app": app.id, "cmd": "zeta-app avvia %s" % shlex.quote(app.id),
-            "name": app.nome, "icon": app.icona}
+def entry_from_app(app) -> dict:
+    """Dock entry for an app from the registry: it launches as from the menu
+    (zeta-app launch), and the id avoids duplicates and is used to remove it."""
+    return {"app": app.id, "cmd": "zeta-app launch %s" % shlex.quote(app.id),
+            "name": app.name, "icon": app.icon}
 
 
 def load_dock() -> list[dict]:
@@ -82,13 +82,13 @@ def load_dock() -> list[dict]:
         with open(DOCK_FILE) as f:
             data = json.load(f)
         if isinstance(data, list) and data:
-            voci = [e for e in data if isinstance(e, dict) and e.get("cmd")]
-            for e in voci:
-                # dock salvati dalla 1.7 precedente: il menu proprio della
-                # Posta e' diventato una voce del menu comune
-                if e.pop("menu", None) == "zeta-posta menu":
-                    e.setdefault("voci", [[tr("New Message"), "zeta-posta nuovo"]])
-            return voci
+            entries = [e for e in data if isinstance(e, dict) and e.get("cmd")]
+            for e in entries:
+                # docks saved by the earlier 1.7: Mail's own menu became an
+                # entry of the shared menu
+                if e.pop("menu", None) == "zeta-mail menu":
+                    e.setdefault("actions", [[tr("New Message"), "zeta-mail new"]])
+            return entries
     except (OSError, ValueError):
         pass
     return list(DEFAULT)
@@ -103,44 +103,44 @@ def save_dock(entries: list[dict]) -> None:
 
 
 def entry_from_desktop(app: dict) -> dict:
-    """Converte una app di installed_apps() in una voce del dock."""
-    a = _registro().trova(app.get("id", ""))
+    """Turn an app from installed_apps() into a dock entry."""
+    a = _app_registry().find(app.get("id", ""))
     if a is not None:
-        return voce_da_app(a)
+        return entry_from_app(a)
     return {"cmd": app["exec"], "name": app["name"], "icon": app.get("icon", "")}
 
 
-def presenti() -> set:
-    """Id delle app gia' nel Dock (anche voci vecchie, senza id)."""
-    reg = _registro()
+def present() -> set:
+    """Ids of the apps already in the Dock (including old entries without an id)."""
+    reg = _app_registry()
     ids = set()
     for e in load_dock():
         if e.get("app"):
             ids.add(e["app"])
         else:
-            a = reg.da_comando(e.get("cmd", ""))
+            a = reg.from_command(e.get("cmd", ""))
             if a is not None:
                 ids.add(a.id)
     return ids
 
 
-def posizione() -> str:
-    """Barra in basso o in alto (Impostazioni › Dock)."""
+def position() -> str:
+    """Bar at the bottom or at the top (Settings › Dock)."""
     try:
-        v = (CFG / "dock-posizione").read_text().strip()
+        v = (CFG / "dock-position").read_text().strip()
     except OSError:
         return "bottom"
     return v if v in ("bottom", "top") else "bottom"
 
 
 def bar_icon(name: str, fallback: str) -> str:
-    """Icona della barra ricolorata per il tema (generata da zeta-accent)."""
-    p = CFG / "barra" / name
+    """Bar icon recolored for the theme (generated by zeta-accent)."""
+    p = CFG / "bar" / name
     return str(p) if p.exists() else fallback
 
 
 def icon_size() -> int:
-    """Dimensione delle icone del dock scelta in Impostazioni > Aspetto."""
+    """Dock icon size chosen in Settings > Appearance."""
     try:
         v = int((CFG / "icon-size").read_text().strip())
     except (OSError, ValueError):
@@ -148,158 +148,159 @@ def icon_size() -> int:
     return v if 28 <= v <= 64 else 42
 
 
-def _locale_orologio() -> str:
-    """La lingua dell'orologio della barra: quella dell'utente (LC_ALL,
-    LC_TIME, LANG), se e' davvero installata. Waybar non sa usare una lingua
-    che manca (l'orologio sparirebbe): in quel caso C.UTF-8."""
-    nome = ""
+def _clock_locale() -> str:
+    """Language of the bar clock: the user's (LC_ALL, LC_TIME, LANG), if it
+    is actually installed. Waybar cannot use a missing locale (the clock
+    would disappear): in that case C.UTF-8."""
+    loc = ""
     for var in ("LC_ALL", "LC_TIME", "LANG"):
-        nome = os.environ.get(var, "")
-        if nome:
+        loc = os.environ.get(var, "")
+        if loc:
             break
-    if not nome or nome in ("C", "POSIX"):
+    if not loc or loc in ("C", "POSIX"):
         return "C.UTF-8"
     try:
-        prima = locale.setlocale(locale.LC_TIME)
+        previous = locale.setlocale(locale.LC_TIME)
     except locale.Error:
         return "C.UTF-8"
     try:
-        locale.setlocale(locale.LC_TIME, nome)
-        return nome
+        locale.setlocale(locale.LC_TIME, loc)
+        return loc
     except locale.Error:
         return "C.UTF-8"
     finally:
         try:
-            locale.setlocale(locale.LC_TIME, prima)
+            locale.setlocale(locale.LC_TIME, previous)
         except locale.Error:
             pass
 
 
 def render_config(dock: list[dict]) -> dict:
-    """Configurazione Waybar completa con il dock richiesto."""
+    """Full Waybar configuration with the requested dock."""
     dock_modules = []
     images = {}
     size = icon_size()
-    reg = _registro()
-    # Formati della data (strftime) per l'orologio: l'ordine di giorno e mese
-    # cambia da lingua a lingua, quindi passano dalle traduzioni.
+    reg = _app_registry()
+    # Date formats (strftime) for the clock: the order of day and month
+    # changes from language to language, so they go through translations.
     # xgettext:no-python-format
-    data_breve = tr("%a %b %d")              # sotto l'ora, nella barra
+    short_date = tr("%a %b %d")              # below the time, in the bar
     # xgettext:no-python-format
-    data_lunga = tr("%A, %B %d, %Y")         # suggerimento sopra il calendario
+    long_date = tr("%A, %B %d, %Y")         # tooltip above the calendar
     for i, e in enumerate(dock):
         key = "image#dock%d" % i
         dock_modules.append(key)
-        # l'icona viene dal registro delle app: se l'app la cambia (un
-        # aggiornamento, o «Cambia icona…») il Dock la segue
-        icona = e.get("icon", "")
-        app = reg.trova(e["app"]) if e.get("app") else reg.da_comando(e.get("cmd", ""))
-        if app is not None and (e.get("app") or app.icona_personale) and app.icona:
-            icona = app.icona
+        # the icon comes from the app registry: if the app changes it (an
+        # update, or "Change icon…") the Dock follows
+        icon = e.get("icon", "")
+        app = reg.find(e["app"]) if e.get("app") else reg.from_command(e.get("cmd", ""))
+        if app is not None and (e.get("app") or app.custom_icon) and app.icon:
+            icon = app.icon
         images[key] = {
-            "path": resolve_icon(icona),
+            "path": resolve_icon(icon),
             "size": size, "tooltip": False,
             "on-click": e["cmd"],
         }
-        if e.get("stato"):
-            # icona e suggerimento dati da un comando breve, rieseguito al
-            # segnale SIGRTMIN+12 (finestre aperte o chiuse); l'intervallo
-            # lungo e' solo una rete di sicurezza
+        if e.get("status"):
+            # icon and tooltip come from a short command, rerun on the
+            # SIGRTMIN+12 signal (windows opened or closed); the long
+            # interval is only a safety net
             del images[key]["path"]
-            images[key].update({"exec": e["stato"], "signal": SEGNALE_DOCK,
+            images[key].update({"exec": e["status"], "signal": DOCK_SIGNAL,
                                 "interval": 300, "tooltip": True})
-        # tasto destro: lo stesso menu per tutte le icone (Apri, Chiudi se
-        # aperta, Rimuovi dal Dock, Opzioni, Impostazioni dell'app)
+        # right click: the same menu for every icon (Open, Close if open,
+        # Remove from Dock, Options, App settings)
         images[key]["on-click-right"] = "zeta-dock menu %d" % i
 
     cfg = {
-        "layer": "top", "position": posizione(), "height": max(60, size + 18),
+        "layer": "top", "position": position(), "height": max(60, size + 18),
         "margin-left": 12, "margin-right": 12, "spacing": 0,
-        ("margin-bottom" if posizione() == "bottom" else "margin-top"): 12,
-        "modules-left": ["image#launcher", "group/spazi"],
-        "modules-center": ["group/dock", "group/ridotte"],
-        "modules-right": ["custom/tastiera", "image#search", "image#net", "image#vol",
+        ("margin-bottom" if position() == "bottom" else "margin-top"): 12,
+        "modules-left": ["image#launcher", "group/workspaces"],
+        "modules-center": ["group/dock", "group/minimized"],
+        "modules-right": ["custom/keyboard", "image#search", "image#net", "image#vol",
                           "image#bat", "clock", "image#power"],
-        # Tastiera in uso (IT, US, GB...), solo con piu' layout (con uno solo
-        # zeta-tastiera non scrive nulla e Waybar non la mostra). Un clic passa
-        # alla successiva, come Alt+Shift; zeta-spazi la aggiorna al cambio.
-        "custom/tastiera": {
-            "exec": "zeta-tastiera stato", "return-type": "json",
+        # Current keyboard (IT, US, GB...), only with more than one layout
+        # (with a single one zeta-keyboard prints nothing and Waybar hides
+        # it). A click switches to the next one, like Alt+Shift; zeta-workspaces
+        # updates it on change.
+        "custom/keyboard": {
+            "exec": "zeta-keyboard status", "return-type": "json",
             "interval": 300, "signal": 14,
-            "on-click": "zeta-tastiera prossima", "tooltip": True,
+            "on-click": "zeta-keyboard next", "tooltip": True,
         },
         "image#launcher": {
             "exec": "echo $HOME/.config/zeta/launcher.svg",
-            # Il marchio e l'elemento d'identita della barra. E un disegno a
-            # linee sottili: a 20 spariva, e anche a 34 le linee scendevano a
-            # circa un pixel e l'antialiasing le spegneva. A 42 e alto quanto
-            # le tessere del dock e le linee restano nitide.
-            "size": 42, "signal": 8, "tooltip": False, "on-click": "zeta-pannello launcher",
+            # The logo is the bar's identity element. It is a thin-line
+            # drawing: at 20 it vanished, and even at 34 the lines dropped to
+            # about one pixel and antialiasing washed them out. At 42 it is as
+            # tall as the dock tiles and the lines stay sharp.
+            "size": 42, "signal": 8, "tooltip": False, "on-click": "zeta-panel launcher",
         },
-        # Finestre ridotte a icona: una miniatura per finestra accanto al dock,
-        # come su macOS (zeta-riduci ne fa la foto prima di nasconderla). Un
-        # posto senza finestra non ha immagine e Waybar non lo mostra.
-        # Aggiornate subito da zeta-riduci e zeta-spazi (SIGRTMIN+9).
-        "group/ridotte": {"orientation": "horizontal",
-                          "modules": ["image#ridotta%d" % n for n in range(8)]},
-        **{"image#ridotta%d" % n: {
-            "exec": "zeta-finestre anteprima %d" % n, "signal": 9, "interval": 300,
+        # Minimized windows: one thumbnail per window next to the dock, as on
+        # macOS (zeta-minimize takes a snapshot before hiding it). A slot with
+        # no window has no image and Waybar does not show it. Updated at once
+        # by zeta-minimize and zeta-workspaces (SIGRTMIN+9).
+        "group/minimized": {"orientation": "horizontal",
+                            "modules": ["image#minimized%d" % n for n in range(8)]},
+        **{"image#minimized%d" % n: {
+            "exec": "zeta-windows preview %d" % n, "signal": 9, "interval": 300,
             "size": int(size * 1.6), "tooltip": True,
-            "on-click": "zeta-riduci ripristina-n %d" % n,
-            "on-click-right": "zeta-riduci menu %d" % n,
-            "on-click-middle": "zeta-finestre chiudi-n %d" % n,
+            "on-click": "zeta-minimize restore-n %d" % n,
+            "on-click-right": "zeta-minimize menu %d" % n,
+            "on-click-middle": "zeta-windows close-n %d" % n,
         } for n in range(8)},
         "image#search": {
-            "path": bar_icon("cerca.svg", "/usr/share/zeta/status/cerca.svg"),
-            "size": 18, "tooltip": False, "on-click": "zeta-pannello cerca",
+            "path": bar_icon("search.svg", "/usr/share/zeta/status/search.svg"),
+            "size": 18, "tooltip": False, "on-click": "zeta-panel search",
         },
-        # Spazi di lavoro: non si usa "hyprland/workspaces" perché per
-        # attivarne uno manda a Hyprland la sintassi storica, che la
-        # configurazione in Lua di Hyprland 0.55 rifiuta — cliccare un numero
-        # nella barra non faceva nulla. zeta-spazi ascolta gli eventi di
-        # Hyprland (nessun sondaggio continuo) e usa la sintassi corretta.
-        "group/spazi": {
+        # Workspaces: "hyprland/workspaces" is not used because, to switch to
+        # one, it sends Hyprland the legacy syntax, which the Lua
+        # configuration of Hyprland 0.55 rejects — clicking a number in the
+        # bar did nothing. zeta-workspaces listens to Hyprland's events (no
+        # continuous polling) and uses the correct syntax.
+        "group/workspaces": {
             "orientation": "horizontal",
-            "modules": ["custom/spazio%d" % n for n in (1, 2, 3)],
+            "modules": ["custom/workspace%d" % n for n in (1, 2, 3)],
         },
-        # Comandi brevi che finiscono da soli, aggiornati dal segnale che manda
-        # «zeta-spazi segnala». Un modulo che resta aperto verrebbe lasciato
-        # indietro come processo zombie a ogni ricarica della barra.
-        **{"custom/spazio%d" % n: {
-            "exec": "zeta-spazi stato %d" % n, "return-type": "json",
+        # Short commands that exit on their own, refreshed by the signal sent
+        # by "zeta-workspaces listen". A module that stays running would be left
+        # behind as a zombie process on every bar reload.
+        **{"custom/workspace%d" % n: {
+            "exec": "zeta-workspaces status %d" % n, "return-type": "json",
             "interval": 120, "signal": 10,
-            "on-click": "zeta-spazi vai %d" % n, "tooltip": False,
+            "on-click": "zeta-workspaces go %d" % n, "tooltip": False,
         } for n in (1, 2, 3)},
         "group/dock": {"orientation": "horizontal", "modules": dock_modules},
-        # la rete: aggiornata da NetworkManager quando cambia (SIGRTMIN+13,
-        # /etc/NetworkManager/dispatcher.d/90-zeta-barra); l'intervallo lungo
-        # e' solo una rete di sicurezza
+        # the network: updated by NetworkManager when it changes (SIGRTMIN+13,
+        # /etc/NetworkManager/dispatcher.d/90-zeta-bar); the long interval
+        # is only a safety net
         "image#net": {"exec": "zeta-status net", "interval": 60, "signal": 13, "size": 18,
-                      "tooltip": False, "on-click": "zeta-pannello rete"},
-        # Il volume si aggiorna con un segnale (zeta-volume lo manda appena
-        # cambia), non rileggendo lo stato ogni 2 secondi: la lettura
-        # periodica resta solo come rete di sicurezza.
+                      "tooltip": False, "on-click": "zeta-panel network"},
+        # The volume is updated through a signal (zeta-volume sends it as soon
+        # as it changes), not by rereading the state every 2 seconds: the
+        # periodic read remains only as a safety net.
         "image#vol": {"exec": "zeta-status vol", "interval": 60, "signal": 11,
                       "size": 18,
-                      "tooltip": False, "on-click": "zeta-pannello audio",
-                      "on-scroll-up": "zeta-volume su",
-                      "on-scroll-down": "zeta-volume giu"},
+                      "tooltip": False, "on-click": "zeta-panel audio",
+                      "on-scroll-up": "zeta-volume up",
+                      "on-scroll-down": "zeta-volume down"},
         "image#bat": {"exec": "zeta-status bat", "interval": 60, "size": 20,
-                      "tooltip": False, "on-click": "zeta-pannello controllo"},
+                      "tooltip": False, "on-click": "zeta-panel control"},
         "image#power": {"path": bar_icon("power.svg", "/usr/share/zeta/status/power.svg"),
                         "size": 18,
-                        "tooltip": False, "on-click": "zeta-pannello energia"},
+                        "tooltip": False, "on-click": "zeta-panel power"},
         "clock": {
             "format": "<span weight='500'>{0:%H:%M}</span>\n<span size='8.5pt' foreground='#8A8A8E'>{0:L"
-                      + data_breve + "}</span>",
-            "locale": _locale_orologio(), "justify": "right",
-            "tooltip-format": "<span size='11pt'>{0:L" + data_lunga
+                      + short_date + "}</span>",
+            "locale": _clock_locale(), "justify": "right",
+            "tooltip-format": "<span size='11pt'>{0:L" + long_date
                               + "}</span>\n\n<tt>{calendar}</tt>",
             "calendar": {"mode": "month", "weeks-pos": "",
                          "format": {"months": "<span color='#EDEDEA'><b>{}</b></span>",
                                     "weekdays": "<span color='#8A8A8E'>{}</span>",
                                     "today": "<span color='#3A8DFF'><b>{}</b></span>"}},
-            "on-click": "zeta-pannello controllo",
+            "on-click": "zeta-panel control",
         },
     }
     cfg.update(images)
@@ -307,14 +308,14 @@ def render_config(dock: list[dict]) -> dict:
 
 
 def reload_waybar() -> None:
-    """Ricarica Waybar a caldo, tramite zeta-barra: una ricarica alla volta e
-    poi il controllo che la barra sia rimasta una sola (le ricariche con
-    SIGUSR2 ravvicinate a volte la duplicavano). Non aspetta: torna subito."""
+    """Hot-reload Waybar through zeta-bar: one reload at a time, then a
+    check that only one bar is left (back-to-back SIGUSR2 reloads sometimes
+    duplicated it). Does not wait: returns immediately."""
     try:
-        subprocess.Popen(["zeta-barra", "ricarica"], stdout=subprocess.DEVNULL,
+        subprocess.Popen(["zeta-bar", "reload"], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
-        try:   # zeta-barra assente (sistema vecchio): ricarica diretta
+        try:   # zeta-bar missing (old system): reload directly
             out = subprocess.run(["pgrep", "-x", "waybar"], capture_output=True, text=True)
             for pid in out.stdout.split()[:1]:
                 os.kill(int(pid), signal.SIGUSR2)
@@ -322,24 +323,24 @@ def reload_waybar() -> None:
             pass
 
 
-def apply_se_cambia() -> bool:
-    """Rigenera la barra solo se il risultato e' diverso da quello attuale
-    (icone cambiate, app sparite): niente ricariche inutili di Waybar."""
+def apply_if_changed() -> bool:
+    """Regenerate the bar only if the result differs from the current one
+    (changed icons, removed apps): no needless Waybar reloads."""
     try:
-        attuale = WAYBAR.read_text()
-        attuale = json.loads(attuale[attuale.index("{"):])
+        current = WAYBAR.read_text()
+        current = json.loads(current[current.index("{"):])
     except (OSError, ValueError):
-        attuale = None
-    if attuale == json.loads(json.dumps(render_config(load_dock()))):
+        current = None
+    if current == json.loads(json.dumps(render_config(load_dock()))):
         return False
     return apply()
 
 
 def apply(dock: list[dict] | None = None, reload: bool = True) -> bool:
-    """Genera config.jsonc dal dock (o da dock.json) e ricarica Waybar.
+    """Generate config.jsonc from the dock (or from dock.json) and reload Waybar.
 
-    Con reload=False la barra non viene toccata: serve a chi ricarica una volta
-    sola alla fine (due ricariche ravvicinate fanno cadere Waybar)."""
+    With reload=False the bar is not touched: for callers that reload only
+    once at the end (two back-to-back reloads crash Waybar)."""
     if dock is None:
         dock = load_dock()
     cfg = render_config(dock)

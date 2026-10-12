@@ -1,0 +1,48 @@
+# Quick checks on every change. They do not build the images (that takes
+# hours and tens of GB); they check that scripts, Python, the firewall, the
+# translations and the English-only source rule are all valid.
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck nftables python3
+      - name: Shell script syntax
+        run: |
+          set -e
+          for f in build.sh tools/*.sh live-build/config/hooks/normal/*.hook.chroot \
+                   live-build/config/includes.chroot/etc/initramfs-tools/hooks/*; do
+            bash -n "$f"
+          done
+          shellcheck -S error build.sh tools/*.sh
+      - name: Python
+        run: |
+          set -e
+          export PYTHONDONTWRITEBYTECODE=1
+          find live-build/config/includes.chroot/usr/lib/zeta tools -name '*.py' -print0 | \
+            xargs -0 -n1 python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])'
+          for f in live-build/config/includes.chroot/usr/local/bin/zeta-*; do
+            if head -1 "$f" | grep -q python; then
+              python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$f"
+            fi
+          done
+      - name: Firewall (nft -c)
+        run: |
+          sudo mkdir -p /etc/nftables.d
+          sudo nft -c -f live-build/config/includes.chroot/etc/nftables.conf
+      - name: Translations complete
+        run: python3 tools/i18n.py check
+      - name: English-only source and documentation
+        run: python3 tools/check-italian.py
+      - name: Process matches cannot hit another program
+        run: python3 tools/check-process-names.py
+      - name: Website source
+        run: python3 tools/check-site.py site-zetarays/index.html
+      - name: No secrets
+        run: |
+          ! grep -rIE '(sk-ant-api[0-9A-Za-z_-]{20,}|AIza[0-9A-Za-z_-]{35}|ghp_[0-9A-Za-z]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' .

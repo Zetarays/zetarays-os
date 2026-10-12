@@ -1,15 +1,15 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Monitor — aiutante con privilegi, solo operazioni fisse.
+"""ZETA RAYS Monitor — privileged helper, fixed operations only.
 
-Letture (consentite senza password agli amministratori, vedi
+Reads (allowed without a password for administrators, see
 /etc/sudoers.d/zeta-monitor):
-  firewall     regole nftables in JSON e stato del servizio
-  sockets      tutte le connessioni con il processo proprietario (ss)
-  auth         eventi di accesso delle ultime 24 ore (journal)
-Modifiche (solo tramite pkexec, con password):
+  firewall     nftables rules as JSON and the service state
+  sockets      all connections with the owning process (ss)
+  auth         sign-in events of the last 24 hours (journal)
+Changes (only through pkexec, with a password):
   firewall-on / firewall-off
-Nessun altro argomento è accettato.
+No other argument is accepted.
 """
 import json
 import subprocess

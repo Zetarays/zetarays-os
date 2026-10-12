@@ -1,0 +1,19 @@
+#!/bin/sh
+# ZETA RAYS: periodic rootkit scan without a mail server.
+#
+# Debian's chkrootkit-daily sends its report by mail to root (MAILTO="root").
+# ZETA RAYS ships no mail transfer agent, so the `mail` command is missing:
+# after every run that produces a report the script exits with 127 and
+# chkrootkit.service is shown as failed (ZETA RAYS Monitor: "failed service").
+# With MAILTO empty the same script writes the report to the journal instead
+# (journalctl -u chkrootkit). The scan itself is unchanged.
+set -e
+CONF=/etc/chkrootkit/chkrootkit.conf
+if [ -f "$CONF" ]; then
+    if grep -q '^MAILTO=' "$CONF"; then
+        sed -i 's/^MAILTO=.*/MAILTO=""/' "$CONF"
+    else
+        echo 'MAILTO=""' >> "$CONF"
+    fi
+    grep -q '^MAILTO=""$' "$CONF"
+fi

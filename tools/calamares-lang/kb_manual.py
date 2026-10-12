@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Traduzioni italiane per le voci di xkb-data 2.x assenti dal catalogo di Calamares
-e da quello di xkeyboard-config (elenco in kb_missing.txt). Aggiunge a kb_it_IT.ts."""
+"""Italian translations for the xkb-data 2.x entries missing from both the Calamares
+and the xkeyboard-config catalogs (listed in kb_missing.txt). Adds them to kb_it_IT.ts."""
 import xml.etree.ElementTree as ET
 
+# i18n-data-begin: Italian keyboard names (localization data)
 T = {
  "Arabic (Egypt)": "Araba (Egitto)", "Arabic (Iraq)": "Araba (Iraq)",
  "Berber (Algeria, Latin)": "Berbera (Algeria, latina)", "Dari": "Dari",
@@ -55,6 +56,7 @@ T = {
  "Slovak (QWERTY, extra backslash)": "Slovacca (QWERTY, barra rovesciata aggiuntiva)",
  "Turkish (E)": "Turca (E)", "Ukrainian (macOS)": "Ucraina (macOS)", "Vietnamese (France)": "Vietnamita (Francia)",
 }
+# i18n-data-end
 
 rows = [l.rstrip("\n").split("\t") for l in open("kb_missing.txt", encoding="utf-8").readlines()[1:] if "\t" in l]
 t = ET.parse("kb_it_IT.ts"); root = t.getroot()
@@ -70,4 +72,4 @@ for ctx, src in rows:
     ET.SubElement(msg, "translation").text = tr
     added += 1
 t.write("kb_it_IT.ts", encoding="utf-8", xml_declaration=True)
-print("aggiunte", added, "senza traduzione:", missing)
+print("added", added, "without translation:", missing)

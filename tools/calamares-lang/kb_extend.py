@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Aggiunge a kb_it_IT.ts le voci di xkb-data (Debian 13) assenti dal catalogo di
-Calamares, tradotte con il catalogo italiano di xkeyboard-config. Gira nel container."""
+"""Add to kb_it_IT.ts the xkb-data (Debian 13) entries missing from the Calamares
+catalog, translated with the Italian xkeyboard-config catalog. Runs in the container."""
 import gettext
 import xml.etree.ElementTree as ET
 
@@ -32,4 +32,4 @@ for ctx in root.findall("context"):
         ET.SubElement(msg, "translation").text = tr
         added += 1
 t.write("/w/kb_it_IT.ts", encoding="utf-8", xml_declaration=True)
-print("aggiunte", added, "| Indonesian (Latin) ->", it.gettext("Indonesian (Latin)"))
+print("added", added, "| Indonesian (Latin) ->", it.gettext("Indonesian (Latin)"))

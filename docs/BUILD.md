@@ -24,8 +24,8 @@ tools/build-all-2.0.sh    # all four images, in order, stopping at the first err
 ```
 
 `tools/build-all-2.0.sh` always starts from scratch and copies the four images
-to the delivery folder (`~/Desktop/ZETA RAYS 2.0`, or `$ZETA_CONSEGNA`) only if
-all of them were built. `tools/genera-readme.py` writes the README.txt of that
+to the delivery folder (`~/Desktop/ZETA RAYS 2.0`, or `$ZETA_DELIVERY_DIR`) only if
+all of them were built. `tools/gen-readme.py` writes the README.txt of that
 folder from `docs/README-2.0.txt.in`, filling in sizes, checksums and the
 kernel version.
 
@@ -35,16 +35,16 @@ These files are not in the repository because they are too large or generated:
 
 | File | Source | Check |
 |---|---|---|
-| AI model llama3.2:1b (1.3 GB) | official Ollama registry (`tools/scarica-modello-ai.sh`) | SHA-256 from the manifest kept in the repository |
+| AI model llama3.2:1b (1.3 GB) | official Ollama registry (`tools/download-ai-model.sh`) | SHA-256 from the manifest kept in the repository |
 | Ollama runtime 0.40.0 | GitHub, official Ollama releases | installed and started in the image |
-| Natural voice: Piper 2023.11.14-2, voices Paola (it) and Lessac (en) | GitHub and Hugging Face (`tools/scarica-voce.sh`) | SHA-256 pinned in the script |
-| Speech recognition: Vosk models (it, en) and Python packages | alphacephei.com and PyPI (`tools/scarica-voce.sh`) | SHA-256 pinned for the models; the build installs without network |
+| Natural voice: Piper 2023.11.14-2, voices Paola (it) and Lessac (en) | GitHub and Hugging Face (`tools/download-voice.sh`) | SHA-256 pinned in the script |
+| Speech recognition: Vosk models (it, en) and Python packages | alphacephei.com and PyPI (`tools/download-voice.sh`) | SHA-256 pinned for the models; the build installs without network |
 | LocalSend (ZETA Share) | official LocalSend releases | SHA-256 pinned in `build.sh` |
 | libhyprutils-dev 0.13.1 | snapshot.debian.org | SHA-1 pinned in `build.sh` |
 | Hyprland 0.55.2 with fix #15416 | `tools/build-hyprland-zeta.sh` (compiled once) | `+zeta1` version checked during the build |
 
 The Firefox start page is generated from the website
-(`tools/genera-pagina-firefox.py`, after `tools/sito-font-libero.py` replaces
+(`tools/gen-firefox-start-page.py`, after `tools/site-free-font.py` replaces
 the website's font with the free Syne font). See [start-page.md](start-page.md).
 
 ## Automatic checks during the build

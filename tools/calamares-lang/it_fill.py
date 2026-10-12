@@ -1,5 +1,6 @@
 import json, xml.etree.ElementTree as ET
 miss = json.load(open('missing.json'))
+# i18n-data-begin: Italian translations for the Calamares catalog (localization data)
 T = {
  "Crashes Calamares, so that Dr. Konqi can look at it.": "Arresta l'installer per consentire l'analisi dell'errore.",
  "Main script file %1 for python job %2 raised an exception.": "Lo script principale %1 del passaggio %2 ha generato un'eccezione.",
@@ -75,6 +76,7 @@ T = {
  "Master Boot Record (MBR)": "Master Boot Record (MBR)",
  "Fi&le System:": "&File system:",
 }
+# i18n-data-end
 root = ET.Element('TS', version="2.1", language="it_IT")
 ctxs = {}
 done = 0
@@ -93,15 +95,15 @@ for m in miss:
         ET.SubElement(msg, 'comment').text = m['comment']
     ET.SubElement(msg, 'translation').text = T[src]
     done += 1
-# plurale
+# plural
 c = ctxs.setdefault('Calamares::RequirementsChecker', ET.SubElement(root, 'context'))
 if c.find('name') is None: ET.SubElement(c, 'name').text = 'Calamares::RequirementsChecker'
 msg = ET.SubElement(c, 'message', numerus="yes")
 ET.SubElement(msg, 'source').text = 'Waiting for %n module(s)…'
 ET.SubElement(msg, 'comment').text = '@status'
 tr = ET.SubElement(msg, 'translation')
-ET.SubElement(tr, 'numerusform').text = 'In attesa di %n modulo…'
-ET.SubElement(tr, 'numerusform').text = 'In attesa di %n moduli…'
+ET.SubElement(tr, 'numerusform').text = 'In attesa di %n modulo…'  # i18n-data
+ET.SubElement(tr, 'numerusform').text = 'In attesa di %n moduli…'  # i18n-data
 ET.ElementTree(root).write('calamares-zetarays_it.ts', encoding='utf-8', xml_declaration=True)
-print("tradotte", done+1, "su", len(miss))
-print("non coperte:", [m['src'][:50] for m in miss if not m['num'] and m['src'] not in T])
+print("translated", done+1, "of", len(miss))
+print("not covered:", [m['src'][:50] for m in miss if not m['num'] and m['src'] not in T])

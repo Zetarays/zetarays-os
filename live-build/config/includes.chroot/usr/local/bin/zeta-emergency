@@ -1,0 +1,252 @@
+#!/usr/bin/python3 -S
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — Ctrl+Alt+Del: the emergency panel.
+
+  zeta-emergency            show the panel (called by Ctrl+Alt+Del)
+  zeta-emergency --daemon   the process that keeps it ready (started by the session)
+
+Task manager, closing a frozen program, terminal, monitor, desktop restore,
+lock, log out, restart, shut down.
+
+Why it is built this way:
+  - Hyprland handles the shortcut, not the apps: a frozen program cannot block it;
+  - the panel stays ready in memory (hidden, using no CPU): it appears
+    instantly even when the computer is struggling and starting a new program
+    would take seconds. earlyoom never kills it (--avoid);
+  - if even the desktop stops responding, there are two ways out that do not
+    depend on it, also printed in the panel: Ctrl+Alt+F3 (text console,
+    handled by the kernel) and Ctrl+Alt+Shift+Esc (logind goes back to the
+    login screen).
+"""
+import os
+import socket
+import sys
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+SOCK = os.path.join(RUNTIME, "zeta-emergency.sock")
+SELF_PATH = os.path.abspath(__file__)
+
+if len(sys.argv) < 2 or sys.argv[1] != "--daemon":
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.sendto(b"open", SOCK)
+        sys.exit(0)
+    except OSError:
+        pass
+    finally:
+        s.close()
+    # no process ready: start one and show the panel right away
+    os.execv(SELF_PATH, [SELF_PATH, "--daemon", "open"])
+
+import site  # noqa: E402
+site.main()
+import glob  # noqa: E402
+import subprocess  # noqa: E402
+
+# gtk4-layer-shell before libwayland; the script re-executes itself (not
+# python3) so the process is named "zeta-emergency": earlyoom protects it
+if "ZETA_EMERGENCY_PRELOADED" not in os.environ:
+    libs = glob.glob("/usr/lib/*/libgtk4-layer-shell.so.0")
+    if libs:
+        env = dict(os.environ, ZETA_EMERGENCY_PRELOADED="1",
+                   LD_PRELOAD=(libs[0] + " " + os.environ.get("LD_PRELOAD", "")).strip())
+        os.execve(SELF_PATH, [SELF_PATH] + sys.argv[1:], env)
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+from ui import popup  # noqa: E402
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+CSS = """
+window.zeta-overlay.emergency { background: @scrim_strong; }
+.em-title { font-size: 20px; font-weight: 500; }
+.em-subtitle { font-size: 12px; color: @ink_dim; }
+button.em-tile { min-width: 132px; min-height: 96px; padding: 10px; border-radius: 18px;
+                 background: @hover; border: 1px solid @line; box-shadow: none; }
+button.em-tile:hover, button.em-tile:focus-visible { background: @hover_2; border-color: @accent; }
+button.em-tile.danger:hover, button.em-tile.danger:focus-visible { background: @accent; }
+button.em-tile.confirm { background: @accent; }
+button.em-tile label { font-size: 12px; }
+.em-note { font-size: 12px; color: @ink_dim; }
+"""
+
+
+def _launch(cmd):
+    try:
+        p = subprocess.Popen(cmd, start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # the panel stays alive: without waiting, programs that exit would
+        # linger as zombie processes
+        import threading
+        threading.Thread(target=p.wait, daemon=True).start()
+    except OSError:
+        pass
+
+
+def restore_desktop():
+    """Bar, notifications, wallpaper and icons restart (their watchdog in
+    zeta-session restarts them); Hyprland reloads its configuration."""
+    uid = str(os.getuid())
+    for name in ("waybar", "mako", "swaybg"):
+        subprocess.run(["pkill", "-u", uid, "-x", name], capture_output=True)
+    subprocess.run(["pkill", "-u", uid, "-f", "^/usr/bin/python3 /usr/local/bin/zeta-desktop$"],
+                   capture_output=True)
+    subprocess.run(["hyprctl", "reload"], capture_output=True, timeout=5)
+    GLib.timeout_add(1500, lambda: (_launch(["zeta-wallpaper", "apply"]), False)[1])
+
+
+def state():
+    """One line about memory and CPU, and the heaviest process (reads /proc)."""
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        load_avg = os.getloadavg()[0]
+        weights = {}
+        for p in psutil.process_iter(["name", "memory_info"]):
+            try:
+                weights[p.info["name"]] = weights.get(p.info["name"], 0) + p.info["memory_info"].rss
+            except (psutil.Error, AttributeError, TypeError):
+                pass
+        top = max(weights.items(), key=lambda kv: kv[1]) if weights else ("?", 0)
+        return tr("Memory used {mem}% · load {load} on {cores} cores · heaviest: {name} ({size} GB)").format(
+            mem="%d" % vm.percent, load="%.1f" % load_avg, cores=psutil.cpu_count() or 1,
+            name=top[0], size="%.1f" % (top[1] / 1e9))
+    except Exception:  # noqa: BLE001 - nice-to-have information
+        return ""
+
+
+class Panel(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("Emergency"), decorated=False)
+        popup.make_overlay(self, "zeta-emergency")
+        self.add_css_class("emergency")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                      halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        box.append(Gtk.Label(label=tr("What do you want to do?"), css_classes=["em-title"]))
+        self.info = Gtk.Label(css_classes=["em-subtitle"])
+        box.append(self.info)
+
+        from system import power
+        # (icon, label, action, dangerous: asks for confirmation)
+        self.actions = [
+            [("utilities-system-monitor", tr("Task Manager"), lambda: _launch(["zeta-monitor", "processes"]), False),
+             ("window-close-symbolic", tr("Close a\nfrozen app"), lambda: _launch(["zeta-windows", "pick"]), False),
+             ("view-list-symbolic", tr("Force Quit:\nfull list"), lambda: _launch(["zeta-windows", "force"]), False),
+             ("utilities-terminal", tr("Terminal"), lambda: _launch(["foot"]), False),
+             ("zeta-monitor", tr("System\nMonitor"), lambda: _launch(["zeta-monitor"]), False),
+             ("view-refresh-symbolic", tr("Restore\nDesktop"), restore_desktop, False)],
+            [("zeta-lock", tr("Lock"), power.lock, False),
+             ("zeta-logout", tr("Log Out"), power.logout, True),
+             ("zeta-restart", tr("Restart"), power.reboot, True),
+             ("zeta-power", tr("Shut Down"), power.poweroff, True)],
+        ]
+        self.buttons = []
+        for row in self.actions:
+            r = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, margin_top=18)
+            for icon, text, fn, dangerous in row:
+                b = Gtk.Button(css_classes=["em-tile"] + (["danger"] if dangerous else []))
+                v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
+                v.append(Gtk.Image(icon_name=icon, pixel_size=28))
+                lab = Gtk.Label(label=text, justify=Gtk.Justification.CENTER)
+                v.append(lab)
+                b.set_child(v)
+                b.connect("clicked", self._pressed, text, fn, dangerous, lab)
+                r.append(b)
+                self.buttons.append(b)
+            box.append(r)
+        box.append(Gtk.Label(
+            label=tr("Esc to go back · If this panel doesn't respond either: "
+                     "Ctrl+Alt+F3 opens a text console (then: zeta processes), "
+                     "Ctrl+Alt+Shift+Esc returns to the login screen."),
+            css_classes=["em-note"], wrap=True, max_width_chars=90,
+            justify=Gtk.Justification.CENTER, margin_top=26))
+        self.set_child(box)
+        popup.close_on_outside(self, box, self.hide_away)
+        self._pending_confirm = None
+
+    def _pressed(self, btn, text, fn, dangerous, lab):
+        # Log Out, Restart, Shut Down: the first click asks for confirmation
+        # (unsaved data would be lost), the second one carries it out
+        if dangerous and self._pending_confirm is not btn:
+            self._cancel_confirm()
+            self._pending_confirm = btn
+            btn.add_css_class("confirm")
+            lab.set_label(tr("Confirm:\n{action}").format(action=text.lower()))
+            btn._label_info = (lab, text)
+            GLib.timeout_add(4000, self._cancel_confirm)
+            return
+        self._cancel_confirm()
+        self.hide_away()
+        GLib.timeout_add(150, lambda: (fn(), False)[1])
+
+    def _cancel_confirm(self):
+        b = self._pending_confirm
+        if b is not None:
+            b.remove_css_class("confirm")
+            lab, text = b._label_info
+            lab.set_label(text)
+        self._pending_confirm = None
+        return False
+
+    def reveal(self):
+        self.info.set_label(state())
+        self.set_visible(True)
+        self.present()
+        GLib.idle_add(lambda: (self.buttons[0].grab_focus(), False)[1])
+
+    def hide_away(self):
+        self._cancel_confirm()
+        self.set_visible(False)
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self, first):
+        super().__init__(application_id="org.zetarays.Emergency",
+                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+        self.first = first
+        self.panel = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.clean_env()
+        os.environ.pop("ZETA_EMERGENCY_PRELOADED", None)
+        popup.load_css(CSS)
+        self.hold()
+        try:
+            os.unlink(SOCK)
+        except FileNotFoundError:
+            pass
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.sock.bind(SOCK)
+        os.chmod(SOCK, 0o600)
+        self.sock.setblocking(False)
+        GLib.io_add_watch(self.sock.fileno(), GLib.PRIORITY_HIGH, GLib.IO_IN, self._receive)
+
+    def do_activate(self):
+        if self.panel is None:
+            self.panel = Panel(self)
+            self.panel.set_visible(False)
+        if self.first:
+            GLib.idle_add(lambda: (self.panel.reveal(), False)[1])
+            self.first = None
+
+    def _receive(self, *_a):
+        try:
+            while True:
+                if self.sock.recv(16) == b"open":
+                    if self.panel.get_visible():
+                        self.panel.hide_away()     # same key: closes it
+                    else:
+                        self.panel.reveal()
+        except (BlockingIOError, OSError):
+            pass
+        return True
+
+
+if __name__ == "__main__":
+    first = "open" if len(sys.argv) > 2 and sys.argv[2] == "open" else None
+    sys.exit(App(first).run([sys.argv[0]]))

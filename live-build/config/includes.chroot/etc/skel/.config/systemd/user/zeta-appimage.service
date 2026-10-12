@@ -3,7 +3,7 @@ Description=ZETA RAYS: add AppImages to the menu
 
 [Service]
 Type=oneshot
-# un download in corso cambia il file piu' volte: si aspetta un attimo
+# a download in progress changes the file several times: wait a moment
 ExecStartPre=/bin/sleep 2
 ExecStart=/usr/local/bin/zeta-app appimage
 Nice=10

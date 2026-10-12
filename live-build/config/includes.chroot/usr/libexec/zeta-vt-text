@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — prima di SDDM, sui computer senza driver DRM (solo framebuffer, es.
-# VirtualBox "QemuRamFB"): Plymouth esce lasciando la console attiva in modalità
-# grafica (KD_GRAPHICS) e in quello stato il kernel ignora i cambi di console,
-# quindi l'Xorg di SDDM aspetta per sempre la sua VT e lo schermo resta nero.
-# Qui la console attiva torna in modalità testo. Con un driver DRM non fa nulla.
+# ZETA RAYS — runs before SDDM, on computers without a DRM driver (framebuffer
+# only, e.g. VirtualBox "QemuRamFB"): Plymouth exits leaving the active console
+# in graphics mode (KD_GRAPHICS), and in that state the kernel ignores console
+# switches, so SDDM's Xorg waits forever for its VT and the screen stays black.
+# Here the active console is switched back to text mode. With a DRM driver it
+# does nothing.
 import fcntl
 import glob
 import os

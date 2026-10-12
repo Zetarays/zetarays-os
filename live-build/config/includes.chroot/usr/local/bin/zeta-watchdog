@@ -1,0 +1,111 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-watchdog — keeps the desktop components running.
+#
+# If the wallpaper or the desktop icons go down (a bug, memory running out,
+# an update), the user must not be left with an empty screen: this checks
+# every few seconds and restarts only what is missing.
+# The loop dies together with the graphical session.
+INTERVAL=6
+CFG="$HOME/.config/zeta"
+
+# Checks without external processes: previously every round (6 s) ran pgrep
+# three times plus sleep, i.e. about 50 processes a minute even on an idle
+# computer. Now the pid of each component is remembered and we only check
+# whether it is still alive (kill -0, a shell builtin); /proc is searched only
+# when it is not.
+declare -A PID
+# A process that died but has not yet been reaped by its parent ("zombie",
+# state Z) still answers kill -0: a dead hyprlock on a locked screen looked
+# alive and the session stayed on Hyprland's emergency screen. The real state
+# is read from /proc/PID/status.
+pid_alive() {     # pid -> true if it exists and is not a zombie
+    local k v
+    while read -r k v _; do
+        [ "$k" = State: ] && { [ "$v" != Z ]; return; }
+    done < "/proc/$1/status" 2>/dev/null
+    return 1
+}
+find_pid() {     # name (as in /proc/PID/comm) -> PID[name], 0 if not found
+    local d n
+    for d in /proc/[0-9]*; do
+        read -r n < "$d/comm" 2>/dev/null || continue
+        [ "$n" = "$1" ] && pid_alive "${d#/proc/}" && { PID[$1]=${d#/proc/}; return 0; }
+    done
+    PID[$1]=0; return 1
+}
+alive() {
+    local p=${PID[$1]:-0}
+    [ "$p" != 0 ] && pid_alive "$p" && return 0
+    find_pid "$1"
+}
+# the desktop icons run as "python3" (for the layer shell they re-exec
+# themselves with the interpreter): they are recognized by the command line
+desktop_alive() {
+    local p=${PID[desktop]:-0} d n arg
+    [ "$p" != 0 ] && pid_alive "$p" && return 0
+    for d in /proc/[0-9]*; do
+        read -r n < "$d/comm" 2>/dev/null || continue
+        [ "$n" = python3 ] || continue
+        mapfile -d '' -t arg < "$d/cmdline" 2>/dev/null
+        if [ "${arg[1]:-}" = /usr/local/bin/zeta-desktop ]; then
+            PID[desktop]=${d#/proc/}; return 0
+        fi
+    done
+    PID[desktop]=0; return 1
+}
+
+# waiting without "sleep": a read with a timeout on a fifo nobody writes to
+FIFO="${XDG_RUNTIME_DIR:-/tmp}/zeta-watchdog.$$"
+mkfifo -m 600 "$FIFO" && exec 9<>"$FIFO" && rm -f "$FIFO"
+nap() { read -r -t "$1" -u 9 _ 2>/dev/null || true; }
+
+# Is the screen locked? The ZETA RAYS lock writes a flag file (see
+# /usr/local/bin/hyprlock): it is more reliable than the systemd state,
+# which nobody updates here.
+LOCK_FLAG="${XDG_RUNTIME_DIR:-/tmp}/zeta-screen-locked"
+screen_locked() { [ -f "$LOCK_FLAG" ]; }
+
+# The loop belongs to the Hyprland that started it: if that one goes down
+# (crash) and another starts, this loop must not stay alive next to the new
+# session's loop (two bars and two desktops showed up).
+MY_HYPRLAND=$(pgrep -nx -u "$(id -u)" Hyprland)
+round=0
+while true; do
+    nap "$INTERVAL"
+    round=$(( round + 1 ))
+    [ -n "$MY_HYPRLAND" ] && ! kill -0 "$MY_HYPRLAND" 2>/dev/null && exit 0
+    # Hyprland is gone: the session is over, exit.
+    alive Hyprland || exit 0
+
+    # Screen lock: if the lock program dies while the screen is locked,
+    # Hyprland shows an emergency screen in English and the user is locked
+    # out of their own session. Here it is brought back up.
+    # (misc.allow_session_lock_restore is already enabled in hyprland.lua:
+    # with the Lua configuration «hyprctl keyword» no longer works)
+    if screen_locked && ! alive hyprlock; then
+        setsid hyprlock >/dev/null 2>&1 </dev/null &
+        nap 2
+        continue
+    fi
+
+    # wallpaper
+    alive swaybg || zeta-wallpaper apply >/dev/null 2>&1
+
+    # there must be exactly ONE bottom bar: every minute bars and processes are
+    # counted (Waybar sometimes duplicates itself, for example when the screen
+    # turns back on; reloads and display changes already check on their own)
+    if [ $(( round % 10 )) -eq 0 ]; then
+        zeta-bar check >/dev/null 2>&1
+    fi
+
+    # desktop icons (only if the user wants them)
+    wanted=1; read -r wanted < "$CFG/desktop-icons" 2>/dev/null
+    if [ "${wanted:-1}" != "0" ]; then
+        # «if», not «a || b &»: with the & the whole line ran in a separate
+        # shell on every round (one extra process every 6 seconds)
+        if ! desktop_alive; then
+            setsid zeta-desktop >/dev/null 2>&1 </dev/null &
+        fi
+    fi
+done

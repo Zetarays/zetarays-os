@@ -1,0 +1,594 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — universal search (Spotlight style). Opens apps, settings, actions,
+# files (by name, via plocate) and documents (by content, via the FTS index with
+# PDF text and image OCR). All from the keyboard: type, arrows to choose,
+# Enter to open, Esc to close.
+import glob
+import os
+import subprocess
+import sys
+import threading
+
+# gtk4-layer-shell must be loaded before libwayland: re-exec with LD_PRELOAD
+if "ZETA_SEARCH_PRELOADED" not in os.environ:
+    libs = glob.glob("/usr/lib/*/libgtk4-layer-shell.so.0")
+    if libs:
+        env = dict(os.environ, ZETA_SEARCH_PRELOADED="1",
+                   LD_PRELOAD=(libs[0] + " " + os.environ.get("LD_PRELOAD", "")).strip())
+        os.execve(sys.executable, [sys.executable] + sys.argv, env)
+
+sys.path.insert(0, "/usr/lib/zeta")
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+try:
+    gi.require_version("Gtk4LayerShell", "1.0")
+    from gi.repository import Gtk4LayerShell as LayerShell
+except (ValueError, ImportError):
+    LayerShell = None
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+
+from search import indexer  # noqa: E402
+from system import applications as reg  # noqa: E402
+from ui import app_menu, popup  # noqa: E402
+from i18n import tr  # noqa: E402
+
+HOME = os.path.expanduser("~")
+
+# Actions and settings reachable from search: (title, subtitle, icon, keywords, command)
+# i18n-data-begin: the keywords are Italian and English words the user may type
+ACTIONS = [
+    (tr("Settings"), tr("System preferences"), "zeta-settings", "impostazioni settings preferenze preferences", ["zeta-settings"]),
+    (tr("Appearance"), tr("Color, theme, wallpaper"), "zeta-palette", "aspetto tema colore sfondo wallpaper appearance theme color colour background", ["zeta-settings", "appearance"]),
+    (tr("Dock"), tr("Customize the bar"), "zeta-dock", "dock barra taskbar bar", ["zeta-settings", "dock"]),
+    (tr("Wi-Fi & Network"), tr("Network connections"), "zeta-wifi", "rete wifi network internet connection", ["zeta-settings", "network"]),
+    (tr("Connect to Server"), tr("Windows, Mac, NAS, SSH, FTP, WebDAV"), "zeta-server-network",
+     "server samba smb ssh sftp ftp webdav nfs nas condivisione cartella condivisa rete "
+     "share shared folder network connect", ["zeta-server"]),
+    (tr("Sound"), tr("Volume and devices"), "zeta-volume", "audio suono volume sound speakers microphone", ["zeta-settings", "audio"]),
+    (tr("AI"), tr("ZETA and providers"), "zeta-ai", "ai intelligenza assistente intelligence assistant", ["zeta-settings", "ai"]),
+    (tr("System Monitor"), tr("CPU, network, processes"), "zeta-monitor",
+     "monitor sistema cpu processi rete system processes network task manager", ["zeta-monitor"]),
+    (tr("Security"), tr("Firewall and tools"), "zeta-security", "sicurezza firewall security", ["zeta-security"]),
+    (tr("Terminal"), tr("Command line"), "foot", "terminale terminal console shell command", ["foot"]),
+    ("ZETA", tr("Talk to ZETA"), "zeta-core", "core assistente intelligenza voce zeta assistant intelligence voice", ["zeta-core"]),
+    (tr("Lock Screen"), tr("Lock the session"), "zeta-lock", "blocca lock schermo screen", ["hyprlock"]),
+    (tr("Power"), tr("Shut down, restart, suspend"), "zeta-power",
+     "energia spegni riavvia sospendi standby esci power shut down shutdown restart reboot suspend sleep log out logout",
+     ["zeta-panel", "power"]),
+    (tr("Windows"), tr("Open and minimized"), "zeta-dock",
+     "finestre window ridotte minimizzate aperte windows minimized open", ["zeta-windows"]),
+    (tr("Desktop"), tr("Open the Desktop folder"), "system-file-manager", "scrivania desktop cartella folder", ["zeta-open-desktop-folder"]),
+]
+# i18n-data-end
+
+CSS = """
+window.zeta-search { background: @scrim_strong; }
+.zeta-search * { font-family: "Roboto", sans-serif; color: @ink; }
+.sp-search { min-height: 54px; min-width: 620px; padding: 0 20px; font-size: 18px;
+  border-radius: 18px; background: @hover;
+  border: 1px solid @accent_line; box-shadow: 0 0 0 4px @accent_soft; outline: none; }
+.sp-search image { color: @ink_dim; -gtk-icon-size: 22px; }
+.sp-list { background: transparent; }
+.sp-list row { padding: 0; border-radius: 12px; }
+.sp-list row:selected { background: @accent_soft; }
+.sp-row { padding: 9px 14px; }
+.sp-title { font-size: 14px; color: @ink; }
+.sp-sub { font-size: 11.5px; color: @ink_dim; }
+.sp-cat { font-size: 10px; letter-spacing: 0.06em; color: @ink_dim; }
+.sp-empty { color: @ink_dim; font-size: 14px; margin-top: 20px; }
+scrolledwindow, viewport { background: none; }
+"""
+DEFAULT_COLORS = """
+@define-color accent #3A8DFF;
+@define-color accent_ink #FFFFFF;
+@define-color accent_soft rgba(58,141,255,0.14);
+@define-color accent_line rgba(58,141,255,0.35);
+@define-color surface rgba(18,18,20,0.94);
+@define-color surface_2 rgba(255,255,255,0.04);
+@define-color ink #EDEDEA;
+@define-color ink_2 #C8C8CC;
+@define-color ink_dim #8A8A8E;
+@define-color line rgba(255,255,255,0.08);
+@define-color hover rgba(255,255,255,0.07);
+@define-color hover_2 rgba(255,255,255,0.14);
+@define-color glass rgba(18,18,20,0.78);
+@define-color scrim rgba(0,0,0,0.45);
+@define-color scrim_strong rgba(0,0,0,0.74);
+"""
+
+
+def clean_env_ctx():
+    ctx = Gdk.Display.get_default().get_app_launch_context()
+    ctx.unsetenv("LD_PRELOAD")
+    return ctx
+
+
+def spawn(cmd):
+    env = dict(os.environ)
+    env["LD_PRELOAD"] = " ".join(p for p in env.get("LD_PRELOAD", "").split()
+                                 if "gtk4-layer-shell" not in p)
+    if not env["LD_PRELOAD"]:
+        env.pop("LD_PRELOAD", None)
+    env.pop("ZETA_SEARCH_PRELOADED", None)
+    # search stays running: the child's exit must be reaped, or a zombie remains
+    reg.spawn(cmd if isinstance(cmd, list) else ["sh", "-c", cmd], env=env,
+               stdout=None, stderr=None)
+
+
+# outside home only external disks, programs in /opt and configuration are
+# shown; never the system's internal files (/usr, /var, /proc...)
+OTHER_PLACES = ("/media/", "/mnt/", "/run/media/", "/opt/", "/srv/", "/etc/")
+# external disks are not in the plocate index (Debian excludes /media):
+# they are scanned directly, like home
+DISKS = ("/media/" + os.environ.get("USER", ""), "/run/media/" + os.environ.get("USER", ""))
+
+_RUNNING_PROCS = set()                 # find/plocate of the current search
+_RUNNING_LOCK = threading.Lock()
+
+
+def stop_searches():
+    """One more letter makes the running search stale: its find and plocate
+    processes stop right away instead of working for nothing."""
+    with _RUNNING_LOCK:
+        for proc in list(_RUNNING_PROCS):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+
+def _lines(argv, timeout):
+    """Complete lines printed by the command within the given time (the last
+    ones, cut in half by the timeout, are discarded). Non-UTF-8 file names do
+    not stop the search."""
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError:
+        return []
+    with _RUNNING_LOCK:
+        _RUNNING_PROCS.add(proc)
+    try:
+        out, _err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _err = proc.communicate()
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING_PROCS.discard(proc)
+    text = out.decode("utf-8", errors="replace")
+    lines = text.split("\n")
+    return lines[:-1]             # the last one is empty, or incomplete
+
+
+def _glob_literal(text):
+    """The search text inside a pattern (find, plocate): * ? [ ] match themselves."""
+    return "".join("\\" + c if c in "*?[]\\" else c for c in text)
+
+
+def file_results(query, limit=8):
+    """Files by name, like Spotlight: first the user's (including ones just
+    created: home is scanned directly), then external disks, /opt, /etc.
+    Returns (path, is_folder) pairs."""
+    query = query.strip()
+    if not query:
+        return []
+    q = query.casefold()
+    model = "*%s*" % _glob_literal(query)
+    real_home = os.path.realpath(HOME)
+    homes = {HOME, real_home}
+
+    def search_in(folder, depth, timeout):
+        # -H: home may be a symlink (/home/u -> /data/u)
+        return _lines(["find", "-H", folder, "-maxdepth", str(depth), "-name", ".*", "-prune",
+                       "-o", "-iname", model, "-print"], timeout)
+
+    home = search_in(HOME, 6, 2)
+    disks = []
+    for d in DISKS:
+        if os.path.isdir(d):
+            disks += search_in(d, 5, 2)
+    elsewhere = []
+    # plocate per location: a single list with a limit would fill up with /etc
+    # (which comes first in the index) for short words
+    for base in (real_home,) + tuple(a.rstrip("/") for a in OTHER_PLACES if a not in ("/media/", "/run/media/")):
+        for path in _lines(["plocate", "-i", "-l", "400", "--", base + "/" + model], 3):
+            if q not in os.path.basename(path).casefold():
+                continue                    # the text was in a folder, not in the name
+            if base == real_home:
+                if "/." not in path[len(real_home):]:
+                    home.append(path)       # deeper than where find looks
+            else:
+                elsewhere.append(path)
+
+    def order(path):
+        name = os.path.basename(path).casefold()
+        return (0 if name.startswith(q) else 1, path.count("/"), name)
+
+    def place_rank(path):
+        return next((i for i, a in enumerate(OTHER_PLACES) if path.startswith(a)), len(OTHER_PLACES))
+
+    out, seen = [], set()
+    for group in (sorted(set(home), key=order),
+                   sorted(set(disks) | set(elsewhere), key=lambda x: (place_rank(x), order(x)))):
+        for path in group:
+            if path in seen or path in homes or not os.path.lexists(path):
+                continue
+            seen.add(path)
+            # here, off the UI thread: a stuck network disk makes this
+            # search wait, it does not freeze the window
+            out.append((path, os.path.isdir(path)))
+            if len(out) >= limit:
+                return out
+    return out
+
+
+
+HINT = tr("Type to search apps, files, documents and settings.")
+
+class SearchWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("Search"), decorated=False)
+        self.add_css_class("zeta-search")
+        self._timer = 0
+
+        if LayerShell and LayerShell.is_supported():
+            LayerShell.init_for_window(self)
+            LayerShell.set_namespace(self, "zeta-search")
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.EXCLUSIVE)
+            LayerShell.set_exclusive_zone(self, -1)
+            for edge in (LayerShell.Edge.TOP, LayerShell.Edge.BOTTOM, LayerShell.Edge.LEFT, LayerShell.Edge.RIGHT):
+                LayerShell.set_anchor(self, edge, True)
+        else:
+            self.fullscreen()
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
+                       margin_top=110, margin_bottom=110, halign=Gtk.Align.CENTER)
+        self.search = Gtk.SearchEntry(placeholder_text=tr("Search apps, files, settings…"))
+        self.search.add_css_class("sp-search")
+        self.search.connect("search-changed", lambda *_: self._schedule())
+        self.search.connect("activate", lambda *_: self._activate_selected())
+        root.append(self.search)
+
+        self.listbox = Gtk.ListBox(css_classes=["sp-list"], selection_mode=Gtk.SelectionMode.SINGLE)
+        self.listbox.set_size_request(660, -1)
+        self.listbox.connect("row-activated", lambda _lb, row: self._open(row))
+        scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                      max_content_height=520, propagate_natural_height=True)
+        scroller.set_child(self.listbox)
+        root.append(scroller)
+
+        self.empty = Gtk.Label(label=HINT,
+                               css_classes=["sp-empty"])
+        root.append(self.empty)
+        # right-click menu on apps: above the results, inside the window
+        overlay = Gtk.Overlay(child=root)
+        self.menu = app_menu.OverlayMenu(overlay)
+        self.set_child(overlay)
+        outside = Gtk.GestureClick()
+        outside.connect("pressed", self._click_outside_menu)
+        self.add_controller(outside)
+
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        self.search.grab_focus()
+        # stays in memory: closing (Esc, an opened result) means hiding, so
+        # the next opening is instant
+        self.connect("close-request", lambda *_: (self.set_visible(False), True)[1])
+
+    def prepare(self):
+        """Every time it appears: empty search, no stale results."""
+        self.menu.close_window()
+        self.search.set_text("")
+        self._clear()
+
+    # -------- search --------
+    def _schedule(self):
+        if self._timer:
+            GLib.source_remove(self._timer)
+        self._timer = GLib.timeout_add(130, self._run_query)
+
+    def _app_infos(self):
+        """The apps of the single registry: the same as the menu (including
+        those installed after opening: the registry is re-read only if the
+        folders change)."""
+        reg.gtk_icons()
+        return reg.menu()
+
+    def _run_query(self):
+        self._timer = 0
+        query = self.search.get_text().strip()
+        self._clear()
+        # Every search has a number: slow results arriving after the user
+        # kept typing belong to an old search and must be thrown away, not
+        # shown on top of the new ones.
+        self._gen = getattr(self, "_gen", 0) + 1
+        gen = self._gen
+        stop_searches()
+        if not query:
+            self.empty.set_label(HINT)
+            self.empty.set_visible(True)
+            return False
+        rows = []
+        low = query.casefold()
+
+        # 1) applications: name, source and path; most relevant first
+        found = []
+        for app in self._app_infos():
+            name = app.name.casefold()
+            hay = " ".join([name, app.id, os.path.basename(app.executable),
+                            app.description] + app.keywords).casefold()
+            if all(w in hay for w in low.split()):
+                weight = 0 if name.startswith(low) else 1 if any(p.startswith(low) for p in name.split()) else 2
+                found.append((weight, name, app))
+        for _p, _n, app in sorted(found, key=lambda t: (t[0], t[1]))[:8]:
+            location = app.flatpak_id if app.source == "flatpak" else (app.appimage or app.executable or app.desktop)
+            sub = "%s · %s" % (reg.SOURCES.get(app.source, app.source), (location or "").replace(HOME, "~"))
+            rows.append((tr("App"), app.name, sub, app.icon, lambda a=app: self._launch_app(a), app))
+        # 2) actions and settings
+        for title, sub, icon, words, cmd in ACTIONS:
+            if all(any(w in field for field in (title.casefold(), words)) for w in low.split()):
+                rows.append((tr("Action"), title, sub, icon, lambda c=cmd: (spawn(c), self.close()), None))
+
+        # Apps and actions are instant: show them right away.
+        self._show(rows)
+
+        # Files and content are not: the index and plocate can take seconds,
+        # and waiting for them here would freeze the window on every keystroke.
+        threading.Thread(target=self._search_files, args=(query, gen),
+                         daemon=True).start()
+        return False
+
+    def _search_files(self, query, gen):
+        """The slow part of the search, off the UI thread. A problem in one of
+        the two searches does not wipe out the results of the other."""
+        contents, paths = [], []
+        try:
+            # the index is updated every half hour: a just-deleted file is not shown
+            contents = [r for r in indexer.search(query, limit=6) if os.path.exists(r["path"])]
+        except Exception as e:  # noqa: BLE001
+            print("zeta-search: content search failed: %s" % e, file=sys.stderr)
+        try:
+            paths = file_results(query, limit=8)
+        except Exception as e:  # noqa: BLE001
+            print("zeta-search: file search failed: %s" % e, file=sys.stderr)
+        GLib.idle_add(self._files_ready, gen, query, contents, paths)
+
+    def _files_ready(self, gen, query, contents, paths):
+        if gen != getattr(self, "_gen", 0):
+            return False                      # search superseded by a newer one
+        # first the files found by name (from the search or the index, only
+        # once), then those containing the word in their text; all with the
+        # icon of their type and the folder under the name
+        q = query.strip().casefold()
+        by_name, in_text, seen = [], [], set()
+        for path, folder in paths:
+            seen.add(path)
+            by_name.append((path, folder, ""))
+        for r in contents:
+            if r["path"] in seen:
+                continue
+            seen.add(r["path"])
+            if q in r["name"].casefold():
+                by_name.append((r["path"], False, ""))
+            else:
+                in_text.append((r["path"], False, r["snippet"]))
+        rows = []
+        for category, listing in ((tr("File"), by_name), (tr("Content"), in_text)):
+            for path, folder, excerpt in listing:
+                sub = excerpt or os.path.dirname(path).replace(HOME, "~")
+                rows.append((category, os.path.basename(path), sub, self._path_icon(path, folder),
+                             lambda p=path: self._open_path(p), None))
+        self._show(rows, add=True)
+        return False
+
+    def _show(self, rows, add=False):
+        existing = 0
+        if add:
+            c = self.listbox.get_first_child()
+            while c:
+                existing += 1
+                c = c.get_next_sibling()
+        for cat, title, sub, icon, action, app in rows[:max(0, 24 - existing)]:
+            self.listbox.append(self._make_row(cat, title, sub, icon, action, app))
+        if add:
+            # Only now do we really know if there is nothing: files were missing before.
+            if existing == 0 and not rows:
+                self.empty.set_label(tr("No results for “{query}”.").format(
+                    query=self.search.get_text().strip()))
+            self.empty.set_visible(existing == 0 and not rows)
+        elif rows:
+            self.empty.set_visible(False)
+        if not self.listbox.get_selected_row():
+            first = self.listbox.get_row_at_index(0)
+            if first:
+                self.listbox.select_row(first)
+
+    def _make_row(self, cat, title, sub, icon, action, app=None):
+        box = Gtk.Box(spacing=12, css_classes=["sp-row"])
+        img = Gtk.Image(pixel_size=30)
+        if isinstance(icon, Gio.Icon):
+            img.set_from_gicon(icon)
+        elif app is not None and icon:
+            try:
+                img.set_from_gicon(Gio.Icon.new_for_string(icon))
+            except GLib.Error:
+                img.set_from_icon_name("application-x-executable")
+        elif icon and os.path.isabs(icon):
+            img.set_from_file(icon)
+        elif icon:
+            img.set_from_icon_name(icon)
+        else:
+            img.set_from_icon_name("application-x-executable")
+        box.append(img)
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
+        t = Gtk.Label(label=title, xalign=0, css_classes=["sp-title"],
+                      ellipsize=Pango.EllipsizeMode.END, max_width_chars=48)
+        s = Gtk.Label(label=sub, xalign=0, css_classes=["sp-sub"],
+                      ellipsize=Pango.EllipsizeMode.END, max_width_chars=64)
+        txt.append(t)
+        txt.append(s)
+        box.append(txt)
+        box.append(Gtk.Label(label=cat, css_classes=["sp-cat"], valign=Gtk.Align.CENTER))
+        row = Gtk.ListBoxRow(child=box)
+        row.action = action
+        if app is not None:
+            # same menu as in the app menu: location, Desktop, Dock,
+            # Information, uninstall. Right click or the "⋯" button.
+            def menu(widget, x, y, a=app):
+                self.menu.open_at(widget, x, y, app_menu.app_entries(a, self._launch_app, self.close))
+            other = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
+                               css_classes=["flat"], tooltip_text=tr("More actions"))
+            other.connect("clicked", lambda b: menu(b, b.get_width() / 2, b.get_height()))
+            box.append(other)
+            right_click = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+            right_click.connect("pressed", lambda g, _n, x, y: menu(g.get_widget(), x, y))
+            row.add_controller(right_click)
+            # the version is asked from dpkg/flatpak: it arrives later, without blocking
+            def version(a=app, lab=s, base=sub):
+                v = reg.version(a)
+                if v:
+                    GLib.idle_add(lab.set_label, "%s · %s" % (base, v))
+            threading.Thread(target=version, daemon=True).start()
+        return row
+
+    def _path_icon(self, path, folder):
+        """Icon for the file type (spreadsheet, PDF, image...), as in the
+        file manager; if the theme lacks it, the generic one. The type is
+        guessed from the name: the file is not opened here."""
+        if folder:
+            return "folder"
+        kind, _uncertain = Gio.content_type_guess(path, None)
+        theme = Gtk.IconTheme.get_for_display(self.get_display())
+        for name in Gio.content_type_get_icon(kind).get_names():
+            if theme.has_icon(name):
+                return name
+        return "text-x-generic"
+
+    # -------- opening --------
+    def _open(self, row):
+        if row and getattr(row, "action", None):
+            row.action()
+
+    def _activate_selected(self):
+        row = self.listbox.get_selected_row() or self.listbox.get_row_at_index(0)
+        self._open(row)
+
+    def _click_outside_menu(self, gesture, _n, x, y):
+        if self.menu.opened() and not self.menu.contains(self.pick(x, y, Gtk.PickFlags.DEFAULT)):
+            self.menu.close_window()
+
+    def _launch_app(self, app):
+        reg.launch(app, clean_env_ctx())
+        self.close()
+
+    def _open_path(self, path):
+        spawn(["xdg-open", path])
+        self.close()
+
+    # -------- keyboard --------
+    def _clear(self):
+        child = self.listbox.get_first_child()
+        while child:
+            self.listbox.remove(child)
+            child = self.listbox.get_first_child()
+
+    def _move(self, delta):
+        rows = []
+        c = self.listbox.get_first_child()
+        while c:
+            rows.append(c)
+            c = c.get_next_sibling()
+        if not rows:
+            return
+        cur = self.listbox.get_selected_row()
+        i = rows.index(cur) if cur in rows else -1
+        i = max(0, min(len(rows) - 1, i + delta))
+        self.listbox.select_row(rows[i])
+        rows[i].grab_focus()
+        self.search.grab_focus_without_selecting()
+
+    def on_key(self, _c, keyval, _kc, _mod):
+        if self.menu.opened():
+            # right-click menu open: Esc closes it, arrows and Enter move
+            # through and pick its entries (not the results underneath)
+            if keyval == Gdk.KEY_Escape:
+                self.menu.close_window()
+                return True
+            return False
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+            return True
+        if keyval in (Gdk.KEY_Down, Gdk.KEY_Tab):
+            self._move(1)
+            return True
+        if keyval in (Gdk.KEY_Up, Gdk.KEY_ISO_Left_Tab):
+            self._move(-1)
+            return True
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self._activate_selected()
+            return True
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Search", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.win = None
+        self.hidden = False
+        self.colors = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.hidden = os.environ.pop("ZETA_PANEL_HIDDEN", None) == "1"
+        operation = Gio.SimpleAction.new("show", None)
+        operation.connect("activate", lambda *_: (popup.follow_theme(self.colors, DEFAULT_COLORS), self.toggle()))
+        self.add_action(operation)
+        self.hold()                    # stays alive even while search is hidden
+        pre = " ".join(p for p in os.environ.get("LD_PRELOAD", "").split() if "gtk4-layer-shell" not in p)
+        if pre:
+            os.environ["LD_PRELOAD"] = pre
+        else:
+            os.environ.pop("LD_PRELOAD", None)
+        os.environ.pop("ZETA_SEARCH_PRELOADED", None)
+        settings = Gtk.Settings.get_default()
+        # the theme (light or dark) is the one chosen in Settings > Appearance
+        light = False
+        try:
+            light = open(os.path.expanduser("~/.config/zeta/theme")).read().strip() == "light"
+        except OSError:
+            pass
+        settings.set_property("gtk-application-prefer-dark-theme", not light)
+        settings.set_property("gtk-icon-theme-name", "zeta")
+        settings.set_property("gtk-font-name", "Roboto 10")
+        colors = self.colors = Gtk.CssProvider()
+        popup.follow_theme(colors, DEFAULT_COLORS)
+        style = Gtk.CssProvider()
+        style.load_from_string(CSS)
+        display = Gdk.Display.get_default()
+        Gtk.StyleContext.add_provider_for_display(display, colors, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Gtk.StyleContext.add_provider_for_display(display, style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+
+    def do_activate(self):
+        if self.hidden:              # started by the session: ready, not visible
+            self.hidden = False
+            self.win = SearchWindow(self)
+            return
+        self.toggle()
+
+    def toggle(self):
+        if self.win is not None and self.win.get_visible():
+            self.win.set_visible(False)
+            return
+        if self.win is None:
+            self.win = SearchWindow(self)
+        self.win.prepare()
+        self.win.present()
+        self.win.search.grab_focus()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

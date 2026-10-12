@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence — interfaccia comune dei provider AI.
+"""ZETA RAYS Intelligence — common interface for AI providers.
 
-Ogni provider (Claude, Gemini, OpenAI, DeepSeek, Qwen, Ollama) espone la
-stessa interfaccia, così ZETA non deve conoscere i dettagli di ognuno.
-Nessuna dipendenza esterna: solo urllib della libreria standard.
+Every provider (Claude, Gemini, OpenAI, DeepSeek, Qwen, Ollama) exposes the
+same interface, so ZETA does not need to know the details of each one.
+No external dependencies: only urllib from the standard library.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from i18n import tr
 
 
 class ProviderError(Exception):
-    """Errore di un provider, con un messaggio già comprensibile all'utente."""
+    """A provider error, carrying a message that is already user-readable."""
 
     def __init__(self, message: str, *, retryable: bool = False, status: int | None = None):
         super().__init__(message)
@@ -35,10 +35,10 @@ class Message:
 
 @dataclass
 class ToolSpec:
-    """Descrizione di uno strumento (azione) che l'AI può richiedere."""
+    """Description of a tool (action) the AI can request."""
     name: str
     description: str
-    schema: dict         # JSON schema dei parametri
+    schema: dict         # JSON schema of the parameters
 
 
 @dataclass
@@ -50,7 +50,7 @@ class ToolCall:
 
 @dataclass
 class Reply:
-    """Risposta di un provider a un giro di conversazione."""
+    """A provider's reply to one conversation turn."""
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     input_tokens: int = 0
@@ -60,8 +60,8 @@ class Reply:
 
 @dataclass
 class ProviderConfig:
-    name: str                        # id interno (claude, gemini, ...)
-    label: str                       # nome mostrato all'utente
+    name: str                        # internal id (claude, gemini, ...)
+    label: str                       # name shown to the user
     kind: str                        # "cloud" | "local"
     model: str = ""
     endpoint: str = ""
@@ -69,60 +69,60 @@ class ProviderConfig:
     temperature: float = 0.7
     max_tokens: int = 4096
     system: str = ""
-    timeout: float = 0.0             # secondi; 0 = valore normale (120 s, 300 s in streaming)
-    stream: bool = True              # risposta che compare mentre viene scritta
-    context: int = 0                 # finestra di contesto (solo modelli locali); 0 = del modello
+    timeout: float = 0.0             # seconds; 0 = default (120 s, 300 s when streaming)
+    stream: bool = True              # reply appears while it is being written
+    context: int = 0                 # context window (local models only); 0 = model default
 
 
 class Provider:
-    """Base di ogni provider. `chat` esegue un giro; `stream` uno in streaming."""
+    """Base of every provider. `chat` runs one turn; `stream` runs one streamed."""
 
-    # Il fornitore sa usare le azioni di ZETA (tool calling)? Chi non le usa
-    # puo' rispondere subito in streaming: la risposta compare mentre viene
-    # scritta, invece che tutta insieme alla fine.
-    usa_strumenti = True
+    # Can the provider use ZETA's actions (tool calling)? Those that do not
+    # can answer straight away in streaming mode: the reply appears while it
+    # is being written, instead of all at once at the end.
+    uses_tools = True
 
     def __init__(self, config: ProviderConfig):
         self.config = config
-        # Tempo massimo di attesa, quando serve accorciarlo rispetto al
-        # normale: la prova di connessione non puo' tenere ferma una finestra
-        # per due minuti se la rete non risponde.
+        # Maximum wait time, when it needs to be shorter than usual: the
+        # connection test cannot freeze a window for two minutes if the
+        # network does not respond.
         self.timeout: float | None = None
 
-    # --- API pubblica ---
+    # --- Public API ---
     def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None) -> Reply:
         raise NotImplementedError
 
     def stream(self, messages: list[Message],
                on_text: Callable[[str], None]) -> Reply:
-        """Streaming di solo testo. I provider senza streaming ricadono su chat."""
+        """Text-only streaming. Providers without streaming fall back to chat."""
         reply = self.chat(messages)
         if reply.text:
             on_text(reply.text)
         return reply
 
-    def modelli_offerti(self) -> list[str]:
-        """I modelli che il servizio offre davvero (per il ripiego automatico).
-        Ogni fornitore che lo sa fare lo ridefinisce; [] = non si sa."""
+    def offered_models(self) -> list[str]:
+        """The models the service actually offers (for automatic fallback).
+        Every provider able to tell overrides this; [] = unknown."""
         return []
 
     def available(self) -> bool:
-        """True se il provider è configurato e utilizzabile."""
+        """True if the provider is configured and usable."""
         if self.config.kind == "cloud":
             return bool(self.config.api_key)
         return True
 
     def test(self, timeout: float = 25.0) -> tuple[bool, str]:
-        """Prova davvero il collegamento e dice com'e' andata, in italiano.
+        """Actually test the connection and report the outcome, in the user's language.
 
-        Non basta guardare se c'e' una chiave: una chiave scaduta, un modello
-        che non esiste piu' o una rete che non esce danno tutti lo stesso
-        aspetto («configurato») finche' non si prova. Qui si fa la richiesta
-        piu' piccola possibile e si riporta l'esito vero.
+        Checking for a key is not enough: an expired key, a model that no
+        longer exists or a network with no outbound access all look the same
+        ("configured") until you try. Here the smallest possible request is
+        made and the real outcome is reported.
         """
         if self.config.kind == "cloud" and not self.config.api_key:
             return False, tr("The API key is missing.")
-        prec_tokens, prec_timeout = self.config.max_tokens, self.timeout
+        prev_tokens, prev_timeout = self.config.max_tokens, self.timeout
         self.config.max_tokens, self.timeout = 16, timeout
         try:
             self.chat([Message(role="user", content="ok")])
@@ -132,32 +132,32 @@ class Provider:
             return False, str(e)
         except NotImplementedError:
             return False, tr("This provider can't be used yet.")
-        except Exception as e:  # noqa: BLE001 - la prova non deve mai far cadere l'interfaccia
+        except Exception as e:  # noqa: BLE001 - the test must never bring down the UI
             return False, tr("Unexpected error: {error}").format(error=e)
         finally:
-            self.config.max_tokens, self.timeout = prec_tokens, prec_timeout
+            self.config.max_tokens, self.timeout = prev_tokens, prev_timeout
 
-    # --- Utilità comuni ---
-    def _non_raggiungibile(self, motivo) -> "ProviderError":
-        """Motivi di rete in italiano (prima arrivava «timed out», «Name or
-        service not known»...)."""
-        # Prima il tipo e il codice dell'errore: il testo del sistema puo'
-        # essere tradotto (nelle app GTK la libc parla la lingua dell'utente).
-        m = str(motivo).lower()
-        num = getattr(motivo, "errno", None)
-        if isinstance(motivo, TimeoutError) or "timed out" in m or "timeout" in m:
-            spiega = tr("it didn't respond in time")
-        elif (isinstance(motivo, socket.gaierror) or "name or service" in m
+    # --- Common helpers ---
+    def _unreachable(self, reason) -> "ProviderError":
+        """Network failure reasons in the user's language (previously the raw
+        "timed out", "Name or service not known"... came through)."""
+        # Check the error type and code first: the system text may be
+        # translated (in GTK apps libc speaks the user's language).
+        m = str(reason).lower()
+        num = getattr(reason, "errno", None)
+        if isinstance(reason, TimeoutError) or "timed out" in m or "timeout" in m:
+            explanation = tr("it didn't respond in time")
+        elif (isinstance(reason, socket.gaierror) or "name or service" in m
               or "temporary failure in name resolution" in m or "nodename" in m):
-            spiega = tr("no internet connection, or DNS isn't responding")
-        elif isinstance(motivo, ConnectionRefusedError) or num == errno.ECONNREFUSED or "refused" in m:
-            spiega = tr("connection refused")
+            explanation = tr("no internet connection, or DNS isn't responding")
+        elif isinstance(reason, ConnectionRefusedError) or num == errno.ECONNREFUSED or "refused" in m:
+            explanation = tr("connection refused")
         elif num in (errno.ENETUNREACH, errno.EHOSTUNREACH) or "unreachable" in m:
-            spiega = tr("network unreachable")
+            explanation = tr("network unreachable")
         else:
-            spiega = str(motivo)
+            explanation = str(reason)
         return ProviderError(tr("Can't reach {name}: {reason}.").format(
-            name=self.config.label, reason=spiega), retryable=True)
+            name=self.config.label, reason=explanation), retryable=True)
 
     def _post(self, url: str, payload: dict, headers: dict,
               timeout: float = 120.0) -> dict:
@@ -173,10 +173,10 @@ class Provider:
             raise ProviderError(msg, retryable=e.code in (429, 500, 502, 503, 529),
                                 status=e.code) from None
         except urllib.error.URLError as e:
-            raise self._non_raggiungibile(e.reason) from None
+            raise self._unreachable(e.reason) from None
         except (TimeoutError, OSError) as e:
-            # il servizio ha smesso di rispondere a meta' (lettura scaduta)
-            raise self._non_raggiungibile(e) from None
+            # the service stopped responding midway (read timed out)
+            raise self._unreachable(e) from None
 
     def _post_stream(self, url: str, payload: dict, headers: dict,
                      timeout: float = 300.0) -> Iterator[bytes]:
@@ -191,15 +191,15 @@ class Provider:
                                 retryable=e.code in (429, 500, 502, 503, 529),
                                 status=e.code) from None
         except urllib.error.URLError as e:
-            raise self._non_raggiungibile(e.reason) from None
+            raise self._unreachable(e.reason) from None
         except (TimeoutError, OSError) as e:
-            # il servizio ha smesso di rispondere a meta' (lettura scaduta)
-            raise self._non_raggiungibile(e) from None
+            # the service stopped responding midway (read timed out)
+            raise self._unreachable(e) from None
         try:
             for raw in resp:
                 yield raw
         except (TimeoutError, OSError) as e:
-            raise self._non_raggiungibile(e) from None
+            raise self._unreachable(e) from None
 
     def _error_message(self, code: int, body: str) -> str:
         detail = ""
@@ -209,13 +209,13 @@ class Provider:
         except (ValueError, AttributeError):
             detail = body[:200]
         if code == 401 or (code == 400 and "api key" in detail.lower()):
-            # Gemini risponde 400 «API key not valid» invece di 401
+            # Gemini replies 400 "API key not valid" instead of 401
             return tr("{name}: invalid or missing API key.").format(name=self.config.label)
         if code == 403:
             return tr("{name}: access denied for this API key.").format(name=self.config.label)
         if code == 404:
-            # «model» / «modello» e «not found» servono ad assistant.py per
-            # riconoscere un modello che non esiste piu'
+            # "model" / "modello" and "not found" are what assistant.py looks
+            # for to recognize a model that no longer exists
             return tr("{name}: model or endpoint not found ({model}).").format(
                 name=self.config.label, model=self.config.model)
         if code == 429:
@@ -226,9 +226,9 @@ class Provider:
                            detail or tr("error {code}").format(code=code))
 
 
-# Modelli preferiti quando il predefinito non esiste piu' (i nomi cambiano nel
-# tempo): prima quelli veloci. Si confrontano come parti del nome.
-PREFERITI = {
+# Preferred models when the default one no longer exists (names change over
+# time): fast ones first. They are matched as substrings of the name.
+FAVORITES = {
     "claude": ["claude-haiku-5", "claude-sonnet-5", "haiku", "sonnet"],
     "gemini": ["gemini-3.8-flash", "gemini-3.5-flash", "flash", "gemini"],
     "openai": ["gpt-6-luna", "gpt-5.6-terra", "gpt-6", "gpt-5", "gpt-4.1-mini"],
@@ -244,13 +244,13 @@ _NON_CHAT = ("embed", "image", "tts", "audio", "whisper", "moderation", "guard",
              "transcribe", "vision-preview", "search-preview", "dall-e", "veo", "imagen", "live")
 
 
-def scegli_modello(provider_id: str, offerti: list[str]) -> str:
-    """Il modello di chat da usare fra quelli offerti, secondo PREFERITI."""
-    chat = [m for m in offerti if m and not any(x in m.lower() for x in _NON_CHAT)]
-    for parte in PREFERITI.get(provider_id, []):
-        trovati = sorted((m for m in chat if parte in m.lower()), reverse=True)
-        # a parita' si preferisce il nome senza data (alias che segue gli aggiornamenti)
-        trovati.sort(key=lambda m: (not m.lower().startswith(parte), len(m)))
-        if trovati:
-            return trovati[0]
+def choose_model(provider_id: str, offered: list[str]) -> str:
+    """The chat model to use among those offered, according to FAVORITES."""
+    chat = [m for m in offered if m and not any(x in m.lower() for x in _NON_CHAT)]
+    for part in FAVORITES.get(provider_id, []):
+        found = sorted((m for m in chat if part in m.lower()), reverse=True)
+        # on a tie, prefer the undated name (an alias that tracks updates)
+        found.sort(key=lambda m: (not m.lower().startswith(part), len(m)))
+        if found:
+            return found[0]
     return chat[0] if chat else ""

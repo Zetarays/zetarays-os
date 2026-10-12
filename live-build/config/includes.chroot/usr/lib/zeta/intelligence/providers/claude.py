@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Provider Claude (Anthropic) per ZETA RAYS Intelligence.
+"""Claude (Anthropic) provider for ZETA RAYS Intelligence.
 
-Usa direttamente l'endpoint Messages via urllib: nessun SDK da installare.
-Modello predefinito: claude-haiku-5-5 (il piu' veloce: ZETA deve rispondere
-subito; un altro si sceglie in Impostazioni › AI). Verificato il 7 ottobre
-2026: claude-haiku-4-5 e' «legacy» e va in pensione dal 15 ottobre 2026.
-Nessuna temperatura nella richiesta: i modelli 5.5 rifiutano valori diversi
-da quello di fabbrica.
+Calls the Messages endpoint directly through urllib: no SDK to install.
+Default model: claude-haiku-5-5 (the fastest: ZETA must answer right away;
+another one can be chosen in Settings › AI). Checked on 7 October 2026:
+claude-haiku-4-5 is «legacy» and retires on 15 October 2026.
+No temperature in the request: the 5.5 models reject any value other than
+the default one.
 """
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ DEFAULT_MODEL = "claude-haiku-5-5"
 
 
 class ClaudeProvider(Provider):
-    def modelli_offerti(self) -> list[str]:
+    def offered_models(self) -> list[str]:
         import urllib.request
         req = urllib.request.Request("https://api.anthropic.com/v1/models?limit=100", headers=self._headers())
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
                 return [m.get("id", "") for m in json.loads(r.read().decode("utf-8")).get("data", [])]
-        except Exception:  # noqa: BLE001 - e' solo un aiuto in piu'
+        except Exception:  # noqa: BLE001 - only a nice-to-have
             return []
 
     def _headers(self) -> dict:

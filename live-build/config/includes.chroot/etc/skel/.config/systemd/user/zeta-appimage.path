@@ -1,7 +1,7 @@
-# ZETA RAYS — AppImage nel menu da sole: quando in una di queste cartelle
-# compare, cambia o sparisce un file, zeta-app integra le AppImage (nome e
-# icona letti dal file senza eseguirlo). Lo controlla systemd (inotify):
-# nessun processo in piu' resta acceso.
+# ZETA RAYS — AppImages show up in the menu on their own: when a file appears,
+# changes or disappears in one of these folders, zeta-app integrates the
+# AppImages (name and icon are read from the file without running it). systemd
+# does the watching (inotify): no extra process stays running.
 [Unit]
 Description=ZETA RAYS: new AppImages in the usual folders
 
@@ -10,10 +10,12 @@ Description=ZETA RAYS: new AppImages in the usual folders
 # both listed (a missing folder is simply not watched)
 PathChanged=%h/Applications
 PathChanged=%h/Desktop
+PathChanged=%h/Downloads
+# i18n-data-begin: the Italian names of the same folders
 PathChanged=%h/Applicazioni
 PathChanged=%h/Scaricati
-PathChanged=%h/Downloads
 PathChanged=%h/Scrivania
+# i18n-data-end
 PathChanged=%h/.local/bin
 PathChanged=/opt
 MakeDirectory=no

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Sito e download
+  - name: Website and downloads
     url: https://zetarays.org
-    about: Immagini ISO e OVA, istruzioni complete.
-  - name: Segnalare una falla di sicurezza
+    about: ISO and OVA images, full instructions.
+  - name: Report a security vulnerability
     url: https://github.com/zetarays/zetarays-os/security/advisories/new
-    about: In privato, non con una issue pubblica.
+    about: Privately, not in a public issue.

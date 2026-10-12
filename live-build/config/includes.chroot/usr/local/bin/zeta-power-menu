@@ -1,0 +1,151 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — power and session menu.
+
+Lock · Suspend · Switch User · Log Out · Restart · Shut Down.
+It opens from the power button in the bar, from the control center or with
+Super+Esc. Esc or a click outside the buttons closes it. Same command = open/close.
+It stays in memory, hidden (zeta-panel power shows it instantly).
+"""
+import os
+import pwd
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import popup  # noqa: E402
+
+popup.preload_layer_shell()
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+from system import avatar, power, spawn  # noqa: E402
+from i18n import tr  # noqa: E402
+
+CSS = """
+window.zeta-overlay.power { background: @scrim_strong; }
+button.pm-avatar { padding: 0; border-radius: 999px; background: none;
+                   border: none; box-shadow: none; }
+button.pm-avatar:hover, button.pm-avatar:focus-visible { outline: 2px solid @accent; outline-offset: 3px; }
+.pm-name { font-size: 16px; font-weight: 500; }
+.pm-host { font-size: 12px; color: @ink_dim; }
+button.pm-btn { min-width: 64px; min-height: 64px; padding: 0; border-radius: 999px;
+                background: @hover; border: 1px solid @line;
+                box-shadow: none; }
+button.pm-btn:hover, button.pm-btn:focus-visible { background: @hover_2; }
+button.pm-btn.danger:hover, button.pm-btn.danger:focus-visible { background: @accent; }
+button.pm-btn.danger:hover image, button.pm-btn.danger:focus-visible image { color: @accent_ink; }
+.pm-label { font-size: 12px; color: @ink_2; }
+.pm-hint { font-size: 12px; color: @ink_dim; }
+"""
+
+ACTIONS = [
+    ("zeta-lock", tr("Lock"), "lock", False),
+    ("zeta-moon", tr("Suspend"), "suspend", False),
+    ("zeta-switch-user", tr("Switch User"), "switch", False),
+    ("zeta-logout", tr("Log Out"), "logout", False),
+    ("zeta-restart", tr("Restart"), "reboot", True),
+    ("zeta-power", tr("Shut Down"), "poweroff", True),
+]
+
+
+class PowerWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("Power"), decorated=False)
+        popup.make_overlay(self, "zeta-power-menu")
+        self.add_css_class("power")
+
+        user = pwd.getpwuid(os.getuid())
+        full = (user.pw_gecos.split(",")[0] or user.pw_name).strip()
+
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                           halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        # the user's picture (round, ~/.face); a click opens Settings › Account
+        # Gtk.Image with pixel_size: fixed size (a Gtk.Picture grew to the
+        # image's real size, 512 px)
+        self.photo = Gtk.Image(pixel_size=80)
+        av = Gtk.Button(css_classes=["pm-avatar"], halign=Gtk.Align.CENTER,
+                        tooltip_text=tr("Account settings"))
+        av.set_child(self.photo)
+        av.connect("clicked", lambda *_: (self.set_visible(False),
+                                          spawn(["zeta-settings", "account"])))
+        self.box.append(av)
+        self._load_photo()
+        self.box.append(Gtk.Label(label=full, css_classes=["pm-name"]))
+        self.box.append(Gtk.Label(label=os.uname().nodename, css_classes=["pm-host"]))
+
+        row = Gtk.Box(spacing=28, halign=Gtk.Align.CENTER, margin_top=34)
+        self.buttons = []
+        for icon, label, action, danger in ACTIONS:
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            b = Gtk.Button(css_classes=["pm-btn"] + (["danger"] if danger else []),
+                           halign=Gtk.Align.CENTER, tooltip_text=label)
+            b.set_child(Gtk.Image(icon_name=icon, pixel_size=22))
+            b.connect("clicked", lambda _b, a=action: self.do(a))
+            col.append(b)
+            col.append(Gtk.Label(label=label, css_classes=["pm-label"]))
+            row.append(col)
+            self.buttons.append(b)
+        self.box.append(row)
+        self.box.append(Gtk.Label(label=tr("Press Esc to cancel"), css_classes=["pm-hint"], margin_top=30))
+        self.set_child(self.box)
+        popup.close_on_outside(self, row, self.close_app)
+
+    def _load_photo(self):
+        try:
+            self.photo.set_from_paintable(Gdk.Texture.new_from_filename(avatar.path()))
+        except GLib.Error:
+            self.photo.set_from_icon_name("zeta-account")
+
+    def prepare(self):
+        """Every time it appears: refresh the picture (it may have just
+        changed) and focus the first button (Lock)."""
+        self._load_photo()
+        GLib.idle_add(lambda: self.buttons[0].grab_focus() and False)
+
+    def do(self, action):
+        self.set_visible(False)
+        {"lock": power.lock, "suspend": power.suspend, "switch": power.switch_user,
+         "logout": power.logout, "reboot": power.reboot, "poweroff": power.poweroff}[action]()
+
+    def close_app(self):
+        # stays in memory, hidden: the next opening is instant
+        self.set_visible(False)
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.PowerMenu", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.win = None
+        self.hidden = False
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.hidden = popup.started_hidden()
+        popup.clean_env()
+        popup.load_css(CSS)
+        popup.show_action(self, self.toggle)
+        self.hold()                    # stays alive even while the panel is hidden
+
+    def do_activate(self):
+        if self.hidden:              # started by the session: ready, not visible
+            self.hidden = False
+            self.win = PowerWindow(self)
+            return
+        self.toggle()
+
+    def toggle(self):
+        if self.win is not None and self.win.get_visible():
+            self.win.set_visible(False)
+            return
+        if self.win is None:
+            self.win = PowerWindow(self)
+        self.win.prepare()
+        self.win.present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

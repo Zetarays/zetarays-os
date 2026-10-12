@@ -13,14 +13,14 @@ TESSERACT = {"it": "ita", "fr": "fra", "de": "deu", "es": "spa", "pt": "por", "n
              "zh_CN": "chi_sim", "zh_TW": "chi_tra", "en": "eng"}
 
 
-def installate():
-    trovate = set()
+def installed():
+    found = set()
     for f in glob.glob("/usr/share/tesseract-ocr/*/tessdata/*.traineddata"):
-        trovate.add(os.path.basename(f)[:-len(".traineddata")])
-    return trovate
+        found.add(os.path.basename(f)[:-len(".traineddata")])
+    return found
 
 
-def lingue():
+def languages():
     """e.g. "fra+eng" on a French system; "eng" when nothing else is there."""
     loc = ""
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
@@ -28,7 +28,7 @@ def lingue():
         if loc:
             break
     loc = loc.split(".")[0]
-    codice = TESSERACT.get(loc) or TESSERACT.get(loc.split("_")[0], "")
-    ok = installate()
-    scelte = [c for c in (codice, "eng") if c and c in ok]
-    return "+".join(dict.fromkeys(scelte)) or "eng"
+    code = TESSERACT.get(loc) or TESSERACT.get(loc.split("_")[0], "")
+    ok = installed()
+    choices = [c for c in (code, "eng") if c and c in ok]
+    return "+".join(dict.fromkeys(choices)) or "eng"

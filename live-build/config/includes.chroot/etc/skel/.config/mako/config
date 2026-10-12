@@ -1,4 +1,4 @@
-# ZETA RAYS — notifiche
+# ZETA RAYS — notifications
 font=Roboto 11
 background-color=#141416EE
 text-color=#EDEDEA
@@ -13,6 +13,6 @@ anchor=top-right
 default-timeout=5000
 icon-path=/usr/share/icons/zeta
 
-# Non disturbare (dal centro di controllo)
+# Do Not Disturb (from the Control Center)
 [mode=do-not-disturb]
 invisible=1

@@ -5,6 +5,23 @@
 Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
 
 ### Highlights of 2.0
+- **ZETA RAYS Monitor reports services honestly**: running, completed,
+  stopped, not applicable (skipped by its own condition, such as Bluetooth
+  without an adapter), attention (a periodic job that failed) or failed;
+  only a failed service turns the status red. Root cause of a recurring
+  "failed service": the daily chkrootkit scan tried to mail its report to
+  root, but no mail server is installed (`mail: not found`, exit 127); the
+  report now goes to the journal and the first scan becomes the reference,
+  so later scans report only real changes.
+- **Folder colors**: right-click a folder › Folder Color (red, white, green,
+  blue, purple, default), on the Desktop (the whole folder in color) and in
+  the file manager (a colored dot); stored as file metadata, kept after a
+  restart, nothing inside the folder changes.
+- **English source**: every comment, docstring, developer message and
+  developer document is in English (checked by `tools/check-italian.py` in
+  CI); Italian stays only in the translations and in Italian data such as
+  voice commands. Website and Italian translation use "click" consistently
+  (see `docs/GLOSSARY.md`), and "Support" replaces "Donate".
 - **Windows always within reach**: a window moved off the screen by its
   program, larger than the screen, or left outside after a display was
   unplugged or changed comes back with its title bar and buttons inside the
@@ -68,7 +85,7 @@ Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   .jpg or .png photo, or a circle in an accent color), shown in the account
   menu, on the lock screen and at login.
 - **SSH from the internet that stays on**: the choice is synchronized into
-  the firewall set (accesso_remoto = { 22 }) after every start and every
+  the firewall set (remote_access = { 22 }) after every start and every
   firewall reload; zeta-ssh diagnose checks the whole chain line by line and
   warns about other firewalls (iptables).
 - **Boot menu a little smaller and finer**: Roboto 16 px entries, 13 px
@@ -95,7 +112,7 @@ Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   logins, leftovers of Debian's installer and the generic file manager
   sidebar icons are replaced by ZETA RAYS ones; Debian's artwork packages
   can no longer be installed by accident.
-- **AI up to date**: Ollama 0.40.0; Claude Haiku 5.5, Gemini 3.8 Flash,
+- **AI up to date**: Ollama 0.40.3; Claude Haiku 5.5, Gemini 3.8 Flash,
   GPT-6 Luna, DeepSeek Flash, Qwen 3.8 Flash and gpt-oss on Groq as fast
   defaults (verified on 7 October 2026). Requests adapt by themselves to
   each model (OpenAI's reasoning models used to refuse every request), and
@@ -133,6 +150,58 @@ Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   rest, and the installation screen is translated.
 - Blender (also the version from blender.org) opens its main window large.
 
+### English-only source
+The whole source is now in English: commands, helpers, services, file and
+folder names, desktop entry IDs (`org.zetarays.Impostazioni` is now
+`org.zetarays.Settings`), environment variables, identifiers, comments and
+developer messages. Italian remains only as translation data (`po/it.po`,
+`*.it.md`, `Name[it]=` entries, Italian voice and text command patterns).
+There are no Italian aliases left: scripts that call the old names must use
+the new ones.
+
+Renamed commands:
+
+<!-- i18n-data-begin: old Italian command names, quoted on purpose -->
+| Old | New | Old | New |
+|---|---|---|---|
+| `vedi` | `zeta-view` | `zeta-prove` | `zeta-selftest` |
+| `zeta-ai-precarica` | `zeta-ai-preload` | `zeta-regione-radio` | `zeta-radio-region` |
+| `zeta-appimage-anteprima` | `zeta-appimage-thumbnail` | `zeta-riduci` | `zeta-minimize` |
+| `zeta-aspetto` | `zeta-appearance` | `zeta-ripara-avvio` | `zeta-repair-boot` |
+| `zeta-barra` | `zeta-bar` | `zeta-ripresa` | `zeta-recovery` |
+| `zeta-benvenuto` | `zeta-welcome` | `zeta-salute` | `zeta-health` |
+| `zeta-cerca` | `zeta-search` | `zeta-schermi` | `zeta-displays` |
+| `zeta-controllo` | `zeta-control-center` | `zeta-scrivania` | `zeta-desktop` |
+| `zeta-copia-amministratore` | `zeta-admin-copy` | `zeta-scrivania-apri` | `zeta-open-desktop-folder` |
+| `zeta-diagnosi` | `zeta-diagnostics` | `zeta-selettore` | `zeta-switcher` |
+| `zeta-emergenza` | `zeta-emergency` | `zeta-sfondo` | `zeta-wallpaper` |
+| `zeta-energia` | `zeta-power-menu` | `zeta-sicurezza` | `zeta-security` |
+| `zeta-finestre` | `zeta-windows` | `zeta-sistema` | `zeta-system` |
+| `zeta-impostazioni` | `zeta-settings` | `zeta-sorgenti-apt` | `zeta-apt-sources` |
+| `zeta-incolla-amministratore` | `zeta-admin-paste` | `zeta-spazi` | `zeta-workspaces` |
+| `zeta-installa` | `zeta-install-system` | `zeta-ssh-installato` | `zeta-ssh-installed` |
+| `zeta-installa-programma` | `zeta-install-program` | `zeta-ssh-sincronizza` | `zeta-ssh-sync` |
+| `zeta-lingua` | `zeta-language` | `zeta-tastiera` | `zeta-keyboard` |
+| `zeta-pacchetti` | `zeta-packages` | `zeta-terminale` | `zeta-terminal` |
+| `zeta-pannello` | `zeta-panel` | `zeta-testo` | `zeta-text-capture` |
+| `zeta-posta` | `zeta-mail` | `zeta-verifica-avvio` | `zeta-verify-boot` |
+| `zeta-predefinita` | `zeta-default-app` | `zeta-vigila` | `zeta-watchdog` |
+<!-- i18n-data-end -->
+
+Subcommands and options follow the same rule (for example `zeta-ssh stato`
+is now `zeta-ssh status`, `zeta-ssh diagnosi` is `zeta-ssh diagnose`).
+
+User settings from an earlier version are converted automatically, once, at
+the first login and before the desktop starts (`/usr/libexec/zeta-migrate-user`):
+configuration files and keys under `~/.config` (for example `scrivania.json`
+becomes `desktop.json`, `schermi.json` becomes `displays.json`), Hyprland
+shortcuts, the Dock, desktop entries and file manager actions that referred to
+the old names. Configuration files you never changed are replaced with the new
+ones; a saved key for a custom AI service is re-encrypted under its new name. A
+copy of every changed file is kept in `~/.local/state/zeta/migration-backup/`.
+The network update script (`update-network-zeta-rays.sh`) writes the firewall
+files with the new set names. Nothing has to be done by hand.
+
 ### New
 - **English by default, your language everywhere.** The USB stick and the
   live session start in English with a US keyboard. The installer sets the
@@ -162,7 +231,7 @@ Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
 - Bar menus (logo, search, network, sound, power) open instantly.
 - Remote access (SSH): on by default once installed, from the local network
   and from the internet (rate-limited, root never allowed); off in the live
-  session and the OVAs. `zeta-ssh` with `stato`, `config`, `diagnosi`.
+  session and the OVAs. `zeta-ssh` with `status`, `config`, `diagnose`.
 - Firewall in three classes: LAN ONLY, REMOTE ENABLED, DISABLED.
 - Firefox start page: zetarays.org online, a local copy of the site offline.
 - The USB stick starts in English; the language is chosen in the installer.
@@ -195,6 +264,10 @@ Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   appear in the file manager; passwords can be remembered in the keyring.
 
 ### Fixed
+- **Panels kept the theme of the login.** Search, the app launcher and the
+  power menu stay in memory to open instantly, and they kept the light or
+  dark theme and the accent color they started with until the next login.
+  They now reload their colors when they open, if the theme changed.
 - **AppImage icons duplicated on the Desktop.** An AppImage was identified by
   its file path: moving, renaming or updating the file made it a "new" app,
   broke its Desktop shortcut and put a second icon next to it. Apps are now

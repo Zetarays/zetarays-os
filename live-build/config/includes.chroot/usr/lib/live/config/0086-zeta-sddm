@@ -1,8 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — nel sistema live, l'accesso automatico apre la sessione ZETA RAYS.
-# Il componente 0085-sddm di live-config scrive /etc/sddm.conf con la sessione vuota:
-# qui la impostiamo su zeta.desktop.
+# ZETA RAYS — on the live system, automatic login opens the ZETA RAYS session.
+# live-config's 0085-sddm component writes /etc/sddm.conf with an empty session:
+# here we set it to zeta.desktop.
 
 if [ -f /etc/sddm.conf ] && grep -q '^\[Autologin\]' /etc/sddm.conf; then
   if grep -q '^Session=' /etc/sddm.conf; then

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Configurazione di live-build per l'ISO di ZETA RAYS.
-# Architettura: ZETA_ARCH=amd64 (predefinita) oppure arm64.
+# live-build configuration for the ZETA RAYS ISO.
+# Architecture: ZETA_ARCH=amd64 (default) or arm64.
 set -e
 
 ARCH="${ZETA_ARCH:-amd64}"

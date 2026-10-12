@@ -1,13 +1,14 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — avviso a tutto schermo quando manca l'accelerazione 3D.
-# Il desktop ZETA RAYS ne ha bisogno; qui si spiega come attivarla e si offre
-# di spegnere o riavviare. Gira sotto Xorg con rendering software.
+# ZETA RAYS — full-screen notice when 3D acceleration is missing.
+# The ZETA RAYS desktop needs it; this explains how to turn it on and offers
+# to shut down or restart. Runs under Xorg with software rendering.
 import os
 import subprocess
 import sys
 
-# --live: dal live senza 3D, dopo aver chiuso l'installer (si può riaprire)
+# --live: from the live session without 3D, after the installer was closed
+# (it can be reopened)
 LIVE = "--live" in sys.argv
 
 os.environ.setdefault("GSK_RENDERER", "cairo")
@@ -21,7 +22,7 @@ from gi.repository import Gdk, Gtk  # noqa: E402
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import tr  # noqa: E402
 
-LOGO = "/usr/share/zeta/brand/zeta-logo-bianco.svg"
+LOGO = "/usr/share/zeta/brand/zeta-logo-white.svg"
 
 CSS = b"""
 window { background: #000000; }
@@ -71,8 +72,8 @@ def on_activate(app):
     virtualbox = tr("In VirtualBox: shut the machine down, open Settings → Display, "
                     "choose the “VMSVGA” graphics controller and turn on “Enable 3D Acceleration”.")
     if LIVE:
-        # sul live si offre di installare comunque (la lingua della sessione
-        # e' quella della chiavetta; il sistema la sceglie nell'installer)
+        # on the live session, offer to install anyway (the session language
+        # is the USB stick's; the system language is chosen in the installer)
         label(tr("Install ZETA RAYS OS"), "title")
         label(tr("Without 3D acceleration the live desktop cannot start, "
                  "but you can still install ZETA RAYS OS on this computer."), "body")
@@ -91,7 +92,7 @@ def on_activate(app):
     row.append(off)
     row.append(reboot)
     if LIVE:
-        # esce con codice 10: zeta-installer-x riapre l'installer
+        # exits with code 10: zeta-installer-x reopens the installer
         inst = Gtk.Button(label=tr("Install"))
         inst.add_css_class("primary")
         inst.connect("clicked", lambda *_: os._exit(10))
@@ -104,20 +105,20 @@ def on_activate(app):
 
     win.set_child(box)
     win.set_default_widget(primary)
-    # Grande quanto lo schermo anche se il gestore delle finestre (matchbox)
-    # non e' ancora pronto quando la finestra compare: prima, in quel caso,
-    # la richiesta di tutto schermo andava persa e il riquadro restava
-    # schiacciato nell'angolo in alto a sinistra.
+    # As large as the screen even if the window manager (matchbox) is not
+    # ready yet when the window appears: previously, in that case, the
+    # fullscreen request was lost and the box stayed squeezed into the
+    # top-left corner.
     try:
-        monitori = Gdk.Display.get_default().get_monitors()
-        if monitori.get_n_items():
-            g = monitori.get_item(0).get_geometry()
+        monitors = Gdk.Display.get_default().get_monitors()
+        if monitors.get_n_items():
+            g = monitors.get_item(0).get_geometry()
             win.set_default_size(g.width, g.height)
     except (AttributeError, TypeError):
         pass
     win.fullscreen()
     win.present()
-    primary.grab_focus()      # Invio attiva subito il pulsante principale
+    primary.grab_focus()      # Enter activates the main button right away
 
 
 app = Gtk.Application(application_id="org.zetarays.No3D")

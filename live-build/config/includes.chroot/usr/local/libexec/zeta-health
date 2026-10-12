@@ -1,0 +1,165 @@
+#!/bin/bash
+# shellcheck disable=SC2059  # printf formats come from the translations (gettext)
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-health — lightweight system health check, every two minutes.
+#
+# It only looks at things that cost next to nothing (files in /proc, a few
+# journal lines since the last check) and notifies the user when there is
+# really something worth knowing:
+#   - memory almost exhausted, or the system slowing down for lack of memory
+#   - a program killed by earlyoom to prevent a freeze (and which one)
+#   - very high CPU load for more than a few minutes (and who causes it)
+#   - disk almost full
+#   - failed services
+#   - graphics card errors in the kernel (GPU hung or reset)
+#   - processes stuck waiting on the disk for more than one check
+#   - the local model (Ollama) stopped when it should be running
+# Each notification repeats at most once an hour. Everything also goes to
+# the journal (journalctl -t zeta-health) and to /run/zeta-health.txt, which
+# zeta-diagnostics attaches to its report.
+set -u
+# Notifications in the system language (gettext, zetarays domain)
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
+STATE_DIR=/var/lib/zeta-health
+mkdir -p "$STATE_DIR/notified"
+LAST=$(cat "$STATE_DIR/last" 2>/dev/null || echo 0)
+NOW=$(date +%s)
+[ "$LAST" -gt 0 ] 2>/dev/null || LAST=$((NOW - 150))
+SINCE="@$LAST"
+REPORT=()
+
+record() { REPORT+=("$1: $2"); logger -t zeta-health -- "$1: $2"; }
+# escape text for safe use as a sed replacement ("|" separator)
+sed_text() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
+
+# Notify every open graphical session, at most once an hour per key.
+notify() {
+    local title="$2" text="$3" f="$STATE_DIR/notified/$1"   # $1 = notification key
+    record "$title" "$text"
+    if [ -f "$f" ] && [ $((NOW - $(cat "$f"))) -lt 3600 ]; then
+        return
+    fi
+    echo "$NOW" > "$f"
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid user _; do
+        [ "$(loginctl show-session "$sid" -p Type --value 2>/dev/null)" = wayland ] || continue
+        [ "$(loginctl show-session "$sid" -p Active --value 2>/dev/null)" = yes ] || continue
+        runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            timeout 5 notify-send -a "ZETA RAYS" -i dialog-warning "$title" "$text" \
+            >/dev/null 2>&1 || true
+    done
+}
+
+heaviest_ram() { ps -eo comm,rss --sort=-rss --no-headers | head -3 \
+    | awk '{printf "%s%s (%d MB)", (NR>1?", ":""), $1, $2/1024}'; }
+heaviest_cpu() { ps -eo comm,pcpu --sort=-pcpu --no-headers | head -2 \
+    | awk '{printf "%s%s (%s%%)", (NR>1?", ":""), $1, $2}'; }
+
+# --- memory ---
+TOTAL=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+AVAIL=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+if [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+    PERC=$((AVAIL * 100 / TOTAL))
+    if [ "$PERC" -lt 10 ]; then
+        notify memory "$(gettext "Memory almost full")" \
+            "$(printf "$(gettext 'Only %s%% of RAM is left. Using the most: %s. Close something to avoid slowdowns.')" "$PERC" "$(heaviest_ram)")"
+    fi
+fi
+if [ -r /proc/pressure/memory ]; then
+    FULL=$(awk '/^full/{split($3,a,"="); print int(a[2])}' /proc/pressure/memory)
+    if [ "${FULL:-0}" -ge 15 ]; then
+        notify pressure "$(gettext "The system is slowing down for lack of memory")" \
+            "$(printf "$(gettext 'In the last minute, apps spent %s%% of the time waiting for memory. Using the most: %s.')" "$FULL" "$(heaviest_ram)")"
+    fi
+fi
+
+# --- programs killed by earlyoom to prevent a freeze ---
+KILLED=$(journalctl -u earlyoom --since "$SINCE" --no-pager -o cat 2>/dev/null \
+         | sed -n 's/.*sending SIG[A-Z]* to process [0-9]* uid [0-9]* "\([^"]*\)".*/\1/p' | sort -u \
+         | sed -e "s|^llama-server\$|$(sed_text "$(gettext "the local AI model (it reloads by itself at the next question)")")|" \
+               -e "s|^ollama\$|$(sed_text "$(gettext "the local AI model (it reloads by itself at the next question)")")|" \
+               -e 's/^firefox-esr$/Firefox/' -e "s|^Isolated Web Co\$|$(sed_text "$(gettext "a Firefox tab")")|" \
+               -e "s|^Web Content\$|$(sed_text "$(gettext "a Firefox tab")")|" -e "s|^tesseract\$|$(sed_text "$(gettext "text recognition")")|" \
+         | sort -u | paste -sd, - | sed 's/,/, /g')
+if [ -n "$KILLED" ]; then
+    notify earlyoom-"$NOW" "$(gettext "App closed to protect the system")" \
+        "$(printf "$(gettext 'Memory was running out: to keep the computer from freezing, this was closed: %s.')" "$KILLED")"
+fi
+
+# --- CPU: high, sustained load ---
+NCPU=$(nproc)
+LOAD5=$(awk '{print int($2)}' /proc/loadavg)
+if [ "$LOAD5" -ge $((NCPU * 2)) ]; then
+    notify cpu "$(gettext "Processor under heavy load")" \
+        "$(printf "$(gettext 'For a few minutes the load has been %s on %s cores. Using the most: %s.')" "$LOAD5" "$NCPU" "$(heaviest_cpu)")"
+fi
+
+# --- disk ---
+while read -r used free mp; do
+    # on read-only media (the live USB stick or DVD, always "full" at 100%)
+    # a full disk does not block any program: no notification
+    case ",$(findmnt -no OPTIONS --target "$mp" 2>/dev/null)," in *,ro,*) continue ;; esac
+    used=${used%%%}
+    if [ "$used" -ge 95 ] || [ "$free" -lt 1500000 ]; then
+        notify "disk-$(echo "$mp" | tr / _)" "$(gettext "Disk almost full")" \
+            "$(printf "$(gettext 'On %s, only %s MB is left (%s%% free). When the disk is full, apps freeze.')" "$mp" "$((free / 1024))" "$((100 - used))")"
+    fi
+done < <(df -k --output=pcent,avail,target -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs -x vfat -x iso9660 -x udf 2>/dev/null | tail -n +2)
+
+# --- failed services ---
+FAILED=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | paste -sd, -)
+if [ -n "$FAILED" ]; then
+    notify services "$(gettext "Failed services")" "$(printf "$(gettext 'Not working: %s. Details: journalctl -u <name>.')" "$FAILED")"
+fi
+
+# --- graphics card ---
+GPU=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null \
+      | grep -iE "GPU HANG|gpu hang|ring [a-z0-9_.]+ timeout|\*ERROR\* .*(reset|hang|timed out)|amdgpu.*(timeout|reset)|i915.*(reset|hang)|xe .*(reset|timeout)|nouveau.*(fault|timeout)" \
+      | grep -viE "vmw_(msg|host)" | tail -2 | cut -c1-160)
+if [ -n "$GPU" ]; then
+    notify gpu "$(gettext "The graphics card had an error")" \
+        "$(printf "$(gettext 'The kernel reported a GPU problem: it may explain frozen windows. For the full report: zeta-diagnostics. (%s)')" "$GPU")"
+fi
+
+# --- window manager crashes (Hyprland) ---
+while IFS= read -r crash; do
+    SIG=$(grep -m1 -o "signal [0-9]*([A-Z]*)" "$crash" 2>/dev/null)
+    WHERE=$(grep -m1 -oE "Desktop::View::[A-Za-z:]+|C[A-Z][A-Za-z]+::[A-Za-z]+" "$crash" 2>/dev/null | sed -n 3p)
+    notify "hyprland-$(basename "$crash")" "$(gettext "The desktop recovered from an error")" \
+        "$(printf "$(gettext 'The window manager crashed (%s) and restarted. Report: %s')" "$SIG${WHERE:+, $WHERE}" "$crash")"
+done < <(find /home/*/.cache/hyprland -maxdepth 1 -name 'hyprlandCrashReport*.txt' -newermt "@$LAST" 2>/dev/null)
+
+# --- processes stuck on the disk (D state) for more than one check ---
+NOW_D=$(ps -eo pid=,stat=,comm= | awk '$2 ~ /^D/ {print $1":"$3}' | sort)
+PREV_D=$(cat "$STATE_DIR/d-state" 2>/dev/null)
+echo "$NOW_D" > "$STATE_DIR/d-state"
+STUCK=$(comm -12 <(echo "$PREV_D") <(echo "$NOW_D") | grep . | cut -d: -f2 | sort -u | paste -sd, -)
+if [ -n "$STUCK" ]; then
+    notify disk-stuck "$(gettext "Apps stuck waiting for the disk")" \
+        "$(printf "$(gettext 'Not responding for more than two minutes: %s. The disk may be slow or failing.')" "$STUCK")"
+fi
+HUNG=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null | grep -c "blocked for more than")
+if [ "${HUNG:-0}" -gt 0 ]; then
+    notify hung "$(gettext "The system froze")" \
+        "$(printf "$(gettext 'The kernel saw %s processes stuck for more than two minutes. For the report: zeta-diagnostics.')" "$HUNG")"
+fi
+
+# --- local AI ---
+if systemctl is-enabled --quiet ollama 2>/dev/null && ! systemctl is-active --quiet ollama; then
+    OLLAMA_RESULT=$(systemctl show ollama -p Result --value 2>/dev/null)
+    systemctl reset-failed ollama >/dev/null 2>&1
+    if systemctl start ollama >/dev/null 2>&1; then
+        record "Ollama" "was stopped ($OLLAMA_RESULT): restarted"
+    else
+        notify ollama "$(gettext "The local AI won't start")" \
+            "$(printf "$(gettext 'The Ollama service is stopped (%s) and will not restart. ZETA can use an online service (Settings > AI).')" "$OLLAMA_RESULT")"
+    fi
+fi
+
+echo "$NOW" > "$STATE_DIR/last"
+{
+    echo "last check: $(date '+%F %T')"
+    echo "memory available: ${PERC:-?}%  memory pressure (full avg60): ${FULL:-?}%  load: $(cut -d' ' -f1-3 /proc/loadavg)"
+    if [ ${#REPORT[@]} -eq 0 ]; then echo "no problems"; else printf '%s\n' "${REPORT[@]}"; fi
+} > /run/zeta-health.txt
+exit 0

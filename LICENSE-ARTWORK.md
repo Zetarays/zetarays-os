@@ -22,6 +22,8 @@ Questions: info@zetarays.org
 
 ---
 
+<!-- i18n-data-begin: Italian summary of the terms above -->
 **In italiano.** Il codice è libero (GPL-3.0). Nome, logo e sfondi di ZETA RAYS
 restano di ZETA RAYS: si possono ridistribuire le immagini ufficiali così come
 sono, ma chi pubblica una versione modificata deve cambiare nome e grafica.
+<!-- i18n-data-end -->

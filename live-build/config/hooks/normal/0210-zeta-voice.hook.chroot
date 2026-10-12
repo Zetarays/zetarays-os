@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — ZETA's natural voice: Piper, neural speech synthesis that runs
+# entirely on the computer (no text ever leaves the computer). Voices: Paola
+# for Italian, Lessac (high quality) for English; other languages keep using
+# espeak-ng. The runtime and voices ship with the image (build.sh takes them
+# from cache/piper): the build does not depend on the network.
+set -e
+BUNDLED=/usr/share/zeta/piper-cache
+case "$(uname -m)" in
+    aarch64|arm64) A=aarch64 ;;
+    x86_64|amd64)  A=x86_64 ;;
+    *) echo "ZETA RAYS: ERROR - architecture not supported by Piper" >&2; exit 1 ;;
+esac
+T="$BUNDLED/piper_linux_$A.tar.gz"
+if [ ! -s "$T" ] || ! ls "$BUNDLED"/voices/*.onnx >/dev/null 2>&1; then
+    echo "ZETA RAYS: ERROR - Piper or the voices are not in the image ($T)" >&2
+    exit 1
+fi
+rm -rf /usr/lib/zeta-piper
+mkdir -p /usr/lib/zeta-piper /usr/share/zeta/voices
+tar -xzf "$T" -C /usr/lib/zeta-piper --strip-components=1
+cp -f "$BUNDLED"/voices/*.onnx "$BUNDLED"/voices/*.onnx.json /usr/share/zeta/voices/
+chmod -R a+rX /usr/lib/zeta-piper /usr/share/zeta/voices
+rm -rf "$BUNDLED"
+# real test: one sentence per voice must turn into audio
+for v in /usr/share/zeta/voices/*.onnx; do
+    echo "ZETA RAYS" | /usr/lib/zeta-piper/piper --model "$v" --output_file /tmp/zeta-voice.wav >/dev/null 2>&1 || true
+    if [ "$(stat -c %s /tmp/zeta-voice.wav 2>/dev/null || echo 0)" -lt 10000 ]; then
+        echo "ZETA RAYS: ERROR - voice $(basename "$v") produces no audio" >&2
+        exit 1
+    fi
+    rm -f /tmp/zeta-voice.wav
+done
+voices=""
+for v in /usr/share/zeta/voices/*.onnx; do voices="$voices ${v##*/}"; done
+echo "ZETA RAYS: natural voice (Piper) installed:$voices"

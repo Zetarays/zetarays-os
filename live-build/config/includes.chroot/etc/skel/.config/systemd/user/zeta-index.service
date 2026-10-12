@@ -3,13 +3,13 @@ Description=ZETA RAYS — content indexing for search
 
 [Service]
 Type=oneshot
-# L'indicizzazione (OCR compreso) è pesante: resta sempre in secondo piano e
-# non può far mancare memoria al resto del sistema.
+# Indexing (OCR included) is heavy: it always stays in the background and
+# must never starve the rest of the system of memory.
 Nice=19
 IOSchedulingClass=idle
 CPUWeight=10
-# CPU solo quando nessun altro la vuole, e l'OCR su un thread solo:
-# tesseract di suo occupa tutti i core.
+# CPU only when nobody else wants it, and OCR on a single thread:
+# tesseract on its own grabs every core.
 CPUSchedulingPolicy=idle
 Environment=OMP_THREAD_LIMIT=1
 MemoryHigh=20%

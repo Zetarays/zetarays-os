@@ -1,99 +1,99 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Costruisce le quattro immagini di ZETA RAYS 2.0 e le copia nella cartella di
-# consegna.
+# Builds the four ZETA RAYS 2.0 images and copies them to the release
+# folder.
 #
-# Regole, imparate a proprie spese:
-#  - si parte SEMPRE da zero. Prima, se una ISO arm64 esisteva già, veniva
-#    riusata in silenzio: bastava che la cancellazione a mano non riuscisse e
-#    si consegnava un'immagine vecchia accanto a tre nuove.
-#  - al primo errore ci si ferma. Prima una OVA fallita veniva solo annotata,
-#    e la consegna copiava le altre lasciando sulla Scrivania la OVA vecchia.
-#  - si consegna solo se tutte e quattro sono riuscite, e ogni copia viene
-#    confrontata con l'originale.
+# Rules, learned the hard way:
+#  - ALWAYS start from scratch. Previously, if an arm64 ISO already existed it
+#    was silently reused: all it took was a failed manual delete, and an old
+#    image shipped next to three new ones.
+#  - stop at the first error. Previously a failed OVA was merely noted, and
+#    the release step copied the others, leaving the old OVA on the Desktop.
+#  - release only if all four succeeded, and every copy is compared with the
+#    original.
 set -uo pipefail
-# Il percorso si ricava dalla posizione di questo script invece di
-# scriverlo a mano: così la cartella di lavoro sul Mac si può
-# rinominare senza rompere nulla.
+# The path is derived from this script's location instead of being
+# hard-coded: that way the working folder on the Mac can be renamed
+# without breaking anything.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"
-DEST="${ZETA_CONSEGNA:-$HOME/Desktop/ZETA RAYS 2.0}"
-IMMAGINI="zetarays-2.0-arm64.iso zetarays-2.0-arm64.ova zetarays-2.0-amd64.iso zetarays-2.0-amd64.ova"
+DEST="${ZETA_DELIVERY_DIR:-$HOME/Desktop/ZETA RAYS 2.0}"
+IMAGES="zetarays-2.0-arm64.iso zetarays-2.0-arm64.ova zetarays-2.0-amd64.iso zetarays-2.0-amd64.ova"
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
-fallita() { log "FALLITA: $* — niente consegna, la cartella sulla Scrivania resta com'era"; exit 1; }
+fail() { log "FAILED: $* — no release, the folder on the Desktop is left as it was"; exit 1; }
 
-# «consegna»: solo la copia sulla Scrivania delle immagini gia' costruite e
-# controllate in out/ (dopo una costruzione con SOLO_COSTRUZIONE=1)
-if [ "${1:-}" = consegna ]; then
-    for f in $IMMAGINI; do
-        [ -s "$OUT/$f" ] || fallita "manca $f in out/"
+# "deliver": only copies to the Desktop the images already built and
+# checked in out/ (after a build with BUILD_ONLY=1)
+if [ "${1:-}" = deliver ]; then
+    for f in $IMAGES; do
+        [ -s "$OUT/$f" ] || fail "$f missing in out/"
     done
-    SALTA_COSTRUZIONE=1
+    SKIP_BUILD=1
 else
-    SALTA_COSTRUZIONE=0
+    SKIP_BUILD=0
 fi
 
-# 1) nessuna costruzione in corso, niente immagini vecchie in giro
-if [ "$SALTA_COSTRUZIONE" = 1 ]; then :; elif pgrep -f "build.sh (arm64|amd64)" >/dev/null || pgrep -f "make-ova.sh" >/dev/null; then
-    fallita "c'è già una costruzione in corso"
+# 1) no build in progress, no old images lying around
+if [ "$SKIP_BUILD" = 1 ]; then :; elif pgrep -f "build.sh (arm64|amd64)" >/dev/null || pgrep -f "make-ova.sh" >/dev/null; then
+    fail "a build is already in progress"
 fi
-if [ "$SALTA_COSTRUZIONE" = 0 ]; then
-for f in $IMMAGINI zetarays-2.0-arm64.vmdk zetarays-2.0-amd64.vmdk; do
+if [ "$SKIP_BUILD" = 0 ]; then
+for f in $IMAGES zetarays-2.0-arm64.vmdk zetarays-2.0-amd64.vmdk; do
     rm -f "$OUT/$f"
 done
-log "cartella out/ ripulita: si parte da zero"
+log "out/ folder cleaned: starting from scratch"
 
-# 2) le quattro immagini, in ordine; ognuna deve riuscire
-log "costruisco la ISO arm64"
-"$ROOT/build.sh" arm64 > "$OUT/run-arm64.log" 2>&1 || fallita "ISO arm64 (vedi run-arm64.log)"
-log "ISO arm64 pronta ($(du -h "$OUT/zetarays-2.0-arm64.iso" | cut -f1))"
+# 2) the four images, in order; each one must succeed
+log "building the arm64 ISO"
+"$ROOT/build.sh" arm64 > "$OUT/run-arm64.log" 2>&1 || fail "arm64 ISO (see run-arm64.log)"
+log "arm64 ISO ready ($(du -h "$OUT/zetarays-2.0-arm64.iso" | cut -f1))"
 
-# Il disco virtuale di Colima non restituisce da solo lo spazio liberato:
-# dopo la costruzione amd64 il Mac restava con un paio di GB e l'esportazione
-# della OVA falliva per disco pieno. Si restituisce prima di ogni OVA.
-libera_spazio() {
+# Colima's virtual disk does not give freed space back on its own: after the
+# amd64 build the Mac was left with a couple of GB and the OVA export failed
+# with a full disk. The space is given back before each OVA.
+free_space() {
     command -v colima >/dev/null && colima ssh -- sudo fstrim -a >/dev/null 2>&1 || true
-    log "spazio libero: $(df -h "$OUT" | awk 'NR==2{print $4}')"
+    log "free space: $(df -h "$OUT" | awk 'NR==2{print $4}')"
 }
 
-libera_spazio
-log "creo la OVA arm64"
-ZETA_ARCH=arm64 "$ROOT/tools/make-ova.sh" > "$OUT/run-ova-arm64.log" 2>&1 || fallita "OVA arm64 (vedi run-ova-arm64.log)"
-log "OVA arm64 pronta ($(du -h "$OUT/zetarays-2.0-arm64.ova" | cut -f1))"
+free_space
+log "creating the arm64 OVA"
+ZETA_ARCH=arm64 "$ROOT/tools/make-ova.sh" > "$OUT/run-ova-arm64.log" 2>&1 || fail "arm64 OVA (see run-ova-arm64.log)"
+log "arm64 OVA ready ($(du -h "$OUT/zetarays-2.0-arm64.ova" | cut -f1))"
 
-libera_spazio
-log "costruisco la ISO amd64"
-"$ROOT/build.sh" amd64 > "$OUT/run-amd64.log" 2>&1 || fallita "ISO amd64 (vedi run-amd64.log)"
-log "ISO amd64 pronta ($(du -h "$OUT/zetarays-2.0-amd64.iso" | cut -f1))"
+free_space
+log "building the amd64 ISO"
+"$ROOT/build.sh" amd64 > "$OUT/run-amd64.log" 2>&1 || fail "amd64 ISO (see run-amd64.log)"
+log "amd64 ISO ready ($(du -h "$OUT/zetarays-2.0-amd64.iso" | cut -f1))"
 
-libera_spazio
-log "creo la OVA amd64"
-ZETA_ARCH=amd64 "$ROOT/tools/make-ova.sh" > "$OUT/run-ova-amd64.log" 2>&1 || fallita "OVA amd64 (vedi run-ova-amd64.log)"
-log "OVA amd64 pronta ($(du -h "$OUT/zetarays-2.0-amd64.ova" | cut -f1))"
+free_space
+log "creating the amd64 OVA"
+ZETA_ARCH=amd64 "$ROOT/tools/make-ova.sh" > "$OUT/run-ova-amd64.log" 2>&1 || fail "amd64 OVA (see run-ova-amd64.log)"
+log "amd64 OVA ready ($(du -h "$OUT/zetarays-2.0-amd64.ova" | cut -f1))"
 
-for f in $IMMAGINI; do
-    [ -s "$OUT/$f" ] || fallita "manca $f"
+for f in $IMAGES; do
+    [ -s "$OUT/$f" ] || fail "$f missing"
 done
 
-fi   # fine della costruzione (saltata con «consegna»)
+fi   # end of the build (skipped with "deliver")
 
-# Con SOLO_COSTRUZIONE=1 ci si ferma qui: le immagini restano in out/ per il
-# controllo completo, e si consegnano dopo con: tools/build-all-2.0.sh consegna
-if [ "${SOLO_COSTRUZIONE:-0}" = 1 ]; then
-    log "COSTRUITE — non consegnate: prima il controllo completo (immagini in $OUT)"
+# With BUILD_ONLY=1 we stop here: the images stay in out/ for the full
+# check, and are released later with: tools/build-all-2.0.sh deliver
+if [ "${BUILD_ONLY:-0}" = 1 ]; then
+    log "BUILT — not released: run the full check first (images in $OUT)"
     exit 0
 fi
 
-# 3) consegna: copia sotto un nome provvisorio e poi rinomina, così un'
-#    interruzione non lascia mai sulla Scrivania un file tagliato a metà
+# 3) release: copy under a temporary name and then rename, so an interruption
+#    never leaves a half-written file on the Desktop
 mkdir -p "$DEST"
-for f in $IMMAGINI; do
-    cp -f "$OUT/$f" "$DEST/.$f.parziale" || fallita "copia di $f"
-    if [ "$(stat -f%z "$OUT/$f")" != "$(stat -f%z "$DEST/.$f.parziale")" ]; then
-        rm -f "$DEST/.$f.parziale"; fallita "copia di $f incompleta"
+for f in $IMAGES; do
+    cp -f "$OUT/$f" "$DEST/.$f.partial" || fail "copying $f"
+    if [ "$(stat -f%z "$OUT/$f")" != "$(stat -f%z "$DEST/.$f.partial")" ]; then
+        rm -f "$DEST/.$f.partial"; fail "incomplete copy of $f"
     fi
-    mv -f "$DEST/.$f.parziale" "$DEST/$f"
-    log "copiato $f"
+    mv -f "$DEST/.$f.partial" "$DEST/$f"
+    log "copied $f"
 done
-log "FATTO — immagini in $DEST"
+log "DONE — images in $DEST"
 ls -la "$DEST"

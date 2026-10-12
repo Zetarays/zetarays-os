@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — Hyprland 0.55.2 with the official fix #15416 (0.56.0).
+#
+# With the backports Hyprland, abruptly closing a program that has a popup
+# menu open (a hung Firefox, a forced quit) takes down the whole desktop:
+# crash in CPopup::coordsRelativeToParent. The package installed here is the
+# official Debian source with only that fix, built against the same libraries
+# as the official package (tools/build-hyprland-zeta.sh).
+# Version 0.55.2+ds-1~bpo13+1+zeta2, which also includes the fix for windows
+# maximized at startup (Blender). Held (apt-mark hold): a newer Hyprland from
+# backports would drop the fix and changes the Lua configuration.
+#
+# Fatal: without the fix the image must not be produced.
+set -e
+D=/usr/share/zeta/hyprland-patched
+A=$(dpkg --print-architecture)
+DEB=$(ls "$D"/hyprland_*zeta2_"$A".deb)
+echo "ZETA RAYS: installing $(basename "$DEB")"
+apt-get install -y --no-install-recommends "$DEB"
+V=$(dpkg-query -W -f='${Version}' hyprland)
+case "$V" in
+    *+zeta2) echo "ZETA RAYS: Hyprland $V" ;;
+    *) echo "ZETA RAYS: ERROR, installed Hyprland is $V" >&2; exit 1 ;;
+esac
+apt-mark hold hyprland
+if ldd /usr/bin/Hyprland | grep -q "not found"; then
+    ldd /usr/bin/Hyprland | grep "not found" >&2
+    exit 1
+fi
+# Hyprland is not run here: without a session it aborts and leaves a /core.
+rm -f /core

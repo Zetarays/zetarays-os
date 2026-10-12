@@ -1,42 +1,44 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — riconoscimento vocale offline (Vosk) per ZETA.
-# Tutto dalla cache inclusa nell'immagine (build.sh la prende da cache/vosk):
-# prima si scaricava qui da internet, e un errore di rete passeggero lasciava
-# un'immagine senza voce (successo il 7 ottobre con amd64). Ora, se qualcosa
-# manca, la costruzione si ferma invece di consegnare un sistema a meta'.
+# ZETA RAYS — offline speech recognition (Vosk) for ZETA.
+# Everything comes from the cache included in the image (build.sh takes it
+# from cache/vosk): it used to be downloaded here from the internet, and a
+# transient network error left an image without voice (happened on October 7
+# with amd64). Now, if anything is missing, the build stops instead of
+# delivering a half-finished system.
 set -e
-INCLUSO=/usr/share/zeta/vosk-cache
+BUNDLED=/usr/share/zeta/vosk-cache
 case "$(uname -m)" in
     aarch64|arm64) A=aarch64 ;;
     x86_64|amd64)  A=x86_64 ;;
-    *) echo "ZETA RAYS: ERRORE - architettura non supportata da Vosk" >&2; exit 1 ;;
+    *) echo "ZETA RAYS: ERROR - architecture not supported by Vosk" >&2; exit 1 ;;
 esac
-echo "ZETA RAYS: installazione motore vocale Vosk…"
-if [ ! -d "$INCLUSO/$A" ] || [ ! -d "$INCLUSO/modelli" ]; then
-    echo "ZETA RAYS: ERRORE - Vosk non e' nell'immagine ($INCLUSO)" >&2
+echo "ZETA RAYS: installing the Vosk speech engine…"
+if [ ! -d "$BUNDLED/$A" ] || [ ! -d "$BUNDLED/models" ]; then
+    echo "ZETA RAYS: ERROR - Vosk is not in the image ($BUNDLED)" >&2
     exit 1
 fi
 
-# 1) libreria Python vosk, senza rete
-if ! pip3 install --no-index --find-links "$INCLUSO/$A" --break-system-packages vosk >/tmp/vosk-pip.log 2>&1; then
+# 1) vosk Python library, without network access
+if ! pip3 install --no-index --find-links "$BUNDLED/$A" --break-system-packages vosk >/tmp/vosk-pip.log 2>&1; then
     cat /tmp/vosk-pip.log >&2
-    echo "ZETA RAYS: ERRORE - vosk (python) non installato" >&2
+    echo "ZETA RAYS: ERROR - vosk (python) not installed" >&2
     exit 1
 fi
-python3 -c "import vosk" || { echo "ZETA RAYS: ERRORE - vosk non si importa" >&2; exit 1; }
-echo "ZETA RAYS: vosk (python) installato"
+python3 -c "import vosk" || { echo "ZETA RAYS: ERROR - vosk cannot be imported" >&2; exit 1; }
+echo "ZETA RAYS: vosk (python) installed"
 
-# 2) modelli italiano e inglese «small» (~48 e ~40 MB) in /usr/share/vosk.
-# Vosk carica un modello per volta e non indovina la lingua: averli entrambi
-# permette di scegliere quale ascoltare (Impostazioni, o la lingua del sistema).
+# 2) Italian and English «small» models (~48 and ~40 MB) in /usr/share/vosk.
+# Vosk loads one model at a time and does not guess the language: having both
+# lets the user choose which one to listen with (Settings, or the system
+# language).
 mkdir -p /usr/share/vosk
-for coppia in "vosk-model-small-it-0.22 model-it" "vosk-model-small-en-us-0.15 model-en"; do
-    set -- $coppia
+for pair in "vosk-model-small-it-0.22 model-it" "vosk-model-small-en-us-0.15 model-en"; do
+    set -- $pair
     rm -rf "/usr/share/vosk/$1" "/usr/share/vosk/$2"
-    unzip -q -o "$INCLUSO/modelli/$1.zip" -d /usr/share/vosk
+    unzip -q -o "$BUNDLED/models/$1.zip" -d /usr/share/vosk
     mv "/usr/share/vosk/$1" "/usr/share/vosk/$2"
-    [ -f "/usr/share/vosk/$2/conf/model.conf" ] || { echo "ZETA RAYS: ERRORE - modello $2 non valido" >&2; exit 1; }
-    echo "ZETA RAYS: modello vocale $2 installato"
+    [ -f "/usr/share/vosk/$2/conf/model.conf" ] || { echo "ZETA RAYS: ERROR - model $2 is not valid" >&2; exit 1; }
+    echo "ZETA RAYS: speech model $2 installed"
 done
-rm -rf "$INCLUSO"
+rm -rf "$BUNDLED"

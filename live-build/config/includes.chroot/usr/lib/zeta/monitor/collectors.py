@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Monitor — collettori di dati (nativi, local-first).
+"""ZETA RAYS Monitor — data collectors (native, local-first).
 
-Ogni funzione raccoglie dati reali e gestisce l'assenza (permessi, sensore
-mancante, comando assente) restituendo valori "N/A" invece di sollevare
-eccezioni. Nessun dato è inviato all'esterno, tranne la geolocalizzazione IP
-(esplicita, disattivabile).
+Every function collects real data and handles absence (permissions, missing
+sensor, missing command) by returning "N/A" values instead of raising
+exceptions. No data is sent anywhere, except for IP geolocation (explicit,
+can be turned off).
 
-Usa `psutil` dove disponibile e interfacce native (/proc, ss, systemctl, nft).
+Uses `psutil` where available and native interfaces (/proc, ss, systemctl, nft).
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from i18n import tr, trc  # noqa: E402
 
 try:
     import psutil
-except ImportError:  # degrada senza crashare
+except ImportError:  # degrade without crashing
     psutil = None
 
 NA = "N/A"
@@ -63,8 +63,43 @@ def short_datetime(ts):
                                             time=time.strftime("%H:%M", t))
 
 
+def classify_service(props):
+    """State of one service from `systemctl show` properties (see services())."""
+    active = props.get("ActiveState", "")
+    sub = props.get("SubState", "")
+    if active == "failed" or sub == "failed":
+        # a job started by a timer that failed is a warning, not a broken system
+        return "WARNING" if ".timer" in props.get("TriggeredBy", "") else "FAILED"
+    if sub == "running":
+        return "RUNNING"
+    if active == "active":
+        return "DONE"
+    evaluated = props.get("ConditionTimestampMonotonic", "0") not in ("", "0")
+    if evaluated and props.get("ConditionResult") == "no":
+        return "NOT_APPLICABLE"
+    return "STOPPED"
+
+
+def failed_services():
+    """(failed, warnings): names of failed services, split like services()."""
+    out = _run(["systemctl", "show", "--state=failed", "--type=service", "--no-pager",
+                "-p", "Id,ActiveState,SubState,TriggeredBy", "*"])
+    failed, warnings = [], []
+    for block in out.split("\n\n"):
+        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        unit = props.get("Id", "")
+        if not unit.endswith(".service"):
+            continue
+        state = classify_service(props)
+        if state == "FAILED":
+            failed.append(unit[:-8])
+        elif state == "WARNING":
+            warnings.append(unit[:-8])
+    return failed, warnings
+
+
 class Collectors:
-    """Raccolta con stato per calcolare le velocità (rete, disco, CPU processi)."""
+    """Stateful collection, to compute rates (network, disk, per-process CPU)."""
 
     def __init__(self):
         self._net_prev = None
@@ -72,7 +107,7 @@ class Collectors:
         self._proc_primed = False
         self.geo_enabled = True
 
-    # ---------------- sistema ----------------
+    # ---------------- system ----------------
     def system(self):
         info = {"host": socket.gethostname(), "os": NA, "kernel": NA,
                 "uptime": NA, "cpu_temp": NA, "load": NA, "arch": NA}
@@ -114,7 +149,7 @@ class Collectors:
                 return "%.0f °C" % arr[0].current
         return NA
 
-    # ---------------- CPU / memoria / disco ----------------
+    # ---------------- CPU / memory / disk ----------------
     def cpu(self):
         if not psutil:
             return {"total": NA, "per_core": [], "freq": NA}
@@ -144,11 +179,11 @@ class Collectors:
                "0x80ee": tr("VirtualBox (virtual)"), "0x1234": tr("QEMU (virtual)")}
 
     def gpu(self):
-        """Uso della GPU, dove il driver lo rende misurabile senza privilegi.
+        """GPU usage, where the driver makes it measurable without privileges.
 
-        AMD dichiara l'uso direttamente; per Intel si ricava dal tempo passato
-        a riposo (RC6): 100% meno la quota di riposo. Dove non c'e' modo di
-        misurarlo si dice «non misurabile» invece di inventare un numero.
+        AMD reports usage directly; for Intel it is derived from the time spent
+        idle (RC6): 100% minus the idle share. Where there is no way to measure
+        it we say "not measurable" instead of making up a number.
         """
         import glob
         out = {"name": NA, "driver": NA, "busy": None, "vram_used": None,
@@ -165,29 +200,29 @@ class Collectors:
             except OSError:
                 pass
 
-            def leggi(*parti):
+            def read(*pieces):
                 try:
-                    with open(os.path.join(*parti)) as f:
+                    with open(os.path.join(*pieces)) as f:
                         return f.read().strip()
                 except OSError:
                     return None
-            busy = leggi(dev, "gpu_busy_percent")                    # AMD
+            busy = read(dev, "gpu_busy_percent")                    # AMD
             if busy is not None and busy.isdigit():
                 out["busy"] = float(busy)
-            vu, vt = leggi(dev, "mem_info_vram_used"), leggi(dev, "mem_info_vram_total")
+            vu, vt = read(dev, "mem_info_vram_used"), read(dev, "mem_info_vram_total")
             if vu and vt and vu.isdigit() and vt.isdigit():
                 out["vram_used"], out["vram_total"] = int(vu), int(vt)
-            rc6 = leggi(card, "power", "rc6_residency_ms")            # Intel i915
+            rc6 = read(card, "power", "rc6_residency_ms")            # Intel i915
             if rc6 is None:
-                rc6 = leggi(dev, "tile0", "gt0", "gtidle", "idle_residency_ms")  # Intel xe
+                rc6 = read(dev, "tile0", "gt0", "gtidle", "idle_residency_ms")  # Intel xe
             if rc6 is not None and rc6.isdigit() and out["busy"] is None:
-                adesso = time.monotonic()
-                prima = getattr(self, "_rc6_prev", None)
-                self._rc6_prev = (adesso, int(rc6))
-                if prima and adesso > prima[0]:
-                    riposo = (int(rc6) - prima[1]) / ((adesso - prima[0]) * 1000.0)
-                    out["busy"] = max(0.0, min(100.0, 100.0 * (1.0 - riposo)))
-            f = leggi(card, "gt_act_freq_mhz") or leggi(card, "gt_cur_freq_mhz")
+                now = time.monotonic()
+                prev = getattr(self, "_rc6_prev", None)
+                self._rc6_prev = (now, int(rc6))
+                if prev and now > prev[0]:
+                    idle = (int(rc6) - prev[1]) / ((now - prev[0]) * 1000.0)
+                    out["busy"] = max(0.0, min(100.0, 100.0 * (1.0 - idle)))
+            f = read(card, "gt_act_freq_mhz") or read(card, "gt_cur_freq_mhz")
             if f and f.isdigit():
                 out["freq"] = int(f)
             if vendor == "0x10de" and shutil.which("nvidia-smi"):
@@ -226,9 +261,9 @@ class Collectors:
             pass
         return out
 
-    # ---------------- rete ----------------
+    # ---------------- network ----------------
     def net_io(self):
-        """Velocità e totali in/out. Rate in byte/s (None al primo giro)."""
+        """In/out rates and totals. Rates in bytes/s (None on the first pass)."""
         out = {"in_rate": None, "out_rate": None, "in_pps": None, "out_pps": None,
                "total_in": NA, "total_out": NA}
         if not psutil:
@@ -290,7 +325,7 @@ class Collectors:
         return {"gateway": gw, "dns": dns or [NA]}
 
     def public_ip_geo(self):
-        """Geolocalizzazione IP (ESTERNA). Solo se abilitata. None se non disponibile."""
+        """IP geolocation (EXTERNAL). Only if enabled. None if unavailable."""
         if not self.geo_enabled:
             return None
         try:
@@ -316,7 +351,7 @@ class Collectors:
         try:
             conns = psutil.net_connections(kind="inet")
         except (psutil.AccessDenied, PermissionError):
-            return None    # permesso negato: la UI mostra PERMISSION REQUIRED
+            return None    # permission denied: the UI shows PERMISSION REQUIRED
         except Exception:  # noqa: BLE001
             return rows
         for c in conns:
@@ -333,7 +368,7 @@ class Collectors:
                          "state": c.status or "—", "pid": c.pid or NA, "process": name})
         return rows
 
-    # ---------------- processi ----------------
+    # ---------------- processes ----------------
     def processes(self, limit=200):
         rows = []
         if not psutil:
@@ -387,9 +422,9 @@ class Collectors:
                 pass
             try:
                 d["children"] = [(c.pid, c.name()) for c in p.children()]
-                d["albero"] = len(p.children(recursive=True))
+                d["tree"] = len(p.children(recursive=True))
             except Exception:  # noqa: BLE001
-                d["albero"] = 0
+                d["tree"] = 0
             try:
                 io = p.io_counters()
                 d["io"] = (io.read_bytes, io.write_bytes)
@@ -407,20 +442,20 @@ class Collectors:
         except Exception:  # noqa: BLE001
             return None
 
-    def chiudi_albero(self, pid):
-        """Il programma con tutti i suoi sottoprocessi: prima la richiesta di
-        chiusura, poi, a chi non risponde entro 3 secondi, la chiusura forzata.
-        I pezzi del desktop sono protetti (stessa regola dell'uscita forzata)."""
+    def close_tree(self, pid):
+        """The program with all its child processes: first a polite request to
+        close, then a forced kill for whatever has not responded within 3 seconds.
+        Desktop components are protected (same rule as Force Quit)."""
         import sys
         sys.path.insert(0, "/usr/lib/zeta")
         from system import windows
-        if windows.protetto(pid):
+        if windows.is_protected(pid):
             return False, tr("This is part of the ZETA RAYS desktop and can't be closed from here.")
         return windows.force_quit(pid)
 
-    def riavvia(self, pid):
-        """Chiude il programma (con i sottoprocessi) e lo riapre uguale.
-        Solo per i programmi dell'utente, mai per quelli di sistema."""
+    def restart(self, pid):
+        """Close the program (with its child processes) and reopen it as it was.
+        Only for the user's own programs, never for system ones."""
         import os
         import subprocess
         try:
@@ -434,7 +469,7 @@ class Collectors:
             return False, tr("Couldn't read how it was started.")
         if not cmd:
             return False, tr("Kernel process: it can't be restarted.")
-        ok, msg = self.chiudi_albero(pid)
+        ok, msg = self.close_tree(pid)
         if not ok:
             return False, msg
         try:
@@ -444,36 +479,36 @@ class Collectors:
             return False, tr("Closed, but not reopened: {error}").format(error=e)
         return True, tr("{name} restarted.").format(name=os.path.basename(cmd[0]))
 
-    def terminate(self, pid, force=False, attesa=3.0):
-        """Chiude un processo e dice com'e andata davvero: (riuscito, messaggio).
+    def terminate(self, pid, force=False, wait=3.0):
+        """Close a process and report what really happened: (success, message).
 
-        Prima si mandava il segnale e si rispondeva subito «chiuso». Ma
-        «Termina» e una richiesta: un programma bloccato (proprio quello che
-        si vuole chiudere) puo ignorarla, e il Monitor dichiarava il falso.
-        Ora si aspetta fino a `attesa` secondi e si controlla. Va chiamata
-        fuori dal thread dell'interfaccia.
+        Previously the signal was sent and "closed" was reported right away.
+        But "Terminate" is a request: a frozen program (exactly the one you
+        want to close) can ignore it, and the Monitor was reporting a falsehood.
+        Now we wait up to `wait` seconds and check. Must be called outside
+        the UI thread.
         """
         if not psutil:
             return False, tr("Closing processes is not available.")
-        nome = tr("Process {pid}").format(pid=pid)
+        name = tr("Process {pid}").format(pid=pid)
         try:
             p = psutil.Process(pid)
-            nome = p.name()
+            name = p.name()
             p.kill() if force else p.terminate()
         except psutil.NoSuchProcess:
             return True, tr("The process was already closed.")
         except psutil.AccessDenied:
             return False, tr("{name} belongs to the system or to another user: "
-                             "for safety, the Monitor won't close it.").format(name=nome)
+                             "for safety, the Monitor won't close it.").format(name=name)
         except Exception as e:  # noqa: BLE001
             return False, tr("Couldn't close the process: {error}").format(error=e)
-        _chiusi, vivi = psutil.wait_procs([p], timeout=attesa)
-        if not vivi:
-            return True, tr("{name} closed.").format(name=nome)
+        _gone, alive = psutil.wait_procs([p], timeout=wait)
+        if not alive:
+            return True, tr("{name} closed.").format(name=name)
         if not force:
-            return False, tr("{name} didn't respond. If it's frozen, use Force Quit.").format(name=nome)
+            return False, tr("{name} didn't respond. If it's frozen, use Force Quit.").format(name=name)
         return False, tr("{name} won't close even when forced: it's waiting on the disk "
-                         "or the system. Try again shortly.").format(name=nome)
+                         "or the system. Try again shortly.").format(name=name)
 
     # ---------------- firewall ----------------
     def firewall(self):
@@ -505,7 +540,7 @@ class Collectors:
                 out["rules"] = r.count("\n")
         return out
 
-    # ---------------- accessi / autenticazione ----------------
+    # ---------------- logins / authentication ----------------
     def sessions(self):
         rows = []
         if psutil:
@@ -519,7 +554,7 @@ class Collectors:
         return rows
 
     def auth_events(self, limit=40):
-        """Eventi di autenticazione dai log di sistema (se leggibili)."""
+        """Authentication events from the system logs (if readable)."""
         events = []
         readable = os.access("/var/log/auth.log", os.R_OK)
         source = None
@@ -563,22 +598,32 @@ class Collectors:
             return (t, user, tr("local"), "SUDO", "AUTH", "SUCCESS")
         return None
 
-    # ---------------- servizi ----------------
+    # ---------------- services ----------------
     def services(self, limit=120):
+        """Every loaded service with an honest state.
+
+        RUNNING       a daemon that is running
+        DONE          a one-shot job that completed (active, exited)
+        STOPPED       inactive, never needed in this boot
+        NOT_APPLICABLE  skipped because its condition is false here (no
+                      Bluetooth adapter, not a live session, ...): not an error
+        WARNING       a periodic job (started by a timer) that failed: the
+                      system keeps working, the job will run again
+        FAILED        a service that failed and is not a periodic job
+        """
+        out = _run(["systemctl", "show", "--all", "--type=service", "--no-pager",
+                    "-p", "Id,ActiveState,SubState,ConditionResult,ConditionTimestampMonotonic,TriggeredBy",
+                    "*"])
         rows = []
-        out = _run(["systemctl", "list-units", "--type=service", "--all",
-                    "--no-legend", "--no-pager", "--plain"])
-        for line in out.splitlines():
-            parts = line.split(None, 4)
-            if len(parts) < 4:
-                continue
-            unit, active, sub = parts[0], parts[2], parts[3]
+        for block in out.split("\n\n"):
+            props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+            unit = props.get("Id", "")
             if not unit.endswith(".service"):
                 continue
-            state = "RUNNING" if sub == "running" else (
-                "FAILED" if active == "failed" or sub == "failed" else "STOPPED")
-            rows.append({"name": unit[:-8], "state": state, "sub": sub})
-        rows.sort(key=lambda r: (r["state"] != "FAILED", r["state"] != "RUNNING", r["name"]))
+            rows.append({"name": unit[:-8], "state": classify_service(props),
+                         "sub": props.get("SubState", "")})
+        order = {"FAILED": 0, "WARNING": 1, "RUNNING": 2, "DONE": 3, "STOPPED": 4, "NOT_APPLICABLE": 5}
+        rows.sort(key=lambda r: (order.get(r["state"], 9), r["name"]))
         return rows[:limit]
 
     def service_action(self, name, action):
@@ -588,9 +633,9 @@ class Collectors:
                            capture_output=True, text=True)
         return p.returncode == 0, (p.stderr or "").strip()
 
-    # ---------------- eventi di sicurezza ----------------
+    # ---------------- security events ----------------
     def security_events(self):
-        """Combina eventi realmente disponibili (nessuna invenzione)."""
+        """Combine the events that are really available (nothing made up)."""
         events = []
         auth = self.auth_events(limit=12)
         for t, user, ip, svc, ev, status in auth.get("events", []):
@@ -605,12 +650,12 @@ class Collectors:
         return events
 
 
-# ---------------- dati con privilegi (aiutante di sola lettura) ----------------
+# ---------------- privileged data (read-only helper) ----------------
 HELPER = "/usr/libexec/zeta-monitor-helper"
 
 
 def helper(action, timeout=12):
-    """Esegue un'azione di lettura dell'aiutante senza password (sudo -n)."""
+    """Run one of the helper's read-only actions without a password (sudo -n)."""
     return _run(["sudo", "-n", HELPER, action], timeout=timeout)
 
 
@@ -653,7 +698,7 @@ def _split_addr(a):
 
 
 def sockets_all():
-    """Tutte le connessioni (con processo) dall'aiutante; None se non disponibile."""
+    """All connections (with their process) from the helper; None if unavailable."""
     raw = helper("sockets")
     if not raw.strip():
         return None
@@ -679,7 +724,7 @@ STATE_IT = {"ESTAB": tr("Established"), "LISTEN": tr("Listening"), "UNCONN": tr(
 
 
 def logind_sessions():
-    """Sessioni reali da logind (anche Wayland, che non scrive utmp)."""
+    """Real sessions from logind (Wayland too, which does not write utmp)."""
     rows = []
     out = _run(["loginctl", "list-sessions", "--no-legend"])
     for line in out.splitlines():
@@ -710,7 +755,7 @@ def logind_sessions():
 
 
 def accounts():
-    """Account delle persone (uid 1000-59999) e root, con ruolo e ultimo accesso."""
+    """Human accounts (uid 1000-59999) and root, with role and last login."""
     import grp
     import pwd
     try:
@@ -737,22 +782,22 @@ def accounts():
 
 
 def login_history(limit=25):
-    """Ultimi accessi dal registro wtmpdb (sola lettura).
+    """Recent logins from the wtmpdb database (read-only).
 
-    L'ora di uscita la scrive PAM quando la sessione si chiude come si deve.
-    Se il computer si spegne di colpo — mancanza di corrente, blocco, riavvio
-    forzato — quell'ora non viene mai scritta. Una sessione iniziata prima
-    dell'accensione attuale, però, di sicuro non è più aperta: dirla «ancora
-    collegato» sarebbe falso. La si segna per quello che è: interrotta.
+    The logout time is written by PAM when the session closes properly.
+    If the computer shuts off abruptly (power loss, freeze, forced reboot)
+    that time is never written. A session that started before the current
+    boot, however, is certainly no longer open: calling it "still logged in"
+    would be false. It is marked for what it is: interrupted.
     """
     import sqlite3
     rows = []
-    avvio_us = 0
+    boot_us = 0
     if psutil:
         try:
-            avvio_us = psutil.boot_time() * 1e6
+            boot_us = psutil.boot_time() * 1e6
         except (OSError, RuntimeError):
-            avvio_us = 0
+            boot_us = 0
     try:
         db = sqlite3.connect("file:/var/lib/wtmpdb/wtmp.db?mode=ro", uri=True, timeout=2)
         cur = db.execute("SELECT User, TTY, RemoteHost, Service, Login, Logout FROM wtmp "
@@ -765,7 +810,7 @@ def login_history(limit=25):
                 state = "closed"
                 end = tr("until {time} ({minutes} min)").format(
                     time=time.strftime("%H:%M", time.localtime(logout / 1e6)), minutes=dur)
-            elif avvio_us and (login or 0) < avvio_us:
+            elif boot_us and (login or 0) < boot_us:
                 state = "interrupted"
                 end = tr("interrupted (sudden shutdown)")
             else:
@@ -784,7 +829,7 @@ def login_history(limit=25):
 
 
 def vpn_tunnels():
-    """Interfacce di tunnel attive (WireGuard, OpenVPN, ecc.)."""
+    """Active tunnel interfaces (WireGuard, OpenVPN, etc.)."""
     if not psutil:
         return []
     out = []
@@ -797,7 +842,7 @@ def vpn_tunnels():
     return out
 
 
-# ---- ping (bloccante: eseguire in un thread) ----
+# ---- ping (blocking: run it in a thread) ----
 def ping(host, timeout=1.0):
     out = _run(["ping", "-c", "1", "-W", str(int(max(1, timeout))), host], timeout=timeout + 1.5,
                c_locale=True)

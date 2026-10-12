@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — runs after live-build's stock hooks which, to save space, delete
+# the precompiled Python (9010-remove-python-pyc) and the icon caches
+# (9000-remove-gnome-icon-cache). Without these two, every Python program
+# recompiled the modules it uses at every start (users can't write to /usr)
+# and every GTK app re-read the icon folders: the whole system, live and
+# installed (the installer copies this image), started up slower.
+set -e
+
+# icon cache for every theme
+for d in /usr/share/icons/*/; do
+    [ -f "$d/index.theme" ] && gtk-update-icon-cache -q -f "$d" 2>/dev/null || true
+done
+
+# Precompiled Python: standard library, Debian modules and ZETA RAYS.
+# Some example or test files are not valid Python 3: compileall reports them
+# and carries on; the real check is below.
+python3 -m compileall -q -j0 -x '/(tests?|testing|idle_test)/' \
+    /usr/lib/python3/dist-packages "$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["stdlib"])')" \
+    /usr/lib/zeta >/dev/null 2>&1 || true
+
+n=$(find /usr/lib/zeta -name '*.pyc' | wc -l)
+if [ "$n" -lt 50 ]; then
+    echo "ZETA RAYS: ERROR - ZETA Python code not precompiled ($n files)" >&2
+    exit 1
+fi
+[ -s /usr/share/icons/zeta/icon-theme.cache ] || { echo "ZETA RAYS: ERROR - ZETA icon cache missing" >&2; exit 1; }
+echo "ZETA RAYS: precompiled Python ($n ZETA modules, $(find /usr/lib/python3* -name '*.pyc' | wc -l) system ones) and icon caches ready"

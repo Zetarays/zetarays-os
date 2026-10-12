@@ -1,0 +1,269 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: bring a user's settings from the Italian names of earlier
+versions to the English names of 2.0.
+
+    zeta-migrate-user [--dry-run] [--force]
+
+Runs once per user at login (zeta-session), before anything reads the
+settings. The steps are data: /usr/share/zeta/migration/english-2.0.json,
+applied in order:
+
+  file       rename a file or folder (OLD may end in "*": same suffix kept);
+             if the new name already exists the old one is left alone
+  text       replace OLD with NEW in the files listed in "where"
+             (scope "whole": only when the whole file content equals OLD)
+  jsonkey    rename a key (scope "top": top level only; otherwise also in
+             the objects one level down, as in lists of entries)
+  jsonvalue  replace a string value (scope "key:NAME": only that top-level
+             key; "prefix": any string value starting with OLD)
+  cred       re-encrypt a systemd-creds file under its new name (the name
+             is bound inside the encrypted file, so it cannot be renamed)
+  commands   rename old command names in user files (word boundaries)
+  skel       a file copied from /etc/skel that the user never changed (its
+             SHA-256 is one of the shipped versions) is replaced with the new
+             /etc/skel copy, so it comes out clean instead of patched
+
+Nothing is ever deleted except a file whose content was moved to its new
+name. A copy of every file changed is kept in
+~/.local/state/zeta/migration-backup/. Done: ~/.local/state/zeta/migrated-english-2.0
+"""
+import glob
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+DATA = "/usr/share/zeta/migration/english-2.0.json"
+HOME = os.path.expanduser("~")
+STATE = os.path.join(HOME, ".local/state/zeta")
+STAMP = os.path.join(STATE, "migrated-english-2.0")
+BACKUP = os.path.join(STATE, "migration-backup")
+DRY = "--dry-run" in sys.argv
+log = []
+
+
+def expand(p):
+    return os.path.expanduser(p)
+
+
+def targets(where):
+    out = []
+    for w in where:
+        out += [p for p in glob.glob(expand(w)) if os.path.isfile(p)]
+    return sorted(set(out))
+
+
+def backup(path):
+    rel = os.path.relpath(path, HOME)
+    dest = os.path.join(BACKUP, rel)
+    if not DRY and not os.path.exists(dest):
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copy2(path, dest)
+
+
+def write(path, text):
+    backup(path)
+    if DRY:
+        return
+    st = os.stat(path)
+    tmp = path + ".zeta-migrate"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, st.st_mode)
+    os.replace(tmp, path)
+
+
+def step_file(s):
+    old, new = expand(s["old"]), expand(s["new"])
+    pairs = []
+    if "*" in old:
+        pre, suf = old.split("*", 1)
+        npre, nsuf = new.split("*", 1) if "*" in new else (new, "")
+        for p in glob.glob(old):
+            mid = p[len(pre):len(p) - len(suf) if suf else None]
+            pairs.append((p, npre + mid + nsuf))
+    elif os.path.lexists(old):
+        pairs.append((old, new))
+    for a, b in pairs:
+        if os.path.lexists(b):
+            if os.path.isdir(a) and os.path.isdir(b):
+                # both exist: move only what the new folder does not have
+                for name in os.listdir(a):
+                    if not os.path.lexists(os.path.join(b, name)):
+                        log.append("move %s -> %s" % (os.path.join(a, name), b))
+                        if not DRY:
+                            shutil.move(os.path.join(a, name), os.path.join(b, name))
+            continue
+        log.append("rename %s -> %s" % (a, b))
+        if not DRY:
+            os.makedirs(os.path.dirname(b), exist_ok=True)
+            os.rename(a, b)
+
+
+def step_text(s):
+    for p in targets(s["where"]):
+        try:
+            t = open(p, encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if s.get("scope") == "whole":
+            if t.strip() == s["old"]:
+                log.append("value %s: %s -> %s" % (p, s["old"], s["new"]))
+                write(p, t.replace(s["old"], s["new"]))
+        elif s["old"] in t:
+            log.append("text %s: %s -> %s" % (p, s["old"], s["new"]))
+            write(p, t.replace(s["old"], s["new"]))
+
+
+def _load_json(p):
+    raw = open(p, encoding="utf-8").read()
+    if p.endswith(".jsonl"):
+        return [json.loads(x) for x in raw.splitlines() if x.strip()], True
+    return json.loads(raw), False
+
+
+def _dump_json(p, data, lines):
+    if lines:
+        write(p, "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in data))
+    else:
+        write(p, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _objects(data, top_only):
+    """The dicts a key rename applies to."""
+    first = data if isinstance(data, list) else [data]
+    out = [d for d in first if isinstance(d, dict)]
+    if top_only:
+        return out
+    for d in list(out):
+        for v in d.values():
+            if isinstance(v, dict):
+                out.append(v)
+            elif isinstance(v, list):
+                out += [x for x in v if isinstance(x, dict)]
+    return out
+
+
+def step_json(s):
+    for p in targets(s["where"]):
+        try:
+            data, lines = _load_json(p)
+        except (OSError, ValueError):
+            continue
+        changed = False
+        scope = s.get("scope", "")
+        if s["kind"] == "jsonkey":
+            for d in _objects(data, scope == "top"):
+                if s["old"] in d and s["new"] not in d:
+                    d[s["new"]] = d.pop(s["old"])
+                    changed = True
+        else:
+            for d in _objects(data, scope.startswith("key:")):
+                for k, v in d.items():
+                    if not isinstance(v, str):
+                        continue
+                    if scope.startswith("key:") and k not in scope[4:].split(","):
+                        continue
+                    if scope == "prefix":
+                        old = expand(s["old"])
+                        if v.startswith(old):
+                            d[k] = expand(s["new"]) + v[len(old):]
+                            changed = True
+                    elif v == s["old"]:
+                        d[k] = s["new"]
+                        changed = True
+        if changed:
+            log.append("%s %s: %s -> %s" % (s["kind"], p, s["old"], s["new"]))
+            _dump_json(p, data, lines)
+
+
+def step_cred(s):
+    old, new = expand(s["old"]), expand(s["new"])
+    if not os.path.exists(old) or os.path.exists(new):
+        return
+    log.append("re-encrypt %s -> %s" % (old, new))
+    if DRY:
+        return
+    dec = subprocess.run(["systemd-creds", "decrypt", "--user", "--name=" + s["old_name"], old, "-"],
+                         capture_output=True)
+    if dec.returncode != 0:
+        log.append("  could not decrypt (kept as it is)")
+        return
+    enc = subprocess.run(["systemd-creds", "encrypt", "--user", "--name=" + s["new_name"], "-", new],
+                         input=dec.stdout, capture_output=True)
+    if enc.returncode != 0 or not os.path.exists(new):
+        log.append("  could not encrypt (old key kept)")
+        return
+    os.chmod(new, 0o600)
+    backup(old)
+    os.remove(old)
+
+
+def step_commands(s):
+    names = s["map"]
+    rx = re.compile(r"(?<![A-Za-z0-9_-])(%s)(?![A-Za-z0-9_-])"
+                    % "|".join(re.escape(k) for k in sorted(names, key=len, reverse=True)))
+    for p in targets(s["where"]):
+        try:
+            t = open(p, encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        t2 = rx.sub(lambda m: names[m.group(1)], t)
+        if t2 != t:
+            log.append("commands %s" % p)
+            write(p, t2)
+
+
+def step_skel(s):
+    for rel, known in s["files"].items():
+        old = os.path.join(HOME, rel)
+        new_rel = s.get("renamed", {}).get(rel, rel)
+        src = os.path.join("/etc/skel", new_rel)
+        if os.path.islink(old) or not os.path.isfile(old) or not os.path.isfile(src):
+            continue
+        with open(old, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if digest not in known:
+            continue
+        dest = os.path.join(HOME, new_rel)
+        log.append("skel %s -> %s" % (old, dest))
+        backup(old)
+        if not DRY:
+            shutil.copy2(src, dest)
+            if dest != old:
+                os.remove(old)
+
+
+STEPS = {"skel": step_skel, "file": step_file, "text": step_text, "jsonkey": step_json, "jsonvalue": step_json,
+         "cred": step_cred, "commands": step_commands}
+
+
+def main():
+    if os.path.exists(STAMP) and "--force" not in sys.argv:
+        return 0
+    try:
+        steps = json.load(open(DATA, encoding="utf-8"))["steps"]
+    except (OSError, ValueError) as e:
+        print("zeta-migrate-user: %s" % e, file=sys.stderr)
+        return 1
+    for s in steps:
+        try:
+            STEPS[s["kind"]](s)
+        except Exception as e:  # one bad file must not stop the others
+            log.append("ERROR %s %s: %s" % (s["kind"], s.get("old", ""), e))
+    for line in log:
+        print(line)
+    if not DRY:
+        os.makedirs(STATE, exist_ok=True)
+        with open(STAMP, "w") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S\n") + "".join(x + "\n" for x in log))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

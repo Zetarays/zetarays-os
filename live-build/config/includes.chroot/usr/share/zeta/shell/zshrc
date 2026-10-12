@@ -1,4 +1,4 @@
-# ZETA RAYS — zsh interattiva (caricata da ~/.zshrc)
+# ZETA RAYS — interactive zsh (loaded from ~/.zshrc)
 [[ -o interactive ]] || return
 
 HISTFILE=~/.zsh_history
@@ -6,7 +6,7 @@ HISTSIZE=20000
 SAVEHIST=50000
 setopt EXTENDED_HISTORY INC_APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_SPACE \
        HIST_IGNORE_ALL_DUPS HIST_REDUCE_BLANKS HIST_VERIFY
-# comandi con password, chiavi o token: fuori dalla cronologia di zsh
+# commands with passwords, keys or tokens: kept out of the zsh history
 zshaddhistory() {
   emulate -L zsh
   [[ $1 == (#i)*(password|passwd|token|secret|api_key|api-key)=* ]] && return 1
@@ -27,13 +27,13 @@ bindkey '^[[B' down-line-or-beginning-search; bindkey '^[OB' down-line-or-beginn
 bindkey '^[[1;5C' forward-word; bindkey '^[[1;5D' backward-word
 bindkey '^[[3~' delete-char; bindkey '^[[H' beginning-of-line; bindkey '^[[F' end-of-line
 
-. /usr/share/zeta/shell/comune.sh
+. /usr/share/zeta/shell/common.sh
 
-if [[ -z $ZETA_SHELL_SEMPLICE ]]; then
+if [[ -z $ZETA_SHELL_SIMPLE ]]; then
   [[ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] && . /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
   [[ -r /usr/share/doc/fzf/examples/key-bindings.zsh ]] && . /usr/share/doc/fzf/examples/key-bindings.zsh
   (( $+commands[atuin] )) && eval "$(atuin init zsh --disable-up-arrow)"
   (( $+commands[starship] )) && eval "$(starship init zsh)"
-  # l'evidenziazione della sintassi va caricata per ultima
+  # syntax highlighting must be loaded last
   [[ -r /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] && . /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 fi

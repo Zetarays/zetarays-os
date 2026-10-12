@@ -1,0 +1,2 @@
+# ZETA RAYS — when a Wi-Fi card appears, set the radio region from the time zone
+ACTION=="add", SUBSYSTEM=="ieee80211", RUN+="/usr/local/libexec/zeta-radio-region"

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Monitor — mappa del mondo (Cairo, dati Natural Earth 1:110m offline).
+"""ZETA RAYS Monitor — world map (Cairo, offline Natural Earth 1:110m data).
 
-Proiezione Natural Earth (Šavrič et al.). Mostra la posizione di rete
-dell'utente (IP pubblico) e le destinazioni delle connessioni attive con archi
-animati. Nessuna tessera scaricata da Internet: la mappa è locale.
+Natural Earth projection (Šavrič et al.). Shows the user's network location
+(public IP) and the destinations of active connections with animated arcs.
+No tiles are downloaded from the Internet: the map is local.
 """
 import json
 import math
@@ -23,7 +23,7 @@ LAT_MIN, LAT_MAX = -58.0, 84.0
 
 
 def project(lon, lat):
-    """Natural Earth: (lon, lat in gradi) -> (x, y) non scalati, y verso l'alto."""
+    """Natural Earth: (lon, lat in degrees) -> unscaled (x, y), y pointing up."""
     lam = math.radians(lon)
     phi = math.radians(max(-89.9, min(89.9, lat)))
     p2 = phi * phi
@@ -52,7 +52,7 @@ def _load():
         return []
     if language() != "it":
         english = _english_names()
-        extra = {"Cipro del Nord": "Northern Cyprus"}      # no ISO code in world.json
+        extra = {"Cipro del Nord": "Northern Cyprus"}      # no ISO code in world.json (i18n-data)
         for c in countries:
             c["name"] = english.get(c.get("iso")) or extra.get(c.get("name"), c.get("name"))
     return countries
@@ -69,7 +69,7 @@ class WorldMap(Gtk.DrawingArea):
         self.set_content_height(height)
         self.accent = accent
         self.countries = _load()
-        # contorni proiettati una volta sola
+        # outlines projected only once
         self.shapes = []
         for c in self.countries:
             rings = [[project(lon, lat) for lon, lat in r] for r in c["rings"]]
@@ -80,7 +80,7 @@ class WorldMap(Gtk.DrawingArea):
         _, self.y1 = project(0, LAT_MAX)
         self.me = None                 # {"lat","lon","label"}
         self.points = []               # [{"lat","lon","label","kind"}]
-        self.highlight = set()         # ISO dei paesi con connessioni
+        self.highlight = set()         # ISO codes of countries with connections
         self.hover = None
         self._geom = None
         self.t0 = time.monotonic()
@@ -90,16 +90,15 @@ class WorldMap(Gtk.DrawingArea):
         motion.connect("leave", lambda *_: self._set_hover(None))
         self.add_controller(motion)
         if animate:
-            # 80 millisecondi (12 disegni al secondo) erano piu' di quanto
-            # l'occhio chieda a una pulsazione lenta, e ridisegnare una mappa
-            # vettoriale cosi' spesso e' la ragione per cui il Monitor, aperto
-            # su questa scheda, si prendeva una fetta di processore su una
-            # macchina modesta. A 5 al secondo l'animazione si vede uguale e
-            # costa un terzo. Il disegno avviene comunque solo se la mappa e'
-            # davvero in vista (vedi _tick).
+            # 80 milliseconds (12 frames per second) was more than the eye
+            # needs for a slow pulse, and redrawing a vector map that often
+            # is why the Monitor, open on this tab, took a slice of the CPU
+            # on a modest machine. At 5 per second the animation looks the
+            # same and costs a third. Drawing only happens anyway when the
+            # map is actually visible (see _tick).
             GLib.timeout_add(200, self._tick)
 
-    # ---------- dati ----------
+    # ---------- data ----------
     def set_me(self, lat, lon, label):
         self.me = {"lat": lat, "lon": lon, "label": label} if lat is not None and lon is not None else None
         self.queue_draw()
@@ -114,7 +113,7 @@ class WorldMap(Gtk.DrawingArea):
             self.queue_draw()
         return True
 
-    # ---------- geometria ----------
+    # ---------- geometry ----------
     def _fit(self, w, h):
         pad = 10
         sx = (w - 2 * pad) / (self.x1 - self.x0)
@@ -130,13 +129,13 @@ class WorldMap(Gtk.DrawingArea):
         x, y = project(lon, lat)
         return ox + x * s, oy - y * s
 
-    # ---------- disegno ----------
+    # ---------- drawing ----------
     def _draw(self, _a, cr, w, h):
         s, ox, oy = self._fit(w, h)
         r, g, b = self.accent
         now = time.monotonic() - self.t0
 
-        # reticolo
+        # graticule
         cr.set_line_width(0.6)
         cr.set_source_rgba(1, 1, 1, 0.045)
         for lat in range(-45, 90, 15):
@@ -150,7 +149,7 @@ class WorldMap(Gtk.DrawingArea):
                 (cr.move_to if lat == int(LAT_MIN) else cr.line_to)(x, y)
             cr.stroke()
 
-        # paesi
+        # countries
         for iso, _name, rings in self.shapes:
             hot = iso in self.highlight
             hov = self.hover and self.hover[0] == iso
@@ -168,7 +167,7 @@ class WorldMap(Gtk.DrawingArea):
             cr.set_line_width(0.6)
             cr.stroke()
 
-        # archi verso le destinazioni
+        # arcs toward the destinations
         if self.me:
             mx, my = self.to_screen(self.me["lon"], self.me["lat"])
             for i, p in enumerate(self.points):
@@ -182,7 +181,7 @@ class WorldMap(Gtk.DrawingArea):
                 cr.move_to(mx, my)
                 cr.curve_to(cx, cy, cx, cy, px, py)
                 cr.stroke()
-                # impulso che viaggia lungo l'arco
+                # pulse traveling along the arc
                 t = ((now * 0.35) + i * 0.17) % 1.0
                 qx = (1 - t) ** 3 * mx + 3 * (1 - t) ** 2 * t * cx + 3 * (1 - t) * t * t * cx + t ** 3 * px
                 qy = (1 - t) ** 3 * my + 3 * (1 - t) ** 2 * t * cy + 3 * (1 - t) * t * t * cy + t ** 3 * py
@@ -190,7 +189,7 @@ class WorldMap(Gtk.DrawingArea):
                 cr.arc(qx, qy, 2.2, 0, 2 * math.pi)
                 cr.fill()
 
-        # destinazioni
+        # destinations
         for p in self.points:
             px, py = self.to_screen(p["lon"], p["lat"])
             cr.set_source_rgba(0.24, 0.86, 0.59, 0.95)
@@ -200,7 +199,7 @@ class WorldMap(Gtk.DrawingArea):
             cr.arc(px, py, 6.5, 0, 2 * math.pi)
             cr.fill()
 
-        # posizione dell'utente (impulso)
+        # user's position (pulse)
         if self.me:
             mx, my = self.to_screen(self.me["lon"], self.me["lat"])
             ph = (now % 2.0) / 2.0
@@ -215,7 +214,7 @@ class WorldMap(Gtk.DrawingArea):
             cr.fill()
             self._label(cr, mx + 9, my - 8, self.me["label"], w)
 
-        # etichetta al passaggio del mouse
+        # label on mouse hover
         if self.hover:
             _iso, name, hx, hy = self.hover
             self._label(cr, hx + 12, hy + 4, name, w)
@@ -243,7 +242,7 @@ class WorldMap(Gtk.DrawingArea):
         cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
         cr.close_path()
 
-    # ---------- interazione ----------
+    # ---------- interaction ----------
     def _on_motion(self, _c, x, y):
         if not self._geom:
             return
@@ -264,7 +263,7 @@ class WorldMap(Gtk.DrawingArea):
 
 
 def _inside(x, y, ring):
-    """Punto nel poligono (ray casting)."""
+    """Point in polygon (ray casting)."""
     inside = False
     n = len(ring)
     j = n - 1

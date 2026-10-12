@@ -1,27 +1,27 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Sessione grafica di ZETA RAYS (lanciata dal display manager).
+# ZETA RAYS graphical session (launched by the display manager).
 #
-# 1. Senza accelerazione 3D il desktop Wayland non può partire: in quel caso
-#    si apre l'installer sotto Xorg in rendering software (zeta-installer-x).
-# 2. La scala dello schermo e il rilevamento della VM vengono scritti PRIMA
-#    che Hyprland legga la configurazione (zeta_monitor.lua, zeta_vm.lua).
-# 3. Nelle macchine virtuali Hyprland non accetta i buffer GPU (dmabuf) dei
-#    client: le app GTK4 e Xwayland vengono disconnesse. Lì si usano i buffer
-#    in memoria condivisa, che funzionano ovunque.
-# 4. Hyprland si avvia con start-hyprland (watchdog ufficiale).
+# 1. Without 3D acceleration the Wayland desktop cannot start: in that case
+#    the installer opens under Xorg with software rendering (zeta-installer-x).
+# 2. The display scale and VM detection are written BEFORE Hyprland reads
+#    its configuration (zeta_monitor.lua, zeta_vm.lua).
+# 3. In virtual machines Hyprland does not accept client GPU buffers
+#    (dmabuf): GTK4 apps and Xwayland get disconnected. There shared-memory
+#    buffers are used, which work everywhere.
+# 4. Hyprland is started with start-hyprland (the official watchdog).
 
-# --- stesso utente già collegato? (dopo "Cambia utente") ---------------------
-# SDDM aprirebbe una seconda sessione: si torna invece a quella esistente.
-# L'accesso appena fatto dalla schermata di login vale come sblocco.
+# --- same user already logged in? (after "Switch user") -------------------
+# SDDM would open a second session: switch back to the existing one instead.
+# The login just made from the login screen counts as an unlock.
 if [ -n "$XDG_SESSION_ID" ]; then
     for old in $(loginctl list-sessions --no-legend 2>/dev/null |
                  awk -v u="$USER" -v s="$XDG_SESSION_ID" '$3 == u && $1 != s && $4 == "seat0" {print $1}'); do
         if [ "$(loginctl show-session "$old" -p Type --value)" = wayland ] &&
            [ "$(loginctl show-session "$old" -p State --value)" != closing ]; then
             loginctl activate "$old" 2>/dev/null
-            # SDDM, chiudendo questo accesso, torna alla sua console: si ripete
-            # il passaggio dal gestore utente, che sopravvive a questa sessione.
+            # SDDM, when closing this login, goes back to its own console:
+            # repeat the switch from the user manager, which outlives this session.
             systemd-run --user --quiet --on-active=2 loginctl activate "$old" 2>/dev/null ||
                 ( sleep 2; loginctl activate "$old" ) &
             exit 0
@@ -33,26 +33,32 @@ LOGDIR="$HOME/.local/share/zeta"
 HYPRCFG="$HOME/.config/hypr"
 mkdir -p "$LOGDIR" "$HYPRCFG"
 
-# --- accelerazione 3D disponibile? -----------------------------------------
-# La sonda inizializza il driver della scheda grafica (0,1-0,5 s a ogni
-# accesso): un esito positivo si ricorda finche' non cambiano kernel, scheda
-# o driver. Un esito negativo non si ricorda mai: si riprova sempre.
-STAMPO_3D="$HOME/.cache/zeta/3d-ok"
-firma_3d() {
+# --- settings saved by an earlier version ----------------------------------
+# Version 2.0 uses English names for commands, settings files and keys. A
+# home folder coming from an earlier version is converted once, before
+# Hyprland reads its configuration (the program records that it is done).
+/usr/libexec/zeta-migrate-user >> "$LOGDIR/migration.log" 2>&1
+
+# --- 3D acceleration available? -------------------------------------------
+# The probe initializes the graphics card driver (0.1-0.5 s at every login):
+# a positive result is remembered until the kernel, card or driver changes.
+# A negative result is never remembered: it is always retried.
+STAMP_3D="$HOME/.cache/zeta/3d-ok"
+signature_3d() {
     printf '%s|' "$(uname -r)"
     cat /sys/class/drm/card*/device/vendor /sys/class/drm/card*/device/device 2>/dev/null | tr '\n' ' '
     stat -c '%Y' /usr/lib/*/libEGL_mesa.so.0 /usr/lib/*/dri/*_dri.so 2>/dev/null | sort | tail -1
 }
 has_3d() {
-    local probe out firma
-    firma=$(firma_3d)
-    [ -n "$firma" ] && [ "$(cat "$STAMPO_3D" 2>/dev/null)" = "$firma" ] && return 0
+    local probe out sig
+    sig=$(signature_3d)
+    [ -n "$sig" ] && [ "$(cat "$STAMP_3D" 2>/dev/null)" = "$sig" ] && return 0
     probe=$(ls /usr/bin/eglinfo.* 2>/dev/null | head -1)
-    [ -n "$probe" ] || return 0                  # sonda assente: si prova
+    [ -n "$probe" ] || return 0                  # no probe: just try
     out=$(timeout 10 "$probe" -B -p gbm 2>/dev/null) || return 1
     grep -q "OpenGL ES profile renderer" <<<"$out" || return 1
     grep -qiE "OpenGL ES profile renderer:.*(llvmpipe|softpipe)" <<<"$out" && return 1
-    mkdir -p "${STAMPO_3D%/*}" && printf '%s' "$firma" > "$STAMPO_3D"
+    mkdir -p "${STAMP_3D%/*}" && printf '%s' "$sig" > "$STAMP_3D"
     return 0
 }
 
@@ -60,8 +66,8 @@ if ! has_3d; then
     exec zeta-installer-x
 fi
 
-# --- macchina virtuale? ----------------------------------------------------
-# systemd-detect-virt non riconosce VirtualBox su ARM: si guarda anche la GPU.
+# --- virtual machine? ------------------------------------------------------
+# systemd-detect-virt does not recognize VirtualBox on ARM: check the GPU too.
 is_vm=false
 systemd-detect-virt -q 2>/dev/null && is_vm=true
 for d in /sys/class/drm/card*/device/driver; do
@@ -72,14 +78,14 @@ for d in /sys/class/drm/card*/device/driver; do
 done
 printf 'return %s\n' "$is_vm" > "$HYPRCFG/zeta_vm.lua"
 
-# --- scala dello schermo ---------------------------------------------------
-# La scala scelta a mano in Impostazioni > Aspetto ha la precedenza su quella
-# calcolata dai DPI: altrimenti verrebbe sovrascritta a ogni accesso.
-SCALA=$(cat "$HOME/.config/zeta/scala" 2>/dev/null)
-case "$SCALA" in
-    ''|auto|*[!0-9.]*) SCALA="$(zeta-display-scale 2>/dev/null || echo 1)" ;;
+# --- display scale ---------------------------------------------------------
+# The scale chosen by hand in Settings > Appearance takes precedence over the
+# one computed from DPI: otherwise it would be overwritten at every login.
+SCALE=$(cat "$HOME/.config/zeta/scale" 2>/dev/null)
+case "$SCALE" in
+    ''|auto|*[!0-9.]*) SCALE="$(zeta-display-scale 2>/dev/null || echo 1)" ;;
 esac
-printf 'return { scale = %s }\n' "$SCALA" > "$HYPRCFG/zeta_monitor.lua"
+printf 'return { scale = %s }\n' "$SCALE" > "$HYPRCFG/zeta_monitor.lua"
 
 # --- keyboard: the layout chosen in the installer or in Settings -------------
 # /etc/default/keyboard is the system's choice (login screen, console); the
@@ -89,47 +95,47 @@ xkb_safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9_,:()+-'; }
 KB_LAYOUT=$(xkb_safe "$(xkb XKBLAYOUT)")
 printf 'return { layout = "%s", variant = "%s", options = "%s" }\n' \
     "${KB_LAYOUT:-us}" "$(xkb_safe "$(xkb XKBVARIANT)")" "$(xkb_safe "$(xkb XKBOPTIONS)")" \
-    > "$HYPRCFG/zeta_tastiera.lua"
+    > "$HYPRCFG/zeta_keyboard.lua"
 
 # --- input method (Chinese, Japanese, Korean), when turned on in Settings ----
 # GTK apps talk to Fcitx 5 through the Wayland text-input protocol; Qt, SDL
 # and X11 apps need these variables. zeta-session starts fcitx5 itself.
-if [ -s "$HOME/.config/zeta/metodo-input" ] && command -v fcitx5 >/dev/null; then
+if [ -s "$HOME/.config/zeta/input-method" ] && command -v fcitx5 >/dev/null; then
     export XMODIFIERS=@im=fcitx QT_IM_MODULE=fcitx SDL_IM_MODULE=fcitx
 fi
 
 if $is_vm; then
-    export ZETA_VM=1                 # letto dai wrapper (es. mpv)
-    export GSK_RENDERER=cairo        # GTK4: rendering su wl_shm
-    export XWAYLAND_NO_GLAMOR=1      # Xwayland: niente buffer GPU
+    export ZETA_VM=1                 # read by the wrappers (e.g. mpv)
+    export GSK_RENDERER=cairo        # GTK4: render to wl_shm
+    export XWAYLAND_NO_GLAMOR=1      # Xwayland: no GPU buffers
 fi
 
-# Hyprland dopo un crash riparte da solo, ma in «modalita' sicura», con una
-# configurazione di emergenza: niente barra, niente scorciatoie di ZETA RAYS.
-# zeta-ripresa (servizio dell'utente) se ne accorge, lascia un segno qui e lo
-# chiude in modo pulito: allora lo si rilancia normale. Senza il segno
-# l'uscita e' voluta (esci, spegni) e la sessione finisce. Il limite di
-# riprese sta in zeta-ripresa, che dopo 3 crash in 10 minuti smette.
-SEGNO="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/zeta-ripresa"
-rm -f "$SEGNO"
+# After a crash Hyprland restarts by itself, but in "safe mode", with an
+# emergency configuration: no bar, no ZETA RAYS shortcuts. zeta-recovery (a
+# user service) notices, leaves a marker here and shuts it down cleanly:
+# then it is relaunched normally. Without the marker the exit was intended
+# (log out, power off) and the session ends. The recovery limit lives in
+# zeta-recovery, which stops after 3 crashes in 10 minutes.
+MARKER="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/zeta-recovery"
+rm -f "$MARKER"
 while true; do
-    # registro di Hyprland: si tiene corto (oltre 2 MB passa a .1), senza
-    # crescere sessione dopo sessione
+    # Hyprland log: kept short (over 2 MB it rotates to .1) instead of
+    # growing session after session
     if [ "$(stat -c %s "$LOGDIR/hyprland.log" 2>/dev/null || echo 0)" -gt 2000000 ]; then
         mv -f "$LOGDIR/hyprland.log" "$LOGDIR/hyprland.log.1"
     fi
     start-hyprland >> "$LOGDIR/hyprland.log" 2>&1
     rc=$?
-    [ -f "$SEGNO" ] || exit "$rc"
-    rm -f "$SEGNO"
+    [ -f "$MARKER" ] || exit "$rc"
+    rm -f "$MARKER"
     echo "zeta-desktop-session: recovering after a Hyprland crash ($(date '+%F %T'))" >> "$LOGDIR/hyprland.log"
-    # I pezzi della sessione caduta (partiti da Hyprland) restano orfani e si
-    # ricollegherebbero al nuovo Hyprland accanto a quelli nuovi: prima i
-    # sorveglianti, poi cio' che sorvegliavano.
+    # The pieces of the crashed session (started by Hyprland) are left
+    # orphaned and would reconnect to the new Hyprland alongside the new
+    # ones: first the supervisors, then what they were supervising.
     U=$(id -u)
-    pkill -u "$U" -f '^/bin/bash /usr/local/bin/zeta-(session|vigila)$' 2>/dev/null
+    pkill -u "$U" -f '^/bin/bash /usr/local/bin/zeta-(session|watchdog)$' 2>/dev/null
     sleep 0.3
-    pkill -u "$U" -f '/usr/local/bin/zeta-(spazi|scrivania)' 2>/dev/null
+    pkill -u "$U" -f '/usr/local/bin/zeta-(workspaces|desktop)( |$)' 2>/dev/null
     for p in waybar mako swaybg hypridle; do
         pkill -u "$U" -x "$p" 2>/dev/null
     done

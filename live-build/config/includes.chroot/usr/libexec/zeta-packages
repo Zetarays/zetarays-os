@@ -1,0 +1,183 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — installs or removes Debian packages for the app menu.
+
+Runs only through pkexec (action org.zetarays.packages, an administrator's
+password). Two operations, nothing else:
+
+  zeta-packages remove PACKAGE...      apt-get remove, after a simulation
+  zeta-packages install FILE.deb       apt-get install ./file.deb (with
+                                        dependencies from the repositories)
+
+Optional first argument: --lang=CODE (the caller's language, for error
+messages: pkexec wipes the environment).
+
+Every action is simulated first: if apt wanted to remove a system component
+(even just as a side effect: removing a library removes whatever uses it)
+we stop and touch nothing. If a previous operation was left half-done
+(dpkg interrupted) it is completed first. The result is one JSON line on
+standard output; everything else (apt's progress) goes to standard error.
+"""
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+
+LANG_CODE = re.compile(r"^[a-z]{2,3}(_[A-Z]{2})?$")
+
+
+def _take_lang(argv):
+    """--lang=CODE as the first argument (from zeta-app): pkexec wipes the
+    environment, so the message language arrives this way. It must be read
+    BEFORE importing i18n (the catalog is chosen at import time). An invalid
+    code is discarded: messages stay in English."""
+    if argv and argv[0].startswith("--lang="):
+        code = argv.pop(0)[len("--lang="):]
+        if LANG_CODE.fullmatch(code):
+            os.environ["LANGUAGE"] = code
+    return argv
+
+
+ARGV = _take_lang(sys.argv[1:])
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+from system.applications import system_package as from_system, simulate_apt as simulate  # noqa: E402
+
+# no trailing "+" or "-": to apt, "package+" in a removal means install it
+PACKAGE_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]*[a-z0-9](:[a-z0-9]+)?$")
+# apt always in English (LANGUAGE removed: gettext gives it priority over LC_ALL)
+ENV = dict({k: v for k, v in os.environ.items() if k != "LANGUAGE"},
+           DEBIAN_FRONTEND="noninteractive", LANG="C.UTF-8", LC_ALL="C.UTF-8",
+           APT_LISTCHANGES_FRONTEND="none")
+
+
+def exit_with(code, **data):
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+    sys.exit(code)
+
+
+def apt(argv, timeout=3600):
+    try:
+        p = subprocess.run(["apt-get", "-y", "-o", "Dpkg::Options::=--force-confdef",
+                            "-o", "Dpkg::Options::=--force-confold"] + argv,
+                           env=ENV, stdout=sys.stderr, stderr=sys.stderr, timeout=timeout)
+        return p.returncode
+    except subprocess.TimeoutExpired:
+        return 124
+
+
+def protected_packages(via):
+    return [p for p in via if from_system(p)]
+
+
+def repair():
+    """An interrupted installation leaves dpkg half-done: complete it first.
+    The repair also goes through the simulation: "apt-get -f install" can
+    remove packages, and system packages are never touched."""
+    if not subprocess.run(["dpkg", "--audit"], capture_output=True, text=True).stdout.strip():
+        return
+    subprocess.run(["dpkg", "--configure", "-a"], env=ENV, stdout=sys.stderr, stderr=sys.stderr)
+    rc, via, _su, msg = simulate(["-f", "install"])
+    if rc != 0:
+        exit_with(1, error=tr("The package system needs to be repaired manually "
+                          "(sudo apt -f install): {details}").format(details=msg))
+    blocked = protected_packages(via)
+    if blocked:
+        exit_with(1, error=tr("The repair would remove system components ({names}): stopped. "
+                          "Repair it manually with sudo apt -f install.").format(
+                              names=", ".join(blocked[:8])))
+    apt(["-f", "install"])
+
+
+def remove(packages):
+    if not packages or not all(PACKAGE_NAME.match(p) for p in packages):
+        exit_with(2, error=tr("Invalid package name."))
+    repair()
+    rc, via, su, msg = simulate(["remove"] + packages)
+    if rc != 0:
+        exit_with(1, error=tr("apt can't remove the package: {details}").format(details=msg))
+    if su:
+        exit_with(1, error=tr("A removal must not install anything ({names}).").format(
+            names=", ".join(su[:5])))
+    blocked = protected_packages(via)
+    if blocked:
+        exit_with(1, error=tr("It would remove system components: {names}").format(
+            names=", ".join(blocked[:8])), removed=via)
+    rc = apt(["remove"] + packages)
+    if rc != 0:
+        exit_with(1, removed=via, error=tr("apt-get remove failed (code {code}).").format(code=rc))
+    exit_with(0, removed=via)
+
+
+def install(origin):
+    origin = os.path.realpath(origin)
+    if not origin.endswith(".deb"):
+        exit_with(2, error=tr("It isn't a .deb package."))
+    # open the file only once, without following symlinks, and copy from that
+    # descriptor: between the check and the copy nobody can swap it for a
+    # symlink to a system file (/etc/shadow...)
+    try:
+        fd = os.open(origin, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        exit_with(2, error=tr("Can't open the package."))
+    with os.fdopen(fd, "rb") as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            exit_with(2, error=tr("It isn't a .deb package."))
+        # copy into a root-owned directory: the file checked is the file installed
+        folder = tempfile.mkdtemp(prefix="zeta-packages-", dir="/var/tmp")
+        deb = os.path.join(folder, "package.deb")
+        try:
+            with open(os.open(deb, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as copy:
+                shutil.copyfileobj(source, copy)
+        except OSError as e:
+            shutil.rmtree(folder, ignore_errors=True)
+            exit_with(1, error=tr("Can't copy the package: {error}").format(error=e.strerror))
+    try:
+        r = subprocess.run(["dpkg-deb", "-f", deb, "Package", "Architecture"], capture_output=True, text=True)
+        if r.returncode != 0:
+            exit_with(1, error=tr("The file is not a valid .deb package."))
+        # only a genuine package becomes readable by _apt (which downloads dependencies)
+        os.chmod(folder, 0o755)
+        os.chmod(deb, 0o644)
+        name, arch = (r.stdout.split("\n") + ["", ""])[:2]
+        name = name.split(":", 1)[-1].strip()
+        arch = arch.split(":", 1)[-1].strip()
+        my_arch = subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True).stdout.strip()
+        if arch not in ("all", my_arch):
+            exit_with(1, error=tr("The package is for {arch}, this computer is {mine}.").format(
+                arch=arch, mine=my_arch))
+        repair()
+        rc, via, su, msg = simulate(["install", deb])
+        if rc != 0:
+            exit_with(1, error=tr("Unmet dependencies: {details}").format(details=msg))
+        blocked = protected_packages(via)
+        if blocked:
+            exit_with(1, error=tr("It would remove system components: {names}").format(
+                names=", ".join(blocked[:8])))
+        rc = apt(["install", deb])
+        if rc != 0:
+            repair()
+            exit_with(1, error=tr("Installation failed (code {code}): the system has been "
+                              "put back in order.").format(code=rc))
+        exit_with(0, installed=name, added=su)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        exit_with(2, error=tr("Requires pkexec."))
+    if len(argv) >= 2 and argv[0] == "remove":
+        remove(argv[1:])
+    if len(argv) == 2 and argv[0] == "install":
+        install(argv[1])
+    exit_with(2, error=tr("usage: [--lang=CODE] remove PACKAGE... | install FILE.deb"))
+
+
+if __name__ == "__main__":
+    main(ARGV)

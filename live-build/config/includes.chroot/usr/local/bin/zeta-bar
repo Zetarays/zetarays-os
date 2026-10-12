@@ -1,0 +1,65 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-bar — there is always exactly ONE bottom bar (one per screen, a single process).
+#
+#   zeta-bar reload   reload the bar's colors/dock (one at a time), then check
+#   zeta-bar check    remove duplicate bars, if any
+#
+# Why: Waybar sometimes duplicates its bars (rapid SIGUSR2 reloads, a screen
+# turning off and on again, a monitor unplugged and plugged back in) and two
+# or three bars showed up stacked on top of each other on the desktop. All
+# reloads go through here, queued; after each one, and whenever a monitor
+# appears or disappears, the bars are counted. If there are more bars than
+# screens (or more than one process) Waybar is closed: the zeta-session
+# watchdog restarts exactly one.
+set -u
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
+QUEUE_LOCK="${XDG_RUNTIME_DIR:-/tmp}/zeta-bar.lock"
+
+processes() { pgrep -u "$(id -u)" -x waybar | wc -l; }
+
+bars_and_screens() {   # prints "bars screens"
+    local j
+    j=$(hyprctl -j layers 2>/dev/null) || { echo "0 0"; return; }
+    # jq, not python3: this check runs often and Python is costly to start
+    jq -r '"\([.[] | .levels[]? | .[] | select(.namespace == "waybar")] | length) \(length)"' \
+        <<<"$j" 2>/dev/null || echo "0 0"
+}
+
+check() {
+    local n bars screens
+    n=$(processes)
+    [ "$n" -eq 0 ] && return 0          # the watchdog restarts it
+    read -r bars screens < <(bars_and_screens)
+    if [ "$n" -gt 1 ] || { [ "$screens" -gt 0 ] && [ "$bars" -gt "$screens" ]; }; then
+        logger -t zeta-bar "duplicate bars (processes $n, bars $bars, screens $screens): restarting" 2>/dev/null
+        pkill -u "$(id -u)" -x waybar
+        # if some do not exit, keep trying
+        for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(processes)" -eq 0 ] && break; sleep 0.2; done
+        pkill -9 -u "$(id -u)" -x waybar 2>/dev/null
+        return 1
+    fi
+    return 0
+}
+
+reload() {
+    # one reload at a time; those arriving while one is in progress queue up
+    # and merge (rapid back-to-back requests produced duplicate bars)
+    exec 8>"$QUEUE_LOCK"
+    flock 8
+    pkill -SIGUSR2 -u "$(id -u)" -x waybar 2>/dev/null || return 0
+    sleep 1.2
+    check
+}
+
+case "${1:-check}" in
+    reload) reload ;;
+    check)
+        exec 8>"$QUEUE_LOCK"
+        flock 8
+        check ;;
+    *) gettext "Usage:
+  zeta-bar reload   reload the bar's colors/dock (one at a time) and check it
+  zeta-bar check    remove duplicate bars, if any"; echo; exit 2 ;;
+esac

@@ -1,9 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — nelle macchine virtuali la sospensione non si riprende (VirtualBox su
-# ARM resta congelato per sempre): la si disattiva, così logind risponde
-# CanSuspend=na e sia la schermata di accesso sia il menu Energia la nascondono.
-# Sui computer reali non cambia nulla.
+# ZETA RAYS — in virtual machines suspend never resumes (VirtualBox on ARM
+# stays frozen forever): it is disabled, so logind answers CanSuspend=na and
+# both the login screen and the Power menu hide it.
+# Nothing changes on real computers.
 is_vm=false
 systemd-detect-virt -q 2>/dev/null && is_vm=true
 for d in /sys/class/drm/card*/device/driver; do
@@ -12,8 +12,8 @@ for d in /sys/class/drm/card*/device/driver; do
         vmwgfx|vboxvideo|virtio*|qxl|bochs*|cirrus*|hyperv*) is_vm=true ;;
     esac
 done
-# VirtualBox su ARM: niente DMI e systemd-detect-virt non la riconosce, ma le
-# tabelle ACPI portano la firma del produttore della macchina virtuale.
+# VirtualBox on ARM: no DMI and systemd-detect-virt does not recognize it, but
+# the ACPI tables carry the signature of the virtual machine vendor.
 grep -qa -e VBOX -e BOCHS -e BXPC -e VMWARE -e PRLS -e 'Microsoft Hyper-V' \
     /sys/firmware/acpi/tables/DSDT 2>/dev/null && is_vm=true
 
@@ -23,16 +23,16 @@ if $is_vm; then
         > /run/systemd/sleep.conf.d/zeta-vm.conf
 fi
 
-# Audio nelle macchine virtuali: la scheda HDA emulata non da' a PipeWire il
-# tempo giusto, e con la temporizzazione a timer l'uscita non partiva mai
-# (ogni suono restava in attesa per sempre: provato in VirtualBox su ARM;
-# con ALSA diretto invece suonava). Con le interruzioni della scheda suona.
-# Solo nelle macchine virtuali: sui computer veri resta come e'.
+# Audio in virtual machines: the emulated HDA card does not give PipeWire
+# accurate timing, and with timer-based scheduling the output never started
+# (every sound waited forever: tested in VirtualBox on ARM; with plain ALSA
+# it played). Using the card's interrupts, it plays.
+# Only in virtual machines: on real computers it stays as it is.
 WP=/etc/wireplumber/wireplumber.conf.d/51-zeta-vm.conf
 if $is_vm; then
     mkdir -p "${WP%/*}"
     cat > "$WP" <<'EOF'
-# scritto da zeta-vm-sleep all'avvio: solo nelle macchine virtuali
+# written by zeta-vm-sleep at boot: only in virtual machines
 monitor.alsa.rules = [
   {
     matches = [ { node.name = "~alsa_output.*" } ]

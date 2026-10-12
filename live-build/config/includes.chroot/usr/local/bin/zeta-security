@@ -1,0 +1,353 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS Security — security center and toolkit (GTK4 + libadwaita).
+
+Shows the real state of the system (firewall, encryption, updates, etc.) and
+a catalog of security tools organized by category. The tools are NOT a
+decorative list: each one can actually be launched.
+
+  • graphical tools  → open in their own window
+  • command-line tools → open in the terminal, with their help shown
+  • tools not installed → installed with one click (apt, with authentication),
+    but only if apt really knows them: otherwise the reason they are missing
+    is explained
+
+Nothing is ever run against targets unless the user asks for it: ZETA RAYS
+opens the tool, and using it remains the responsibility of whoever runs it.
+"""
+import shlex
+import shutil
+import subprocess
+import sys
+import threading
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+from ui import theme  # noqa: E402
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+
+from security import audit  # noqa: E402
+from system import packages  # noqa: E402
+
+STATE_STYLE = {
+    audit.ACTIVE:         ("#3DDC97", "success"),
+    audit.CONFIGURED:     ("#3A8DFF", "accent"),
+    audit.NOT_CONFIGURED: ("#8A8A8E", "dim"),
+    audit.WARNING:        ("#FFB547", "warning"),
+}
+
+GUI, CLI = "gui", "cli"
+
+
+# Tool catalog. Each entry:
+#   (command_to_check, "Name", "description", kind, apt_package, launch_command)
+# launch_command None = use command_to_check.
+TOOLKIT = {
+    tr("Reconnaissance"): [
+        ("nmap", "Nmap", tr("Network and port scanning"), CLI, "nmap", None),
+        ("masscan", "Masscan", tr("Very high-speed port scanner"), CLI, "masscan", None),
+        ("whois", "WHOIS", tr("Information about domains and IPs"), CLI, "whois", None),
+        ("dig", "DNS (dig)", tr("DNS record lookup"), CLI, "bind9-dnsutils", None),
+        ("dnsrecon", "DNSRecon", tr("DNS enumeration"), CLI, "dnsrecon", None),
+    ],
+    tr("Network analysis"): [
+        ("wireshark", "Wireshark", tr("Packet analyzer (graphical)"), GUI, "wireshark", None),
+        ("tshark", "tshark", tr("Command-line Wireshark"), CLI, "tshark", None),
+        ("tcpdump", "tcpdump", tr("Packet capture in the terminal"), CLI, "tcpdump", None),
+        ("ncat", "Ncat", tr("TCP/UDP connections and listening"), CLI, "ncat", None),
+    ],
+    tr("Web security"): [
+        ("nikto", "Nikto", tr("Web server vulnerability scanner"), CLI, "nikto", None),
+        ("sqlmap", "sqlmap", tr("SQL injection testing"), CLI, "sqlmap", None),
+        ("ffuf", "ffuf", tr("Fuzzing of web paths and parameters"), CLI, "ffuf", None),
+        ("gobuster", "gobuster", tr("Directory and DNS brute forcing"), CLI, "gobuster", None),
+        ("whatweb", "WhatWeb", tr("Identifies the technologies behind a website"), CLI, "whatweb", None),
+        ("wfuzz", "wfuzz", tr("Web application fuzzer"), CLI, "wfuzz", None),
+    ],
+    tr("Passwords and authentication"): [
+        ("john", "John the Ripper", tr("Password recovery (offline)"), CLI, "john", None),
+        ("hashcat", "hashcat", tr("Hash cracking on GPU/CPU"), CLI, "hashcat", None),
+        ("hydra", "Hydra", tr("Credential testing against network services"), CLI, "hydra", None),
+        ("medusa", "Medusa", tr("Parallel login brute forcing"), CLI, "medusa", None),
+    ],
+    tr("Wireless"): [
+        ("aircrack-ng", "Aircrack-ng", tr("Wi-Fi network analysis and testing"), CLI, "aircrack-ng", None),
+        ("reaver", "Reaver", tr("WPS testing on routers"), CLI, "reaver", None),
+    ],
+    tr("Sniffing and spoofing"): [
+        ("bettercap", "bettercap", tr("Network attacks and analysis (MITM)"), CLI, "bettercap", None),
+        ("ettercap", "Ettercap", tr("Sniffing and MITM (graphical)"), GUI, "ettercap-graphical", "ettercap -G"),
+    ],
+    tr("Forensics"): [
+        ("sleuthkit", "Sleuth Kit", tr("Forensic analysis of file systems"), CLI, "sleuthkit", "fls -V"),
+        ("foremost", "foremost", tr("File recovery (carving)"), CLI, "foremost", None),
+        ("binwalk", "binwalk", tr("Firmware and image analysis"), CLI, "binwalk", None),
+        ("exiftool", "ExifTool", tr("Photo and document metadata"), CLI, "libimage-exiftool-perl", None),
+    ],
+    tr("Reverse engineering"): [
+        ("gdb", "GDB", tr("Debugger"), CLI, "gdb", None),
+        ("ltrace", "ltrace", tr("Traces library calls"), CLI, "ltrace", None),
+    ],
+    tr("Defense"): [
+        ("lynis", "Lynis", tr("System security audit"), CLI, "lynis", "lynis audit system"),
+        ("rkhunter", "rkhunter", tr("Rootkit detection"), CLI, "rkhunter", "rkhunter --check"),
+        ("clamscan", "ClamAV", tr("Command-line antivirus"), CLI, "clamav", "clamscan --version"),
+    ],
+}
+
+CSS = """
+.sec-state { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
+.sec-state.success { color: #3DDC97; }
+.sec-state.accent  { color: #3A8DFF; }
+.sec-state.warning { color: #FFB547; }
+.sec-state.dim     { color: @ink_dim; }
+.tool-kind { font-size: 10px; color: @ink_dim; }
+.pill-ok  { color: #3DDC97; font-size: 11px; font-weight: 600; }
+.pill-no  { color: @ink_dim; font-size: 11px; }
+.pill-na  { color: #FFB547; font-size: 11px; }
+"""
+
+
+def _has(name: str) -> bool:
+    if shutil.which(name):
+        return True
+    try:
+        p = subprocess.run(["dpkg-query", "-W", "-f=${Status}", name],
+                           capture_output=True, text=True, timeout=4)
+        return "install ok installed" in p.stdout
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
+def _terminal():
+    for term in ("foot", "xterm"):
+        if shutil.which(term):
+            return term
+    return None
+
+
+def _launch_tool(entry):
+    """Launch a tool: a GUI directly, or in the terminal with its help shown."""
+    check, label, _desc, kind, _pkg, run = entry
+    cmd = run or check
+    if kind == GUI:
+        exe = shutil.which(cmd.split()[0])
+        if exe:
+            subprocess.Popen(["sh", "-c", cmd], start_new_session=True)
+        return
+    term = _terminal()
+    if not term:
+        return
+    base = cmd.split()[0]
+    # show a header + help, then leave a shell ready for use
+    script = (
+        'clear; printf "\\033[1;34mZETA RAYS Security — %%s\\033[0m\\n\\n" %s; '
+        '%s --help 2>&1 | head -n 40 || %s -h 2>&1 | head -n 40 || true; '
+        'printf "\\n\\033[2m%%s\\033[0m\\n\\n" %s; '
+        'exec "${SHELL:-/bin/bash}"'
+    ) % (shlex.quote(label), base, base,
+         shlex.quote(tr("Type the command with your arguments. Type exit to close.")))
+    subprocess.Popen([term, "-e", "sh", "-c", script], start_new_session=True)
+
+
+def _apt_in_terminal(title, arguments, on_finish):
+    """apt in the terminal (you can see what it does; pkexec asks for the
+    password). When the terminal closes, on_finish is called: the displayed
+    state matches reality again without having to press "Refresh"."""
+    term = _terminal()
+    if not term:
+        return False
+    script = ('printf "\\033[1;34mZETA RAYS — %%s\\033[0m\\n\\n" %s; '
+              'pkexec apt-get %s; '
+              'printf "\\n\\033[2m%%s\\033[0m" %s; read _') % (
+                  shlex.quote(title), " ".join(shlex.quote(a) for a in arguments),
+                  shlex.quote(tr("Press Enter to close.")))
+    try:
+        proc = subprocess.Popen([term, "-e", "sh", "-c", script], start_new_session=True)
+    except OSError:
+        return False
+    GLib.child_watch_add(GLib.PRIORITY_DEFAULT, proc.pid, lambda *_: on_finish())
+    return True
+
+
+class Window(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="ZETA RAYS Security",
+                         default_width=1000, default_height=730)
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.search = Gtk.SearchEntry(placeholder_text=tr("Search for a tool…"))
+        self.search.set_size_request(260, -1)
+        self.search.connect("search-changed", lambda *_: self._refresh_tools())
+        header.set_title_widget(self.search)
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=tr("Refresh"))
+        refresh.connect("clicked", lambda *_: self.reload())
+        header.pack_start(refresh)
+        view.add_top_bar(header)
+
+        self.page = Adw.PreferencesPage()
+        self._status_groups = []
+        self._tool_groups = []
+        self._availability = None                 # {package: {installed, candidate}}, None = being checked
+        self._installed = {}
+        self._request = 0
+        view.set_content(self.page)
+        self.set_content(view)
+        self.reload()
+
+    def reload(self):
+        for g in self._status_groups + self._tool_groups:
+            self.page.remove(g)
+        self._status_groups, self._tool_groups = [], []
+        self._checks = audit.collect()
+        self._build_status()
+        self._build_recommendations()
+        self._verify_packages()
+
+    def _verify_packages(self):
+        """apt and dpkg are queried in a thread: with a slow disk or a busy
+        apt it can take seconds, and the window must not freeze."""
+        self._request += 1
+        n = self._request
+        self._availability = None
+        self._refresh_tools()
+        entries = [e for tools in TOOLKIT.values() for e in tools]
+
+        def work():
+            available = packages.availability(sorted({e[4] for e in entries}))
+            inst = {e[0]: _has(e[0]) for e in entries}
+            age = packages.index_age()
+            GLib.idle_add(self._packages_ready, n, available, inst, age)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _packages_ready(self, n, available, inst, age):
+        if n == self._request:
+            self._availability, self._installed, self._age = available, inst, age
+            self._refresh_tools()
+        return False
+
+    def _update_package_list(self, *_):
+        _apt_in_terminal(tr("updating the package list"), ["update"],
+                           self._verify_packages)
+
+    def _build_status(self):
+        group = Adw.PreferencesGroup(title=tr("System status"))
+        for c in self._checks:
+            row = Adw.ActionRow(title=c.label, subtitle=c.detail)
+            _color, style = STATE_STYLE.get(c.state, ("#8A8A8E", "dim"))
+            lbl = Gtk.Label(label=audit.state_label(c.state), valign=Gtk.Align.CENTER,
+                            css_classes=["sec-state", style])
+            row.add_suffix(lbl)
+            group.add(row)
+        self.page.add(group)
+        self._status_groups.append(group)
+
+    def _build_recommendations(self):
+        group = Adw.PreferencesGroup(title=tr("Recommendations"))
+        recs = []
+        for c in self._checks:
+            if c.state == audit.WARNING:
+                recs.append(tr("Fix: {item} ({detail})").format(item=c.label, detail=c.detail))
+            elif c.state == audit.NOT_CONFIGURED and c.key in ("firewall", "audit"):
+                recs.append(tr("Consider turning on: {item}").format(item=c.label))
+        if not recs:
+            recs = [tr("Nothing urgent. Keep your system up to date.")]
+        for r in recs:
+            group.add(Adw.ActionRow(title=r))
+        self.page.add(group)
+        self._status_groups.append(group)
+
+    def _refresh_tools(self):
+        for g in self._tool_groups:
+            self.page.remove(g)
+        self._tool_groups = []
+        self._build_tools()
+
+    def _build_tools(self):
+        if self._availability is None:
+            group = Adw.PreferencesGroup(title=tr("Tools"))
+            group.add(Adw.ActionRow(title=tr("Checking which tools can be installed…")))
+            self.page.add(group)
+            self._tool_groups.append(group)
+            return
+        listing = Adw.PreferencesGroup(title=tr("Package list"))
+        old = self._age is None or self._age > packages.STALE_AGE
+        line = Adw.ActionRow(
+            title=tr("Package list: {age}").format(age=packages.describe_age(self._age)),
+            subtitle=(tr("Update it to see the latest versions and install without errors.")
+                      if old else tr("The tools below are checked against this list.")))
+        b = Gtk.Button(label=tr("Update List"), valign=Gtk.Align.CENTER,
+                       css_classes=["suggested-action"] if old else [])
+        b.connect("clicked", self._update_package_list)
+        line.add_suffix(b)
+        listing.add(line)
+        self.page.add(listing)
+        self._tool_groups.append(listing)
+        query = self.search.get_text().strip().lower()
+        for category, tools in TOOLKIT.items():
+            matches = [t for t in tools
+                       if not query or query in t[1].lower() or query in t[2].lower()
+                       or query in category.lower()]
+            if not matches:
+                continue
+            group = Adw.PreferencesGroup(title=category)
+            for entry in matches:
+                group.add(self._tool_row(entry))
+            self.page.add(group)
+            self._tool_groups.append(group)
+
+    def _tool_row(self, entry):
+        check, label, desc, kind, pkg, _run = entry
+        installed = self._installed.get(check, False)
+        cand = (self._availability.get(pkg) or {}).get("candidate")
+        row = Adw.ActionRow(title=label, subtitle=desc, activatable=installed)
+
+        kind_lbl = Gtk.Label(label=tr("window") if kind == GUI else tr("terminal"),
+                             valign=Gtk.Align.CENTER, css_classes=["tool-kind"])
+        row.add_prefix(kind_lbl)
+
+        if installed:
+            row.add_suffix(Gtk.Label(label=tr("Installed"), valign=Gtk.Align.CENTER,
+                                     css_classes=["pill-ok"]))
+            btn = Gtk.Button(label=tr("Open"), valign=Gtk.Align.CENTER,
+                             css_classes=["suggested-action"])
+            btn.connect("clicked", lambda *_e, en=entry: _launch_tool(en))
+            row.add_suffix(btn)
+            row.connect("activated", lambda *_e, en=entry: _launch_tool(en))
+        elif cand:
+            row.add_suffix(Gtk.Label(label=tr("Not installed"), valign=Gtk.Align.CENTER,
+                                     css_classes=["pill-no"]))
+            btn = Gtk.Button(label=tr("Install"), valign=Gtk.Align.CENTER)
+            btn.set_tooltip_text(tr("Install the {package} {version} package with apt").format(
+                package=pkg, version=cand))
+            btn.connect("clicked", lambda *_e, en=entry: self._install(en))
+            row.add_suffix(btn)
+        else:
+            # no button: apt would not know how to install it
+            row.set_subtitle("%s\n%s" % (desc, packages.why_missing(pkg)))
+            row.set_subtitle_lines(4)
+            row.add_suffix(Gtk.Label(label=tr("Not available"), valign=Gtk.Align.CENTER,
+                                     css_classes=["pill-na"]))
+        return row
+
+    def _install(self, entry):
+        _apt_in_terminal(tr("installing {package}").format(package=entry[4]), ["install", "-y", entry[4]],
+                           self._verify_packages)
+
+
+class App(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Security",
+                         flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        theme.apply(CSS)
+        (self.props.active_window or Window(self)).present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(None))

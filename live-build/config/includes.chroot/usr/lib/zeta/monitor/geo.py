@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Monitor — geolocalizzazione IP (richieste esterne, esplicite e disattivabili).
+"""ZETA RAYS Monitor — IP geolocation (external requests, explicit and can be disabled).
 
-Usa ipwho.is via HTTPS. Risultati in cache (memoria + ~/.cache/zeta/geo.json)
-per non ripetere le richieste. Gli indirizzi privati/locali non escono mai.
+Uses ipwho.is over HTTPS. Results are cached (memory + ~/.cache/zeta/geo.json)
+so requests are not repeated. Private/local addresses never leave the machine.
 """
 import ipaddress
 import json
@@ -62,7 +62,7 @@ def _query(ip=""):
 
 
 def me():
-    """Posizione dell'IP pubblico (None se offline o disattivata a monte)."""
+    """Location of the public IP (None if offline or disabled upstream)."""
     try:
         return _query("")
     except Exception:  # noqa: BLE001
@@ -70,7 +70,7 @@ def me():
 
 
 def lookup(ip):
-    """Posizione di un IP pubblico, dalla cache se possibile."""
+    """Location of a public IP, from the cache when possible."""
     if not is_public(ip):
         return None
     with _lock:

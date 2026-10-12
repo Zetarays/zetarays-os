@@ -1,0 +1,279 @@
+#!/bin/bash
+# shellcheck disable=SC2059,SC1111  # printf formats come from translations; curly quotes intended
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-repair-boot — repairs the boot loader (GRUB) of a ZETA RAYS
+# installation that no longer boots.
+#
+#   sudo zeta-repair-boot            find, show, ask for confirmation, repair
+#   sudo zeta-repair-boot --dry-run  only find and show, touch nothing
+#
+# What it is for
+# --------------
+# When one of these lines appears at power-on:
+#     error: file '/boot/grub/x86_64-efi/normal.mod' not found
+#     grub rescue>
+#     error: no such partition
+# it means the boot loader is there but can no longer find its own pieces,
+# almost always because another installation moved things around under it:
+# it happens when several systems are installed on the same disk. The system
+# on the disk is intact: only the thing that boots it is missing.
+#
+# This program runs from the ZETA RAYS USB stick, finds the installations,
+# enters the chosen one and reinstalls GRUB in the right place.
+#
+# What it does NOT do
+# -------------------
+# It does not touch partitions, does not format, does not delete data, does
+# not change the partition table. It mounts, writes the boot loader, unmounts.
+set -uo pipefail
+export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
+command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
+
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+if [ "$(id -u)" != 0 ]; then
+    echo "$(gettext "Administrator rights are needed. Run it again with:  sudo zeta-repair-boot")" >&2
+    exit 1
+fi
+
+MNT=/run/zeta-repair
+cleanup() {
+    # Unmount in reverse order, without rushing: a sloppy unmount would leave
+    # the installed system in a worse state than the one we started from.
+    for d in dev/pts dev proc sys run boot/efi boot ""; do
+        mountpoint -q "$MNT/$d" 2>/dev/null && umount -l "$MNT/$d" 2>/dev/null
+    done
+    rmdir "$MNT" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+title()  { printf '\n\033[1m%s\033[0m\n'  "$1"; }
+ok()     { printf '  \033[32m%s\033[0m\n' "$1"; }
+no()     { printf '  \033[31m%s\033[0m\n' "$1"; }
+info()   { printf '  %s\n' "$1"; }
+
+# --------------------------------------------------------- 1. what is there
+title "$(gettext "Disks and partitions")"
+lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME,LABEL,MOUNTPOINT 2>/dev/null \
+    | sed 's/^/  /' || lsblk | sed 's/^/  /'
+
+title "$(gettext "Looking for installed systems")"
+mkdir -p "$MNT"
+SYSTEMS=()       # "partition|name|uefi_or_bios"
+ESP=""
+
+for PART in $(lsblk -lnpo NAME,TYPE 2>/dev/null | awk '$2=="part"{print $1}'); do
+    FS=$(blkid -s TYPE -o value "$PART" 2>/dev/null)
+    [ -n "$FS" ] || continue
+
+    # The EFI boot partition: small, vfat, with /EFI inside
+    if [ "$FS" = "vfat" ]; then
+        if mount -o ro "$PART" "$MNT" 2>/dev/null; then
+            [ -d "$MNT/EFI" ] && { ESP="$PART"; info "$(printf "$(gettext 'EFI boot partition: %s')" "$PART")"; }
+            umount "$MNT" 2>/dev/null
+        fi
+        continue
+    fi
+
+    case "$FS" in ext2|ext3|ext4|btrfs|xfs) ;; *) continue ;; esac
+    mount -o ro "$PART" "$MNT" 2>/dev/null || continue
+    if [ -r "$MNT/etc/os-release" ]; then
+        NAME=$(. "$MNT/etc/os-release" 2>/dev/null; echo "${PRETTY_NAME:-unknown}")
+        # Two installations of the same system would have the same name:
+        # the computer name and the size help tell them apart.
+        HOST=$(head -1 "$MNT/etc/hostname" 2>/dev/null)
+        SIZE=$(lsblk -dno SIZE "$PART" 2>/dev/null | tr -d ' ')
+        [ -n "$HOST" ] && NAME="$NAME - $(printf "$(gettext 'computer “%s”')" "$HOST")"
+        NAME="$NAME${SIZE:+, $SIZE}"
+        SYSTEMS+=("$PART|$NAME")
+        info "$PART  ->  $NAME"
+    fi
+    umount "$MNT" 2>/dev/null
+done
+
+if [ "${#SYSTEMS[@]}" = 0 ]; then
+    no "$(gettext "No installed system found on the disks.")"
+    echo
+    gettext "  If the disk is encrypted, unlock it first; if it is on RAID or LVM,
+  activate it first. In that case this tool is not enough."; echo
+    exit 1
+fi
+
+# ------------------------------------------------------- 2. which to repair
+ZETA=()
+for s in "${SYSTEMS[@]}"; do
+    case "${s#*|}" in *ZETA*|*zeta*) ZETA+=("$s");; esac
+done
+
+title "$(gettext "ZETA RAYS installations found")"
+if [ "${#ZETA[@]}" = 0 ]; then
+    no "$(gettext "None. There are other systems on the disk, but not ZETA RAYS.")"
+    exit 1
+fi
+i=1
+for s in "${ZETA[@]}"; do
+    printf '  %d) %-14s %s\n' "$i" "${s%%|*}" "${s#*|}"
+    i=$((i+1))
+done
+
+if [ "$DRY_RUN" = 1 ]; then
+    title "$(gettext "Read-only mode: nothing was changed.")"
+    exit 0
+fi
+
+CHOICE=1
+if [ "${#ZETA[@]}" -gt 1 ]; then
+    echo
+    read -r -p "  $(printf "$(gettext 'Which one do you want to repair? [1-%s]')" "${#ZETA[@]}") " CHOICE
+    case "$CHOICE" in ''|*[!0-9]*) CHOICE=0;; esac
+    if [ "$CHOICE" -lt 1 ] || [ "$CHOICE" -gt "${#ZETA[@]}" ]; then
+        no "$(gettext "Invalid choice.")"; exit 1
+    fi
+fi
+ENTRY="${ZETA[$((CHOICE-1))]}"
+ROOT="${ENTRY%%|*}"
+
+# ----------------------------------------------------------- 3. confirmation
+UEFI=no
+[ -d /sys/firmware/efi ] && UEFI=yes
+
+title "$(gettext "About to do this")"
+info "$(printf "$(gettext 'system to repair:      %s  (%s)')" "$ROOT" "${ENTRY#*|}")"
+if [ "$UEFI" = yes ]; then
+    info "$(gettext "boot mode:             UEFI")"
+    if [ -n "$ESP" ]; then
+        info "$(printf "$(gettext 'EFI partition:         %s')" "$ESP")"
+    else
+        no "$(gettext "EFI partition:         NOT FOUND")"
+        echo
+        gettext "  Without an EFI partition, UEFI boot cannot be installed.
+  If this computer boots in BIOS mode, restart the USB stick
+  in BIOS mode and run this again."; echo
+        exit 1
+    fi
+    info "$(gettext "will be written:       GRUB in EFI/zetarays and in EFI/BOOT")"
+else
+    DISK=$(lsblk -npo PKNAME "$ROOT" 2>/dev/null | head -1)
+    [ -n "$DISK" ] && DISK="/dev/$DISK"
+    info "$(gettext "boot mode:             BIOS (not UEFI)")"
+    info "$(printf "$(gettext 'will be written:       GRUB in the boot sector of %s')" "$DISK")"
+fi
+info "$(gettext "then the other installed systems will be detected (os-prober)")"
+echo
+info "$(gettext "Partitions, data and personal files are not touched.")"
+echo
+# the answer is also accepted in Italian (marked as i18n-data below)
+read -r -p "  $(gettext "Go ahead? [type yes]") " ANSWER
+case "$ANSWER" in si|SI|Si|sì|s|S|y|Y|yes|YES|Yes) ;; *) echo "  $(gettext "Cancelled.")"; exit 0;; esac  # i18n-data
+
+# ------------------------------------------------------------ 4. repair
+title "$(gettext "Repair")"
+mount "$ROOT" "$MNT" || { no "$(printf "$(gettext 'Cannot mount %s')" "$ROOT")"; exit 1; }
+ok "$(printf "$(gettext 'mounted %s')" "$ROOT")"
+
+# A separate /boot must be mounted first, or the modules would end up in the wrong place
+if [ -r "$MNT/etc/fstab" ]; then
+    BOOTPART=$(awk '$2=="/boot" && $1 !~ /^#/ {print $1}' "$MNT/etc/fstab" | head -1)
+    if [ -n "$BOOTPART" ]; then
+        BOOTDEV=$(blkid -t "$BOOTPART" -o device 2>/dev/null | head -1)
+        [ -z "$BOOTDEV" ] && BOOTDEV="$BOOTPART"
+        if mount "$BOOTDEV" "$MNT/boot" 2>/dev/null; then ok "$(printf "$(gettext 'mounted separate /boot (%s)')" "$BOOTDEV")"; fi
+    fi
+fi
+
+if [ "$UEFI" = yes ]; then
+    # With several EFI partitions (e.g. Windows on another disk) the one that
+    # counts is the one the system itself mounts on /boot/efi, per its fstab.
+    if [ -r "$MNT/etc/fstab" ]; then
+        EFIFSTAB=$(awk '$2=="/boot/efi" && $1 !~ /^#/ {print $1}' "$MNT/etc/fstab" | head -1)
+        if [ -n "$EFIFSTAB" ]; then
+            EFIDEV=$(blkid -t "$EFIFSTAB" -o device 2>/dev/null | head -1)
+            case "$EFIFSTAB" in /dev/*) [ -z "$EFIDEV" ] && EFIDEV="$EFIFSTAB";; esac
+            if [ -n "$EFIDEV" ] && [ "$EFIDEV" != "$ESP" ]; then
+                info "$(printf "$(gettext 'using the EFI partition named by the system: %s (not %s)')" "$EFIDEV" "$ESP")"
+                ESP="$EFIDEV"
+            fi
+        fi
+    fi
+    mkdir -p "$MNT/boot/efi"
+    mount "$ESP" "$MNT/boot/efi" || { no "$(gettext "Cannot mount the EFI partition")"; exit 1; }
+    ok "$(gettext "mounted the EFI partition")"
+fi
+
+# Without efivarfs grub-install copies the files but does not register the
+# entry in the firmware (it only warns): the computer might keep booting the
+# old GRUB. If it is missing, mount it before binding /sys.
+if [ "$UEFI" = yes ] && ! mountpoint -q /sys/firmware/efi/efivars 2>/dev/null; then
+    mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null \
+        && ok "$(gettext "mounted the firmware variables (efivarfs)")"
+fi
+
+for d in dev dev/pts proc sys run; do
+    mkdir -p "$MNT/$d"
+    mount --rbind "/$d" "$MNT/$d" 2>/dev/null || mount --bind "/$d" "$MNT/$d" 2>/dev/null
+    # "slave": when the bind is detached at the end, the unmount must not
+    # propagate to the system we are repairing from. Without it, unmounting
+    # the /proc copy also unmounted the USB stick's /proc/sys/fs/binfmt_misc.
+    mount --make-rslave "$MNT/$d" 2>/dev/null
+done
+ok "$(gettext "system bound so it can be entered")"
+
+if [ "$UEFI" = yes ]; then
+    CMD="grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=zetarays --recheck"
+    [ "$(uname -m)" = "aarch64" ] && CMD="grub-install --target=arm64-efi --efi-directory=/boot/efi --bootloader-id=zetarays --recheck"
+else
+    CMD="grub-install --target=i386-pc --recheck $DISK"
+fi
+
+echo
+info "$(printf "$(gettext 'running: %s')" "$CMD")"
+if chroot "$MNT" /bin/bash -c "$CMD" 2>&1 | sed 's/^/    /'; then
+    ok "$(gettext "boot loader installed")"
+else
+    no "$(gettext "grub-install failed (see the lines above)")"
+    exit 1
+fi
+
+# Installations made with the earlier 1.7 images have two lines in
+# /etc/default/grub.d/zeta.cfg that hide the menu (hidden, 2 s): that file is
+# read after zeta-boot.cfg and overrides it, so the other system cannot be
+# chosen at power-on. Only those two lines are removed, after making a copy.
+OLD_CFG="$MNT/etc/default/grub.d/zeta.cfg"
+if [ -f "$OLD_CFG" ] && grep -qE '^GRUB_TIMEOUT_STYLE=hidden|^GRUB_TIMEOUT=[0-2]$' "$OLD_CFG"; then
+    cp -p "$OLD_CFG" "$OLD_CFG.before-repair"
+    sed -i -E '/^GRUB_TIMEOUT_STYLE=hidden$/d; /^GRUB_TIMEOUT=[0-2]$/d' "$OLD_CFG"
+    ok "$(printf "$(gettext 'boot menu made visible (copy: %s)')" "${OLD_CFG#"$MNT"}.before-repair")"
+fi
+# The menu theme of the earlier images was narrow and cut off long entries
+# ("Advanced options for Kali GNU/Linux (on /dev/...)").
+THEME=/usr/share/grub/themes/zeta/theme.txt
+if [ -f "$MNT$THEME" ] && [ -f "$THEME" ] && ! cmp -s "$THEME" "$MNT$THEME"; then
+    cp -p "$MNT$THEME" "$MNT$THEME.before-repair"
+    install -m 644 "$THEME" "$MNT$THEME"
+    ok "$(gettext "menu theme updated (long entries readable)")"
+fi
+# Without zeta-boot.cfg (systems installed before it existed) os-prober
+# would stay off and the menu would not show the other systems.
+if [ ! -f "$MNT/etc/default/grub.d/zeta-boot.cfg" ] && [ -f /etc/default/grub.d/zeta-boot.cfg ]; then
+    install -m 644 /etc/default/grub.d/zeta-boot.cfg "$MNT/etc/default/grub.d/zeta-boot.cfg"
+    ok "$(gettext "enabled detection of other systems (os-prober)")"
+fi
+
+echo
+info "$(gettext "running: update-grub (also looks for the other systems)")"
+if chroot "$MNT" /bin/bash -c "update-grub" 2>&1 | sed 's/^/    /'; then
+    ok "$(gettext "boot menu regenerated")"
+else
+    no "$(gettext "update-grub failed")"
+    exit 1
+fi
+
+title "$(gettext "What is in the menu now")"
+grep -E "^menuentry|^submenu" "$MNT/boot/grub/grub.cfg" 2>/dev/null \
+    | sed -E "s/^(menuentry|submenu) '([^']*)'.*/  \2/" | head -15
+
+title "$(gettext "Done")"
+gettext "  Restart and remove the USB stick. If the menu does not appear after
+  the restart, enter the firmware setup (usually F2, F10, F12 or Del at
+  power-on) and put “zetarays” first in the boot order."; echo

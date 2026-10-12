@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — indice dei contenuti per la ricerca universale.
+"""ZETA RAYS — content index for the universal search.
 
-Costruisce un indice SQLite FTS5 del testo dei documenti dell'utente, così la
-ricerca trova i file anche per quello che contengono, non solo per il nome:
+Builds an SQLite FTS5 index of the text in the user's documents, so search
+finds files by what they contain, not only by name:
 
-  • testo semplice (.txt .md .csv .log …)  → letto direttamente
-  • PDF                                     → testo estratto con pdftotext (poppler)
-  • immagini (.png .jpg .tiff .webp …)      → OCR con Tesseract (italiano+inglese)
+  • plain text (.txt .md .csv .log …)      → read directly
+  • PDF                                     → text extracted with pdftotext (poppler)
+  • images (.png .jpg .tiff .webp …)        → OCR with Tesseract (Italian+English)
 
-I nomi dei file sono già cercati velocemente da plocate: qui si indicizza solo
-il CONTENUTO. L'indice è incrementale (rilegge un file solo se è cambiato),
-salta le cartelle di sistema/cache e rispetta i permessi. L'OCR è limitato per
-non consumare troppa CPU. Se uno strumento manca, quel tipo di file viene
-indicizzato solo per nome, senza mai bloccare l'indicizzazione.
+File names are already searched quickly by plocate: only the CONTENT is
+indexed here. The index is incremental (a file is re-read only if it changed),
+skips system/cache folders and respects permissions. OCR is capped so it does
+not use too much CPU. If a tool is missing, that file type is indexed by name
+only, without ever blocking indexing.
 """
 from __future__ import annotations
 
@@ -27,42 +27,43 @@ HOME = Path(os.path.expanduser("~"))
 CACHE = HOME / ".cache" / "zeta"
 DB = CACHE / "index.db"
 
-# cartelle utente XDG da indicizzare (contenuto): i nomi veri sono quelli di
-# ~/.config/user-dirs.dirs, che cambiano con la lingua del sistema
+# XDG user folders to index (content): the real names are those in
+# ~/.config/user-dirs.dirs, which change with the system language
 _XDG_KEYS = ("XDG_DOCUMENTS_DIR", "XDG_DESKTOP_DIR", "XDG_DOWNLOAD_DIR",
              "XDG_PICTURES_DIR", "XDG_TEMPLATES_DIR", "XDG_PUBLICSHARE_DIR")
 
 
 def _xdg_user_dirs() -> list:
-    """Le cartelle utente dichiarate in user-dirs.dirs (formato di
-    xdg-user-dirs: XDG_DOCUMENTS_DIR="$HOME/Documenti")."""
+    """The user folders declared in user-dirs.dirs (xdg-user-dirs format:
+    XDG_DOCUMENTS_DIR="$HOME/Documenti" on an Italian system)."""
     config = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")
     out = []
     try:
         with open(config / "user-dirs.dirs", encoding="utf-8", errors="replace") as f:
-            for riga in f:
-                chiave, sep, valore = riga.strip().partition("=")
-                if not sep or chiave not in _XDG_KEYS:
+            for line in f:
+                key, sep, value = line.strip().partition("=")
+                if not sep or key not in _XDG_KEYS:
                     continue
-                valore = valore.strip().strip('"')
-                if valore.startswith("$HOME"):
-                    valore = str(HOME) + valore[len("$HOME"):]
-                if valore.startswith("/"):
-                    out.append(Path(valore))
+                value = value.strip().strip('"')
+                if value.startswith("$HOME"):
+                    value = str(HOME) + value[len("$HOME"):]
+                if value.startswith("/"):
+                    out.append(Path(value))
     except OSError:
         pass
     return out
 
 
-# cartelle da indicizzare (contenuto) — solo dati dell'utente: quelle XDG, poi
-# i nomi inglesi predefiniti e quelli italiani (se esistono; i doppioni si
-# saltano in _iter_files)
+# folders to index (content) — user data only: the XDG ones, then the default
+# English names and the Italian ones (if they exist; duplicates are skipped
+# in _iter_files)
 ROOTS = [d for d in _xdg_user_dirs() if d != HOME]
 ROOTS += [HOME / d for d in ("Documents", "Desktop", "Downloads", "Pictures",
                              "Templates", "Public",
-                             "Documenti", "Scrivania", "Download", "Immagini",
-                             "Modelli", "Pubblici")]
-# indicizza anche i file di primo livello nella home
+                             # the Italian folder names:
+                             "Documenti", "Scrivania", "Download", "Immagini",  # i18n-data
+                             "Modelli", "Pubblici")]  # i18n-data
+# also index the top-level files in the home directory
 ROOTS.append(HOME)
 
 EXCLUDE_NAMES = {".git", "node_modules", "__pycache__", ".cache", ".local",
@@ -75,11 +76,11 @@ TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".tsv", ".log", ".conf", ".cfg",
 PDF_EXT = {".pdf"}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".bmp", ".gif"}
 
-MAX_TEXT_BYTES = 2 * 1024 * 1024          # non leggere file di testo enormi
-MAX_IMG_BYTES = 8 * 1024 * 1024           # OCR solo su immagini ragionevoli
-MAX_CONTENT_CHARS = 60000                 # testo salvato per file
+MAX_TEXT_BYTES = 2 * 1024 * 1024          # do not read huge text files
+MAX_IMG_BYTES = 8 * 1024 * 1024           # OCR only on reasonably sized images
+MAX_CONTENT_CHARS = 60000                 # text stored per file
 MAX_DEPTH = 8
-OCR_BUDGET = 40                           # max immagini con OCR per esecuzione
+OCR_BUDGET = 40                           # max images to OCR per run
 
 
 def _connect() -> sqlite3.Connection:
@@ -110,7 +111,7 @@ def _extract_text(path: Path, ext: str, ocr_left: list) -> str:
                 return ""
             ocr_left[0] -= 1
             from system import ocr
-            out = subprocess.run(["tesseract", str(path), "-", "-l", ocr.lingue(), "--psm", "3"],
+            out = subprocess.run(["tesseract", str(path), "-", "-l", ocr.languages(), "--psm", "3"],
                                  capture_output=True, text=True, timeout=45)
             return out.stdout[:MAX_CONTENT_CHARS]
     except (OSError, subprocess.SubprocessError):
@@ -122,18 +123,18 @@ def _kind(ext: str) -> str:
     if ext in PDF_EXT:
         return "pdf"
     if ext in IMG_EXT:
-        return "immagine"
+        return "image"
     if ext in TEXT_EXT:
-        return "testo"
+        return "text"
     return "file"
 
 
-def _utf8(nome: str) -> bool:
-    """Nomi non UTF-8 (vecchi zip, dischi di Windows) diventano in Python
-    stringhe con «surrogati» che SQLite e GTK rifiutano: si saltano, invece di
-    fermare tutta l'indicizzazione."""
+def _utf8(name: str) -> bool:
+    """Non-UTF-8 names (old zip files, Windows disks) become Python strings
+    with «surrogates» that SQLite and GTK reject: they are skipped instead of
+    stopping the whole indexing run."""
     try:
-        nome.encode("utf-8")
+        name.encode("utf-8")
         return True
     except UnicodeEncodeError:
         return False
@@ -155,7 +156,7 @@ def _iter_files():
                 continue
             dirnames[:] = [d for d in dirnames
                            if not d.startswith(".") and d not in EXCLUDE_NAMES and _utf8(d)]
-            # la home stessa: solo i file di primo livello, non tutte le sottocartelle
+            # the home directory itself: only top-level files, not every subfolder
             if root == home and depth == 0:
                 dirnames[:] = []
             for name in filenames:
@@ -194,14 +195,14 @@ def reindex(full: bool = False) -> dict:
             db.execute("INSERT OR REPLACE INTO meta (path, mtime, size) VALUES (?,?,?)",
                        (sp, st.st_mtime, st.st_size))
         except (sqlite3.Error, UnicodeError, ValueError) as e:
-            # un file strano non deve fermare l'indice di tutti gli altri
+            # one odd file must not stop indexing of all the others
             print("index: skipping %r: %s" % (sp, e), file=sys.stderr)
             continue
         if prev:
             updated += 1
         else:
             added += 1
-    # rimuove dall'indice i file spariti
+    # remove files that disappeared from the index
     removed = 0
     for sp in list(known):
         if sp not in present:
@@ -214,14 +215,14 @@ def reindex(full: bool = False) -> dict:
 
 
 def search(query: str, limit: int = 8) -> list[dict]:
-    """Cerca nel contenuto indicizzato. Ritorna [{path, name, kind, snippet}]."""
+    """Search the indexed content. Returns [{path, name, kind, snippet}]."""
     if not DB.exists() or not query.strip():
         return []
     try:
         db = sqlite3.connect("file:%s?mode=ro" % DB, uri=True, timeout=5)
     except sqlite3.Error:
         return []
-    # query FTS: ogni parola come prefisso
+    # FTS query: every word as a prefix
     terms = " ".join('"%s"*' % w.replace('"', '') for w in query.split() if w)
     if not terms:
         db.close()

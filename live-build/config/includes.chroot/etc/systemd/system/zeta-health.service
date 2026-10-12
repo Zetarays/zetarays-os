@@ -1,0 +1,13 @@
+[Unit]
+Description=ZETA RAYS: system health check
+Documentation=file:/usr/local/libexec/zeta-health
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/zeta-health
+# a check, not a workload: it must never weigh on the computer
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+TimeoutStartSec=60

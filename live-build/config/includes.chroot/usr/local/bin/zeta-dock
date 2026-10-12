@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""zeta-dock — genera e ricarica il dock di ZETA RAYS da ~/.config/zeta/dock.json.
+"""zeta-dock — generates and reloads the ZETA RAYS dock from ~/.config/zeta/dock.json.
 
-  zeta-dock apply     rigenera la barra dal dock salvato e la ricarica
-  zeta-dock genera    rigenera soltanto, senza ricaricare la barra
-  zeta-dock reset     ripristina il dock predefinito
-  zeta-dock menu N    menu del tasto destro sull'icona N del dock
-  zeta-dock togli N   toglie l'icona N dal dock
+  zeta-dock apply     regenerate the bar from the saved dock and reload it
+  zeta-dock generate  regenerate only, without reloading the bar
+  zeta-dock reset     restore the default dock
+  zeta-dock menu N    right-click menu for dock icon N
+  zeta-dock remove N  remove icon N from the dock
 """
 import subprocess
 import sys
@@ -15,141 +15,141 @@ sys.path.insert(0, "/usr/lib/zeta")
 from system import dock  # noqa: E402
 from i18n import tr  # noqa: E402
 
-# «Impostazioni dell'app»: il comando che apre davvero le preferenze di
-# quell'app. Per le altre si apre l'app e si dice dove trovarle: meglio che
-# una voce che non fa nulla.
-IMPOSTAZIONI_APP = {
+# "App Settings": the command that really opens that app's preferences.
+# For the others the app is opened and the user is told where to find them:
+# better than a menu entry that does nothing.
+SETTINGS_APPS = {
     "thunar": ["thunar-settings"],
     "firefox-esr": ["firefox-esr", "about:preferences"],
-    "foot": ["zeta-impostazioni", "aspetto"],
-    "zeta-impostazioni": ["zeta-impostazioni"],
-    "zeta-sicurezza": ["zeta-sicurezza"],
-    "zeta-posta": ["zeta-impostazioni", "predefinite"],
+    "foot": ["zeta-settings", "appearance"],
+    "zeta-settings": ["zeta-settings"],
+    "zeta-security": ["zeta-security"],
+    "zeta-mail": ["zeta-settings", "default-apps"],
 }
 
 
-def _avvia(argv):
+def _spawn(argv):
     subprocess.Popen(argv, start_new_session=True, stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def _notifica(testo):
+def _notify(text):
     try:
-        _avvia(["notify-send", "-a", "Dock", "-i", "zeta-dock", tr("Dock"), testo])
+        _spawn(["notify-send", "-a", "Dock", "-i", "zeta-dock", tr("Dock"), text])
     except OSError:
         pass
 
 
-def _app_della_voce(voce):
-    """La app installata dietro un'icona del dock (per sapere se e' aperta)."""
-    from intelligence.agente import stato
-    for nome in (voce.get("cmd", "").split()[0] if voce.get("cmd") else "", voce.get("name", "")):
-        a = stato.trova_app(nome) if nome else None
+def _app_of_entry(entry):
+    """The installed app behind a dock icon (to know whether it is open)."""
+    from intelligence.agent import state
+    for app_name in (entry.get("cmd", "").split()[0] if entry.get("cmd") else "", entry.get("name", "")):
+        a = state.find_app(app_name) if app_name else None
         if a:
             return a
     return None
 
 
-def togli(i):
-    voci = dock.load_dock()
-    if not 0 <= i < len(voci):
+def remove(i):
+    entries = dock.load_dock()
+    if not 0 <= i < len(entries):
         return 1
-    if len(voci) == 1:
-        _notifica(tr("The dock must contain at least one app."))
+    if len(entries) == 1:
+        _notify(tr("The dock must contain at least one app."))
         return 1
-    nome = voci[i].get("name", "")
-    del voci[i]
-    dock.save_dock(voci)
-    dock.apply(voci)
-    _notifica(tr("Removed from the dock: {name}. Add it back in Settings › Dock.").format(name=nome))
+    app_name = entries[i].get("name", "")
+    del entries[i]
+    dock.save_dock(entries)
+    dock.apply(entries)
+    _notify(tr("Removed from the dock: {name}. Add it back in Settings › Dock.").format(name=app_name))
     return 0
 
 
 def menu(i):
-    voci = dock.load_dock()
-    if not 0 <= i < len(voci):
+    entries = dock.load_dock()
+    if not 0 <= i < len(entries):
         return 1
-    voce = voci[i]
-    nome = voce.get("name") or voce.get("cmd", "").split()[0]
+    entry = entries[i]
+    app_name = entry.get("name") or entry.get("cmd", "").split()[0]
     from ui import popup
     popup.preload_layer_shell()
     import gi
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gio, Gtk
 
-    in_alto = dock.posizione() == "top"
-    app = _app_della_voce(voce)
-    from intelligence.agente import stato
-    aperta = bool(app and stato.finestre_di(app))
+    at_top = dock.position() == "top"
+    app = _app_of_entry(entry)
+    from intelligence.agent import state
+    is_open = bool(app and state.windows_of(app))
 
-    def apri():
-        _avvia(["sh", "-c", voce["cmd"]])
+    def open_at():
+        _spawn(["sh", "-c", entry["cmd"]])
 
-    def chiudi():
-        from intelligence.agente import agente
-        es = agente.esegui("close_application", {"app": app.id}, origine="dock")
+    def close_window():
+        from intelligence.agent import agent
+        es = agent.execute("close_application", {"app": app.id}, origin="dock")
         if not es.ok:
-            _notifica(es.messaggio)
+            _notify(es.message)
 
-    def opzioni():
-        _avvia(["zeta-impostazioni", "dock"])
+    def options():
+        _spawn(["zeta-settings", "dock"])
 
-    def impostazioni_app():
-        prog = voce.get("cmd", "").split()[0]
-        cmd = IMPOSTAZIONI_APP.get(prog)
+    def app_settings():
+        prog = entry.get("cmd", "").split()[0]
+        cmd = SETTINGS_APPS.get(prog)
         if cmd:
-            _avvia(cmd)
+            _spawn(cmd)
         else:
-            apri()
-            _notifica(tr("{name} settings are in its own menu.").format(name=nome))
+            open_at()
+            _notify(tr("{name} settings are in its own menu.").format(name=app_name))
 
-    righe = [(tr("Open"), apri)]
-    for testo, comando in voce.get("voci", []):          # voci proprie dell'app
-        righe.append((testo, lambda c=comando: _avvia(["sh", "-c", c])))
-    if aperta:
-        righe.append((tr("Close"), chiudi))
-    righe += [None, (tr("Remove from Dock"), lambda: togli(i)), (tr("Options"), opzioni),
-              (tr("App Settings"), impostazioni_app)]
+    lines = [(tr("Open"), open_at)]
+    for text, command in entry.get("actions", []):          # the app's own entries
+        lines.append((text, lambda c=command: _spawn(["sh", "-c", c])))
+    if is_open:
+        lines.append((tr("Close"), close_window))
+    lines += [None, (tr("Remove from Dock"), lambda: remove(i)), (tr("Options"), options),
+              (tr("App Settings"), app_settings)]
 
     class Menu(Gtk.ApplicationWindow):
         def __init__(self, gapp):
-            super().__init__(application=gapp, title=nome, decorated=False)
+            super().__init__(application=gapp, title=app_name, decorated=False)
             popup.make_overlay(self, "zeta-menu-dock")
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                            css_classes=["zeta-card"], halign=Gtk.Align.START,
-                           valign=Gtk.Align.START if in_alto else Gtk.Align.END)
-            # sotto il cursore, sul suo monitor, sempre dentro lo schermo
-            popup.menu_al_cursore(self, card, 220)
-            if in_alto:
+                           valign=Gtk.Align.START if at_top else Gtk.Align.END)
+            # under the cursor, on its monitor, always inside the screen
+            popup.menu_at_cursor(self, card, 220)
+            if at_top:
                 card.set_margin_top(84)
             else:
                 card.set_margin_bottom(84)
-            titolo = Gtk.Label(label=nome, xalign=0, css_classes=["zeta-caption"])
-            titolo.set_margin_start(10)
-            titolo.set_margin_top(4)
-            card.append(titolo)
-            for r in righe:
+            title = Gtk.Label(label=app_name, xalign=0, css_classes=["zeta-caption"])
+            title.set_margin_start(10)
+            title.set_margin_top(4)
+            card.append(title)
+            for r in lines:
                 if r is None:
                     card.append(Gtk.Separator(margin_top=3, margin_bottom=3))
                     continue
-                testo, fn = r
+                text, fn = r
                 b = Gtk.Button(css_classes=["zeta-row"])
-                b.set_child(Gtk.Label(label=testo, xalign=0))
-                b.connect("clicked", lambda _b, f=fn: self.fai(f))
+                b.set_child(Gtk.Label(label=text, xalign=0))
+                b.connect("clicked", lambda _b, f=fn: self.run_action(f))
                 card.append(b)
             card.set_size_request(220, -1)
             card.set_margin_end(8)
             self.set_child(card)
-            popup.close_on_outside(self, card, self.chiudi)
+            popup.close_on_outside(self, card, self.close_window)
 
-        def fai(self, fn):
+        def run_action(self, fn):
             self.set_visible(False)
             try:
                 fn()
             finally:
-                self.chiudi()
+                self.close_window()
 
-        def chiudi(self):
+        def close_window(self):
             self.get_application().quit()
             return False
 
@@ -180,17 +180,17 @@ def main(argv):
         return 0
     if cmd == "apply":
         return 0 if dock.apply() else 1
-    if cmd == "genera":
+    if cmd == "generate":
         return 0 if dock.apply(reload=False) else 1
-    if cmd in ("menu", "togli") and len(argv) > 2 and argv[2].isdigit():
-        return (menu if cmd == "menu" else togli)(int(argv[2]))
+    if cmd in ("menu", "remove") and len(argv) > 2 and argv[2].isdigit():
+        return (menu if cmd == "menu" else remove)(int(argv[2]))
     print(tr("""zeta-dock — generates and reloads the ZETA RAYS dock from ~/.config/zeta/dock.json.
 
   zeta-dock apply     regenerate the bar from the saved dock and reload it
-  zeta-dock genera    regenerate only, without reloading the bar
+  zeta-dock generate  regenerate only, without reloading the bar
   zeta-dock reset     restore the default dock
   zeta-dock menu N    right-click menu for dock icon N
-  zeta-dock togli N   remove icon N from the dock"""))
+  zeta-dock remove N  remove icon N from the dock"""))
     return 1
 
 

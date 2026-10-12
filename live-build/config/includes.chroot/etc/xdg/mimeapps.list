@@ -1,19 +1,19 @@
-# ZETA RAYS — quale programma apre quale tipo di file.
+# ZETA RAYS — which program opens which file type.
 #
-# Senza questo elenco il sistema sceglie da solo, e sceglie male: le immagini
-# finivano in «display» di ImageMagick (interfaccia X11 di trent'anni fa) e
-# molti formati non si aprivano affatto.
+# Without this list the system chooses on its own, and chooses badly: images
+# ended up in ImageMagick's «display» (a thirty-year-old X11 interface) and
+# many formats did not open at all.
 #
-# Ogni riga qui sotto punta a un programma che è davvero installato: un tipo
-# associato a un programma assente è peggio che nessuna associazione, perché
-# il doppio clic sembra non fare nulla.
+# Every line below points to a program that is actually installed: a type
+# associated with a missing program is worse than no association, because
+# double-clicking seems to do nothing.
 
 [Default Applications]
 
-# --- Cartelle ---------------------------------------------------------------
+# --- Folders ----------------------------------------------------------------
 inode/directory=thunar.desktop
 
-# --- Testo, codice e dati ---------------------------------------------------
+# --- Text, code and data ----------------------------------------------------
 text/plain=org.gnome.TextEditor.desktop
 text/markdown=org.gnome.TextEditor.desktop
 text/csv=org.gnome.TextEditor.desktop
@@ -56,7 +56,7 @@ application/javascript=org.gnome.TextEditor.desktop
 text/javascript=org.gnome.TextEditor.desktop
 application/x-shellscript=org.gnome.TextEditor.desktop
 
-# --- Immagini ---------------------------------------------------------------
+# --- Images -----------------------------------------------------------------
 image/png=org.gnome.eog.desktop
 image/jpeg=org.gnome.eog.desktop
 image/gif=org.gnome.eog.desktop
@@ -77,7 +77,7 @@ image/x-xpixmap=org.gnome.eog.desktop
 image/x-tga=org.gnome.eog.desktop
 image/x-pcx=org.gnome.eog.desktop
 
-# --- Documenti da leggere ---------------------------------------------------
+# --- Documents for reading --------------------------------------------------
 application/pdf=org.gnome.Evince.desktop
 application/postscript=org.gnome.Evince.desktop
 application/x-dvi=org.gnome.Evince.desktop
@@ -126,7 +126,7 @@ audio/x-matroska=mpv.desktop
 audio/x-ape=mpv.desktop
 audio/x-musepack=mpv.desktop
 
-# --- Archivi e immagini disco ------------------------------------------------
+# --- Archives and disk images ------------------------------------------------
 application/zip=org.gnome.FileRoller.desktop
 application/x-tar=org.gnome.FileRoller.desktop
 application/gzip=org.gnome.FileRoller.desktop
@@ -151,7 +151,7 @@ application/x-cd-image=org.gnome.FileRoller.desktop
 application/x-iso9660-image=org.gnome.FileRoller.desktop
 application/vnd.debian.binary-package=org.gnome.FileRoller.desktop
 
-# --- Caratteri ---------------------------------------------------------------
+# --- Fonts -------------------------------------------------------------------
 font/ttf=org.gnome.font-viewer.desktop
 font/otf=org.gnome.font-viewer.desktop
 font/woff=org.gnome.font-viewer.desktop
@@ -162,22 +162,22 @@ application/x-font-otf=org.gnome.font-viewer.desktop
 application/x-font-type1=org.gnome.font-viewer.desktop
 application/font-woff=org.gnome.font-viewer.desktop
 
-# --- Pagine web e collegamenti ------------------------------------------------
+# --- Web pages and links ------------------------------------------------------
 text/html=firefox-esr.desktop
 application/xhtml+xml=firefox-esr.desktop
 x-scheme-handler/http=firefox-esr.desktop
 x-scheme-handler/https=firefox-esr.desktop
 x-scheme-handler/ftp=firefox-esr.desktop
 x-scheme-handler/about=firefox-esr.desktop
-# Posta: i link «mailto:» e i messaggi salvati si aprono in Thunderbird
+# Mail: «mailto:» links and saved messages open in Thunderbird
 x-scheme-handler/mailto=thunderbird.desktop
 message/rfc822=thunderbird.desktop
 
-# --- Programmi da installare ------------------------------------------------
-# doppio clic su un .deb o su un .flatpakref (pulsante «Install» di Flathub):
-# finestra di ZETA RAYS con cosa si installa, password, esito e «Apri»
-application/vnd.debian.binary-package=zeta-installa-programma.desktop
-application/x-deb=zeta-installa-programma.desktop
-application/x-debian-package=zeta-installa-programma.desktop
-application/vnd.flatpak.ref=zeta-installa-programma.desktop
-application/vnd.flatpak=zeta-installa-programma.desktop
+# --- Programs to install ----------------------------------------------------
+# double-click on a .deb or a .flatpakref (Flathub's «Install» button):
+# a ZETA RAYS window showing what gets installed, password, result and «Open»
+application/vnd.debian.binary-package=zeta-install-program.desktop
+application/x-deb=zeta-install-program.desktop
+application/x-debian-package=zeta-install-program.desktop
+application/vnd.flatpak.ref=zeta-install-program.desktop
+application/vnd.flatpak=zeta-install-program.desktop

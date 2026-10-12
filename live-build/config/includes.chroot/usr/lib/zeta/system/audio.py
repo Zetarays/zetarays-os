@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ZETA RAYS — audio (PipeWire/WirePlumber).
 
-Elenchi strutturati da `pw-dump` (JSON), volumi e dispositivo predefinito
-con `wpctl`. Volumi espressi da 0.0 a 1.0 (fino a 1.5 per l'amplificazione).
+Structured lists from `pw-dump` (JSON), volumes and default device through
+`wpctl`. Volumes range from 0.0 to 1.0 (up to 1.5 for amplification).
 """
 import json
 import re
@@ -42,7 +42,7 @@ def _defaults(objs):
 
 
 def devices(kind=SINK):
-    """Uscite (kind=SINK) o ingressi (kind=SOURCE): [{id, name, label, default}]."""
+    """Outputs (kind=SINK) or inputs (kind=SOURCE): [{id, name, label, default}]."""
     objs = _dump()
     defaults = _defaults(objs)
     key = "default.audio.sink" if kind == SINK else "default.audio.source"
@@ -63,7 +63,7 @@ def devices(kind=SINK):
 
 
 def streams():
-    """App che stanno riproducendo audio: [{id, app, label}]."""
+    """Apps that are currently playing audio: [{id, app, label}]."""
     rows = []
     for o in _dump():
         if o.get("type") != "PipeWire:Interface:Node":
@@ -78,7 +78,7 @@ def streams():
 
 
 def _nice(label):
-    # "Built-in Audio Analog Stereo" -> "Audio integrato (analogico stereo)"
+    # "Built-in Audio Analog Stereo" -> translated "Built-in Audio (Analog Stereo)"
     t = label.replace("Built-in Audio", tr("Built-in Audio"))
     t = re.sub(r"\bAnalog Stereo\b", lambda _m: tr("Analog Stereo"), t)
     t = re.sub(r"\bDigital Stereo\b", lambda _m: tr("Digital Stereo"), t)
@@ -86,13 +86,13 @@ def _nice(label):
     return t
 
 
-# wpctl stampa e legge i numeri secondo la lingua del sistema (in italiano
-# «0,40»): sempre in C, cosi' il volume si legge e si scrive con il punto.
+# wpctl prints and parses numbers according to the system locale (in Italian
+# «0,40»): always use C, so the volume is read and written with a dot.
 _WPCTL = ["env", "LC_ALL=C", "wpctl"]
 
 
 def volume(target=DEFAULT_SINK):
-    """(volume 0..1.5, muto) oppure (None, False) se non c'è audio."""
+    """(volume 0..1.5, muted), or (None, False) if there is no audio."""
     out = run(_WPCTL + ["get-volume", str(target)], timeout=3)
     m = re.search(r"Volume:\s*([\d.]+)", out or "")
     if not m:

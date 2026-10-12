@@ -1,22 +1,22 @@
-# ZETA RAYS — scambio compresso dentro la memoria.
+# ZETA RAYS — compressed swap in RAM.
 #
-# Perche' serve: quando la memoria finisce, il kernel sposta le pagine meno
-# usate sul disco. Su un disco lento (i Mini PC ne montano spesso di
-# economici) questo e' il momento in cui il computer sembra bloccato: ogni
-# clic aspetta il disco. Con zram le stesse pagine vengono compresse e
-# restano in RAM: niente disco, niente attesa. Si paga qualche istante di
-# CPU, che c'e' sempre, invece di secondi di disco, che non ci sono.
+# Why it matters: when memory runs out, the kernel moves the least used pages
+# to disk. On a slow disk (Mini PCs often ship cheap ones) that is the moment
+# the computer seems frozen: every click waits for the disk. With zram the
+# same pages are compressed and stay in RAM: no disk, no waiting. The cost is
+# a few moments of CPU, which is always available, instead of seconds of
+# disk I/O, which is not.
 #
-# ALGO: zstd comprime circa 3 volte contro le 2 di lz4, a un costo di CPU che
-# su un processore moderno non si nota. Con 8 GB di memoria significa circa
-# 4 GB in piu' di spazio utile.
+# ALGO: zstd compresses about 3:1 versus 2:1 for lz4, at a CPU cost that is
+# unnoticeable on a modern processor. With 8 GB of RAM that means roughly
+# 4 GB of extra usable space.
 ALGO=zstd
 
-# PERCENT: quanta memoria puo' occupare il dispositivo zram, in percentuale.
-# 50 e' la scelta prudente: anche riempiendolo del tutto resta meta' memoria
-# per i programmi. Alzarlo oltre non aggiunge respiro, lo toglie.
+# PERCENT: how much memory the zram device may occupy, as a percentage.
+# 50 is the safe choice: even when it is completely full, half the memory is
+# left for programs. Raising it further does not add headroom, it takes it.
 PERCENT=50
 
-# PRIORITY: piu' alta di qualunque scambio su disco, cosi' il kernel usa
-# prima la memoria compressa e tocca il disco solo se quella finisce.
+# PRIORITY: higher than any on-disk swap, so the kernel uses compressed
+# memory first and only touches the disk once that is full.
 PRIORITY=100

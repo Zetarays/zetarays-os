@@ -6,7 +6,7 @@ and an optional local conversation memory. It is written in standard-library
 Python: **no dependencies to install** (network calls use `urllib`).
 
 Code: `/usr/lib/zeta/intelligence/` (providers, registry, memory, voice) and
-`/usr/lib/zeta/intelligence/agente/` (understanding, actions, verification).
+`/usr/lib/zeta/intelligence/agent/` (understanding, actions, verification).
 
 ## Providers
 
@@ -46,10 +46,10 @@ Keys are **never** in the code or in configuration files. They are entered in
 1. in the system keyring (Secret Service, unlocked at login), when one is
    running;
 2. otherwise as systemd user credentials (`systemd-creds --user`): one
-   encrypted file per key in `~/.config/zeta/chiavi/` (folder 0700, files
+   encrypted file per key in `~/.config/zeta/keys/` (folder 0700, files
    0600), readable only by the same user on the same computer.
 
-A plain-text `chiavi.json` from earlier versions is converted and then deleted;
+A plain-text `keys.json` from earlier versions is converted and then deleted;
 it is used only if `systemd-creds` is missing. Keys are sent only to the
 provider they belong to, and never appear in logs or URLs.
 
@@ -60,7 +60,7 @@ options) is in `~/.config/zeta/intelligence.json`.
 
 The AI never runs arbitrary shell commands. A request goes through one chain:
 
-1. **local understanding** (`agente/capire.py`): English and Italian phrases
+1. **local understanding** (`agent/understanding.py`): English and Italian phrases
    are recognized in milliseconds, without the network or the model;
    compound requests ("create a folder and then open it") become several
    actions in order;
@@ -72,7 +72,7 @@ The AI never runs arbitrary shell commands. A request goes through one chain:
 4. every action **checks the real state** of the system afterwards: the
    answer is the result of that check, never a courtesy "done".
 
-The catalog (`agente/capacita.py`) has 58 actions on apps, windows, files and
+The catalog (`agent/capabilities.py`) has 58 actions on apps, windows, files and
 folders, settings, volume, brightness, Wi-Fi, Bluetooth, the Dock, processes,
 software and the location of installed programs. Each has a risk level:
 
@@ -93,7 +93,7 @@ keys and tokens hidden.
 
 ## Finding programs
 
-`system/programmi.py` answers "where is X?", "which command starts X?" and
+`system/programs.py` answers "where is X?", "which command starts X?" and
 "which package provides X?" from the real system: the app registry (APT,
 Flatpak, AppImage, `/opt`, `/usr/local`, the user's own entries), every
 directory of `$PATH` plus the sbin directories, the owning Debian package and
@@ -135,9 +135,7 @@ zeta system | memory | processes | repositories | diagnose
 zeta ai status | ai test [service] | shell status
 ```
 
-The Italian forms (`--stato`, `--oblio`, `sistema`, `memoria`, `processi`,
-`diagnosi`) still work. `zeta-core` opens the graphical interface, with the
-particle sphere.
+`zeta-core` opens the graphical interface, with the particle sphere.
 
 ## Security and ethics
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Monitor — widget riutilizzabili (grafici, tabelle, card)."""
+"""ZETA RAYS Monitor — reusable widgets (charts, tables, cards)."""
 import collections
 import sys
 
@@ -13,7 +13,7 @@ from i18n import tr  # noqa: E402
 
 
 class Sparkline(Gtk.DrawingArea):
-    """Grafico a linea con storico scorrevole (Cairo)."""
+    """Line chart with a scrolling history (Cairo)."""
 
     def __init__(self, color=(0.23, 0.55, 1.0), maxlen=120, height=70, fill=True):
         super().__init__(hexpand=True)
@@ -21,7 +21,7 @@ class Sparkline(Gtk.DrawingArea):
         self.color = color
         self.fill = fill
         self.data = collections.deque([0.0] * maxlen, maxlen=maxlen)
-        self.auto = True          # scala automatica
+        self.auto = True          # automatic scale
         self.set_draw_func(self._draw)
 
     def push(self, v):
@@ -39,13 +39,13 @@ class Sparkline(Gtk.DrawingArea):
         peak = peak if peak > 1e-6 else 1.0
         n = len(data)
         r, g, b = self.color
-        # griglia orizzontale tenue
+        # faint horizontal grid
         cr.set_source_rgba(1, 1, 1, 0.05)
         cr.set_line_width(1)
         for k in range(1, 3):
             y = h * k / 3
             cr.move_to(0, y); cr.line_to(w, y); cr.stroke()
-        # linea
+        # line
         cr.set_line_width(1.6)
         cr.set_source_rgba(r, g, b, 0.9)
         pts = []
@@ -64,7 +64,7 @@ class Sparkline(Gtk.DrawingArea):
 
 
 class Bar(Gtk.DrawingArea):
-    """Barra di riempimento orizzontale (per CPU per-core, memoria)."""
+    """Horizontal fill bar (for per-core CPU, memory)."""
 
     def __init__(self, color=(0.23, 0.55, 1.0), height=6):
         super().__init__(hexpand=True)
@@ -86,11 +86,11 @@ class Bar(Gtk.DrawingArea):
 
 
 class Table(Gtk.Box):
-    """Tabella leggera: intestazione + righe ricostruite a ogni aggiornamento."""
+    """Lightweight table: header + rows rebuilt on every update."""
 
     def __init__(self, columns, on_select=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.columns = columns          # [(titolo, peso)]
+        self.columns = columns          # [(title, weight)]
         self.on_select = on_select
         head = Gtk.Box(spacing=0, css_classes=["mono", "thead"])
         for i, (title, weight) in enumerate(columns):
@@ -110,14 +110,14 @@ class Table(Gtk.Box):
 
     @staticmethod
     def _size(lbl, weight, last):
-        # Larghezza in pixel, uguale per intestazione e righe (hanno caratteri di
-        # dimensione diversa, quindi una larghezza in "caratteri" non allineerebbe).
+        # Width in pixels, the same for header and rows (they use different font
+        # sizes, so a width in "characters" would not line up).
         lbl.set_ellipsize(3)            # Pango.EllipsizeMode.END
         if last:
             lbl.set_size_request(max(24, int(weight * 0.84)), -1)
         else:
             lbl.set_size_request(max(24, int(weight * 0.86)), -1)
-            lbl.set_max_width_chars(1)  # larghezza naturale minima: resta quella fissata
+            lbl.set_max_width_chars(1)  # minimal natural width: the fixed one wins
             lbl.set_margin_end(10)
 
     def _sel(self, _lb, row):
@@ -125,7 +125,7 @@ class Table(Gtk.Box):
             self.on_select(getattr(row, "key", None))
 
     def update(self, rows):
-        """rows: lista di (chiave, [celle], stile_cella_opzionale)."""
+        """rows: list of (key, [cells], optional_cell_style)."""
         child = self.listbox.get_first_child()
         while child:
             self.listbox.remove(child)
@@ -154,7 +154,7 @@ def fmt_rate_short(v):
 
 
 class TrafficChart(Gtk.DrawingArea):
-    """Traffico di rete: download e upload sovrapposti, asse con unità e tempo."""
+    """Network traffic: download and upload overlaid, axis with units and time."""
 
     def __init__(self, accent=(0.23, 0.55, 1.0), up_color=(0.24, 0.86, 0.59), seconds=120, height=220):
         super().__init__(hexpand=True)
@@ -177,7 +177,7 @@ class TrafficChart(Gtk.DrawingArea):
         left, right, top, bottom = 64, 8, 8, 22
         cw, ch = w - left - right, h - top - bottom
         peak = max(max(self.down), max(self.up), 1024.0)
-        # scala "tonda"
+        # "round" scale
         step = 1
         while step * 4 < peak:
             step *= 2

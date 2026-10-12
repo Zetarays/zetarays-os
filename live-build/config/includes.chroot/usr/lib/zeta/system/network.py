@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — rete (NetworkManager via nmcli): stato, Wi-Fi, VPN, proxy."""
+"""ZETA RAYS — networking (NetworkManager via nmcli): status, Wi-Fi, VPN, proxy."""
 import os
 import re
 
@@ -9,14 +9,15 @@ from . import run
 
 VPN_TYPES = ("vpn", "wireguard")
 
-# nmcli traduce stati e messaggi nella lingua del sistema («connesso»,
-# «abilitato»): quando se ne legge l'uscita si usa sempre l'inglese. C.UTF-8
-# e non C, cosi' i nomi delle reti con lettere accentate restano intatti.
+# nmcli translates states and messages into the system language (e.g.
+# Italian "connesso", "abilitato"): whenever its output is parsed, English is
+# always used. C.UTF-8
+# rather than C, so network names with accented letters stay intact.
 NMCLI = ["env", "LC_ALL=C.UTF-8", "LANGUAGE=C", "nmcli"]
 
 
 def _split(line):
-    """Divide una riga di `nmcli -t` rispettando i ':' preceduti da '\\'."""
+    """Split a `nmcli -t` line, honoring ':' characters escaped with '\\'."""
     parts, cur, esc = [], "", False
     for ch in line:
         if esc:
@@ -39,8 +40,9 @@ def _rows(args, timeout=8):
 
 
 def nice_name(conn, typ):
-    """Nome da mostrare: i nomi automatici di NetworkManager diventano leggibili."""
-    m = re.match(r"^(Wired connection|Connessione via cavo)\s*(\d+)$", conn or "")
+    """Display name: NetworkManager's automatic names become readable."""
+    # the automatic name in English or as NetworkManager writes it in Italian  # i18n-data
+    m = re.match(r"^(Wired connection|Connessione via cavo)\s*(\d+)$", conn or "")  # i18n-data
     if m:
         if m.group(2) == "1":
             return tr("Wired connection")
@@ -49,7 +51,7 @@ def nice_name(conn, typ):
 
 
 def status():
-    """Connessione principale: {kind, name, label, device, ip, connected}."""
+    """Main connection: {kind, name, label, device, ip, connected}."""
     info = {"kind": "none", "name": "", "label": "", "device": "", "ip": "", "connected": False}
     for dev, typ, state, conn in _rows(["-f", "DEVICE,TYPE,STATE,CONNECTION", "device"]):
         if state == "connected" and typ in ("ethernet", "wifi"):
@@ -65,12 +67,12 @@ def status():
 
 
 def connectivity():
-    """Stato di Internet secondo NetworkManager: full, limited, portal, none, unknown.
+    """Internet status according to NetworkManager: full, limited, portal, none, unknown.
 
-    Senza --check: legge l'ultimo controllo di NetworkManager, non aspetta la rete.
+    Without --check: reads NetworkManager's last check, does not wait for the network.
     """
-    stato = (run(NMCLI + ["-t", "networking", "connectivity"]) or "").strip()
-    return stato if stato in ("full", "limited", "portal", "none") else "unknown"
+    state = (run(NMCLI + ["-t", "networking", "connectivity"]) or "").strip()
+    return state if state in ("full", "limited", "portal", "none") else "unknown"
 
 
 def wifi_enabled():
@@ -86,7 +88,7 @@ def set_wifi(on):
 
 
 def wifi_networks(rescan=False):
-    """Reti Wi-Fi visibili, la più forte per nome: [{ssid, signal, secure, active}]."""
+    """Visible Wi-Fi networks, the strongest per name: [{ssid, signal, secure, active}]."""
     args = ["-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list",
             "--rescan", "yes" if rescan else "auto"]
     best = {}
@@ -113,14 +115,14 @@ def known_connection(ssid):
 
 
 def _nmcli(args, input_=None, timeout=45):
-    """nmcli in inglese (i messaggi si riconoscono, vedi _motivo) e con un
-    limite di attesa: senza --wait una rete che non risponde teneva
-    l'interfaccia su «Connessione…» per un minuto e mezzo."""
+    """nmcli in English (so messages can be recognized, see _reason) and with
+    a wait limit: without --wait a network that did not respond kept the
+    interface on "Connecting…" for a minute and a half."""
     import os
     import subprocess
-    attesa = ["--wait", str(max(5, timeout - 10))]
+    wait = ["--wait", str(max(5, timeout - 10))]
     try:
-        r = subprocess.run(["nmcli"] + attesa + args, input=input_, capture_output=True, text=True,
+        r = subprocess.run(["nmcli"] + wait + args, input=input_, capture_output=True, text=True,
                            timeout=timeout, env=dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C"))
         return r.returncode, (r.stdout + r.stderr).strip()
     except subprocess.TimeoutExpired:
@@ -130,21 +132,21 @@ def _nmcli(args, input_=None, timeout=45):
 
 
 def known_wifi():
-    """I nomi delle reti Wi-Fi salvate (una chiamata sola)."""
+    """The names of the saved Wi-Fi networks (a single call)."""
     return {name for name, typ in _rows(["-f", "NAME,TYPE", "connection", "show"])
             if typ == "802-11-wireless"}
 
 
-def _motivo(testo):
-    t = testo.lower()
+def _reason(text):
+    t = text.lower()
     if ("secrets were required" in t or "psk: property is invalid" in t or "no secrets" in t
             or "802-1x" in t or "wrong password" in t or "(7)" in t):
         return "password"
     if "no network with ssid" in t or "not found" in t and "ssid" in t:
-        return "non trovata"
+        return "not_found"
     if "timeout" in t or "timed out" in t:
-        return "tempo"
-    return "altro"
+        return "timeout"
+    return "other"
 
 
 def _wifi_dev():
@@ -154,40 +156,41 @@ def _wifi_dev():
     return None
 
 
-# Che cosa scrive nmcli --ask (provato con NetworkManager 1.52 e punti di
-# accesso simulati, 1 ottobre):
-#  - la riga «Password (802-11-wireless-security.psk):» compare due volte
-#    ANCHE quando va tutto bene: nmcli la ristampa dopo «successfully
-#    activated» e quando scade il tempo. Contarla faceva dire «password
-#    sbagliata» a una connessione riuscita, e il profilo appena collegato
-#    veniva cancellato: con la password giusta non ci si collegava mai.
-#  - il rifiuto vero e' NetworkManager che CHIEDE DI NUOVO la password:
-#    l'intestazione qui sotto ricompare (ogni ~4 s finche' non si rinuncia).
-_RICHIESTA = "passwords or encryption keys are required"
-_RIUSCITA = "successfully activated"
+# What nmcli --ask prints (tested with NetworkManager 1.52 and simulated
+# access points, October 1):
+#  - the line "Password (802-11-wireless-security.psk):" appears twice EVEN
+#    when everything works: nmcli prints it again after "successfully
+#    activated" and when the timeout expires. Counting it made a successful
+#    connection report "wrong password", and the profile just connected was
+#    deleted: with the right password you could never connect.
+#  - the real rejection is NetworkManager ASKING AGAIN for the password: the
+#    header below shows up again (every ~4 s until it gives up).
+_PASSWORD_PROMPT = "passwords or encryption keys are required"
+_SUCCESS = "successfully activated"
 
 
-def _leggi_uscita(testo):
-    """«riuscita», «rifiutata» (NetworkManager ha richiesto la password) o None."""
-    t = (testo or "").lower()
-    if _RIUSCITA in t:
-        return "riuscita"
-    if t.count(_RICHIESTA) >= 2:
-        return "rifiutata"
+def _read_output(text):
+    """Return "success", "rejected" (NetworkManager asked for the password
+    again) or None."""
+    t = (text or "").lower()
+    if _SUCCESS in t:
+        return "success"
+    if t.count(_PASSWORD_PROMPT) >= 2:
+        return "rejected"
     return None
 
 
-def _attiva(args, password, limite=40):
-    """Esegue nmcli leggendo cio' che scrive mentre lavora. Con --ask nmcli
-    chiede la password una volta (e la riceve dall'ingresso: non compare
-    nell'elenco dei processi). Se NetworkManager la richiede una seconda
-    volta l'ha rifiutata: ci si ferma subito invece di aspettare il limite
-    di tempo (prima l'errore arrivava dopo 40 s, o diventava «non risponde»)."""
+def _activate_connection(args, password, limit=40):
+    """Run nmcli, reading what it prints while it works. With --ask nmcli
+    asks for the password once (and gets it from stdin: it does not show up
+    in the process list). If NetworkManager asks for it a second time it has
+    rejected it: stop right away instead of waiting for the timeout (before,
+    the error arrived after 40 s, or turned into "not responding")."""
     import os
     import subprocess
     import threading
     import time
-    cmd = ["nmcli", "--wait", str(limite)] + args
+    cmd = ["nmcli", "--wait", str(limit)] + args
     try:
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, bufsize=1, env=dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C"))
@@ -198,82 +201,82 @@ def _attiva(args, password, limite=40):
         p.stdin.close()
     except OSError:
         pass
-    righe = []
+    lines = []
 
-    def leggi():
-        # nmcli scrive la domanda senza andare a capo: si legge a pezzi
+    def read():
+        # nmcli prints the prompt without a newline: read it piece by piece
         while True:
-            pezzo = p.stdout.read(1) if p.stdout else ""
-            if not pezzo:
+            chunk = p.stdout.read(1) if p.stdout else ""
+            if not chunk:
                 break
-            righe.append(pezzo)
-    t = threading.Thread(target=leggi, daemon=True)
+            lines.append(chunk)
+    t = threading.Thread(target=read, daemon=True)
     t.start()
-    fine = time.monotonic() + limite + 5
-    rifiutata = False
-    while p.poll() is None and time.monotonic() < fine:
+    deadline = time.monotonic() + limit + 5
+    rejected = False
+    while p.poll() is None and time.monotonic() < deadline:
         time.sleep(0.2)
-        stato = _leggi_uscita("".join(righe))
-        if stato == "riuscita":
-            break                                    # nmcli sta finendo da solo
-        if stato == "rifiutata":
-            rifiutata = True
+        state = _read_output("".join(lines))
+        if state == "success":
+            break                                    # nmcli is finishing on its own
+        if state == "rejected":
+            rejected = True
             break
     try:
-        p.wait(timeout=3)                            # se ha finito da solo, il suo esito vale
+        p.wait(timeout=3)                            # if it finished by itself, its result counts
     except subprocess.SubprocessError:
         pass
-    ucciso = p.poll() is None
-    if ucciso:
+    killed = p.poll() is None
+    if killed:
         p.kill()
         try:
             p.wait(timeout=5)
         except subprocess.SubprocessError:
             pass
     t.join(timeout=2)
-    out = "".join(righe).strip()
-    if _leggi_uscita(out) == "riuscita":
+    out = "".join(lines).strip()
+    if _read_output(out) == "success":
         return 0, out, None
-    if rifiutata or _leggi_uscita(out) == "rifiutata":
+    if rejected or _read_output(out) == "rejected":
         return 1, out, "password"
-    if ucciso:
-        return 1, out, "tempo"
+    if killed:
+        return 1, out, "timeout"
     return p.returncode, out, None
 
 
-def _attendi_rete(ssid, entro=15):
-    """La rete si vede? Subito dopo aver acceso il Wi-Fi (o ricaricato la
-    scheda) l'elenco e' vuoto per qualche secondo, e NetworkManager accetta
-    una nuova scansione solo ogni tanto: si riguarda per un massimo di 15 s
-    invece di rispondere «non la vedo» al terzo tentativo (provato: 6 s non
-    bastavano dopo aver ricaricato la scheda)."""
+def _wait_for_network(ssid, within=15):
+    """Is the network visible? Right after turning Wi-Fi on (or reloading the
+    adapter) the list is empty for a few seconds, and NetworkManager only
+    accepts a new scan every so often: keep looking for up to 15 s instead of
+    answering "can't see it" on the third try (tested: 6 s was not enough
+    after reloading the adapter)."""
     import time
-    fine = time.monotonic() + entro
-    primo = True
+    deadline = time.monotonic() + within
+    first = True
     while True:
-        _rc, out = _nmcli(["-t", "-f", "SSID", "device", "wifi", "list", "--rescan", "auto" if primo else "yes"],
+        _rc, out = _nmcli(["-t", "-f", "SSID", "device", "wifi", "list", "--rescan", "auto" if first else "yes"],
                           timeout=20)
-        if ssid in {riga.replace("\\:", ":") for riga in out.splitlines()}:
+        if ssid in {line.replace("\\:", ":") for line in out.splitlines()}:
             return True
-        primo = False
-        if time.monotonic() >= fine:
+        first = False
+        if time.monotonic() >= deadline:
             return False
         time.sleep(2)
 
 
-def _chiave_rifiutata(dal):
-    """True se wpa_supplicant ha scritto che la chiave e' sbagliata (WRONG_KEY)
-    dal momento indicato; False se non l'ha scritto; None se il registro non
-    si puo' leggere (utente fuori dal gruppo adm, per esempio dal vivo).
+def _key_rejected(since):
+    """True if wpa_supplicant logged that the key is wrong (WRONG_KEY) since
+    the given time; False if it did not; None if the journal cannot be read
+    (user not in the adm group, e.g. on the live system).
 
-    Serve perche' NetworkManager, al primo collegamento, richiede la password
-    per QUALUNQUE accesso non riuscito: password sbagliata, ma anche segnale
-    debole o router che non risponde (provato: punto di accesso spento, stessa
-    richiesta). Solo WRONG_KEY dice davvero che la password e' sbagliata."""
+    Needed because NetworkManager, on the first connection, asks for the
+    password again after ANY failed attempt: a wrong password, but also a weak
+    signal or a router that does not respond (tested: access point off, same
+    prompt). Only WRONG_KEY really says the password is wrong."""
     import subprocess
     try:
         r = subprocess.run(["journalctl", "-q", "--no-pager", "-o", "cat", "-u", "wpa_supplicant",
-                            "--since", "@%d" % int(dal)], capture_output=True, text=True, timeout=5)
+                            "--since", "@%d" % int(since)], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
@@ -281,100 +284,101 @@ def _chiave_rifiutata(dal):
     return "reason=WRONG_KEY" in r.stdout
 
 
-def connect_wifi_esito(ssid, password=None, nascosta=False):
-    """(ok, messaggio, motivo) — motivo: None, «password», «non trovata», «tempo», «altro».
+def connect_wifi_outcome(ssid, password=None, is_hidden=False):
+    """(ok, message, reason) — reason: None, "password", "not_found",
+    "timeout", "other".
 
-    Il problema che risolve: dopo una password sbagliata NetworkManager teneva
-    la rete salvata CON la password sbagliata; da li' in poi l'interfaccia la
-    considerava «conosciuta», non chiedeva piu' la password e riprovava sempre
-    quella sbagliata. Ora:
-      - una password nuova sostituisce sempre quella salvata;
-      - se l'accesso fallisce, il profilo si toglie, cosi' il tentativo dopo
-        chiede di nuovo la password (motivo «password»: l'interfaccia la
-        richiede subito, senza far ripartire da capo);
-      - «password sbagliata» si dice solo se wpa_supplicant lo conferma;
-      - la password arriva a nmcli dall'ingresso (--ask), non dalla riga di
-        comando: non compare nell'elenco dei processi;
-      - le reti nascoste si collegano per nome, con un profilo «hidden».
+    The problem it solves: after a wrong password NetworkManager kept the
+    network saved WITH the wrong password; from then on the interface treated
+    it as "known", no longer asked for the password and kept retrying the
+    wrong one. Now:
+      - a new password always replaces the saved one;
+      - if the connection fails, the profile is removed, so the next attempt
+        asks for the password again (reason "password": the interface asks
+        for it right away, without starting over);
+      - "wrong password" is reported only if wpa_supplicant confirms it;
+      - the password reaches nmcli through stdin (--ask), not the command
+        line: it does not show up in the process list;
+      - hidden networks are joined by name, with a "hidden" profile.
     """
     import time
-    conosciuta = known_connection(ssid)
+    known = known_connection(ssid)
     dev = _wifi_dev()
     if not dev:
-        return False, tr("This computer has no Wi-Fi adapter."), "altro"
-    if not nascosta and not _attendi_rete(ssid):
-        return False, tr("The network “{name}” is not in range").format(name=ssid), "non trovata"
-    inizio = time.time()
-    if nascosta:
-        # non compare nelle scansioni, quindi «device wifi connect» non la
-        # trova nemmeno con «hidden yes» (provato): si crea il profilo e lo si
-        # attiva; NetworkManager la cerca per nome. Con «wpa-psk» wpa_supplicant
-        # accetta anche WPA3 (gli passa WPA-PSK e SAE insieme).
-        if conosciuta:
+        return False, tr("This computer has no Wi-Fi adapter."), "other"
+    if not is_hidden and not _wait_for_network(ssid):
+        return False, tr("The network “{name}” is not in range").format(name=ssid), "not_found"
+    start = time.time()
+    if is_hidden:
+        # it does not show up in scans, so "device wifi connect" cannot find
+        # it even with "hidden yes" (tested): create the profile and activate
+        # it; NetworkManager looks for it by name. With "wpa-psk" wpa_supplicant
+        # also accepts WPA3 (it is given WPA-PSK and SAE together).
+        if known:
             _nmcli(["connection", "delete", "id", ssid], timeout=15)
-        sic = ["wifi-sec.key-mgmt", "wpa-psk"] if password else []
+        security = ["wifi-sec.key-mgmt", "wpa-psk"] if password else []
         rc, out = _nmcli(["connection", "add", "type", "wifi", "ifname", dev, "con-name", ssid,
-                          "ssid", ssid, "802-11-wireless.hidden", "yes"] + sic, timeout=15)
+                          "ssid", ssid, "802-11-wireless.hidden", "yes"] + security, timeout=15)
         if rc != 0:
             return False, tr("Could not create the profile for “{name}”: {error}").format(
-                name=ssid, error=out[-120:]), "altro"
-        conosciuta = False
-        rc, out, motivo = _attiva(["--ask", "connection", "up", "id", ssid], password)
+                name=ssid, error=out[-120:]), "other"
+        known = False
+        rc, out, reason = _activate_connection(["--ask", "connection", "up", "id", ssid], password)
     elif password:
-        if conosciuta:
+        if known:
             _nmcli(["connection", "delete", "id", ssid], timeout=15)
-        rc, out, motivo = _attiva(["--ask", "device", "wifi", "connect", ssid, "ifname", dev], password)
-    elif conosciuta:
-        rc, out, motivo = _attiva(["connection", "up", "id", ssid], None)
+        rc, out, reason = _activate_connection(["--ask", "device", "wifi", "connect", ssid, "ifname", dev], password)
+    elif known:
+        rc, out, reason = _activate_connection(["connection", "up", "id", ssid], None)
     else:
-        # rete aperta, oppure protetta senza password: con --ask nmcli la
-        # chiede, e la risposta vuota la fa fallire subito
-        rc, out, motivo = _attiva(["--ask", "device", "wifi", "connect", ssid, "ifname", dev], None)
+        # open network, or secured with no password given: with --ask nmcli
+        # asks for it, and the empty answer makes it fail right away
+        rc, out, reason = _activate_connection(["--ask", "device", "wifi", "connect", ssid, "ifname", dev], None)
     if rc == 0 and "error" not in out.lower():
         return True, tr("Connected to {name}").format(name=ssid), None
-    motivo = motivo or _motivo(out)
-    if motivo == "altro" and "802-11-wireless-security" in out:
-        motivo = "password"                  # protetta e senza password
-    if nascosta and motivo == "non trovata":
-        motivo = "tempo"                     # nascosta: «non trovata» vuol dire che non ha risposto
-    if motivo == "password" and known_connection(ssid):
+    reason = reason or _reason(out)
+    if reason == "other" and "802-11-wireless-security" in out:
+        reason = "password"                  # secured and no password given
+    if is_hidden and reason == "not_found":
+        reason = "timeout"                     # hidden: "not found" means it did not respond
+    if reason == "password" and known_connection(ssid):
         _nmcli(["connection", "delete", "id", ssid], timeout=15)
-    elif not conosciuta and motivo != "tempo" and known_connection(ssid):
-        _nmcli(["connection", "delete", "id", ssid], timeout=15)    # niente profili a meta'
-    if motivo == "password" and ("property is invalid" in out.lower() or (password and len(password) < 8)):
+    elif not known and reason != "timeout" and known_connection(ssid):
+        _nmcli(["connection", "delete", "id", ssid], timeout=15)    # no half-made profiles
+    if reason == "password" and ("property is invalid" in out.lower() or (password and len(password) < 8)):
         return False, tr("Invalid password for “{name}”: WPA networks need at least 8 characters.").format(
-            name=ssid), motivo
-    if motivo == "password" and not password:
-        if conosciuta:
+            name=ssid), reason
+    if reason == "password" and not password:
+        if known:
             return False, tr("The saved password for “{name}” no longer works: enter the current one.").format(
-                name=ssid), motivo
-        return False, tr("“{name}” is secured: a password is required.").format(name=ssid), motivo
-    if motivo == "password" and _chiave_rifiutata(inizio) is False:
-        # NetworkManager ha richiesto la password, ma la chiave non e' stata
-        # rifiutata: l'accesso non e' riuscito per un altro motivo
+                name=ssid), reason
+        return False, tr("“{name}” is secured: a password is required.").format(name=ssid), reason
+    if reason == "password" and _key_rejected(start) is False:
+        # NetworkManager asked for the password again, but the key was not
+        # rejected: the connection failed for some other reason
         return False, tr("Could not join “{name}”. Check the password; if it is correct, the signal "
                          "is weak or the router did not respond: move closer and try again.").format(
-                             name=ssid), motivo
-    ultima = out.splitlines()[-1][:120] if out else tr("unknown error")
-    if motivo == "password":
+                             name=ssid), reason
+    last_line = out.splitlines()[-1][:120] if out else tr("unknown error")
+    if reason == "password":
         msg = tr("Wrong password for “{name}”. Try again.").format(name=ssid)
-    elif motivo == "non trovata":
+    elif reason == "not_found":
         msg = tr("The network “{name}” is not in range").format(name=ssid)
-    elif motivo == "tempo":
+    elif reason == "timeout":
         msg = tr("“{name}” did not respond in time: move closer to the router and try again").format(name=ssid)
     else:
-        msg = tr("Connection failed: {error}").format(error=ultima)
-    return False, msg, motivo
+        msg = tr("Connection failed: {error}").format(error=last_line)
+    return False, msg, reason
 
 
 def connect_wifi(ssid, password=None):
-    """(ok, messaggio) — vedi connect_wifi_esito."""
-    ok, msg, _m = connect_wifi_esito(ssid, password)
+    """(ok, message) — see connect_wifi_outcome."""
+    ok, msg, _m = connect_wifi_outcome(ssid, password)
     return ok, msg
 
 
 def forget_wifi(ssid):
-    """Dimentica una rete salvata (con la sua password)."""
+    """Forget a saved network (along with its password)."""
     rc, _out = _nmcli(["connection", "delete", "id", ssid], timeout=15)
     return rc == 0
 
@@ -384,7 +388,7 @@ def disconnect(device):
 
 
 def vpns():
-    """Connessioni VPN configurate: [{name, uuid, type, active}]."""
+    """Configured VPN connections: [{name, uuid, type, active}]."""
     active = {row[0] for row in _rows(["-f", "UUID", "connection", "show", "--active"])}
     rows = []
     for name, uuid, typ in _rows(["-f", "NAME,UUID,TYPE", "connection", "show"]):
@@ -401,7 +405,7 @@ def set_vpn(uuid, on):
 
 
 def import_vpn(path):
-    """Importa un file .conf (WireGuard) o .ovpn (OpenVPN). (ok, messaggio)."""
+    """Import a .conf (WireGuard) or .ovpn (OpenVPN) file. (ok, message)."""
     kind = "wireguard" if path.lower().endswith(".conf") else "openvpn"
     out = run(["nmcli", "connection", "import", "type", kind, "file", path], timeout=20, check=True)
     if out is None:
@@ -414,9 +418,9 @@ def remove_connection(uuid):
 
 
 # ---------------- proxy ----------------
-# Il proxy di sistema è quello del desktop (org.gnome.system.proxy), letto da
-# Firefox e dalle app GTK; lo stesso valore va nelle variabili d'ambiente
-# (~/.config/environment.d/zeta-proxy.conf) per i programmi da terminale.
+# The system proxy is the desktop one (org.gnome.system.proxy), read by
+# Firefox and GTK apps; the same value goes into environment variables
+# (~/.config/environment.d/zeta-proxy.conf) for terminal programs.
 ENV_FILE = os.path.expanduser("~/.config/environment.d/zeta-proxy.conf")
 
 
@@ -444,7 +448,7 @@ def set_proxy(mode, host="", port=0, url=""):
     if mode == "manual" and host:
         p = "http://%s:%d/" % (host, int(port or 0))
         with open(ENV_FILE, "w") as f:
-            f.write("# Scritto da ZETA RAYS Impostazioni\n")
+            f.write("# Written by ZETA RAYS Settings\n")
             for v in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
                 f.write("%s=%s\n" % (v, p))
             f.write("no_proxy=localhost,127.0.0.1,::1\n")
@@ -453,11 +457,11 @@ def set_proxy(mode, host="", port=0, url=""):
 
 
 def proxy_env():
-    """Proxy visto dai programmi (variabili d'ambiente)."""
+    """Proxy as seen by programs (environment variables)."""
     return {k: v for k, v in os.environ.items() if k.lower() in ("http_proxy", "https_proxy", "all_proxy")}
 
 
 def public_ip_local():
-    """IP locali per interfaccia (senza richieste esterne)."""
+    """Local IPs per interface (no external requests)."""
     out = run(["ip", "-o", "-4", "addr", "show", "scope", "global"])
     return re.findall(r"^\d+:\s+(\S+)\s+inet\s+([\d.]+)", out or "", re.M)

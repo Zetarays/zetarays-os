@@ -1,0 +1,1478 @@
+{
+ "version": "2.0",
+ "steps": [
+  {
+   "kind": "skel",
+   "files": {
+    ".config/hypr/hyprland.lua": [
+     "e25ec3699dc4ec67ad7955fd6756c1370dea2f0077259bf6594f05a8c1886b2a"
+    ],
+    ".config/hypr/zeta_aspetto.lua": [
+     "1112ee69cc828b16fe26a9ccaf36168ca8dc5706bc3558aee631836b748199b6"
+    ],
+    ".config/foot/tema.ini": [
+     "6016e417b1d452d842b237ecc63887eb357043308e46a9ec97520c445d1b79af"
+    ],
+    ".config/foot/foot.ini": [
+     "922330b09cf99971ca0b5389557ee48d2c29cd5457d9bb724c5f87204a3d1639"
+    ],
+    ".config/systemd/user/zeta-appimage.path": [
+     "6881140928405f9191260250e2360c11d5795a80cac59913b655784bf64d2351"
+    ],
+    ".config/systemd/user/default.target.wants/zeta-appimage.path": [
+     "6881140928405f9191260250e2360c11d5795a80cac59913b655784bf64d2351"
+    ],
+    ".config/Thunar/uca.xml": [
+     "3a132b615023dbd4c76eead42467bb08389d583c337e9d11b49c7b03dc47ece6"
+    ],
+    ".config/waybar/config.jsonc": [
+     "b6b9cf9a6e3d648f61132e9293b2e5b95eee90544a7924fcdde3cfc7495d167b"
+    ],
+    ".config/waybar/style.css": [
+     "50b680837d922be1defdea4a7107740dd272e84d30ae59564af09a3d85132d1a"
+    ]
+   },
+   "renamed": {
+    ".config/hypr/zeta_aspetto.lua": ".config/hypr/zeta_appearance.lua",
+    ".config/foot/tema.ini": ".config/foot/theme.ini"
+   }
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/scrivania.json",
+   "new": "~/.config/zeta/desktop.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/finestre.json",
+   "new": "~/.cache/zeta/windows.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/ridotte",
+   "new": "~/.cache/zeta/minimized"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/ridotte/*-grande.png",
+   "new": "~/.cache/zeta/minimized/*-large.png"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/lingua-scelta",
+   "new": "~/.config/zeta/language-choice"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/app-nascoste.json",
+   "new": "~/.config/zeta/hidden-apps.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/appimage-ignorate.json",
+   "new": "~/.config/zeta/ignored-appimages.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/app-orfane.json",
+   "new": "~/.cache/zeta/orphan-apps.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.local/share/zeta/icone",
+   "new": "~/.local/share/zeta/icons"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/ai-precarica",
+   "new": "~/.config/zeta/ai-preload"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/voce-lingua",
+   "new": "~/.config/zeta/voice-language"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/chiavi",
+   "new": "~/.config/zeta/keys"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/chiavi.json",
+   "new": "~/.config/zeta/keys.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/voce",
+   "new": "~/.config/zeta/speech"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/tema",
+   "new": "~/.config/zeta/theme"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/editor-tema",
+   "new": "~/.config/zeta/editor-theme"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/scala",
+   "new": "~/.config/zeta/scale"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/scrivania",
+   "new": "~/.config/zeta/desktop-icons"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/animazioni",
+   "new": "~/.config/zeta/animations"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/trasparenza",
+   "new": "~/.config/zeta/transparency"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/angoli",
+   "new": "~/.config/zeta/corners"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/spaziatura",
+   "new": "~/.config/zeta/icon-spacing"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/schermo-spegni",
+   "new": "~/.config/zeta/screen-off"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/blocco-auto",
+   "new": "~/.config/zeta/auto-lock"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/notifiche-posizione",
+   "new": "~/.config/zeta/notification-position"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/notifiche-durata",
+   "new": "~/.config/zeta/notification-duration"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/non-disturbare",
+   "new": "~/.config/zeta/do-not-disturb"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/dock-posizione",
+   "new": "~/.config/zeta/dock-position"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/sfondo.*",
+   "new": "~/.config/zeta/wallpaper-choice.*"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/sfondo-blocco",
+   "new": "~/.config/zeta/lock-wallpaper"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/accent-reso",
+   "new": "~/.config/zeta/accent-rendered"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/barra",
+   "new": "~/.config/zeta/bar"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/.icone-stampo",
+   "new": "~/.config/zeta/.icons-stamp"
+  },
+  {
+   "kind": "file",
+   "old": "~/.local/share/icons/zeta/scalable/tema",
+   "new": "~/.local/share/icons/zeta/scalable/theme"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/fastfetch/compatto.jsonc",
+   "new": "~/.config/fastfetch/compact.jsonc"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/fastfetch/minuto.jsonc",
+   "new": "~/.config/fastfetch/tiny.jsonc"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/foot/tema.ini",
+   "new": "~/.config/foot/theme.ini"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/schermi.json",
+   "new": "~/.config/zeta/displays.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/terminale.json",
+   "new": "~/.config/zeta/terminal.json"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/accento-terminale",
+   "new": "~/.cache/zeta/terminal-accent"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/tmux-colori.conf",
+   "new": "~/.cache/zeta/tmux-colors.conf"
+  },
+  {
+   "kind": "file",
+   "old": "~/.cache/zeta/tmux-testi.conf",
+   "new": "~/.cache/zeta/tmux-texts.conf"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/zeta/metodo-input",
+   "new": "~/.config/zeta/input-method"
+  },
+  {
+   "kind": "cred",
+   "old": "~/.config/zeta/keys/personalizzato.cred",
+   "new": "~/.config/zeta/keys/custom.cred",
+   "old_name": "zeta-personalizzato",
+   "new_name": "zeta-custom"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/hypr/zeta_aspetto.lua",
+   "new": "~/.config/hypr/zeta_appearance.lua"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/hypr/zeta_tastiera.lua",
+   "new": "~/.config/hypr/zeta_keyboard.lua"
+  },
+  {
+   "kind": "file",
+   "old": "~/.config/hypr/zeta_schermi.lua",
+   "new": "~/.config/hypr/zeta_displays.lua"
+  },
+  {
+   "kind": "commands",
+   "map": {
+    "zeta-ai-precarica": "zeta-ai-preload",
+    "zeta-aspetto": "zeta-appearance",
+    "zeta-barra": "zeta-bar",
+    "zeta-benvenuto": "zeta-welcome",
+    "zeta-cerca": "zeta-search",
+    "zeta-controllo": "zeta-control-center",
+    "zeta-diagnosi": "zeta-diagnostics",
+    "zeta-emergenza": "zeta-emergency",
+    "zeta-energia": "zeta-power-menu",
+    "zeta-finestre": "zeta-windows",
+    "zeta-impostazioni": "zeta-settings",
+    "zeta-incolla-amministratore": "zeta-admin-paste",
+    "zeta-installa": "zeta-install-system",
+    "zeta-pannello": "zeta-panel",
+    "zeta-posta": "zeta-mail",
+    "zeta-predefinita": "zeta-default-app",
+    "zeta-prove": "zeta-selftest",
+    "zeta-riduci": "zeta-minimize",
+    "zeta-ripara-avvio": "zeta-repair-boot",
+    "zeta-schermi": "zeta-displays",
+    "zeta-scrivania": "zeta-desktop",
+    "zeta-scrivania-apri": "zeta-open-desktop-folder",
+    "zeta-selettore": "zeta-switcher",
+    "zeta-sfondo": "zeta-wallpaper",
+    "zeta-sicurezza": "zeta-security",
+    "zeta-sistema": "zeta-system",
+    "zeta-spazi": "zeta-workspaces",
+    "zeta-tastiera": "zeta-keyboard",
+    "zeta-terminale": "zeta-terminal",
+    "zeta-testo": "zeta-text-capture",
+    "zeta-vigila": "zeta-watchdog",
+    "zeta-appimage-anteprima": "zeta-appimage-thumbnail",
+    "zeta-copia-amministratore": "zeta-admin-copy",
+    "zeta-lingua": "zeta-language",
+    "zeta-pacchetti": "zeta-packages",
+    "zeta-regione-radio": "zeta-radio-region",
+    "zeta-ripresa": "zeta-recovery",
+    "zeta-salute": "zeta-health",
+    "zeta-sorgenti-apt": "zeta-apt-sources",
+    "zeta-ssh-installato": "zeta-ssh-installed",
+    "zeta-verifica-avvio": "zeta-verify-boot",
+    "zeta-installa-programma": "zeta-install-program",
+    "zeta-ssh-sincronizza": "zeta-ssh-sync",
+    "org.zetarays.AppNascoste": "org.zetarays.HiddenApps",
+    "org.zetarays.Benvenuto": "org.zetarays.Welcome",
+    "org.zetarays.Cerca": "org.zetarays.Search",
+    "org.zetarays.Controllo": "org.zetarays.ControlCenter",
+    "org.zetarays.DisinstallaApp": "org.zetarays.UninstallApp",
+    "org.zetarays.Emergenza": "org.zetarays.Emergency",
+    "org.zetarays.Energia": "org.zetarays.PowerMenu",
+    "org.zetarays.Finestre": "org.zetarays.Windows",
+    "org.zetarays.IconaApp": "org.zetarays.AppIcon",
+    "org.zetarays.IdentificaSchermi": "org.zetarays.IdentifyDisplays",
+    "org.zetarays.Impostazioni": "org.zetarays.Settings",
+    "org.zetarays.IncollaAmministratore": "org.zetarays.AdminPaste",
+    "org.zetarays.InstallaApp": "org.zetarays.InstallApp",
+    "org.zetarays.MenuPosta": "org.zetarays.MailMenu",
+    "org.zetarays.Riduci": "org.zetarays.Minimize",
+    "org.zetarays.Scrivania": "org.zetarays.Desktop",
+    "org.zetarays.Selettore": "org.zetarays.Switcher",
+    "org.zetarays.Testo": "org.zetarays.TextCapture",
+    "org.zetarays.copia.amministratore": "org.zetarays.admin-copy",
+    "org.zetarays.lingua": "org.zetarays.language",
+    "org.zetarays.pacchetti": "org.zetarays.packages",
+    "zeta_aspetto": "zeta_appearance",
+    "zeta_tastiera": "zeta_keyboard",
+    "zeta_schermi": "zeta_displays",
+    "zeta-onde-blu": "zeta-blue-waves",
+    "zeta-circuiti-verdi": "zeta-green-circuits",
+    "zeta-onde-rosse": "zeta-red-waves",
+    "zeta-terminale.jpg": "zeta-terminal.jpg",
+    "zeta-blu.jpg": "zeta-blue.jpg",
+    "zeta-verde.jpg": "zeta-green.jpg",
+    "zeta-rosso.jpg": "zeta-red.jpg",
+    "zeta-bianco.jpg": "zeta-white.jpg"
+   },
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/hypr/*.conf",
+    "~/.config/waybar/config*",
+    "~/.config/zeta/dock.json",
+    "~/.config/Thunar/uca.xml",
+    "~/.config/autostart/*.desktop",
+    "~/.local/share/applications/*.desktop",
+    "~/Desktop/*.desktop",
+    "~/Scrivania/*.desktop",
+    "~/.config/zeta/wallpaper.json",
+    "~/.config/mako/config",
+    "~/.bashrc",
+    "~/.zshrc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-windows minimizza",
+   "new": "zeta-windows minimize",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-windows scegli",
+   "new": "zeta-windows pick",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-windows attiva",
+   "new": "zeta-windows active",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta_recupera",
+   "new": "zeta_recover",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-panel cerca",
+   "new": "zeta-panel search",
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-panel energia",
+   "new": "zeta-panel power",
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-panel controllo",
+   "new": "zeta-panel control",
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-panel rete",
+   "new": "zeta-panel network",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher apri_indietro",
+   "new": "zeta-switcher open_back",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher apri",
+   "new": "zeta-switcher open",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher avanti",
+   "new": "zeta-switcher next",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher indietro",
+   "new": "zeta-switcher back",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher chiudi",
+   "new": "zeta-switcher close",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher annulla",
+   "new": "zeta-switcher cancel",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-switcher attiva",
+   "new": "zeta-switcher activate",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "asp.tema == \"chiaro\"",
+   "new": "asp.theme == \"light\"",
+   "where": [
+    "~/.config/hypr/hyprland.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "asp_t.animazioni",
+   "new": "asp_t.animations",
+   "where": [
+    "~/.config/hypr/hyprland.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "asp_t.trasparenza",
+   "new": "asp_t.transparency",
+   "where": [
+    "~/.config/hypr/hyprland.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "asp_t.angoli",
+   "new": "asp_t.corners",
+   "where": [
+    "~/.config/hypr/hyprland.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "#spazi {",
+   "new": "#workspaces {",
+   "where": [
+    "~/.config/waybar/style.css"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "#custom-spazio",
+   "new": "#custom-workspace",
+   "where": [
+    "~/.config/waybar/style.css"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "#custom-tastiera",
+   "new": "#custom-keyboard",
+   "where": [
+    "~/.config/waybar/style.css"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "#image.ridotta0",
+   "new": "#image.minimized0",
+   "where": [
+    "~/.config/waybar/style.css"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "#ridotte ",
+   "new": "#minimized ",
+   "where": [
+    "~/.config/waybar/style.css"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "group/spazi",
+   "new": "group/workspaces",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "custom/spazio",
+   "new": "custom/workspace",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "group/ridotte",
+   "new": "group/minimized",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "image#ridotta",
+   "new": "image#minimized",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "custom/tastiera",
+   "new": "custom/keyboard",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "custom/finestre",
+   "new": "custom/windows",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-workspaces stato ",
+   "new": "zeta-workspaces status ",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-workspaces vai ",
+   "new": "zeta-workspaces go ",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-windows anteprima ",
+   "new": "zeta-windows preview ",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-windows chiudi-n ",
+   "new": "zeta-windows close-n ",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-windows conta",
+   "new": "zeta-windows count",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-minimize ripristina-n ",
+   "new": "zeta-minimize restore-n ",
+   "where": [
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-bar controlla",
+   "new": "zeta-bar check",
+   "where": [
+    "~/.config/hypr/hypridle.conf"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "<unique-id>zeta-terminale-qui</unique-id>",
+   "new": "<unique-id>zeta-terminal-here</unique-id>",
+   "where": [
+    "~/.config/Thunar/uca.xml"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "<unique-id>zeta-testo-ocr</unique-id>",
+   "new": "<unique-id>zeta-text-ocr</unique-id>",
+   "where": [
+    "~/.config/Thunar/uca.xml"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "/.local/share/zeta/icone/",
+   "new": "/.local/share/zeta/icons/",
+   "where": [
+    "~/.local/share/applications/*.desktop",
+    "~/Desktop/*.desktop",
+    "~/Scrivania/*.desktop",
+    "~/.config/zeta/dock.json"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-Originale-Firma=",
+   "new": "X-ZETA-Original-Signature=",
+   "where": [
+    "~/.local/share/applications/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-Originale=",
+   "new": "X-ZETA-Original=",
+   "where": [
+    "~/.local/share/applications/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-Icona-Personale=",
+   "new": "X-ZETA-Custom-Icon=",
+   "where": [
+    "~/.local/share/applications/*.desktop",
+    "~/Desktop/*.desktop",
+    "~/Scrivania/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-Icona-Originale=",
+   "new": "X-ZETA-Original-Icon=",
+   "where": [
+    "~/.local/share/applications/*.desktop",
+    "~/Desktop/*.desktop",
+    "~/Scrivania/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-Origine=",
+   "new": "X-ZETA-Origin=",
+   "where": [
+    "~/.local/share/applications/*.desktop",
+    "~/Desktop/*.desktop",
+    "~/Scrivania/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-AppImage-Chiave=",
+   "new": "X-ZETA-AppImage-Key=",
+   "where": [
+    "~/.local/share/applications/zeta-appimage-*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "X-ZETA-AppImage-Firma=",
+   "new": "X-ZETA-AppImage-Signature=",
+   "where": [
+    "~/.local/share/applications/zeta-appimage-*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-app avvia ",
+   "new": "zeta-app launch ",
+   "where": [
+    "~/.config/zeta/dock.json",
+    "~/.config/waybar/config.jsonc",
+    "~/.local/share/applications/*.desktop",
+    "~/Desktop/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-app installa ",
+   "new": "zeta-app install ",
+   "where": [
+    "~/.local/share/applications/*.desktop"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-admin-paste incolla ",
+   "new": "zeta-admin-paste paste ",
+   "where": [
+    "~/.config/Thunar/uca.xml"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-admin-paste apri ",
+   "new": "zeta-admin-paste open ",
+   "where": [
+    "~/.config/Thunar/uca.xml"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "<unique-id>zeta-apri-amministratore</unique-id>",
+   "new": "<unique-id>zeta-admin-open</unique-id>",
+   "where": [
+    "~/.config/Thunar/uca.xml"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-mail stato",
+   "new": "zeta-mail status",
+   "where": [
+    "~/.config/zeta/dock.json",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-mail nuovo",
+   "new": "zeta-mail new",
+   "where": [
+    "~/.config/zeta/dock.json",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-mail esci",
+   "new": "zeta-mail quit",
+   "where": [
+    "~/.config/zeta/dock.json",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-volume su",
+   "new": "zeta-volume up",
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-volume giu",
+   "new": "zeta-volume down",
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-volume muto",
+   "new": "zeta-volume mute",
+   "where": [
+    "~/.config/hypr/*.lua",
+    "~/.config/waybar/config.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-volume imposta ",
+   "new": "zeta-volume set ",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-default-app terminale",
+   "new": "zeta-default-app terminal",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-default-app posta",
+   "new": "zeta-default-app mail",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-default-app immagini",
+   "new": "zeta-default-app images",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "scuro",
+   "new": "dark",
+   "where": [
+    "~/.config/zeta/theme"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "chiaro",
+   "new": "light",
+   "where": [
+    "~/.config/zeta/theme"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "sistema",
+   "new": "system",
+   "where": [
+    "~/.config/zeta/editor-theme"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "scuro",
+   "new": "dark",
+   "where": [
+    "~/.config/zeta/editor-theme"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "chiaro",
+   "new": "light",
+   "where": [
+    "~/.config/zeta/editor-theme"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "tema = ",
+   "new": "theme = ",
+   "where": [
+    "~/.config/hypr/zeta_appearance.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "animazioni = ",
+   "new": "animations = ",
+   "where": [
+    "~/.config/hypr/zeta_appearance.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "trasparenza = ",
+   "new": "transparency = ",
+   "where": [
+    "~/.config/hypr/zeta_appearance.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "angoli = ",
+   "new": "corners = ",
+   "where": [
+    "~/.config/hypr/zeta_appearance.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "\"scuro\"",
+   "new": "\"dark\"",
+   "where": [
+    "~/.config/hypr/zeta_appearance.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "\"chiaro\"",
+   "new": "\"light\"",
+   "where": [
+    "~/.config/hypr/zeta_appearance.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-appearance cambia-tema",
+   "new": "zeta-appearance toggle-theme",
+   "where": [
+    "~/.config/hypr/*.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "/.config/zeta/barra/",
+   "new": "/.config/zeta/bar/",
+   "where": [
+    "~/.config/waybar/config*"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "scalable/tema",
+   "new": "scalable/theme",
+   "where": [
+    "~/.local/share/icons/zeta/index.theme"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-bianco",
+   "new": "zeta-white",
+   "where": [
+    "~/.config/fastfetch/*.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "-compatto.txt",
+   "new": "-compact.txt",
+   "where": [
+    "~/.config/fastfetch/*.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "-minuto.txt",
+   "new": "-tiny.txt",
+   "where": [
+    "~/.config/fastfetch/*.jsonc"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "include=~/.config/foot/tema.ini",
+   "new": "include=~/.config/foot/theme.ini",
+   "where": [
+    "~/.config/foot/foot.ini"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "local prese = ",
+   "new": "local ports = ",
+   "where": [
+    "~/.config/hypr/zeta_displays.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "prese[",
+   "new": "ports[",
+   "where": [
+    "~/.config/hypr/zeta_displays.lua"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "accento",
+   "new": "accent",
+   "where": [
+    "~/.config/zeta/avatar"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "foto",
+   "new": "photo",
+   "where": [
+    "~/.config/zeta/avatar"
+   ],
+   "scope": "whole"
+  },
+  {
+   "kind": "text",
+   "old": "zeta-keyboard stato",
+   "new": "zeta-keyboard status",
+   "where": [
+    "~/.config/waybar/config*"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "zeta-keyboard prossima",
+   "new": "zeta-keyboard next",
+   "where": [
+    "~/.config/waybar/config*"
+   ]
+  },
+  {
+   "kind": "text",
+   "old": "/usr/share/zeta/status/cerca.svg",
+   "new": "/usr/share/zeta/status/search.svg",
+   "where": [
+    "~/.config/waybar/config.jsonc",
+    "~/.config/zeta/dock.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "ordine",
+   "new": "order",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "top"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "lato",
+   "new": "side",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "top"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "griglia",
+   "new": "grid",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "top"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "posizioni",
+   "new": "positions",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "top"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "libere",
+   "new": "free",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "top"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "dimensione",
+   "new": "icon_size",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "top"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "nome",
+   "new": "name",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "key:order"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "tipo",
+   "new": "type",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "key:order"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "data",
+   "new": "date",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "key:order"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "dimensione",
+   "new": "size",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "key:order"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "destra",
+   "new": "right",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "key:side"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "sinistra",
+   "new": "left",
+   "where": [
+    "~/.config/zeta/desktop.json"
+   ],
+   "scope": "key:side"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "stato",
+   "new": "status",
+   "where": [
+    "~/.config/zeta/dock.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "voci",
+   "new": "actions",
+   "where": [
+    "~/.config/zeta/dock.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "chiave",
+   "new": "key",
+   "where": [
+    "~/.cache/zeta/appimage-meta.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "nome",
+   "new": "name",
+   "where": [
+    "~/.cache/zeta/appimage-meta.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "versione",
+   "new": "version",
+   "where": [
+    "~/.cache/zeta/appimage-meta.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "nome",
+   "new": "name",
+   "where": [
+    "~/.config/zeta/server.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "azione",
+   "new": "action",
+   "where": [
+    "~/.local/share/zeta/history.jsonl"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "personalizzato",
+   "new": "custom",
+   "where": [
+    "~/.config/zeta/intelligence.json"
+   ]
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "personalizzato",
+   "new": "custom",
+   "where": [
+    "~/.config/zeta/intelligence.json"
+   ],
+   "scope": "key:default"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "personalizzato",
+   "new": "custom",
+   "where": [
+    "~/.config/zeta/keys.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "nome",
+   "new": "name",
+   "where": [
+    "~/.config/zeta/wallpaper.json"
+   ]
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "~/.config/zeta/sfondo.",
+   "new": "~/.config/zeta/wallpaper-choice.",
+   "where": [
+    "~/.config/zeta/wallpaper.json"
+   ],
+   "scope": "prefix"
+  },
+  {
+   "kind": "jsonkey",
+   "old": "schermi",
+   "new": "displays",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "principale",
+   "new": "primary",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "larghezza",
+   "new": "width",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "altezza",
+   "new": "height",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "frequenza",
+   "new": "refresh",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "scala",
+   "new": "scale",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "rotazione",
+   "new": "rotation",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "acceso",
+   "new": "enabled",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "selettore",
+   "new": "selector",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "specchio",
+   "new": "mirror",
+   "where": [
+    "~/.config/zeta/displays.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "tema",
+   "new": "theme",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "accento",
+   "new": "accent",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "carattere",
+   "new": "font",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "dimensione",
+   "new": "size",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ]
+  },
+  {
+   "kind": "jsonkey",
+   "old": "trasparenza",
+   "new": "transparency",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ]
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "sistema",
+   "new": "system",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ],
+   "scope": "key:theme,accent"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "ambra",
+   "new": "amber",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ],
+   "scope": "key:theme,accent"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "verde",
+   "new": "green",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ],
+   "scope": "key:theme,accent"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "viola",
+   "new": "purple",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ],
+   "scope": "key:theme,accent"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "rosso",
+   "new": "red",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ],
+   "scope": "key:theme,accent"
+  },
+  {
+   "kind": "jsonvalue",
+   "old": "contrasto",
+   "new": "contrast",
+   "where": [
+    "~/.config/zeta/terminal.json"
+   ],
+   "scope": "key:theme,accent"
+  }
+ ]
+}

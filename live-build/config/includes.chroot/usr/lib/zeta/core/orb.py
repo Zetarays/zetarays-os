@@ -1,27 +1,27 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA — sfera-rete (Cairo puro, senza GTK).
+"""ZETA — network sphere (pure Cairo, no GTK).
 
-Una sfera di nodi collegati da una maglia di linee (plexus) che ruota, con
-impulsi luminosi che viaggiano lungo i collegamenti. Colore scelto dall'utente
-tra blu, rosso, verde, bianco.
+A rotating sphere of nodes joined by a mesh of lines (plexus), with glowing
+pulses traveling along the links. Color chosen by the user among blue, red,
+green and white.
 
-Usato sia dall'app GTK `zeta-core` sia dai test di rendering.
+Used both by the `zeta-core` GTK app and by the rendering tests.
 """
 import math
 import random
 
 import cairo
 
-N = 220          # nodi sulla sfera
-K = 6            # collegamenti per nodo (maglia triangolata)
-PERSP = 3.2      # prospettiva lieve (quasi ortografica, come nei riferimenti)
-N_PULSE = 46     # impulsi che viaggiano lungo i collegamenti
+N = 220          # nodes on the sphere
+K = 6            # links per node (triangulated mesh)
+PERSP = 3.2      # slight perspective (almost orthographic, as in the references)
+N_PULSE = 46     # pulses traveling along the links
 
-# palette selezionabile: id -> RGB
-# Nessuna tavolozza qui dentro: il colore arriva da chi disegna, e chi disegna
-# lo chiede a ui.accento, che è l'unico posto dove vive il colore scelto
-# dall'utente. Una seconda tavolozza qui significherebbe due verità diverse
-# sullo stesso colore.
+# selectable palette: id -> RGB
+# No palette in here: the color comes from the caller that draws, and the
+# caller asks ui.accent, the only place where the user's chosen color lives.
+# A second palette here would mean two different truths about the same
+# color.
 
 
 def lighten(c, k):
@@ -36,7 +36,7 @@ def _fibonacci_sphere(n, rng):
         r = math.sqrt(max(0.0, 1 - y * y))
         a = ga * i
         pts.append((math.cos(a) * r, y, math.sin(a) * r,
-                    rng.uniform(0.8, 1.5)))       # dimensione del nodo
+                    rng.uniform(0.8, 1.5)))       # node size
     return pts
 
 
@@ -72,15 +72,15 @@ def _cam(x, y, z, cay, say, cax, sax):
 
 
 def _spin(state, t):
-    if state == "attesa":
+    if state == "idle":
         return 0.12, 1.0
-    if state == "ascolto":
+    if state == "listening":
         return 0.18, 1.4
-    if state == "elaborazione":
+    if state == "processing":
         return 0.55, 2.4
-    if state == "risposta":
+    if state == "replying":
         return 0.30, 1.8
-    if state == "allerta":
+    if state == "alert":
         return 0.9, 3.0
     return 0.15, 1.0
 
@@ -90,7 +90,7 @@ class Orb:
         rng = random.Random(seed)
         self.pts = _fibonacci_sphere(N, rng)
         self.edges = _edges(self.pts, K)
-        # impulsi: (indice arco, velocità, fase)
+        # pulses: (edge index, speed, phase)
         self.pulses = [(rng.randrange(len(self.edges)),
                         rng.uniform(0.25, 0.7), rng.uniform(0, 1))
                        for _ in range(N_PULSE)]
@@ -99,16 +99,16 @@ class Orb:
         self.pz = [0.0] * N
         self.pd = [0.0] * N
         self.glow = _make_glow(48)
-        # classe di grandezza di ogni nodo (per scegliere l'immagine pronta)
+        # size class of each node (to pick the prerendered image)
         self._size_levels = [min(self.SIZE_LEVELS - 1,
                                  int((p[3] - 0.8) / 0.7 * self.SIZE_LEVELS))
                              for p in self.pts]
 
-    # --- immagini pronte (sprite) ---------------------------------------
-    # Disegnare ogni nodo con un arco e ogni alone con una maschera, 60 volte
-    # al secondo, teneva occupato quasi mezzo core anche con la finestra
-    # ferma. Le forme sono sempre le stesse: si disegnano una volta sola, per
-    # ogni livello di profondita', e poi si incollano.
+    # --- prerendered images (sprites) -----------------------------------
+    # Drawing every node with an arc and every halo with a mask, 60 times a
+    # second, kept almost half a core busy even with the window idle. The
+    # shapes are always the same: they are drawn once per depth level and
+    # then pasted.
     DEPTH_LEVELS = 12
     SIZE_LEVELS = 4
 
@@ -168,7 +168,7 @@ class Orb:
     def _dl(self, d):
         return min(self.DEPTH_LEVELS - 1, max(0, int(d * self.DEPTH_LEVELS)))
 
-    def draw(self, ctx, w, h, t, color=(0.23, 0.55, 1.0), state="attesa"):
+    def draw(self, ctx, w, h, t, color=(0.23, 0.55, 1.0), state="idle"):
         cx, cy = w / 2, h / 2
         R = min(w, h) * 0.42
         ctx.set_source_rgb(0, 0, 0)
@@ -184,7 +184,7 @@ class Orb:
         cay, say = math.cos(ay), math.sin(ay)
         cax, sax = math.cos(ax), math.sin(ax)
 
-        # proiezione dei nodi
+        # node projection
         px, py, pz, pd = self.px, self.py, self.pz, self.pd
         for i, (x0, y0, z0, _sz) in enumerate(self.pts):
             x, y, z = _cam(x0, y0, z0, cay, say, cax, sax)
@@ -192,26 +192,26 @@ class Orb:
             px[i] = cx + x * R * f
             py[i] = cy + y * R * f
             pz[i] = z
-            pd[i] = (z + 1.0) / 2.0        # 0 dietro .. 1 davanti
+            pd[i] = (z + 1.0) / 2.0        # 0 back .. 1 front
 
-        # --- collegamenti: un tracciato per livello di profondita' ---
-        # (dietro prima), invece di un tratto per ogni linea
-        livelli = [[] for _ in range(8)]
+        # --- links: one path per depth level ---
+        # (back first), instead of one stroke per line
+        levels = [[] for _ in range(8)]
         for i, j in self.edges:
             d = (pd[i] + pd[j]) / 2
-            livelli[min(7, int(d * 8))].append((i, j))
+            levels[min(7, int(d * 8))].append((i, j))
         ctx.set_line_width(1.0)
-        for lv, archi in enumerate(livelli):
-            if not archi:
+        for lv, arcs in enumerate(levels):
+            if not arcs:
                 continue
             d = (lv + 0.5) / 8
             ctx.set_source_rgba(r, g, b, 0.06 + 0.42 * d)
-            for i, j in archi:
+            for i, j in arcs:
                 ctx.move_to(px[i], py[i])
                 ctx.line_to(px[j], py[j])
             ctx.stroke()
 
-        # --- impulsi che viaggiano lungo i collegamenti ---
+        # --- pulses traveling along the links ---
         ctx.set_operator(cairo.OPERATOR_ADD)
         for e_idx, sp, ph in self.pulses:
             i, j = self.edges[e_idx]
@@ -222,7 +222,7 @@ class Orb:
             self._paste(ctx, cache["pulse"][self._dl(d)],
                         px[i] + (px[j] - px[i]) * u, py[i] + (py[j] - py[i]) * u)
 
-        # --- nodi: aloni (sommati), poi i nuclei dal fondo al davanti ---
+        # --- nodes: halos (additive), then the cores from back to front ---
         idx = sorted(range(N), key=lambda k: pz[k])
         sl_of = self._size_levels
         for i in idx:

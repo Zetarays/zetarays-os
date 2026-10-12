@@ -1,12 +1,12 @@
 #mainApp, QWidget { background-color: #000000; color: #EDEDEA; }
 QLabel { color: #EDEDEA; font-size: 14px; font-family: "Roboto"; }
-/* Titolo di benvenuto: è un <h1> in rich-text, reso da Qt a ~2x del font
-   di base della QLabel. Riducendo il font di base si rimpicciolisce l'<h1>.
-   Allineato a sinistra, in colonna con il logo. */
+/* Welcome title: it is a rich-text <h1>, which Qt renders at ~2x the QLabel's
+   base font. Reducing the base font shrinks the <h1>.
+   Left-aligned, in a column with the logo. */
 QLabel#mainText { font-size: 16px; font-weight: 500; color: #EDEDEA;
                   qproperty-alignment: 'AlignLeft | AlignVCenter'; }
-/* Menu a tendina ed elenchi: senza una misura usavano il font di base di
-   Qt, piu' piccolo del resto e faticoso da leggere (lingue, tastiere, dischi). */
+/* Drop-down menus and lists: without an explicit size they used Qt's base
+   font, smaller than the rest and hard to read (languages, keyboards, disks). */
 QComboBox { background: #19191C; color: #EDEDEA; border: 1px solid rgba(255,255,255,0.10);
             border-radius: 6px; padding: 5px 10px; font-family: "Roboto"; font-size: 14px; }
 QComboBox QAbstractItemView { background: #19191C; color: #EDEDEA; font-family: "Roboto";
@@ -17,9 +17,9 @@ QPushButton:hover { background-color: #24242A; }
 QPushButton:focus { border: 1px solid #3A8DFF; }
 QComboBox:focus { border: 1px solid #3A8DFF; }
 QPushButton:default { background-color: #3A8DFF; color: #06070A; border: none; }
-/* Righe alternate: senza un colore esplicito Qt le disegna bianche, e nel
-   dialogo delle partizioni i nomi dei flag (esp, boot, bios-grub) sparivano,
-   testo chiaro su fondo bianco. */
+/* Alternate rows: without an explicit color Qt draws them white, and in the
+   partition dialog the flag names (esp, boot, bios-grub) disappeared, light
+   text on a white background. */
 QTreeView, QListView { background: #0E0E10; color: #EDEDEA; font-family: "Roboto";
                        font-size: 14px; alternate-background-color: #151518; }
 QTreeView::item, QListView::item { color: #EDEDEA; }

@@ -1,0 +1,17 @@
+# ZETA RAYS — puts the saved SSH choice (/etc/nftables.d/zeta-ssh.nft) into
+# the firewall sets: SSH_REMOTE_ACCESS=true <=> remote_access = { 22 }.
+# Runs after nftables at boot and again on every "systemctl restart/reload
+# nftables" (PartOf): the choice is never lost. Idempotent, no duplicates.
+[Unit]
+Description=ZETA RAYS: SSH choice in the firewall sets
+After=nftables.service
+PartOf=nftables.service
+ConditionPathExists=/usr/local/bin/zeta-ssh
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/zeta-ssh sync
+
+[Install]
+WantedBy=multi-user.target nftables.service

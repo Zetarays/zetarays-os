@@ -1,23 +1,23 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — Connetti a un server.
+"""ZETA RAYS — Connect to a server.
 
-Una finestra sola per raggiungere file su altri computer, vicini o lontani:
+A single window to reach files on other computers, nearby or far away:
 
-  - nella rete locale: PC Windows, Mac, NAS e server trovati da soli
-    (WS-Discovery, Bonjour/mDNS, Samba), con un clic;
-  - con l'indirizzo: cartelle condivise Windows/Mac/NAS (SMB), SSH (SFTP),
-    FTP, WebDAV, NFS e Mac vecchi (AFP), per server locali o remoti;
-  - preferiti, che compaiono anche nella barra laterale del gestore file;
-  - le connessioni aperte, da aprire o scollegare.
+  - on the local network: Windows PCs, Macs, NAS drives and servers found
+    automatically (WS-Discovery, Bonjour/mDNS, Samba), with one click;
+  - by address: Windows/Mac/NAS shared folders (SMB), SSH (SFTP), FTP,
+    WebDAV, NFS and older Macs (AFP), for local or remote servers;
+  - favorites, which also show up in the file manager's sidebar;
+  - open connections, to open or disconnect.
 
-I collegamenti li fa GVFS, lo stesso del gestore file: la cartella remota si
-apre in «File» come una qualsiasi. La password la chiede la finestra standard
-del sistema (Gtk.MountOperation) e non passa mai da qui in chiaro; per SSH c'e'
-anche «Apri il terminale».
+GVFS makes the connections, the same as the file manager: the remote folder
+opens in "Files" like any other. The password is asked by the system's
+standard dialog (Gtk.MountOperation) and never passes through here in clear
+text; for SSH there is also "Open terminal".
 
-  zeta-server               la finestra
-  zeta-server URI           collega e apre subito (es. smb://nas.local/foto)
+  zeta-server               the window
+  zeta-server URI           connect and open right away (e.g. smb://nas.local/photos)
 """
 import json
 import os
@@ -33,14 +33,14 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-from ui import tema  # noqa: E402
+from ui import theme  # noqa: E402
 from i18n import tr  # noqa: E402
 
-PREFERITI = os.path.expanduser("~/.config/zeta/server.json")
-SEGNALIBRI = os.path.expanduser("~/.config/gtk-3.0/bookmarks")
+FAVORITES = os.path.expanduser("~/.config/zeta/server.json")
+BOOKMARKS = os.path.expanduser("~/.config/gtk-3.0/bookmarks")
 
-# (chiave, etichetta, schema, porta predefinita, suggerimento per la cartella)
-TIPI = [
+# (key, label, scheme, default port, hint for the folder field)
+SERVER_TYPES = [
     ("smb", tr("Windows, Mac or NAS shared folder (SMB)"), "smb", 445, tr("share name, e.g. Documents")),
     ("sftp", tr("SSH server (SFTP)"), "sftp", 22, tr("folder, e.g. /home/user")),
     ("ftp", "FTP", "ftp", 21, tr("folder (optional)")),
@@ -49,7 +49,7 @@ TIPI = [
     ("nfs", tr("NFS (Linux servers and NAS)"), "nfs", 2049, tr("exported path, e.g. /srv/shared")),
     ("afp", tr("Older Macs (AFP)"), "afp", 548, tr("volume name")),
 ]
-NOMI_SCHEMA = {"smb": "Windows/Mac/NAS", "sftp": "SSH", "ssh": "SSH", "ftp": "FTP", "dav": "WebDAV",
+SCHEME_NAMES = {"smb": "Windows/Mac/NAS", "sftp": "SSH", "ssh": "SSH", "ftp": "FTP", "dav": "WebDAV",
                "davs": "WebDAV", "nfs": "NFS", "afp": "Mac (AFP)"}
 
 CSS = """
@@ -57,418 +57,418 @@ CSS = """
 """
 
 
-_FIGLI = set()
+_CHILDREN = set()
 
 
-def lancia(argv):
-    """Avvia staccato e raccoglie l'uscita (niente zombie, niente doppia
-    raccolta tra Python e GLib)."""
+def spawn(argv):
+    """Start detached and reap the exit (no zombies, no double reaping
+    between Python and GLib)."""
     try:
         p = subprocess.Popen(argv, start_new_session=True, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
     except OSError:
         return
-    _FIGLI.add(p)
+    _CHILDREN.add(p)
 
-    def finito(_pid, stato, proc=p):
-        proc.returncode = stato
-        _FIGLI.discard(proc)
-    GLib.child_watch_add(GLib.PRIORITY_DEFAULT_IDLE, p.pid, finito)
+    def finished(_pid, state, proc=p):
+        proc.returncode = state
+        _CHILDREN.discard(proc)
+    GLib.child_watch_add(GLib.PRIORITY_DEFAULT_IDLE, p.pid, finished)
 
 
-def analizza(uri):
-    """urlparse che non solleva: un indirizzo scritto a meta' («smb://[fe80::1»,
-    una porta 99999) da' None invece di bloccare la finestra."""
+def parse_uri(uri):
+    """urlparse that does not raise: a half-typed address ("smb://[fe80::1",
+    a port 99999) gives None instead of breaking the window."""
     try:
         u = urlparse(uri)
-        u.port                                       # controlla la porta
+        u.port                                       # validates the port
         return u
     except ValueError:
         return None
 
 
-def normalizza(uri):
-    """Indirizzo incollato -> indirizzo valido: ssh:// diventa sftp://, gli
-    spazi e le lettere accentate del percorso si codificano (nei segnalibri
-    del gestore file lo spazio separa l'indirizzo dal nome). ValueError se
-    non e' un indirizzo."""
+def normalize(uri):
+    """Pasted address -> valid address: ssh:// becomes sftp://, spaces and
+    accented letters in the path are encoded (in the file manager's
+    bookmarks a space separates the address from the name). ValueError if
+    it is not an address."""
     if uri.startswith("ssh://"):
         uri = "sftp://" + uri[len("ssh://"):]
     try:
         u = urlsplit(uri)
         u.port
-    except ValueError as e:                          # i messaggi di Python sono in inglese
-        motivo = str(e).casefold()
-        raise ValueError(tr("incomplete IPv6 address (missing “]”)") if "ipv6" in motivo else
-                         tr("the port must be between 1 and 65535") if "port" in motivo else
+    except ValueError as e:                          # Python's messages are in English
+        reason = str(e).casefold()
+        raise ValueError(tr("incomplete IPv6 address (missing “]”)") if "ipv6" in reason else
+                         tr("the port must be between 1 and 65535") if "port" in reason else
                          tr("malformed address")) from None
     if not u.scheme or not u.hostname:
         raise ValueError(tr("the server name is missing"))
     return urlunsplit(u._replace(path=quote(u.path, safe="/%~!$&'()*+,;=:@")))
 
 
-def costruisci_uri(tipo, server, cartella="", utente="", porta=0):
-    """Indirizzo GVFS dai campi, o quello incollato (smb://..., sftp://...,
-    ssh://...). ValueError se l'indirizzo non e' valido."""
+def build_uri(kind, server, folder="", user="", port=0):
+    """GVFS address from the fields, or the pasted one (smb://..., sftp://...,
+    ssh://...). ValueError if the address is not valid."""
     server = server.strip()
     if "://" in server:
-        return normalizza(server)
-    if server.startswith("\\\\"):                     # \\server\condivisione di Windows
-        parti = server.strip("\\").split("\\")
-        server, cartella = parti[0], "/".join(parti[1:]) or cartella
-    schema = dict((k, s) for k, _e, s, _p, _c in TIPI).get(tipo, tipo)
-    predefinita = dict((k, p) for k, _e, _s, p, _c in TIPI).get(tipo, 0)
+        return normalize(server)
+    if server.startswith("\\\\"):                     # Windows \\server\share
+        pieces = server.strip("\\").split("\\")
+        server, folder = pieces[0], "/".join(pieces[1:]) or folder
+    scheme = dict((k, s) for k, _e, s, _p, _c in SERVER_TYPES).get(kind, kind)
+    default_port = dict((k, p) for k, _e, _s, p, _c in SERVER_TYPES).get(kind, 0)
     if ":" in server and not server.startswith("[") and server.count(":") > 1:
         server = "[%s]" % server                     # IPv6
-    chi = (quote(utente, safe="") + "@") if utente else ""
-    dove = server + (":%d" % porta if porta and porta != predefinita else "")
-    percorso = "/" + quote(cartella.strip().strip("/"), safe="/") if cartella.strip() else "/"
-    return normalizza("%s://%s%s%s" % (schema, chi, dove, percorso))
+    user_part = (quote(user, safe="") + "@") if user else ""
+    host_part = server + (":%d" % port if port and port != default_port else "")
+    path = "/" + quote(folder.strip().strip("/"), safe="/") if folder.strip() else "/"
+    return normalize("%s://%s%s%s" % (scheme, user_part, host_part, path))
 
 
-def leggi_preferiti():
+def read_favorites():
     try:
-        with open(PREFERITI) as f:
-            dati = json.load(f)
-        if not isinstance(dati, list):
-            return []                                # file rovinato: si riparte da vuoto
-        return [d for d in dati if isinstance(d, dict) and isinstance(d.get("uri"), str) and d["uri"]
-                and isinstance(d.get("nome", ""), str)]
+        with open(FAVORITES) as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []                                # corrupted file: start from empty
+        return [d for d in data if isinstance(d, dict) and isinstance(d.get("uri"), str) and d["uri"]
+                and isinstance(d.get("name", ""), str)]
     except (OSError, ValueError):
         return []
 
 
-def scrivi_preferiti(elenco):
-    os.makedirs(os.path.dirname(PREFERITI), exist_ok=True)
-    with open(PREFERITI + ".tmp", "w") as f:
-        json.dump(elenco, f, indent=1, ensure_ascii=False)
-    os.replace(PREFERITI + ".tmp", PREFERITI)
+def write_favorites(listing):
+    os.makedirs(os.path.dirname(FAVORITES), exist_ok=True)
+    with open(FAVORITES + ".tmp", "w") as f:
+        json.dump(listing, f, indent=1, ensure_ascii=False)
+    os.replace(FAVORITES + ".tmp", FAVORITES)
 
 
-def segnalibro(uri, nome, aggiungi=True):
-    """Il preferito compare anche nella barra laterale del gestore file."""
+def bookmark(uri, name, add=True):
+    """The favorite also shows up in the file manager's sidebar."""
     try:
-        with open(SEGNALIBRI) as f:
-            righe = [r.rstrip("\n") for r in f if r.strip()]
+        with open(BOOKMARKS) as f:
+            lines = [r.rstrip("\n") for r in f if r.strip()]
     except OSError:
-        righe = []
-    righe = [r for r in righe if r.split(" ", 1)[0] != uri]
-    if aggiungi:
-        righe.append("%s %s" % (uri, nome))
-    os.makedirs(os.path.dirname(SEGNALIBRI), exist_ok=True)
-    # file temporaneo e sostituzione: un'interruzione a meta' non svuota i
-    # segnalibri dell'utente
-    with open(SEGNALIBRI + ".zeta-tmp", "w") as f:
-        f.write("\n".join(righe) + ("\n" if righe else ""))
-    os.replace(SEGNALIBRI + ".zeta-tmp", SEGNALIBRI)
+        lines = []
+    lines = [r for r in lines if r.split(" ", 1)[0] != uri]
+    if add:
+        lines.append("%s %s" % (uri, name))
+    os.makedirs(os.path.dirname(BOOKMARKS), exist_ok=True)
+    # temporary file and replace: an interruption halfway does not wipe the
+    # user's bookmarks
+    with open(BOOKMARKS + ".zeta-tmp", "w") as f:
+        f.write("\n".join(lines) + ("\n" if lines else ""))
+    os.replace(BOOKMARKS + ".zeta-tmp", BOOKMARKS)
 
 
-def nome_di(uri):
-    u = analizza(uri) or urlparse("")
+def display_name_for(uri):
+    u = parse_uri(uri) or urlparse("")
     base = (u.hostname or uri).split(".local")[0]
-    resto = unquote(u.path.strip("/"))              # «Foto di famiglia», non «Foto%20di...»
-    return "%s%s (%s)" % (base, " › " + resto if resto else "", NOMI_SCHEMA.get(u.scheme, u.scheme))
+    rest = unquote(u.path.strip("/"))              # "Family photos", not "Family%20photos"
+    return "%s%s (%s)" % (base, " › " + rest if rest else "", SCHEME_NAMES.get(u.scheme, u.scheme))
 
 
-def cerca_in_rete():
-    """Server della rete locale: quelli che vede «Esplora la rete» del
-    gestore file (WS-Discovery per Windows, Bonjour per Mac e NAS, Samba).
-    [(nome, uri, icona)]"""
+def search_network():
+    """Servers on the local network: the ones the file manager's "Browse
+    Network" sees (WS-Discovery for Windows, Bonjour for Macs and NAS, Samba).
+    [(name, uri, icon)]"""
     try:
         out = subprocess.run(
             ["gio", "list", "-a", "standard::display-name,standard::target-uri,standard::icon",
              "network:///"], capture_output=True, text=True, timeout=15).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    trovati, visti = [], set()
-    for riga in out.splitlines():
-        nome = re.search(r"standard::display-name=([^\n]*?)(?: standard::|$)", riga)
-        uri = re.search(r"standard::target-uri=(\S+)", riga)
+    found, seen = [], set()
+    for line in out.splitlines():
+        name = re.search(r"standard::display-name=([^\n]*?)(?: standard::|$)", line)
+        uri = re.search(r"standard::target-uri=(\S+)", line)
         if not uri:
             continue
         uri = uri.group(1)
-        schema = urlparse(uri).scheme
-        # le voci interne di GVFS («Rete Windows») non sono server
-        if uri in visti or schema in ("network", "dnssd", "wsdd"):
+        scheme = urlparse(uri).scheme
+        # GVFS's internal entries ("Windows Network") are not servers
+        if uri in seen or scheme in ("network", "dnssd", "wsdd"):
             continue
-        visti.add(uri)
-        trovati.append((nome.group(1).strip() if nome else uri, uri, schema))
-    trovati.sort(key=lambda t: t[0].casefold())
-    return trovati
+        seen.add(uri)
+        found.append((name.group(1).strip() if name else uri, uri, scheme))
+    found.sort(key=lambda t: t[0].casefold())
+    return found
 
 
-class Finestra(Adw.ApplicationWindow):
+class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title=tr("Connect to Server"),
                          default_width=640, default_height=640)
         self.toasts = Adw.ToastOverlay()
         view = Adw.ToolbarView()
-        testa = Adw.HeaderBar()
-        view.add_top_bar(testa)
-        pagina = Adw.PreferencesPage()
-        self.toasts.set_child(pagina)
+        header = Adw.HeaderBar()
+        view.add_top_bar(header)
+        page = Adw.PreferencesPage()
+        self.toasts.set_child(page)
         view.set_content(self.toasts)
         self.set_content(view)
 
-        # --- nella rete locale
-        self.g_rete = Adw.PreferencesGroup(
+        # --- on the local network
+        self.g_network = Adw.PreferencesGroup(
             title=tr("On the Local Network"),
             description=tr("Windows PCs, Macs, NAS devices and servers announcing themselves on your network (Wi-Fi or cable)."))
-        testa_rete = Gtk.Box(spacing=8)
+        network_header = Gtk.Box(spacing=8)
         self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
-        self.cerca_btn = Gtk.Button(label=tr("Search Again"), valign=Gtk.Align.CENTER)
-        self.cerca_btn.connect("clicked", lambda *_: self.cerca())
-        testa_rete.append(self.spinner)
-        testa_rete.append(self.cerca_btn)
-        self.g_rete.set_header_suffix(testa_rete)
-        self.righe_rete = []
-        pagina.add(self.g_rete)
+        self.search_btn = Gtk.Button(label=tr("Search Again"), valign=Gtk.Align.CENTER)
+        self.search_btn.connect("clicked", lambda *_: self.search())
+        network_header.append(self.spinner)
+        network_header.append(self.search_btn)
+        self.g_network.set_header_suffix(network_header)
+        self.network_rows = []
+        page.add(self.g_network)
 
-        # --- con l'indirizzo
+        # --- by address
         g = Adw.PreferencesGroup(
             title=tr("Connect"),
             description=tr("A computer on your network or a server on the internet. You can also paste "
                            "a full address (smb://…, sftp://…) or a Windows path like “\\\\server\\folder”."))
-        self.tipo = Adw.ComboRow(title=tr("Type"), model=Gtk.StringList.new([e for _k, e, _s, _p, _c in TIPI]))
-        self.tipo.connect("notify::selected", lambda *_: self._aggiorna())
-        g.add(self.tipo)
+        self.kind = Adw.ComboRow(title=tr("Type"), model=Gtk.StringList.new([e for _k, e, _s, _p, _c in SERVER_TYPES]))
+        self.kind.connect("notify::selected", lambda *_: self._update())
+        g.add(self.kind)
         self.server = Adw.EntryRow(title=tr("Server (name or IP address)"))
-        self.cartella = Adw.EntryRow(title=tr("Folder"))
-        self.utente = Adw.EntryRow(title=tr("User (optional)"))
-        self.porta = Adw.EntryRow(title=tr("Port (optional)"))
-        self.porta.set_input_purpose(Gtk.InputPurpose.DIGITS)
-        for r in (self.server, self.cartella, self.utente, self.porta):
-            r.connect("changed", lambda *_: self._aggiorna())
-            r.connect("entry-activated", lambda *_: self.connetti())
+        self.folder = Adw.EntryRow(title=tr("Folder"))
+        self.user = Adw.EntryRow(title=tr("User (optional)"))
+        self.port = Adw.EntryRow(title=tr("Port (optional)"))
+        self.port.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        for r in (self.server, self.folder, self.user, self.port):
+            r.connect("changed", lambda *_: self._update())
+            r.connect("entry-activated", lambda *_: self.connect_to_server())
             g.add(r)
-        self.anteprima = Adw.ActionRow(title=tr("Address"), use_markup=False)
-        self.anteprima.add_css_class("property")
-        g.add(self.anteprima)
-        riga = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_top=12)
-        self.terminale = Gtk.Button(label=tr("Open SSH Terminal"))
-        self.terminale.connect("clicked", lambda *_: self.apri_terminale())
-        salva = Gtk.Button(label=tr("Save to Favorites"))
-        salva.connect("clicked", lambda *_: self.salva())
-        vai = Gtk.Button(label=tr("Connect"), css_classes=["suggested-action"])
-        vai.connect("clicked", lambda *_: self.connetti())
-        for b in (self.terminale, salva, vai):
-            riga.append(b)
-        g.add(riga)
-        pagina.add(g)
+        self.preview = Adw.ActionRow(title=tr("Address"), use_markup=False)
+        self.preview.add_css_class("property")
+        g.add(self.preview)
+        line = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_top=12)
+        self.terminal = Gtk.Button(label=tr("Open SSH Terminal"))
+        self.terminal.connect("clicked", lambda *_: self.open_terminal())
+        save_btn = Gtk.Button(label=tr("Save to Favorites"))
+        save_btn.connect("clicked", lambda *_: self.save_favorite())
+        go_btn = Gtk.Button(label=tr("Connect"), css_classes=["suggested-action"])
+        go_btn.connect("clicked", lambda *_: self.connect_to_server())
+        for b in (self.terminal, save_btn, go_btn):
+            line.append(b)
+        g.add(line)
+        page.add(g)
 
-        # --- preferiti
+        # --- favorites
         self.g_pref = Adw.PreferencesGroup(title=tr("Favorites"))
-        self.righe_pref = []
-        pagina.add(self.g_pref)
+        self.favorite_rows = []
+        page.add(self.g_pref)
 
-        # --- collegati ora
-        self.g_ora = Adw.PreferencesGroup(title=tr("Connected Now"))
-        self.righe_ora = []
-        pagina.add(self.g_ora)
+        # --- connected now
+        self.g_now = Adw.PreferencesGroup(title=tr("Connected Now"))
+        self.current_rows = []
+        page.add(self.g_now)
 
         self.monitor = Gio.VolumeMonitor.get()
         for s in ("mount-added", "mount-removed", "mount-changed"):
-            self.monitor.connect(s, lambda *_: self.mostra_collegati())
-        self._aggiorna()
-        self.mostra_preferiti()
-        self.mostra_collegati()
-        self.cerca()
+            self.monitor.connect(s, lambda *_: self.show_connected())
+        self._update()
+        self.show_favorites()
+        self.show_connected()
+        self.search()
 
-    # ---- indirizzo
-    def _campi(self):
-        k = TIPI[self.tipo.get_selected()][0]
+    # ---- address
+    def _fields(self):
+        k = SERVER_TYPES[self.kind.get_selected()][0]
         try:
-            porta = int(self.porta.get_text().strip() or 0)
+            port = int(self.port.get_text().strip() or 0)
         except ValueError:
-            porta = 0
-        return k, self.server.get_text(), self.cartella.get_text(), self.utente.get_text().strip(), porta
+            port = 0
+        return k, self.server.get_text(), self.folder.get_text(), self.user.get_text().strip(), port
 
-    def _aggiorna(self):
-        k, server, cartella, utente, porta = self._campi()
-        # indirizzo completo incollato: il «Tipo» segue il suo schema
-        u = analizza(server.strip()) if "://" in server else None
-        schema = u.scheme.replace("ssh", "sftp") if u else ""
-        for i, voce in enumerate(TIPI):
-            if voce[2] == schema and i != self.tipo.get_selected():
-                self.tipo.set_selected(i)            # richiama _aggiorna con il tipo giusto
+    def _update(self):
+        k, server, folder, user, port = self._fields()
+        # full address pasted: the "Type" follows its scheme
+        u = parse_uri(server.strip()) if "://" in server else None
+        scheme = u.scheme.replace("ssh", "sftp") if u else ""
+        for i, entry in enumerate(SERVER_TYPES):
+            if entry[2] == scheme and i != self.kind.get_selected():
+                self.kind.set_selected(i)            # calls _update again with the right type
                 return
-        self.cartella.set_title(tr("Folder — {hint}").format(hint=TIPI[self.tipo.get_selected()][4]))
-        self.terminale.set_visible(k == "sftp" or server.startswith(("sftp://", "ssh://")))
+        self.folder.set_title(tr("Folder — {hint}").format(hint=SERVER_TYPES[self.kind.get_selected()][4]))
+        self.terminal.set_visible(k == "sftp" or server.startswith(("sftp://", "ssh://")))
         try:
-            uri = costruisci_uri(k, server, cartella, utente, porta) if server.strip() else "—"
+            uri = build_uri(k, server, folder, user, port) if server.strip() else "—"
         except ValueError:
             uri = tr("incomplete address")
-        self.anteprima.set_subtitle(uri)
+        self.preview.set_subtitle(uri)
 
     def _uri(self):
-        k, server, cartella, utente, porta = self._campi()
+        k, server, folder, user, port = self._fields()
         if not server.strip():
             self.toasts.add_toast(Adw.Toast(title=tr("Enter the server name or address"), timeout=3, use_markup=False))
             return ""
         try:
-            return costruisci_uri(k, server, cartella, utente, porta)
+            return build_uri(k, server, folder, user, port)
         except ValueError as e:
             self.toasts.add_toast(Adw.Toast(title=tr("Invalid address: {reason}").format(reason=e), timeout=5, use_markup=False))
             return ""
 
-    def connetti(self, uri=None):
+    def connect_to_server(self, uri=None):
         uri = uri or self._uri()
         if not uri:
             return
         f = Gio.File.new_for_uri(uri)
-        # la radice di un server SMB («smb://pc/») elenca le condivisioni: la
-        # apre direttamente il gestore file, non c'e' nulla da montare
-        u = analizza(uri)
+        # the root of an SMB server ("smb://pc/") lists the shares: the file
+        # manager opens it directly, there is nothing to mount
+        u = parse_uri(uri)
         if u is None:
             self.toasts.add_toast(Adw.Toast(title=tr("Invalid address: {reason}").format(reason=uri), timeout=5, use_markup=False))
             return
         if u.scheme == "smb" and u.path.strip("/") == "":
-            self._apri(uri)
+            self._open(uri)
             return
         self.toasts.add_toast(Adw.Toast(title=tr("Connecting to {server}…").format(server=u.hostname or uri), timeout=3, use_markup=False))
         op = Gtk.MountOperation(parent=self)
-        f.mount_enclosing_volume(Gio.MountMountFlags.NONE, op, None, self._montato, uri)
+        f.mount_enclosing_volume(Gio.MountMountFlags.NONE, op, None, self._mounted, uri)
 
-    def _montato(self, f, risultato, uri):
+    def _mounted(self, f, result, uri):
         try:
-            f.mount_enclosing_volume_finish(risultato)
+            f.mount_enclosing_volume_finish(result)
         except GLib.Error as e:
             if not e.matches(Gio.io_error_quark(), Gio.IOErrorEnum.ALREADY_MOUNTED):
                 if e.matches(Gio.io_error_quark(), Gio.IOErrorEnum.FAILED_HANDLED):
-                    return                                   # annullato dall'utente
-                # resta finche' non lo si chiude: chi torna alla finestra deve vederlo
+                    return                                   # canceled by the user
+                # stays until dismissed: whoever comes back to the window must see it
                 self.toasts.add_toast(Adw.Toast(title=tr("Could not connect: {error}").format(error=e.message),
                                                 timeout=0, use_markup=False))
                 return
-        self._ricorda_recente(uri)
-        self._apri(uri)
+        self._remember_recent(uri)
+        self._open(uri)
 
-    def _apri(self, uri):
-        lancia(["thunar", uri])
+    def _open(self, uri):
+        spawn(["thunar", uri])
 
-    def apri_terminale(self):
-        k, server, _c, utente, porta = self._campi()
+    def open_terminal(self):
+        k, server, _c, user, port = self._fields()
         if "://" in server:
-            u = analizza(server.strip())
+            u = parse_uri(server.strip())
             if u is None:
                 return
-            host, utente, porta = u.hostname or "", u.username or utente, u.port or porta
+            host, user, port = u.hostname or "", u.username or user, u.port or port
         else:
             host = server.strip()
         if not host:
             return
-        argv = ["ssh"] + (["-p", str(porta)] if porta and porta != 22 else []) + \
-            [("%s@%s" % (utente, host)) if utente else host]
-        lancia(["foot", "--title", "SSH %s" % host, "-e"] + argv)
+        argv = ["ssh"] + (["-p", str(port)] if port and port != 22 else []) + \
+            [("%s@%s" % (user, host)) if user else host]
+        spawn(["foot", "--title", "SSH %s" % host, "-e"] + argv)
 
-    # ---- preferiti
-    def salva(self):
+    # ---- favorites
+    def save_favorite(self):
         uri = self._uri()
         if not uri:
             return
-        elenco = [p for p in leggi_preferiti() if p["uri"] != uri]
-        nome = nome_di(uri)
-        elenco.append({"uri": uri, "nome": nome})
-        scrivi_preferiti(elenco)
-        segnalibro(uri, nome)
-        self.mostra_preferiti()
+        listing = [p for p in read_favorites() if p["uri"] != uri]
+        name = display_name_for(uri)
+        listing.append({"uri": uri, "name": name})
+        write_favorites(listing)
+        bookmark(uri, name)
+        self.show_favorites()
         self.toasts.add_toast(Adw.Toast(title=tr("Saved. You’ll also find it in the file manager"), timeout=3, use_markup=False))
 
-    def _ricorda_recente(self, uri):
-        elenco = leggi_preferiti()
-        if not any(p["uri"] == uri for p in elenco):
+    def _remember_recent(self, uri):
+        listing = read_favorites()
+        if not any(p["uri"] == uri for p in listing):
             return
-        # i preferiti usati salgono in cima
-        elenco.sort(key=lambda p: p["uri"] != uri)
-        scrivi_preferiti(elenco)
-        self.mostra_preferiti()
+        # favorites that get used move to the top
+        listing.sort(key=lambda p: p["uri"] != uri)
+        write_favorites(listing)
+        self.show_favorites()
 
-    def mostra_preferiti(self):
-        for r in self.righe_pref:
+    def show_favorites(self):
+        for r in self.favorite_rows:
             self.g_pref.remove(r)
-        self.righe_pref = []
-        elenco = leggi_preferiti()
-        if not elenco:
+        self.favorite_rows = []
+        listing = read_favorites()
+        if not listing:
             r = Adw.ActionRow(title=tr("No favorites"),
                               subtitle=tr("Enter an address above and press “Save to Favorites”."))
             self.g_pref.add(r)
-            self.righe_pref.append(r)
-        for p in elenco:
-            r = Adw.ActionRow(title=p.get("nome") or p["uri"], subtitle=p["uri"], activatable=True,
+            self.favorite_rows.append(r)
+        for p in listing:
+            r = Adw.ActionRow(title=p.get("name") or p["uri"], subtitle=p["uri"], activatable=True,
                               use_markup=False)
-            r.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
-            r.connect("activated", lambda _r, u=p["uri"]: self.connetti(u))
-            via = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
-                             css_classes=["flat"], tooltip_text=tr("Remove from Favorites"))
-            via.connect("clicked", lambda _b, u=p["uri"]: self.togli(u))
-            r.add_suffix(via)
+            r.add_prefix(Gtk.Image(icon_name="zeta-server-network"))
+            r.connect("activated", lambda _r, u=p["uri"]: self.connect_to_server(u))
+            remove_btn = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                                    css_classes=["flat"], tooltip_text=tr("Remove from Favorites"))
+            remove_btn.connect("clicked", lambda _b, u=p["uri"]: self.remove(u))
+            r.add_suffix(remove_btn)
             self.g_pref.add(r)
-            self.righe_pref.append(r)
+            self.favorite_rows.append(r)
 
-    def togli(self, uri):
-        scrivi_preferiti([p for p in leggi_preferiti() if p["uri"] != uri])
-        segnalibro(uri, "", aggiungi=False)
-        self.mostra_preferiti()
+    def remove(self, uri):
+        write_favorites([p for p in read_favorites() if p["uri"] != uri])
+        bookmark(uri, "", add=False)
+        self.show_favorites()
 
-    # ---- collegati ora
-    def mostra_collegati(self):
-        for r in self.righe_ora:
-            self.g_ora.remove(r)
-        self.righe_ora = []
-        remoti = []
+    # ---- connected now
+    def show_connected(self):
+        for r in self.current_rows:
+            self.g_now.remove(r)
+        self.current_rows = []
+        remote = []
         for m in self.monitor.get_mounts():
-            radice = m.get_root()
-            uri = radice.get_uri() if radice else ""
+            root = m.get_root()
+            uri = root.get_uri() if root else ""
             if uri and not uri.startswith("file://"):
-                remoti.append((m, uri))
-        self.g_ora.set_visible(bool(remoti))
-        for m, uri in remoti:
+                remote.append((m, uri))
+        self.g_now.set_visible(bool(remote))
+        for m, uri in remote:
             r = Adw.ActionRow(title=m.get_name(), subtitle=uri, activatable=True, use_markup=False)
-            r.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
-            r.connect("activated", lambda _r, u=uri: self._apri(u))
+            r.add_prefix(Gtk.Image(icon_name="zeta-server-network"))
+            r.connect("activated", lambda _r, u=uri: self._open(u))
             b = Gtk.Button(label=tr("Disconnect"), valign=Gtk.Align.CENTER)
             b.connect("clicked", lambda _b, mm=m: mm.unmount_with_operation(
                 Gio.MountUnmountFlags.NONE, Gtk.MountOperation(parent=self), None,
-                lambda o, res: self._smontato(o, res)))
+                lambda o, res: self._unmounted(o, res)))
             r.add_suffix(b)
-            self.g_ora.add(r)
-            self.righe_ora.append(r)
+            self.g_now.add(r)
+            self.current_rows.append(r)
 
-    def _smontato(self, m, res):
+    def _unmounted(self, m, res):
         try:
             m.unmount_with_operation_finish(res)
             self.toasts.add_toast(Adw.Toast(title=tr("Disconnected"), timeout=2, use_markup=False))
         except GLib.Error as e:
             self.toasts.add_toast(Adw.Toast(title=tr("Could not disconnect: {error}").format(error=e.message), timeout=5, use_markup=False))
 
-    # ---- rete locale
-    def cerca(self):
+    # ---- local network
+    def search(self):
         self.spinner.start()
-        self.cerca_btn.set_sensitive(False)
-        threading.Thread(target=lambda: GLib.idle_add(self._trovati, cerca_in_rete()), daemon=True).start()
+        self.search_btn.set_sensitive(False)
+        threading.Thread(target=lambda: GLib.idle_add(self._on_found, search_network()), daemon=True).start()
 
-    def _trovati(self, trovati):
+    def _on_found(self, found):
         self.spinner.stop()
-        self.cerca_btn.set_sensitive(True)
-        for r in self.righe_rete:
-            self.g_rete.remove(r)
-        self.righe_rete = []
-        if not trovati:
+        self.search_btn.set_sensitive(True)
+        for r in self.network_rows:
+            self.g_network.remove(r)
+        self.network_rows = []
+        if not found:
             r = Adw.ActionRow(title=tr("No servers found"),
                               subtitle=tr("Make sure the computer or NAS is on and sharing "
                                           "something, or enter its address above."))
-            self.g_rete.add(r)
-            self.righe_rete.append(r)
-        for nome, uri, schema in trovati:
-            r = Adw.ActionRow(title=nome, subtitle="%s · %s" % (NOMI_SCHEMA.get(schema, schema), uri),
+            self.g_network.add(r)
+            self.network_rows.append(r)
+        for name, uri, scheme in found:
+            r = Adw.ActionRow(title=name, subtitle="%s · %s" % (SCHEME_NAMES.get(scheme, scheme), uri),
                               activatable=True, use_markup=False)
-            r.add_prefix(Gtk.Image(icon_name="zeta-server-rete"))
-            r.connect("activated", lambda _r, u=uri: self.connetti(u))
+            r.add_prefix(Gtk.Image(icon_name="zeta-server-network"))
+            r.connect("activated", lambda _r, u=uri: self.connect_to_server(u))
             b = Gtk.Button(label=tr("Connect"), valign=Gtk.Align.CENTER)
-            b.connect("clicked", lambda _b, u=uri: self.connetti(u))
+            b.connect("clicked", lambda _b, u=uri: self.connect_to_server(u))
             r.add_suffix(b)
-            self.g_rete.add(r)
-            self.righe_rete.append(r)
+            self.g_network.add(r)
+            self.network_rows.append(r)
         return False
 
 
@@ -481,14 +481,14 @@ class App(Adw.Application):
     def do_command_line(self, cl):
         argv = cl.get_arguments()[1:]
         if self.win is None:
-            tema.apply(CSS)
-            self.win = Finestra(self)
+            theme.apply(CSS)
+            self.win = MainWindow(self)
         self.win.present()
         if argv and "://" in argv[0]:
-            # l'indirizzo resta scritto nel campo: si vede cosa si sta aprendo
-            # e, se non va, lo si corregge li'
+            # the address stays in the field: you can see what is being opened
+            # and, if it fails, correct it right there
             self.win.server.set_text(argv[0])
-            self.win.connetti()                      # dai campi: ssh:// diventa sftp://
+            self.win.connect_to_server()                      # from the fields: ssh:// becomes sftp://
         return 0
 
 

@@ -1,7 +1,7 @@
-Catalogo italiano completo di Calamares 3.3.14 per ZETA RAYS.
-Upstream lascia ~85 frasi non tradotte (compaiono in inglese) e alcune tradotte male.
-Calamares carica /usr/share/calamares/lang/calamares_it_IT.qm prima di quello interno.
+Complete Italian catalog of Calamares 3.3.14 for ZETA RAYS.
+Upstream leaves ~85 sentences untranslated (they show up in English) and a few badly translated.
+Calamares loads /usr/share/calamares/lang/calamares_it_IT.qm before its built-in one.
 
-Rigenerare: python3 build_full.py (serve it.ts di upstream, tag v3.3.14),
-poi lrelease calamares_it_IT.ts -qm calamares_it_IT.qm (pacchetto qt6-l10n-tools)
-e copiare il .qm in live-build/config/includes.chroot/usr/share/calamares/lang/.
+To regenerate: python3 build_full.py (needs upstream's it.ts, tag v3.3.14),
+then lrelease calamares_it_IT.ts -qm calamares_it_IT.qm (package qt6-l10n-tools)
+and copy the .qm into live-build/config/includes.chroot/usr/share/calamares/lang/.

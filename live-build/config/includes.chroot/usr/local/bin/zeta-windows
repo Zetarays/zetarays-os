@@ -1,0 +1,522 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — open and minimized windows.
+
+  zeta-windows              open the list (click on the bar button, Super+W)
+  zeta-windows pick         crosshair: click the frozen window to close it,
+                             with all its processes (Ctrl+Alt+Esc).
+                             Click on the background: the full list.
+  zeta-windows force        list for ending a hung program, even one without
+                             a window, like «Force Quit» on macOS
+  zeta-windows active       emergency: close the active window right away,
+                             with no interface (Ctrl+Shift+Esc)
+  zeta-windows minimize [address]
+                             minimize the active window (or the given one)
+  zeta-windows restore <address>
+  zeta-windows count        text for the bar (empty if nothing is minimized)
+  zeta-windows recover      bring every window back inside the screen, with
+                             the title bar within reach (Super+Shift+W)
+  zeta-windows preview N    thumbnail N of the bar (path and tooltip)
+  zeta-windows restore-n N | close-n N | menu-n N
+                             act on thumbnail N of the bar
+
+The «minimize» button of the title bars runs «zeta-windows minimize»: the
+window disappears from the screen and comes back from here.
+"""
+import os
+import subprocess
+import sys
+import threading
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import windows  # noqa: E402
+from i18n import ntr, tr  # noqa: E402
+
+
+CHOICE = None          # window picked with the crosshair, awaiting confirmation
+FORCE_MODE = False
+
+
+def _show_notice(text, wait=False):
+    command = ["notify-send", "-a", "ZETA RAYS", "-t", "5000", tr("Force Quit Applications"), text]
+    try:
+        if wait:
+            subprocess.run(command, capture_output=True, timeout=5)
+        else:
+            subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _crosshair():
+    """Ctrl+Alt+Esc: red crosshair, click on the window to close.
+
+    Everything needed to pick (slurp, hyprctl) is done before loading GTK:
+    when the computer is struggling, opening a panel takes seconds, and the
+    crosshair must appear immediately.
+    """
+    global CHOICE, FORCE_MODE
+    _show_notice(tr("Click the window that isn't responding. Press Esc to cancel, "
+               "or click the background for the full list."))
+    try:
+        r = subprocess.run(["slurp", "-p", "-b", "#00000030", "-c", "#E5484DFF", "-w", "2"],
+                           capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        FORCE_MODE = True               # no crosshair: the list, which is always there
+        return None
+    if r.returncode != 0:
+        return 0                        # Esc: canceled
+    try:
+        point = r.stdout.split()[0]
+        x, y = (int(v) for v in point.split(","))
+    except (IndexError, ValueError):
+        FORCE_MODE = True
+        return None
+    w = windows.window_at_point(x, y)
+    if not w:
+        FORCE_MODE = True               # background: full list
+        return None
+    if windows.is_protected(w.get("pid") or 0):
+        _show_notice(tr("“{name}” is part of the desktop and can't be ended from here.").format(
+            name=w.get("class") or w.get("title") or tr("This window")))
+        return 0
+    CHOICE = w
+    return None
+
+
+def _close_active():
+    """Ctrl+Shift+Esc: close the active window right away, without asking
+    and without an interface. It is the way out when even a panel struggles
+    to open."""
+    w = windows.active()
+    if not w or not w.get("pid"):
+        _show_notice(tr("No active window to close."))
+        return 1
+    label = (w.get("title") or w.get("class") or tr("the program"))[:60]
+    if windows.is_protected(w["pid"]):
+        _show_notice(tr("“{name}” is part of the desktop and can't be ended from here.").format(
+            name=label))
+        return 1
+    _show_notice(tr("Closing “{name}”…").format(name=label))
+    ok, msg = windows.force_quit(w["pid"], wait=2.0)
+    _show_notice(tr("“{name}”: {message}").format(name=label, message=msg) if ok
+            else tr("“{name}” was not closed. {message}").format(name=label, message=msg),
+            wait=True)
+    return 0 if ok else 1
+
+
+def cli():
+    global FORCE_MODE
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "pick":
+        return _crosshair()
+    if cmd == "active":
+        return _close_active()
+    if cmd == "recover":
+        # the window guardian lives in Hyprland (hyprland.lua)
+        return subprocess.call(["hyprctl", "eval", "zeta_recover()"],
+                               stdout=subprocess.DEVNULL)
+    if cmd == "minimize":
+        # with an address that window is minimized, not the active one;
+        # zeta-minimize takes the snapshot for the bar and plays the animation
+        # (and, if its process is not running, minimizes anyway without it)
+        return subprocess.call(["zeta-minimize", "minimize"] + sys.argv[2:3])
+    if cmd == "restore" and len(sys.argv) > 2:
+        return subprocess.call(["zeta-minimize", "restore", sys.argv[2]])
+    if cmd == "preview" and len(sys.argv) > 2:
+        # for the bar: path of thumbnail N and tooltip
+        # Empty slot: a path that does not exist. If nothing is printed,
+        # Waybar keeps the previous image (seen: a closed window stayed in
+        # the bar); with a nonexistent file the slot is hidden.
+        empty = "/run/zeta-no-preview.png"
+        if sys.argv[2] == "0":
+            # the first slot checks with Hyprland that the windows still
+            # exist (a minimized app can close by itself): removes the others
+            windows.minimized()
+        try:
+            addr, info = windows.minimized_in_order()[int(sys.argv[2])]
+        except (ValueError, IndexError):
+            print(empty)
+            return 0
+        mini = windows._preview_file(addr, "mini")
+        if not os.path.exists(mini):
+            print(empty)
+        else:
+            title = (info.get("title") or info.get("class") or tr("Window")).replace("\n", " ")
+            print(mini)
+            print(tr("{title} (click to reopen)").format(title=title[:60]))
+        return 0
+    if cmd in ("restore-n", "close-n", "menu-n") and len(sys.argv) > 2:
+        try:
+            addr, _info = windows.minimized_in_order()[int(sys.argv[2])]
+        except (ValueError, IndexError):
+            return 1
+        if cmd == "restore-n":
+            return subprocess.call(["zeta-minimize", "restore", addr])
+        if cmd == "menu-n":
+            return subprocess.call(["zeta-minimize", "menu", sys.argv[2]])
+        windows.restore(addr)
+        return 0 if windows.close(addr) else 1
+    if cmd == "count":
+        n = len(windows.minimized())
+        if n:
+            print(ntr("{n} minimized", "{n} minimized", n).format(n=n))
+        return 0
+    if cmd == "force":
+        FORCE_MODE = True
+        return None          # opens the interface, in force-quit mode
+    if cmd:
+        print(tr("""ZETA RAYS — open and minimized windows.
+
+  zeta-windows              open the list (bar button, Super+W)
+  zeta-windows pick         crosshair: click the frozen window to close it,
+                             with all its processes (Ctrl+Alt+Esc).
+                             Click the background for the full list.
+  zeta-windows force        list for ending a frozen program, even one
+                             without a window, like “Force Quit” on macOS
+  zeta-windows active       emergency: close the active window right away,
+                             with no interface (Ctrl+Shift+Esc)
+  zeta-windows minimize [address]
+                             minimize the active window (or the given one)
+  zeta-windows restore <address>
+  zeta-windows count        text for the bar (empty if nothing is minimized)
+"""))
+        return 1
+    return None
+
+
+def _ollama_post(path, data, timeout=8):
+    import json
+    import urllib.request
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434" + path,
+                                     data=json.dumps(data).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            r.read()
+        return True
+    except OSError:
+        return False
+
+
+def _ollama_models():
+    """(name, MB) of the models Ollama currently holds in memory."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/ps", timeout=1.5) as r:
+            data = json.loads(r.read())
+    except (OSError, ValueError):
+        return []
+    return [(m.get("name", "?"), (m.get("size") or 0) / 1048576)
+            for m in data.get("models") or []]
+
+
+_rc = cli()
+if _rc is not None:
+    sys.exit(_rc)
+
+# ---------------------------------------------------------------- interface
+from ui import popup  # noqa: E402
+
+popup.preload_layer_shell()
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+CSS = """
+window.zeta-overlay.zeta-windows-list { background: @scrim; }
+.win-card { min-width: 420px; padding: 16px; }
+.win-title { font-size: 15px; font-weight: 500; }
+.win-name { font-size: 13px; }
+.win-sub { font-size: 11px; color: @ink_dim; }
+.win-icon { min-width: 28px; min-height: 28px; }
+.win-empty { font-size: 12px; color: @ink_dim; padding: 10px 4px; }
+"""
+
+
+def icon_for(cls):
+    from gi.repository import Gdk
+    theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+    for name in (cls, cls.lower(), cls.lower().replace(" ", "-")):
+        if name and theme.has_icon(name):
+            return name
+    return "application-x-executable"
+
+
+CSS_FORCE = """
+button.force-quit { background: #E5484D; color: #FFFFFF; border: none;
+                      border-radius: 10px; padding: 6px 14px; font-weight: 500; }
+button.force-quit:hover { background: #F0575C; }
+button.force-quit:disabled { opacity: 0.6; }
+"""
+
+
+class WindowList(Gtk.ApplicationWindow):
+    def __init__(self, app, force=False):
+        super().__init__(application=app,
+                         title=tr("Force Quit Applications") if force else tr("Windows"),
+                         decorated=False)
+        popup.make_overlay(self, "zeta-windows")
+        self.add_css_class("zeta-windows-list")
+        self.force = force
+
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                            css_classes=["zeta-card", "win-card"],
+                            halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self.card.append(Gtk.Label(label=tr("Force Quit Applications") if force else tr("Windows"),
+                                   css_classes=["win-title"], halign=Gtk.Align.START))
+
+        if force:
+            self.card.append(Gtk.Label(
+                label=tr("Choose the program that isn't responding. Unsaved work will be lost."),
+                css_classes=["win-sub"], halign=Gtk.Align.START, wrap=True,
+                max_width_chars=44))
+            crosshair = Gtk.Button(label=tr("Pick the window to close with the mouse"),
+                                halign=Gtk.Align.START, css_classes=["zeta-row"])
+            crosshair.connect("clicked", self._open_crosshair)
+            self.card.append(crosshair)
+            self._section(tr("Open Programs"), windows.open_windows(), restore=False,
+                          empty=tr("No open programs."))
+            self._windowless_section()
+        else:
+            mini = windows.minimized()
+            self._section(tr("Minimized Windows"), mini, restore=True,
+                          empty=tr("No minimized windows."))
+            self._section(tr("Open Windows"), windows.open_windows(), restore=False,
+                          empty=tr("No open windows."))
+
+        self.card.append(Gtk.Label(label=tr("Press Esc to close"), css_classes=["zeta-caption"],
+                                   halign=Gtk.Align.START, margin_top=4))
+        self.set_child(self.card)
+        popup.close_on_outside(self, self.card, self.close_app)
+
+    def _section(self, title, items, restore, empty):
+        self.card.append(Gtk.Label(label=title, css_classes=["zeta-caption"],
+                                   halign=Gtk.Align.START, margin_top=6))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                      css_classes=["zeta-section"])
+        if not items:
+            lab = Gtk.Label(label=empty, css_classes=["win-empty"], halign=Gtk.Align.START,
+                            margin_start=8)
+            box.append(lab)
+        for w in items:
+            box.append(self._row(w, restore))
+        self.card.append(box)
+
+    def _row(self, w, restore):
+        """One row: the main button opens/restores, the ones beside it
+        minimize and close. Buttons side by side, never nested: this way a
+        click (or Tab + Enter) always lands on the visible action."""
+        line = Gtk.Box(spacing=4)
+
+        primary = Gtk.Button(css_classes=["zeta-row"], hexpand=True,
+                                tooltip_text=tr("Restore") if restore else tr("Bring to Front"))
+        inside = Gtk.Box(spacing=10)
+        inside.append(Gtk.Image(icon_name=icon_for(w["class"]), pixel_size=24,
+                                css_classes=["win-icon"]))
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True,
+                      halign=Gtk.Align.START)
+        title = (w["title"] or tr("Window"))[:60]
+        txt.append(Gtk.Label(label=title, css_classes=["win-name"], halign=Gtk.Align.START))
+        sub = w["class"] or ""
+        if not restore and w.get("workspace"):
+            sub = tr("{app} · workspace {n}").format(app=sub, n=w["workspace"]).strip(" ·")
+        if sub:
+            txt.append(Gtk.Label(label=sub, css_classes=["win-sub"], halign=Gtk.Align.START))
+        inside.append(txt)
+        primary.set_child(inside)
+        action = windows.restore if restore else windows.focus
+        primary.connect("clicked", lambda _b, a=w["address"]: self.act(action, a))
+        line.append(primary)
+
+        if self.force:
+            # In this mode the row does not bring the window to the front: it
+            # is for choosing what to end. There is a single button, and it is red.
+            pid = w.get("pid") or 0
+            if pid:
+                mb = windows.memory_mb(pid)
+                note = "%s · %.0f MB" % (w["class"] or "", mb) if mb else (w["class"] or "")
+                if windows.stuck_on_disk(pid):
+                    note = tr("{note} · stuck waiting for the disk").format(note=note)
+                if txt.get_last_child() is not None and sub:
+                    txt.get_last_child().set_text(note)
+            k = Gtk.Button(label=tr("Force Quit"), css_classes=["force-quit"],
+                           valign=Gtk.Align.CENTER,
+                           tooltip_text=tr("End the program without saving"))
+            k.connect("clicked", lambda _b, ww=w: self.force_quit(ww))
+            line.append(k)
+            return line
+
+        if not restore:
+            m = Gtk.Button(css_classes=["zeta-flat"], tooltip_text=tr("Minimize"),
+                           valign=Gtk.Align.CENTER)
+            m.set_child(Gtk.Image(icon_name="list-remove-symbolic", pixel_size=14))
+            m.connect("clicked", lambda _b, a=w["address"]: self.act(windows.minimize, a))
+            line.append(m)
+        c = Gtk.Button(css_classes=["zeta-flat"], tooltip_text=tr("Close"),
+                       valign=Gtk.Align.CENTER)
+        c.set_child(Gtk.Image(icon_name="window-close-symbolic", pixel_size=14))
+        c.connect("clicked", lambda _b, a=w["address"]: self.act(windows.close, a))
+        line.append(c)
+        return line
+
+    def _open_crosshair(self, _b=None):
+        subprocess.Popen(["zeta-windows", "pick"], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.close_app()
+
+    def _windowless_section(self):
+        """Programs without a window that use a lot of memory, and the Ollama
+        model: they too can freeze the computer."""
+        lines = []
+        for pr in windows.heavy_processes():
+            lines.append((pr["name"], tr("{mb} MB · no window").format(mb="%.0f" % pr["mb"]),
+                          tr("Force Quit"), lambda _b, p=pr: self.force_quit(
+                              {"pid": p["pid"], "class": p["name"], "title": p["name"]})))
+        for model_name, mb in _ollama_models():
+            lines.append((tr("AI model {name}").format(name=model_name), "%.0f MB · Ollama" % mb,
+                          tr("Free Memory"),
+                          lambda _b, n=model_name: self._unload_model(n)))
+        if not lines:
+            return
+        self.card.append(Gtk.Label(label=tr("Without a Window"), css_classes=["zeta-caption"],
+                                   halign=Gtk.Align.START, margin_top=6))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                      css_classes=["zeta-section"])
+        for title, below, operation, fn in lines:
+            line = Gtk.Box(spacing=8, margin_start=8, margin_end=4, margin_top=4,
+                           margin_bottom=4)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            text.append(Gtk.Label(label=title, css_classes=["win-name"],
+                                   halign=Gtk.Align.START))
+            text.append(Gtk.Label(label=below, css_classes=["win-sub"],
+                                   halign=Gtk.Align.START))
+            line.append(text)
+            b = Gtk.Button(label=operation, css_classes=["force-quit"],
+                           valign=Gtk.Align.CENTER)
+            b.connect("clicked", fn)
+            line.append(b)
+            box.append(line)
+        self.card.append(box)
+
+    def _unload_model(self, model_name):
+        """Unload the model from memory (keep_alive 0): no administrator
+        rights needed, and Ollama reloads it on the next question."""
+        def work():
+            ok = _ollama_post("/api/generate", {"model": model_name, "keep_alive": 0})
+            GLib.idle_add(self._outcome, tr("Memory used by model {name} freed.").format(name=model_name)
+                          if ok else tr("Ollama didn't respond: the model stays in memory."))
+        threading.Thread(target=work, daemon=True).start()
+
+    def force_quit(self, w):
+        """Ask for confirmation, then end the program, in a thread.
+
+        The confirmation is there because the operation throws away unsaved
+        work: it is exactly what macOS and Windows do before forcing a quit.
+        The work runs in a thread because a few seconds pass between TERM and
+        KILL, and this panel must not freeze right when it is needed to
+        unblock the computer.
+        """
+        pid = w.get("pid") or 0
+        label = (w.get("title") or w.get("class") or tr("the program"))[:60]
+        if not pid:
+            self._outcome(tr("Can't find the process behind “{name}”.").format(name=label))
+            return
+        d = Gtk.Window(transient_for=self, modal=True, title=tr("Force Quit"),
+                       default_width=380, resizable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=18,
+                      margin_bottom=18, margin_start=18, margin_end=18)
+        d.set_child(box)
+        box.append(Gtk.Label(label=tr("Force “{name}” to quit?").format(name=label),
+                             xalign=0, wrap=True))
+        mb = sum(windows.memory_mb(p) for p in windows.tree(pid))
+        box.append(Gtk.Label(
+            label=tr("Unsaved work will be lost. It uses {mb} MB; the processes it "
+                     "started will close too.").format(mb="%.0f" % mb),
+            xalign=0, wrap=True, css_classes=["win-sub"]))
+        lines = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=tr("Cancel"))
+        ok = Gtk.Button(label=tr("Force Quit"), css_classes=["force-quit"])
+        def _cancel(*_):
+            d.destroy()
+            if getattr(self, "confirm_only", False):
+                self.close_app()
+            return False
+        cancel.connect("clicked", _cancel)
+        d.connect("close-request", _cancel)
+
+        def confirm(_b):
+            ok.set_sensitive(False)
+            ok.set_label(tr("Waiting…"))
+
+            def work():
+                succeeded, message = windows.force_quit(pid)
+                GLib.idle_add(finished, succeeded, message)
+
+            def finished(succeeded, message):
+                d.destroy()
+                self._outcome(tr("“{name}”: {message}").format(name=label, message=message)
+                            if succeeded else tr("Failed. {message}").format(message=message))
+                return False
+            threading.Thread(target=work, daemon=True).start()
+
+        ok.connect("clicked", confirm)
+        lines.append(cancel)
+        lines.append(ok)
+        box.append(lines)
+        d.present()
+
+    def _outcome(self, text):
+        """Show the outcome and close the panel."""
+        subprocess.run(["notify-send", "-a", "ZETA RAYS", tr("Force Quit Applications"), text],
+                       capture_output=True)
+        self.close_app()
+
+    def act(self, fn, addr):
+        # First hide the panel and give Hyprland time to return focus to the
+        # previous window; only then bring the chosen one to the front. Doing
+        # both at once, Hyprland won: the panel closed and the clicked window
+        # stayed behind.
+        self.set_visible(False)
+
+        def after():
+            fn(addr)
+            GLib.timeout_add(150, self.close_app)
+            return False
+        GLib.timeout_add(120, after)
+
+    def close_app(self):
+        self.get_application().quit()
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self, force=False):
+        self.force = force
+        super().__init__(application_id="org.zetarays.Windows" + (".Force" if force else ""),
+                         flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.clean_env()
+        popup.load_css(CSS + CSS_FORCE)
+
+    def do_activate(self):
+        if self.props.active_window:
+            self.quit()
+            return
+        if CHOICE:
+            # crosshair: only the confirmation, above the chosen window
+            w = WindowList(self, force=True)
+            w.confirm_only = True
+            w.force_quit(CHOICE)
+            return
+        WindowList(self, force=self.force).present()
+
+
+# «force» opens the same panel in force-quit mode: same list, same code, a
+# different button. Two nearly identical programs would mean two places to
+# fix the same bug.
+sys.exit(App(force=FORCE_MODE).run([sys.argv[0]]))

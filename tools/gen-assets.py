@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Genera gli asset grafici di ZETA RAYS (icone, logo, sfondo, icone del login)
-# partendo dalle stesse forme usate nel design (design/gen.py).
+# Generates the ZETA RAYS graphic assets (icons, logo, wallpaper, login icons)
+# from the same shapes used in the design (design/gen.py).
 import os
 import pathlib
 
@@ -14,28 +14,28 @@ exec(src, ns)
 ICONS = ns["ICONS"]
 XMLNS = 'xmlns="http://www.w3.org/2000/svg"'
 
-# La forma del marchio vive in un posto solo: tools/marchio-zeta.json, estratto
-# dal file vettoriale originale (tools/gen-marchio.py). I tracciati sono PIENI:
-# si disegnano con fill, non con stroke come il marchio precedente.
+# The logo shape lives in one place only: tools/wordmark-zeta.json, extracted
+# from the original vector file (tools/gen-wordmark.py). The paths are FILLED:
+# they are drawn with fill, not with stroke like the previous logo.
 import json
-_M = json.load(open(os.path.join(ROOT, "tools", "marchio-zeta.json")))
-SIMBOLO = '<path d="%s"/>' % _M["simbolo"]
-SCRITTA = "".join('<path d="%s"/>' % d for d in _M["scritta"])
-MARCHIO = SIMBOLO + SCRITTA
-# Dove il simbolo compare da solo si usa il tracciato ufficiale del file
-# vettoriale fornito: un unico path con curve vere, piu nitido e piu leggero
-# della versione a segmenti composta dentro il marchio completo.
-SIMBOLO_SOLO = '<path d="%s"/>' % _M["simbolo_originale"]
+_M = json.load(open(os.path.join(ROOT, "tools", "wordmark-zeta.json")))
+SYMBOL = '<path d="%s"/>' % _M["symbol"]
+WORDMARK = "".join('<path d="%s"/>' % d for d in _M["wordmark"])
+LOGO_MARK = SYMBOL + WORDMARK
+# Where the symbol appears on its own, the official path from the supplied
+# vector file is used: a single path with real curves, sharper and lighter
+# than the segmented version built into the full logo.
+SYMBOL_ONLY = '<path d="%s"/>' % _M["symbol_original"]
 
 
-def vb(nome):
-    """viewBox del riquadro richiesto, come stringa."""
-    return "%.3f %.3f %.3f %.3f" % tuple(_M["riquadro_" + nome])
+def vb(name):
+    """viewBox of the requested bounding box, as a string."""
+    return "%.3f %.3f %.3f %.3f" % tuple(_M["bbox_" + name])
 
 
-def proporzione(nome, altezza):
-    x, y, w, h = _M["riquadro_" + nome]
-    return round(altezza * w / h)
+def proportional_width(name, height):
+    x, y, w, h = _M["bbox_" + name]
+    return round(height * w / h)
 
 
 def write(rel, text):
@@ -45,39 +45,39 @@ def write(rel, text):
         f.write(text)
 
 
-# --- Logo e simbolo (ACCENT viene sostituito a runtime) ---
+# --- Logo and symbol (ACCENT is replaced at runtime) ---
 logo_in = ('<svg %s viewBox="%s" fill="ACCENT" fill-rule="nonzero">%s</svg>\n'
-           % (XMLNS, vb("intero"), MARCHIO))
-# Dimensione intrinseca ampia (256 px): a 22 px il simbolo veniva disegnato
-# piccolo e poi ingrandito dalla barra, e usciva sfocato. Partendo grande
-# resta nitido a qualunque misura e su schermi ad alta densita.
-_sx, _sy, _sw, _sh = _M["riquadro_simbolo_originale"]
-simbolo_in = ('<svg %s width="256" height="%d" viewBox="%s" fill="ACCENT" '
+           % (XMLNS, vb("full"), LOGO_MARK))
+# Large intrinsic size (256 px): at 22 px the symbol was drawn small and then
+# scaled up by the bar, and came out blurry. Starting large, it stays sharp at
+# any size and on high-density screens.
+_sx, _sy, _sw, _sh = _M["bbox_symbol_original"]
+symbol_in = ('<svg %s width="256" height="%d" viewBox="%s" fill="ACCENT" '
               'fill-rule="nonzero">%s</svg>\n'
               % (XMLNS, round(256 * _sh / _sw),
-                 "%.3f %.3f %.3f %.3f" % (_sx, _sy, _sw, _sh), SIMBOLO_SOLO))
+                 "%.3f %.3f %.3f %.3f" % (_sx, _sy, _sw, _sh), SYMBOL_ONLY))
 write("usr/share/zeta/brand/zeta-logo.svg.in", logo_in)
-write("usr/share/zeta/brand/zeta-simbolo.svg.in", simbolo_in)
-for name, color in (("bianco", "#FFFFFF"), ("nero", "#000000")):
+write("usr/share/zeta/brand/zeta-symbol.svg.in", symbol_in)
+for name, color in (("white", "#FFFFFF"), ("black", "#000000")):
     write("usr/share/zeta/brand/zeta-logo-%s.svg" % name, logo_in.replace("ACCENT", color))
 
-# Icona «pacchetto supportato» di Synaptic e degli strumenti APT: in Debian e'
-# la spirale di Debian; qui il simbolo di ZETA RAYS, nel blu del sistema.
+# «Supported package» icon of Synaptic and the APT tools: in Debian it is the
+# Debian swirl; here it is the ZETA RAYS symbol, in the system blue.
 write("usr/share/icons/zeta/scalable/apps/package-supported.svg",
-      simbolo_in.replace("ACCENT", "#3A8DFF").replace('width="256"', 'width="64"')
+      symbol_in.replace("ACCENT", "#3A8DFF").replace('width="256"', 'width="64"')
       .replace('height="%d"' % round(256 * _sh / _sw), 'height="%d"' % round(64 * _sh / _sw)))
 
-# --- Sfondo 3840x2160: marchio al centro, nelle proporzioni dell'originale.
-# Il colore del fondo è il segnaposto SFONDO: zeta-accent lo sostituisce con
-# nero o chiaro secondo il tema scelto. ---
+# --- 3840x2160 wallpaper: logo in the center, in the original proportions.
+# The background color is the BGCOLOR placeholder: zeta-accent replaces it with
+# black or a light color depending on the chosen theme. ---
 lh = 354
-lw = proporzione("intero", lh)
+lw = proportional_width("full", lh)
 write("usr/share/zeta/brand/zeta-wallpaper.svg.in",
       '<svg %s width="3840" height="2160" viewBox="0 0 3840 2160">'
-      '<rect width="3840" height="2160" fill="SFONDO"/>'
+      '<rect width="3840" height="2160" fill="BGCOLOR"/>'
       '<svg x="%s" y="%s" width="%d" height="%d" viewBox="%s">'
       '<g fill="ACCENT" fill-rule="nonzero">%s</g></svg></svg>\n'
-      % (XMLNS, (3840 - lw) / 2, (2160 - lh) / 2, lw, lh, vb("intero"), MARCHIO))
+      % (XMLNS, (3840 - lw) / 2, (2160 - lh) / 2, lw, lh, vb("full"), LOGO_MARK))
 
 
 
@@ -87,35 +87,35 @@ ICONS["install"] = '<path d="M12 3v11M8 10l4 4 4-4"/><path d="M5 20h14"/>'
 ICONS["gauge"] = '<path d="M4 15a8 8 0 0 1 16 0"/><path d="M12 15l4-4"/><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none"/><path d="M4 15h1.5M18.5 15H20M12 7v1.5"/>'
 ICONS["assistant"] = '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-4 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z"/><path d="M9 10h0M12 10h0M15 10h0"/>'
 
-# --- Tema di icone "zeta": tessere scure con glifo chiaro ---
+# --- "zeta" icon theme: dark tiles with a light glyph ---
 def tile(glyph):
-    # tessera 64x64, glifo 24x24 scalato a 34px al centro
+    # 64x64 tile, 24x24 glyph scaled to 34px in the center
     return ('<svg %s width="64" height="64" viewBox="0 0 64 64">'
             '<rect x="0.5" y="0.5" width="63" height="63" rx="17" fill="#19191C" stroke="#FFFFFF" stroke-opacity="0.08"/>'
             '<g transform="translate(15 15) scale(1.4167)" fill="none" stroke="#EDEDEA" stroke-width="1.5" '
             'stroke-linecap="round" stroke-linejoin="round">%s</g></svg>\n' % (XMLNS, glyph))
 
 
-# Stampante: foglio che esce dal corpo, nello stesso tratto delle altre.
-# Serve sia alla voce «Stampanti» delle Impostazioni sia alla tessera dell'app
-# «Impostazioni di stampa», che altrimenti mostrava l'icona colorata standard.
+# Printer: a sheet coming out of the body, in the same stroke as the others.
+# Used both by the «Printers» entry in Settings and by the tile of the
+# «Print Settings» app, which otherwise showed the standard colored icon.
 ICONS["printer"] = ('<path d="M7 9V4.5h10V9"/>'
                     '<path d="M5.5 9h13a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H17"/>'
                     '<path d="M7 17H5.5A1.5 1.5 0 0 1 4 15.5v-5A1.5 1.5 0 0 1 5.5 9"/>'
                     '<path d="M7 13.5h10v6H7z"/><path d="M16.8 11.6h.01"/>')
 
-# Icone dei luoghi: Home e Cestino sulla scrivania. Quelle di Adwaita (una
-# casa azzurra e un cestino verde con il simbolo del riciclo) stonano con
-# l'identità di ZETA RAYS, quindi ne disegniamo la versione nello stile del sistema.
-# ZETA Share: il triangolo di ZETA RAYS (nella forma a piramide del marchio)
-# che invia due onde, cioe' «ai dispositivi vicini». Prima era il simbolo
-# generico di condivisione (tre punti collegati), uguale a mille app Linux.
+# Place icons: Home and Trash on the desktop. The Adwaita ones (a light-blue
+# house and a green bin with the recycling symbol) clash with the ZETA RAYS
+# identity, so we draw versions in the system style.
+# ZETA Share: the ZETA RAYS triangle (in the pyramid shape of the logo)
+# sending out two waves, i.e. «to nearby devices». It used to be the generic
+# share symbol (three connected dots), the same as a thousand Linux apps.
 ICONS["share"] = ('<path d="M12 9.6L5.9 20.1h12.2z"/><path d="M12 9.6v6.6M12 16.2l-6.1 3.9M12 16.2l6.1 3.9" stroke-opacity="0.55"/><path d="M8.7 6.6a4.7 4.7 0 0 1 6.6 0"/><path d="M6 3.9a8.5 8.5 0 0 1 12 0"/>')
-# Server: due unita' impilate con la spia, per «Connetti a un server»
+# Server: two stacked units with an indicator light, for «Connect to Server»
 ICONS["server"] = ('<rect x="4" y="4" width="16" height="6.5" rx="1.6"/>'
                    '<rect x="4" y="13.5" width="16" height="6.5" rx="1.6"/>'
                    '<path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5"/>')
-ICONS["cerca"] = '<circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/>'
+ICONS["search"] = '<circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/>'
 ICONS["app"] = ('<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/>'
                 '<rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>')
 ICONS["home"] = '<path d="M3.5 11L12 4.5l8.5 6.5"/><path d="M6 9.8V19.5h12V9.8"/><path d="M10 19.5v-5h4v5"/>'
@@ -128,9 +128,9 @@ ICONS["trash-full"] = ('<path d="M4.3 7.9l14.9-2.1"/>'
                        '<path d="M6.8 7.6l1.7 11.8A1.7 1.7 0 0 0 10.2 21h5.4a1.7 1.7 0 0 0 1.7-1.5l.9-11.9"/>'
                        '<path d="M10.5 11.3l.6 5.6M14 10.9l-.3 5.7"/>')
 
-# Luoghi del gestore file (barra laterale di Thunar, dischi, rete, recenti):
-# senza queste arrivavano quelle di Adwaita, colorate e in stili diversi
-# (la «Recenti» scura era quasi invisibile sul tema scuro).
+# File manager places (Thunar sidebar, disks, network, recent): without these
+# the Adwaita ones showed up, colored and in different styles (the dark
+# «Recent» one was almost invisible on the dark theme).
 ICONS["computer"] = '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16v4"/>'
 ICONS["disk"] = ('<rect x="3.5" y="13" width="17" height="6.5" rx="2"/>'
                  '<path d="M5 13l2.2-7.2A1.8 1.8 0 0 1 9 4.5h6a1.8 1.8 0 0 1 1.8 1.3L19 13"/>'
@@ -144,18 +144,18 @@ ICONS["optical"] = '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="
 
 APP_ICONS = {
     "computer": ["computer", "user-desktop-computer"],
-    # non «user-desktop»: e' anche l'icona della cartella Desktop, che deve
-    # restare una cartella come Documenti e Scaricati
+    # not «user-desktop»: it is also the icon of the Desktop folder, which must
+    # stay a folder like Documents and Downloads
     "disk": ["drive-harddisk", "drive-harddisk-system", "drive-harddisk-root", "drive-multidisk"],
     "network": ["network-workgroup", "folder-remote", "network-server"],
     "recent": ["document-open-recent"],
     "usb": ["drive-removable-media", "drive-removable-media-usb", "media-removable", "media-flash"],
     "optical": ["drive-optical", "media-optical"],
     "app": ["zeta-app", "application-x-executable"],
-    "cerca": ["zeta-cerca"],
+    "search": ["zeta-search"],
     "home": ["user-home", "folder-home", "go-home"],
-    # non «user-trash-symbolic»: GTK ricolora le icone simboliche, e la
-    # piastrella diventava un quadrato bianco in ogni pulsante Elimina
+    # not «user-trash-symbolic»: GTK recolors symbolic icons, and the tile
+    # became a white square in every Delete button
     "trash": ["user-trash"],
     "trash-full": ["user-trash-full"],
     "files": ["org.xfce.thunar", "Thunar", "system-file-manager"],
@@ -163,21 +163,21 @@ APP_ICONS = {
     "browser": ["firefox-esr", "web-browser"],
     "editor": ["org.gnome.TextEditor", "accessories-text-editor"],
     "packages": ["synaptic", "system-software-install"],
-    "settings": ["zeta-impostazioni", "preferences-system"],
-    "shield": ["zeta-sicurezza"],
+    "settings": ["zeta-settings", "preferences-system"],
+    "shield": ["zeta-security"],
     "core": ["zeta-core"],
-    "assistant": ["zeta-assistente"],
+    "assistant": ["zeta-assistant"],
     "monitor": ["org.gnome.SystemMonitor", "utilities-system-monitor"],
     "gauge": ["zeta-monitor"],
-    "install": ["zeta-installa"],
+    "install": ["zeta-install-system"],
     "image": ["org.gnome.eog", "image-viewer"],
     "media": ["mpv", "multimedia-player"],
     "calc": ["org.gnome.Calculator", "accessories-calculator"],
     "docs": ["org.gnome.Evince"],
     "archive": ["org.gnome.FileRoller"],
     "share": ["zeta-share"],
-    # solo i nomi delle app: «document-print» e l'icona dei pulsanti Stampa
-    # nelle barre degli strumenti e deve restare piccola e simbolica
+    # app names only: «document-print» is the icon of the Print buttons in
+    # toolbars and must stay small and symbolic
     "printer": ["printer", "system-config-printer"],
     "server": ["zeta-server"],
 }
@@ -187,9 +187,9 @@ for glyph, names in APP_ICONS.items():
 
 write("usr/share/icons/zeta/index.theme", """[Icon Theme]
 Name=ZETA RAYS
-Comment=Icone di ZETA RAYS
+Comment=ZETA RAYS icons
 Inherits=Adwaita,hicolor
-Directories=scalable/apps
+Directories=scalable/apps,scalable/emblems
 
 [scalable/apps]
 Size=64
@@ -197,9 +197,16 @@ MinSize=16
 MaxSize=512
 Type=Scalable
 Context=Applications
+
+[scalable/emblems]
+Size=64
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Emblems
 """)
 
-# --- Icone di stato della barra (rete, audio, batteria) ---
+# --- Bar status icons (network, audio, battery) ---
 STATUS = {
     "wifi": ICONS["wifi"],
     "wifi-off": '<path d="M4.5 10a11 11 0 0 1 15 0M7.5 13.3a6.5 6.5 0 0 1 9 0" stroke-opacity="0.35"/><circle cx="12" cy="17" r="1.2"/><path d="M4 4l16 16"/>',
@@ -218,7 +225,7 @@ for name, glyph in STATUS.items():
           '<svg %s width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#A1A1A6" color="#A1A1A6" stroke-width="1.5" '
           'stroke-linecap="round" stroke-linejoin="round">%s</svg>\n' % (XMLNS, glyph))
 
-# --- Icone dell'interfaccia (centro di controllo, energia): tratto 1.6, colore fisso ---
+# --- Interface icons (control center, power): 1.6 stroke, fixed color ---
 UI_ICONS = {
     "lock": '<rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
     "moon": ICONS["moon"],
@@ -243,7 +250,8 @@ UI_ICONS = {
     "speaker": '<rect x="6" y="3" width="12" height="18" rx="2.5"/><circle cx="12" cy="14.5" r="3"/><circle cx="12" cy="7.5" r="1"/>',
     "sun": '<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>',
     "battery": ICONS["battery"],
-    "settings": ICONS["settings"],
+    # «settings» would collide with the zeta-settings app tile written above
+    "settings-glyph": ICONS["settings"],
     "check": '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     "chevron-down": '<path d="M7 10l5 5 5-5"/>',
     "offline": '<circle cx="12" cy="12" r="8.5"/><path d="M6 18L18 6"/>',
@@ -253,12 +261,12 @@ UI_ICONS = {
     "shield": '<path d="M12 3.5l7 2.8v5.2c0 4.3-3 7.7-7 9-4-1.3-7-4.7-7-9V6.3z"/>',
     "ai": '<path d="M12 4l1.6 4.4L18 10l-4.4 1.6L12 16l-1.6-4.4L6 10l4.4-1.6z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
     "printer": ICONS["printer"],
-    "server-rete": ICONS["server"],
-    "lingua": '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5s1.2-6.2 3.6-8.5z"/>',
-    "tastiera": '<rect x="3" y="6.5" width="18" height="11" rx="2"/><path d="M7 10h0M10 10h0M13 10h0M16 10h0M8 14h8"/>',
+    "server-network": ICONS["server"],
+    "language": '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5s1.2-6.2 3.6-8.5z"/>',
+    "keyboard": '<rect x="3" y="6.5" width="18" height="11" rx="2"/><path d="M7 10h0M10 10h0M13 10h0M16 10h0M8 14h8"/>',
     "account": ICONS["user"],
-    "schermi": '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/>',
-    # libreria dei font: «Aa»
+    "displays": '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/>',
+    # font library: «Aa»
     "font": '<path d="M3.5 18.5L8.5 5.5l5 13M5.3 14h6.4"/><path d="M15.2 11.6a2.6 2.6 0 0 1 5.3.9v6M20.5 15c-.8-.4-1.7-.6-2.6-.6-1.6 0-2.7.9-2.7 2.1s1 2 2.3 2c1.4 0 2.6-.9 3-2.2"/>',
 }
 for name, glyph in UI_ICONS.items():
@@ -266,8 +274,8 @@ for name, glyph in UI_ICONS.items():
           '<svg %s width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#EDEDEA" '
           'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">%s</svg>\n' % (XMLNS, glyph))
 
-# --- Icone per la schermata di accesso (SDDM) ---
-# occhio: mostra / nasconde la password mentre la si scrive
+# --- Icons for the login screen (SDDM) ---
+# eye: shows / hides the password while typing
 ICONS["eye"] = ('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>'
                 '<circle cx="12" cy="12" r="3"/>')
 ICONS["eye-off"] = ICONS["eye"] + '<path d="M4 4l16 16"/>'
@@ -279,36 +287,36 @@ _wm_h = 40
 write("usr/share/sddm/themes/zeta/icons/wordmark.svg",
       '<svg %s width="%d" height="%d" viewBox="%s">'
       '<g fill="#EDEDEA" fill-rule="nonzero">%s</g></svg>\n'
-      % (XMLNS, proporzione("scritta", _wm_h), _wm_h, vb("scritta"), SCRITTA))
+      % (XMLNS, proportional_width("wordmark", _wm_h), _wm_h, vb("wordmark"), WORDMARK))
 
-# --- Sfondo del menu di avvio (GRUB/syslinux, 800x600): logo in alto, menu sotto ---
+# --- Boot menu background (GRUB/syslinux, 800x600): logo at the top, menu below ---
 bh = 191
-bw = proporzione("intero", bh)
+bw = proportional_width("full", bh)
 with open(os.path.join(ROOT, "live-build", "config", "bootloaders", "splash.svg"), "w") as f:
     f.write('<svg %s width="800" height="600" viewBox="0 0 800 600">'
             '<rect width="800" height="600" fill="#000000"/>'
             '<svg x="%s" y="%s" width="%d" height="%d" viewBox="%s">'
             '<g fill="#FFFFFF" fill-rule="nonzero">%s</g></svg></svg>\n'
-            % (XMLNS, (800 - bw) / 2, (600 - bh) / 2, bw, bh, vb("intero"), MARCHIO))
+            % (XMLNS, (800 - bw) / 2, (600 - bh) / 2, bw, bh, vb("full"), LOGO_MARK))
 
-print("asset generati in", CHROOT)
+print("assets generated in", CHROOT)
 
 
 # --- fastfetch ------------------------------------------------------------
-# Le tre rese del marchio in ASCII le produce tools/gen-logo-ascii.py a partire
-# dal disegno ufficiale: qui non si tocca nulla, altrimenti si finirebbe con
-# due generatori che si sovrascrivono a vicenda (è già successo).
+# The three ASCII renderings of the logo are produced by tools/gen-logo-ascii.py
+# from the official drawing: nothing is touched here, otherwise we would end up
+# with two generators overwriting each other (it already happened).
 import subprocess as _sp
 _ff = os.path.join(CHROOT, "usr/share/zeta/fastfetch")
-_src = os.path.join(_ff, "zeta-originale.txt")
+_src = os.path.join(_ff, "zeta-original-full.txt")
 if os.path.exists(_src):
     _sp.run(["python3", os.path.join(ROOT, "tools", "gen-logo-ascii.py"), _src, _ff],
             check=True)
 
 
-# Icona della ricerca per la barra: segno semplice, senza tessera (sulla barra
-# la tessera scura stonerebbe). Le tessere restano per il menù delle app.
-write("usr/share/zeta/status/cerca.svg",
+# Search icon for the bar: a simple mark, no tile (on the bar the dark tile
+# would clash). Tiles remain for the app menu.
+write("usr/share/zeta/status/search.svg",
       '<svg %s width="48" height="48" viewBox="0 0 24 24" fill="none" '
       'stroke="#A1A1A6" color="#A1A1A6" stroke-width="1.6" stroke-linecap="round" '
       'stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/></svg>\n'
