@@ -105,7 +105,7 @@ not install, or the boot archive is too large.
 | No Italian prose in code comments and developer docs | `python3 tools/check-italian.py` |
 | A comment translation did not change code | `python3 tools/check-translation-safety.py OLD NEW` |
 | `pkill -f`/`pgrep -f` patterns cannot hit another program | `python3 tools/check-process-names.py` |
-| Website source (nesting, translations, links, checksums) | `python3 tools/check-site.py` |
+| Website source, before a release (the site is a separate repository) | `python3 tools/check-site.py PATH/index.html` |
 | Built-in tests on a running system (68+) | `zeta-selftest` (inside ZETA RAYS) |
 
 ## Troubleshooting
