@@ -5,7 +5,8 @@
 #   tools/vm-live.sh start | screenshot [NAME] | key CODES... | stop | delete
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISO="${ZETA_ISO:-$HOME/Desktop/ZETA RAYS 2.0/zetarays-2.0-arm64.iso}"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"   # release version (VERSION file)
+ISO="${ZETA_ISO:-$HOME/Desktop/ZETA RAYS $VERSION/zetarays-$VERSION-arm64.iso}"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
 NAME="ZETA RAYS test"
 SHOTS="$ROOT/.cache/vm"; mkdir -p "$SHOTS"

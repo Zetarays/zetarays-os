@@ -12,7 +12,7 @@ Code: `/usr/lib/zeta/intelligence/` (providers, registry, memory, voice) and
 
 | Provider | Type | Endpoint and default model |
 |---|---|---|
-| Ollama | local | `http://127.0.0.1:11434`; uses the installed model (`llama3.2:1b` ships with the image) |
+| Ollama | local | `http://127.0.0.1:11434`; uses the installed model (`qwen3:4b-instruct` ships with the image) |
 | Claude (Anthropic) | online | `api.anthropic.com`, `claude-haiku-5-5` |
 | Gemini (Google) | online | `generativelanguage.googleapis.com`, `gemini-3.8-flash` |
 | OpenAI | online | `api.openai.com`, `gpt-6-luna` |
@@ -106,12 +106,17 @@ Flatpak, for example), ZETA lists the installations and asks which one to use
 ## Languages and voice
 
 ZETA understands commands in English and Italian, whatever the system
-language. The model replies in the language of the request; the results of
-actions are written in the language of the ZETA RAYS apps (English or
-Italian). Speech recognition is
-offline (Vosk, English and Italian models) and follows the system language by
-default; replies can be read aloud with espeak-ng. Nothing leaves the
-computer.
+language. The model replies in the language of the request, and so do the
+results of actions, confirmations and notes when the request is clearly in
+English or Italian; Settings › AI › Reply language can keep every reply in
+the system language instead. Speech recognition is offline (Vosk, English and
+Italian models) and follows the system language by default.
+
+Replies can be read aloud, on the computer: in Italian with Sara (Kokoro-82M,
+run with ONNX Runtime; about 300 MB of memory while it speaks, Serena reads
+when memory is short), Serena or Paola (Piper); in English with Lessac
+(Piper); other languages with espeak-ng. Settings › AI › Voice chooses the
+voice and the speed. Nothing leaves the computer.
 
 ## Memory
 

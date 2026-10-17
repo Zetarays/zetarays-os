@@ -1,0 +1,593 @@
+{
+ "_comment": "Test phrases of zeta-selftest: requests, questions and answers in Italian and English (the assistant understands both). Keys are the test function names.",
+ "intents_recognized": {
+  "it": [
+   [
+    "che ore sono",
+    "current_time"
+   ],
+   [
+    "che giorno e oggi",
+    "current_date"
+   ],
+   [
+    "quanta batteria ho",
+    "battery_status"
+   ],
+   [
+    "volume",
+    "volume_status"
+   ],
+   [
+    "quante finestre ho aperte",
+    "list_windows"
+   ],
+   [
+    "quali finestre sono aperte",
+    "list_windows"
+   ],
+   [
+    "mostrami le finestre",
+    "list_windows"
+   ],
+   [
+    "riduci la finestra",
+    "minimize_window"
+   ],
+   [
+    "ingrandisci la finestra",
+    "maximize_window"
+   ],
+   [
+    "chiudi questa finestra",
+    "close_active_window"
+   ],
+   [
+    "apri le impostazioni",
+    "open_settings"
+   ],
+   [
+    "apri firefox",
+    "open_application"
+   ],
+   [
+    "passa al tema chiaro",
+    "set_theme"
+   ],
+   [
+    "qual e il mio ip",
+    "ip_address"
+   ],
+   [
+    "apri www.google.it",
+    "open_url"
+   ],
+   [
+    "vai su https://debian.org",
+    "open_url"
+   ],
+   [
+    "apri il documento relazione",
+    "open_file"
+   ],
+   [
+    "metti lo sfondo predefinito",
+    "set_wallpaper"
+   ],
+   [
+    "quanta ram sto usando",
+    "memory_usage"
+   ],
+   [
+    "uso della cpu",
+    "cpu_usage"
+   ],
+   [
+    "da quanto e acceso",
+    "uptime"
+   ]
+  ],
+  "en": [
+   [
+    "what time is it",
+    "current_time"
+   ],
+   [
+    "what's the date today",
+    "current_date"
+   ],
+   [
+    "how much battery do i have",
+    "battery_status"
+   ],
+   [
+    "which windows are open",
+    "list_windows"
+   ],
+   [
+    "minimize the window",
+    "minimize_window"
+   ],
+   [
+    "maximize the window",
+    "maximize_window"
+   ],
+   [
+    "close this window",
+    "close_active_window"
+   ],
+   [
+    "open settings",
+    "open_settings"
+   ],
+   [
+    "open firefox",
+    "open_application"
+   ],
+   [
+    "switch to light theme",
+    "set_theme"
+   ],
+   [
+    "what is my ip",
+    "ip_address"
+   ],
+   [
+    "open www.google.com",
+    "open_url"
+   ],
+   [
+    "how much ram am i using",
+    "memory_usage"
+   ],
+   [
+    "cpu usage",
+    "cpu_usage"
+   ],
+   [
+    "uptime",
+    "uptime"
+   ]
+  ]
+ },
+ "intents_without_false_positives": {
+  "it": [
+   "come si apre un file zip",
+   "scrivimi una poesia sulle finestre di una casa",
+   "parlami della memoria storica italiana",
+   "chi ha formulato il principio di archimede",
+   "consigliami un equipaggiamento da campeggio"
+  ],
+  "en": [
+   "how do i open a zip file",
+   "write me a poem about the windows of a house",
+   "who formulated archimedes principle",
+   "recommend some camping equipment"
+  ]
+ },
+ "system_commands_recognized": {
+  "it": [
+   [
+    "spegni il computer",
+    "power_off"
+   ],
+   [
+    "riavvia",
+    "reboot"
+   ],
+   [
+    "blocca lo schermo",
+    "lock_screen"
+   ],
+   [
+    "spegni il wifi",
+    "wifi_toggle"
+   ],
+   [
+    "metti il volume a 40",
+    "set_volume"
+   ],
+   [
+    "installa gimp",
+    "install_package"
+   ],
+   [
+    "svuota il cestino",
+    "empty_trash"
+   ]
+  ],
+  "en": [
+   [
+    "shut down the computer",
+    "power_off"
+   ],
+   [
+    "reboot",
+    "reboot"
+   ],
+   [
+    "lock the screen",
+    "lock_screen"
+   ],
+   [
+    "turn off the wifi",
+    "wifi_toggle"
+   ],
+   [
+    "set the volume to 40",
+    "set_volume"
+   ],
+   [
+    "install gimp",
+    "install_package"
+   ],
+   [
+    "empty the trash",
+    "empty_trash"
+   ]
+  ]
+ },
+ "immediate_answers": {
+  "it": [
+   "che ore sono",
+   "che giorno e oggi",
+   "quanta memoria sto usando"
+  ],
+  "en": [
+   "what time is it"
+  ]
+ },
+ "ai_time_sensitive_detection": {
+  "current": [
+   "chi è l'attuale presidente degli Stati Uniti?",
+   "Who is the president of France?",
+   "quanto costa un bitcoin oggi",
+   "che tempo fa a Roma domani?",
+   "what's the weather in London",
+   "chi ha vinto la partita di ieri",
+   "qual è l'ultima versione di Python?",
+   "what is the latest version of Firefox",
+   "ultime notizie",
+   "chi è il papa?"
+  ],
+  "ordinary": [
+   "che ore sono",
+   "what day is it today",
+   "scrivi una poesia sul mare",
+   "who was the first president of the United States",
+   "chi ha vinto i mondiali del 1982",
+   "how much is 5+3",
+   "spiegami la fotosintesi",
+   "what is the capital of France"
+  ]
+ },
+ "ai_web_lookup_off_by_default": {
+  "question": "chi è l'attuale presidente degli Stati Uniti?"
+ },
+ "ai_sources_formatting": {
+  "title": "Presidente degli Stati Uniti d'America",
+  "url": "https://it.wikipedia.org/wiki/Presidente_degli_Stati_Uniti_d%27America",
+  "text": "Il presidente attualmente in carica è X.",
+  "article": "Il presidente degli Stati Uniti è il capo di Stato. Il presidente è eletto ogni quattro anni. Il mandato dura quattro anni. Il presidente attualmente in carica è Mario Rossi, dal 2025.",
+  "question": "chi è l'attuale presidente degli Stati Uniti?",
+  "query": "attuale presidente Stati Uniti",
+  "person": "Mario Rossi"
+ },
+ "agent_understands_phrases": {
+  "it": [
+   [
+    "apri firefox",
+    "open_application"
+   ],
+   [
+    "chiudi firefox",
+    "close_application"
+   ],
+   [
+    "riavvia firefox",
+    "restart_application"
+   ],
+   [
+    "disconnetti il wifi",
+    "wifi_disconnect"
+   ],
+   [
+    "spegni il wi-fi",
+    "wifi_off"
+   ],
+   [
+    "alza il volume al 60%",
+    "set_volume"
+   ],
+   [
+    "alza il volume al sessanta per cento",
+    "set_volume"
+   ],
+   [
+    "metti la musica un po piu forte",
+    "set_volume"
+   ],
+   [
+    "crea una cartella progetti sulla scrivania",
+    "create_folder"
+   ],
+   [
+    "elimina nota.txt",
+    "delete_item"
+   ],
+   [
+    "quanta ram sto usando",
+    "system_status"
+   ],
+   [
+    "c'e qualcosa che rallenta il computer?",
+    "list_processes"
+   ],
+   [
+    "mi fai vedere le foto che ho scaricato",
+    "open_folder"
+   ],
+   [
+    "apri le impostazioni audio",
+    "open_settings"
+   ],
+   [
+    "apri il sito www.debian.org",
+    "open_url"
+   ],
+   [
+    "apri documenti.pdf",
+    "open_file"
+   ],
+   [
+    "imposta mousepad come editor predefinito",
+    "set_default_app"
+   ],
+   [
+    "quali sono le app predefinite",
+    "list_default_apps"
+   ],
+   [
+    "blocca il computer",
+    "lock_screen"
+   ],
+   [
+    "dov'e installato firefox",
+    "where_is_program"
+   ],
+   [
+    "trova le mie appimage",
+    "list_appimages"
+   ]
+  ],
+  "en": [
+   [
+    "open the terminal",
+    "open_application"
+   ],
+   [
+    "close firefox",
+    "close_application"
+   ],
+   [
+    "disconnect the wifi",
+    "wifi_disconnect"
+   ],
+   [
+    "turn off the wi-fi",
+    "wifi_off"
+   ],
+   [
+    "set the volume to 60%",
+    "set_volume"
+   ],
+   [
+    "create a folder projects on the desktop",
+    "create_folder"
+   ],
+   [
+    "delete note.txt",
+    "delete_item"
+   ],
+   [
+    "how much ram am i using",
+    "system_status"
+   ],
+   [
+    "is something slowing down the computer?",
+    "list_processes"
+   ],
+   [
+    "show me the photos i downloaded",
+    "open_folder"
+   ],
+   [
+    "open audio settings",
+    "open_settings"
+   ],
+   [
+    "open the website www.debian.org",
+    "open_url"
+   ],
+   [
+    "make mousepad the default editor",
+    "set_default_app"
+   ],
+   [
+    "what are the default apps",
+    "list_default_apps"
+   ],
+   [
+    "lock the computer",
+    "lock_screen"
+   ],
+   [
+    "where is firefox",
+    "where_is_program"
+   ],
+   [
+    "where is firefox installed",
+    "where_is_program"
+   ],
+   [
+    "find my appimages",
+    "list_appimages"
+   ]
+  ],
+  "compound": [
+   "apri i documenti e poi alza il volume",
+   "open my documents and then turn up the volume"
+  ],
+  "harmless": [
+   "scrivi una poesia sul mare",
+   "come stai?",
+   "spiegami cos'e un kernel",
+   "write a poem about the sea",
+   "how are you?",
+   "explain what a kernel is"
+  ]
+ },
+ "agent_really_verifies": {
+  "vague": [
+   "tutto",
+   "everything"
+  ]
+ },
+ "agent_model_does_not_invent_actions": {
+  "it": [
+   [
+    "screenshot",
+    "scrivi una poesia sul mare",
+    false
+   ],
+   [
+    "screenshot",
+    "fammi uno screenshot",
+    true
+   ],
+   [
+    "lock_screen",
+    "come stai",
+    false
+   ],
+   [
+    "set_volume",
+    "metti la musica piu forte",
+    true
+   ],
+   [
+    "suspend_system",
+    "spiegami il kernel",
+    false
+   ]
+  ],
+  "en": [
+   [
+    "screenshot",
+    "write a poem about the sea",
+    false
+   ],
+   [
+    "screenshot",
+    "take a screenshot",
+    true
+   ],
+   [
+    "lock_screen",
+    "how are you",
+    false
+   ],
+   [
+    "set_volume",
+    "make the music louder",
+    true
+   ],
+   [
+    "suspend_system",
+    "explain the kernel",
+    false
+   ]
+  ]
+ },
+ "agent_writes_no_password": {
+  "phrases": [
+   "connettiti a Casa con password secret123",
+   "connect to Home with password secret123"
+  ]
+ },
+ "agent_chat_does_not_fake_actions": {
+  "it": [
+   [
+    "Ho aperto Firefox.",
+    true
+   ],
+   [
+    "Fatto!",
+    true
+   ],
+   [
+    "Ecco una poesia sul mare.",
+    false
+   ],
+   [
+    "Non ho aperto nulla.",
+    false
+   ]
+  ],
+  "en": [
+   [
+    "I've opened Firefox.",
+    true
+   ],
+   [
+    "Done!",
+    true
+   ],
+   [
+    "Here is a poem about the sea.",
+    false
+   ],
+   [
+    "I didn't open anything.",
+    false
+   ]
+  ],
+  "real_action": [
+   "Ho aperto Firefox.",
+   "I've opened Firefox."
+  ]
+ },
+ "zeta_rays_wallpapers": {
+  "names": {
+   "onde rosse": "zeta-red-waves.jpg",
+   "circuiti": "zeta-green-circuits.jpg",
+   "Terminale": "zeta-terminal.jpg",
+   "logo bianco": "zeta-white.jpg",
+   "blu": null,
+   "red waves": "zeta-red-waves.jpg",
+   "circuits": "zeta-green-circuits.jpg",
+   "Terminal": "zeta-terminal.jpg",
+   "white logo": "zeta-white.jpg",
+   "blue": null
+  },
+  "phrases": [
+   "metti lo sfondo onde rosse",
+   "set the wallpaper to red waves"
+  ],
+  "chosen": "onde blu"
+ },
+ "natural_voice_speaks": {
+  "phrases": {
+   "it": "Ciao, sono ZETA.",
+   "en": "Hello, I am ZETA."
+  }
+ },
+ "avatar_in_system_colors": {
+  "colors": {
+   "blu": "blue",
+   "rosso": "red",
+   "verde": "green",
+   "bianco": "white"
+  }
+ }
+}

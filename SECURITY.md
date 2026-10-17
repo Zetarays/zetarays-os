@@ -10,7 +10,7 @@ weakness, please tell us privately first.
   (private advisory), or
 - write to **info@zetarays.org** with "SECURITY" in the subject.
 
-Please include: the image you used (`zetarays-2.0-amd64.iso`, …), what you did,
+Please include: the image you used (`zetarays-2.1-amd64.iso`, …), what you did,
 what happened, and if possible the output of `sudo zeta-diagnostics`. Do not open
 a public issue for security problems.
 
@@ -21,7 +21,7 @@ the release notes if you wish.
 
 | Version | Supported |
 |---|---|
-| 2.0 | ✓ |
+| 2.1 | ✓ |
 | older | ✗ (please update) |
 
 Security updates of the underlying Debian packages are installed with the

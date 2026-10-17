@@ -20,15 +20,19 @@ import urllib.parse
 import urllib.request
 
 from i18n import tr
+from i18n_data import load
 
 from .base import Message, Provider, ProviderError, Reply, ToolCall, ToolSpec
 
 # Default models checked against each service's documentation on October 7,
 # 2026: the fast and cheap ones, suited to an assistant. If one disappears,
 # ZETA picks another one among those offered by itself (assistant.py).
+# DeepSeek re-checked on October 17, 2026 at api-docs.deepseek.com:
+# "deepseek-flash" is DeepSeek-V4.1-Flash, base URL https://api.deepseek.com
+# (the old "deepseek-v4-flash" is still accepted and served by the same model).
 PRESETS = {
     "openai":     ("OpenAI",     "https://api.openai.com/v1/chat/completions",   "gpt-6-luna"),
-    "deepseek":   ("DeepSeek",   "https://api.deepseek.com/v1/chat/completions", "deepseek-flash"),
+    "deepseek":   ("DeepSeek",   "https://api.deepseek.com/chat/completions", "deepseek-flash"),
     "qwen":       ("Qwen",       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", "qwen3.8-flash"),
     # Perplexity: answers by searching the web, with sources
     "perplexity": ("Perplexity", "https://api.perplexity.ai/chat/completions",   "sonar"),
@@ -46,7 +50,7 @@ PRESETS = {
 # them go without, and the reply arrives as a stream.
 #  - perplexity: does not accept them;
 #  - custom: usually a small local model. Tested with llama3.2:1b:
-#    with the 52 actions attached it answered "dimmi ciao" ("say hi") with a
+#    with the 52 actions attached it answered "say hi" with a
 #    raw function call, after 11 s instead of 0.2 s. ZETA already recognizes
 #    commands by itself (intents.py), before the model.
 WITHOUT_TOOLS = {"perplexity", "custom"}
@@ -209,6 +213,9 @@ class OpenAICompatProvider(Provider):
                 ev = json.loads(body)
             except ValueError:
                 continue
+            if isinstance(ev, dict) and ev.get("error"):
+                # some services report a failure inside the stream
+                raise self._stream_failed(ev.get("error"))
             delta = (ev.get("choices") or [{}])[0].get("delta", {})
             chunk = delta.get("content") or ""
             if chunk:
@@ -258,7 +265,7 @@ class OpenAICompatProvider(Provider):
         if not self.config.api_key and not self._is_local():
             return False, tr("The API key is missing.")
         ok, msg = super().test(timeout) if self.config.api_key else self._test_local(timeout)
-        if not ok and any(k in msg.lower() for k in ("model", "modello", "404", "not found")):  # i18n-data
+        if not ok and any(k in msg.lower() for k in load("openai_compat")["model_error_words"]):
             offered = self._offered_models()
             if offered:
                 listing = ", ".join(offered[:12]) + ("…" if len(offered) > 12 else "")

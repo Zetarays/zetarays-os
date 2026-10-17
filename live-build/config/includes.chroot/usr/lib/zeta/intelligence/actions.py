@@ -28,8 +28,13 @@ from typing import Callable
 
 
 from i18n import tr, ntr
+from i18n_data import load
 
 from .providers.base import ToolSpec
+
+# The Italian and English names the user (or the model) may use for apps,
+# folders and Settings pages are language data: i18n-data/actions.json
+_W = load("actions")
 
 
 def _popen(*a, **kw):
@@ -438,7 +443,7 @@ def _system_info() -> str:
     import platform
     lines = [
         ("OS:", info.get("PRETTY_NAME", "ZETA RAYS OS")),
-        (tr("Version:"), info.get("VERSION_ID", "2.0")),
+        (tr("Version:"), info.get("VERSION_ID") or "?"),
         (tr("Architecture:"), platform.machine()),
         ("Kernel:", "Linux %s" % platform.release()),
         (tr("Environment:"), "ZETA RAYS Shell"),
@@ -468,7 +473,7 @@ def _find_files(args: dict) -> ActionResult:
     """Searches the home folder, most recent first.
 
     Hidden folders (.cache, .config, .local...) are left out: previously
-    «cerca i png» returned the cached thumbnails instead of the photos.
+    «search the png files» returned the cached thumbnails instead of the photos.
     The command is passed as a list of arguments, without a shell.
     """
     pattern = (args.get("pattern") or "*").strip() or "*"
@@ -545,28 +550,8 @@ def _read_file(args: dict) -> ActionResult:
 
 
 # common names -> actual executable
-# i18n-data-begin: Italian and English app names
-APP_ALIASES = {
-    "browser": "firefox-esr", "internet": "firefox-esr", "web": "firefox-esr",
-    "firefox": "firefox-esr", "navigatore": "firefox-esr", "web browser": "firefox-esr",
-    "terminale": "foot", "terminal": "foot", "console": "foot", "shell": "foot",
-    "file": "thunar", "files": "thunar", "cartelle": "thunar", "gestore file": "thunar",
-    "file manager": "thunar", "folders": "thunar",
-    "editor": "gnome-text-editor", "testo": "gnome-text-editor", "blocco note": "gnome-text-editor",
-    "text editor": "gnome-text-editor", "notepad": "gnome-text-editor",
-    "impostazioni": "zeta-settings", "settings": "zeta-settings", "preferenze": "zeta-settings",
-    "preferences": "zeta-settings",
-    "monitor": "zeta-monitor", "monitor di sistema": "zeta-monitor", "sistema": "zeta-monitor",
-    "system monitor": "zeta-monitor", "task manager": "zeta-monitor",
-    "sicurezza": "zeta-security", "security": "zeta-security",
-    "calcolatrice": "gnome-calculator", "calcolatore": "gnome-calculator", "calculator": "gnome-calculator",
-    "immagini": "eog", "foto": "eog", "documenti pdf": "evince", "pdf": "evince",
-    "images": "eog", "photos": "eog", "pictures": "eog",
-    "musica": "mpv", "video": "mpv", "pacchetti": "synaptic-pkexec",
-    "music": "mpv", "videos": "mpv", "packages": "synaptic-pkexec",
-    "core": "zeta-core", "assistente": "zeta-core", "assistant": "zeta-core",
-}
-# i18n-data-end
+# (Italian and English app names)
+APP_ALIASES = _W["app_aliases"]
 
 
 def _resolve_app(app: str) -> str | None:
@@ -602,19 +587,8 @@ def _open_application(args: dict) -> ActionResult:
 
 
 # common folders -> actual directory (uses xdg-user-dir when available)
-# i18n-data-begin: Italian and English folder names
-FOLDER_KEYS = {
-    "documenti": "DOCUMENTS", "documents": "DOCUMENTS",
-    "download": "DOWNLOAD", "scaricati": "DOWNLOAD", "downloads": "DOWNLOAD",
-    "immagini": "PICTURES", "foto": "PICTURES", "pictures": "PICTURES",
-    "photos": "PICTURES", "images": "PICTURES",
-    "musica": "MUSIC", "music": "MUSIC",
-    "video": "VIDEOS", "filmati": "VIDEOS", "videos": "VIDEOS",
-    "scrivania": "DESKTOP", "desktop": "DESKTOP",
-    "pubblici": "PUBLICSHARE", "modelli": "TEMPLATES",
-    "public": "PUBLICSHARE", "templates": "TEMPLATES",
-}
-# i18n-data-end
+# (Italian and English folder names)
+FOLDER_KEYS = _W["folder_keys"]
 
 
 def _xdg_dir(key: str) -> str:
@@ -627,9 +601,9 @@ def _xdg_dir(key: str) -> str:
 def _open_folder(args: dict) -> ActionResult:
     name = (args.get("name") or "").strip()
     low = name.lower()
-    if low in ("", "home", "personale", "casa", "cartella personale", "home folder"):  # i18n-data
+    if low in _W["home_names"]:
         target = str(_home())
-    elif low in ("cestino", "trash", "bin", "recycle bin"):  # i18n-data
+    elif low in _W["trash_names"]:
         # the Trash is not an ordinary folder: the file manager opens it as a
         # special location, from which files can be restored
         try:
@@ -702,7 +676,7 @@ def _set_volume(args: dict) -> ActionResult:
                              tr("Audio muted.") if expected_value else tr("Audio unmuted."))
         return ActionResult(True, tr("Audio is already muted.") if expected_value else tr("Audio is already on."))
     if args.get("step") in ("up", "down"):
-        # «alza il volume» is relative: previously it always set it to 80%,
+        # «raise the volume» is relative: previously it always set it to 80%,
         # so from 95 «raise» actually lowered it.
         try:
             amount = max(1, min(50, int(args.get("amount") or 10)))
@@ -829,7 +803,7 @@ def _move_file(args: dict) -> ActionResult:
     low = folder.lower()
     if low in FOLDER_KEYS:
         d = Path(_xdg_dir(FOLDER_KEYS[low]))
-    elif low in ("", "home", "personale", "casa", "home folder"):  # i18n-data
+    elif low in _W["home_names_short"]:
         d = _home()
     else:
         d = _safe_path(folder)
@@ -862,11 +836,11 @@ def _screenshot(args: dict) -> ActionResult:
     """Saves a screenshot in the Pictures folder."""
     if not shutil.which("grim"):
         return ActionResult(False, tr("The screenshot tool isn't available."))
-    # the Pictures folder has a different name in every language (Immagini...):
+    # the Pictures folder has a different name in every language:
     # ask xdg-user-dir, as for the other folders
     folder = Path(_xdg_dir("PICTURES"))
     if folder == _home():
-        folder = _home() / "Immagini"  # i18n-data: historical fallback name
+        folder = _home() / _W["pictures_fallback_folder"]  # historical fallback name
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / (tr("screenshot-{time}.png").format(time=time.strftime("%Y%m%d-%H%M%S")))
     # With a time limit: if the compositor does not answer the screen copy
@@ -887,8 +861,8 @@ def _search_content(args: dict) -> ActionResult:
     """Searches for a word INSIDE files, not just in their names.
 
     It uses the zeta-search index, which also reads the text of PDFs and the
-    text recognized in images: it is the only way to find «la fattura di
-    marzo» when the file is called «scan_0012.pdf».
+    text recognized in images: it is the only way to find «the March
+    invoice» when the file is called «scan_0012.pdf».
     """
     text = (args.get("text") or "").strip()
     if not text:
@@ -1013,7 +987,7 @@ def _set_wallpaper(args: dict) -> ActionResult:
     name = (args.get("name") or "").strip()
     if not shutil.which("zeta-wallpaper"):
         return ActionResult(False, tr("The wallpaper command isn't available."))
-    if not name or name.lower() in ("predefinito", "default", "zeta", "zeta rays", "originale", "original"):  # i18n-data
+    if not name or name.lower() in _W["default_wallpaper_names"]:
         r = _run(["zeta-wallpaper", "reset"])
         return ActionResult(True, tr("Restored the ZETA RAYS wallpaper.") + (" " + r if r else ""))
     from system import wallpapers
@@ -1032,15 +1006,8 @@ def _set_wallpaper(args: dict) -> ActionResult:
 
 
 SETTINGS_PAGES = {"appearance", "network", "bluetooth", "audio", "ai", "security", "packages", "info"}
-# words the user (or the model) may use for a page -> page key  # i18n-data-begin
-SETTINGS_ALIASES = {"wifi": "network", "wi-fi": "network", "rete": "network", "suono": "audio",
-                    "intelligenza": "ai", "assistente": "ai", "tema": "appearance", "colore": "appearance",
-                    "aspetto": "appearance", "sicurezza": "security", "pacchetti": "packages",
-                    "informazioni": "info", "sistema": "info",
-                    "theme": "appearance", "color": "appearance", "wallpaper": "appearance",
-                    "sound": "audio", "assistant": "ai",
-                    "about": "info", "system": "info"}
-# i18n-data-end
+# words the user (or the model) may use for a page -> page key
+SETTINGS_ALIASES = _W["settings_aliases"]
 
 
 def page_name(page: str) -> str:
@@ -1155,9 +1122,9 @@ def _list_windows() -> ActionResult:
 
 def _set_theme(args: dict) -> ActionResult:
     theme = (args.get("theme") or "").strip().lower()
-    # the model may answer in Italian too  # i18n-data
-    theme = ("light" if theme.startswith(("light", "chiar")) else  # i18n-data
-             "dark" if theme.startswith(("dark", "scur")) else "")  # i18n-data
+    # the model may answer in Italian too
+    theme = ("light" if theme.startswith(tuple(_W["light_prefixes"])) else
+             "dark" if theme.startswith(tuple(_W["dark_prefixes"])) else "")
     if theme not in ("light", "dark"):
         return ActionResult(False, tr("Invalid theme: use “light” or “dark”."))
     p = subprocess.run(["zeta-appearance", "set", "theme", theme],

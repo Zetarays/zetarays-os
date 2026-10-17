@@ -1,3 +1,4 @@
-# ZETA RAYS Monitor: read-only queries (firewall rules, connections, login events)
-# need no password for administrators. Any change goes through pkexec.
-%sudo ALL=(root) NOPASSWD: /usr/libexec/zeta-monitor-helper firewall, /usr/libexec/zeta-monitor-helper sockets, /usr/libexec/zeta-monitor-helper auth
+# ZETA RAYS Monitor: read-only queries (firewall rules, connections, login events,
+# log lines of failed services) need no password for administrators. Any change
+# (firewall, "Try again", "Dismiss") goes through pkexec.
+%sudo ALL=(root) NOPASSWD: /usr/libexec/zeta-monitor-helper firewall, /usr/libexec/zeta-monitor-helper sockets, /usr/libexec/zeta-monitor-helper auth, /usr/libexec/zeta-monitor-helper failed-logs

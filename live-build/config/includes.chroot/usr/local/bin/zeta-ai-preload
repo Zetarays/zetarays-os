@@ -7,12 +7,12 @@ asks the first question would wait all that time. Here it is loaded shortly
 after login, at low priority, so the first answer is immediate.
 
 It does nothing if:
-  • the computer does not have plenty of memory (the model takes ~1.8 GB);
+  • the computer does not have plenty of memory (the default model takes ~3.7 GB);
   • Ollama is not running;
   • the user disabled preloading (~/.config/zeta/ai-preload = 0).
 
 On a small machine the model is loaded only when actually needed and unloaded
-shortly afterwards: 1.8 GB held for nothing slows everything else down.
+shortly afterwards: 3.7 GB held for nothing slows everything else down.
 Users who want preloading anyway can force it from Settings.
 """
 import os

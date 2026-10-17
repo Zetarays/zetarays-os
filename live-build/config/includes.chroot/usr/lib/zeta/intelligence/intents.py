@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ZETA RAYS Intelligence — local command recognition (no AI model).
 
-Turns natural-language sentences (Italian, with some English forms) into
-actions of the `actions.py` engine, without contacting any service. It is
-fast, works offline and is deterministic: well suited to system commands
-("apri i documenti", "quanta RAM sto usando", "chiudi questa finestra").
+Turns natural-language sentences (Italian and English) into actions of the
+`actions.py` engine, without contacting any service. It is fast, works
+offline and is deterministic: well suited to system commands ("open
+documents", "how much RAM am I using", "close this window").
 
 If no rule matches, `parse()` returns None and ZETA can hand the question
 over to the language model (if configured).
@@ -17,7 +17,14 @@ import unicodedata
 from dataclasses import dataclass
 
 from i18n import tr, language
+from i18n_data import load
 from ui import accent as _accent
+
+# The patterns that hold Italian words (what the user says or types) are
+# language data: they live in i18n-data/intents.json, keyed by the action they
+# recognize (or by the name of the table they define). Pure English patterns
+# stay here in the code.
+_W = load("intents")
 
 
 @dataclass
@@ -35,38 +42,14 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
-# i18n-data-begin: Italian and English words recognized in the text (patterns, to the end of the file)
 # folders recognized in the text -> name for the open_folder action
-_FOLDERS = {
-    r"documenti|documents": "documents",
-    r"download|scaricati|scaricat": "downloads",
-    r"immagini|foto|pictures|photos?|images": "pictures",
-    r"music|musica": "music",
-    r"video|filmati": "videos",
-    r"scrivania|desktop": "desktop",
-    r"home|personale|casa": "home",
-    r"cestino|\btrash\b|recycle bin": "trash",
-}
+_FOLDERS = _W["folders"]
 
 # recognized apps -> name for open_application
-_APPS = {
-    r"firefox|browser|internet|navigatore|il web|sul web|the web": "firefox-esr",
-    r"calcolatric|calcolatore|calculator": "gnome-calculator",
-    r"editor|blocco note|testo|notepad": "gnome-text-editor",
-    r"file|cartelle|gestore file|folders": "thunar",
-}
+_APPS = _W["apps"]
 
 # settings pages
-_SETTINGS = {
-    r"rete|wifi|wi fi|network": "network",
-    r"audio|suono|volume|sound": "audio",
-    r"bluetooth": "bluetooth",
-    r"aspetto|tema|colore|colori|appearance|theme|colou?rs?|wallpaper": "appearance",
-    r"\bai\b|intelligenza|assistente|assistant": "ai",
-    r"sicurezza|firewall|security": "security",
-    r"pacchett|applicazioni installate|packages|installed apps": "packages",
-    r"informazioni|info di sistema|sistema|\babout\b": "info",
-}
+_SETTINGS = _W["settings"]
 
 
 def _find(mapping: dict, text: str):
@@ -77,12 +60,11 @@ def _find(mapping: dict, text: str):
 
 
 # verbs meaning "open/show/go to"
-_OPEN = (r"(?:apri|aprimi|avvia|lancia|mostra|mostrami|fammi vedere|vai a|portami|vedere|visualizza"
-         r"|open|show|launch|go to|start|bring up|pull up|take me to)")
+_OPEN = _W["open"]
 
 
-# "Come apro…" (how do I open…), "dove trovo…" (where do I find…): questions
-# about how to do something, not commands.
+# "How do I open…", "where do I find…" (in both languages): questions about
+# how to do something, not commands.
 # The small model answered at random (it sent people to Settings to open the
 # terminal, mentioned browsers that are not installed). Here the answer is a
 # fact about the system, always correct, and it teaches the command that
@@ -90,87 +72,76 @@ _OPEN = (r"(?:apri|aprimi|avvia|lancia|mostra|mostrami|fammi vedere|vai a|portam
 # Icons are described by shape, not by position: the dock can be reordered.
 # The suggested commands are all routed by this very file.
 # The color shades are the ones the system offers in Settings › Appearance:
-# whoever says "metti il rosso" (set red) expects that red, not just any red.
-_COLORS = {
-    "giallo": "#FFB020", "arancione": "#FF8A34", "viola": "#A855F7", "rosa": "#FF6FA5",
-    "turchese": "#2DD4BF", "grigio": "#8A8A8E",
-    "yellow": "#FFB020", "orange": "#FF8A34", "purple": "#A855F7", "violet": "#A855F7",
-    "pink": "#FF6FA5", "turquoise": "#2DD4BF", "teal": "#2DD4BF", "gray": "#8A8A8E", "grey": "#8A8A8E",
-}
+# whoever says "set red" expects that red, not just any red.
+_COLORS = dict(_W["colors"])
 # the system's own colors come from its palette (ui/accent.py):
-# "metti il rosso" gives exactly the red of Settings › Appearance
-for _it, _en, _key in (("blu", "blue", "blue"), ("azzurro", "light blue", "blue"),  # i18n-data
-                          ("rosso", "red", "red"), ("verde", "green", "green"),  # i18n-data
-                          ("bianco", "white", "white")):  # i18n-data
+# "set red" gives exactly the red of Settings › Appearance
+for _it, _en, _key in _W["accent_colors"]:
     _COLORS[_it] = _COLORS[_en] = _accent.color_of(_key)
 
-_QUESTION = (r"^(?:ma |e |allora |scusa |so |and |but |hey )?"
-            r"(?:come|dove|dov|in che modo|how|where)\b")   # "dov" for "dov'e"
+_QUESTION = _W["question"]   # also the truncated Italian "where" before an apostrophe
 _KNOWLEDGE = [
-    (r"(recuper|ripristin)\w*|(file|documento|cartella)[^.?!]{0,25}(eliminat|cancellat|cestinat|pers)"
-     r"|\b(restore|recover|undelete)\w*|\b(files?|documents?|folders?)\b[^.?!]{0,25}\b(deleted|removed|trashed|lost)",
+    (_W["knowledge.1"],
      tr("Deleted files go to the Trash. To get one back: double-click the Trash icon on the desktop, "
         "then right-click the file and choose Restore. It goes back where it was.")),
-    (r"svuot\w*[^.?!]{0,12}cestino|\bempty\w*[^.?!]{0,12}\b(trash|bin)\b",
+    (_W["knowledge.2"],
      tr("Right-click the Trash icon on the desktop, then Empty Trash. "
         "Or tell me “empty the trash”: I'll ask you to confirm and empty it for you.")),
-    (r"cestino|\btrash\b|recycle bin",
+    (_W["knowledge.3"],
      tr("The Trash is on the desktop, at the top left: double-click to open it. "
         "Or tell me “open the trash”.")),
-    (r"sfondo|wallpaper|desktop background|background (image|picture)",
+    (_W["knowledge.4"],
      tr("Settings › Appearance › Wallpaper: click one of the ZETA RAYS wallpapers, or Choose… "
         "for your own image. Or tell me “set the red waves wallpaper”.")),
-    (r"colore|colori|accento|\bcolou?rs?\b|\baccent\b",
+    (_W["knowledge.5"],
      tr("Settings › Appearance › Accent Color: blue, red, white, green, or + to pick your own. "
         "It changes the whole interface at once. Or tell me “open appearance settings”.")),
-    (r"\btema\b|chiaro|scuro|modalita notte|\btheme\b|dark mode|light mode|night mode",
+    (_W["knowledge.6"],
      tr("Settings › Appearance › Theme: Dark or Light. Or tell me “open appearance settings”.")),
-    (r"\bdock\b|barra|taskbar|\bbar\b",
+    (_W["knowledge.7"],
      tr("The bar is at the bottom: on the left the ZETA RAYS symbol (the app list) and the "
         "workspaces 1 2 3, in the middle the dock with your apps, on the right search, network, "
         "volume, clock and power. Position and apps can be changed in Settings › Dock.")),
-    (r"terminal|console|shell|riga di comando|command line",
+    (_W["knowledge.8"],
      tr("The terminal is in the dock at the bottom: the icon with the >_ symbol. "
         "Or tell me “open the terminal” and I'll open it.")),
-    (r"browser|firefox|internet|navigare|navigatore|browse",
+    (_W["knowledge.9"],
      tr("The browser is Firefox: in the dock at the bottom, the globe icon. "
         "Or tell me “open the browser” and I'll open it.")),
-    (r"gestore (dei )?file|file manager|esplora risorse|file explorer",
+    (_W["knowledge.10"],
      tr("The file manager is in the dock at the bottom: the folder icon. You can also open it by "
         "double-clicking Home on the desktop. Or tell me “open the file manager”.")),
-    (r"impostazion|settings|preferences",
+    (_W["knowledge.11"],
      tr("Settings is in the dock at the bottom: the icon with the sliders. Or right-click the "
         "desktop › Customize, or tell me “open settings”.")),
-    (r"editor|blocco note|scrivere (un )?testo|notepad|write (a )?text",
+    (_W["knowledge.12"],
      tr("The text editor is in the dock at the bottom: the pencil icon. Or tell me “open the editor”.")),
-    (r"calcolatric|calculator",
+    (_W["knowledge.13"],
      tr("The Calculator is in the app list: click the ZETA RAYS symbol at the bottom left, "
         "then Calculator. Or tell me “open the calculator”.")),
-    (r"monitor|processi|task manager|processes",
+    (_W["knowledge.14"],
      tr("The system monitor is in the dock at the bottom: the speedometer icon. "
         "Or tell me “open the monitor”.")),
-    (r"stamp|\bprint",
+    (_W["knowledge.15"],
      tr("Settings › Printers: network printers are found automatically, USB printers as soon "
         "as you plug them in.")),
-    (r"(apr|legg|vede|guarda|ascolt)\w*[^.?!]{0,20}\b(file|pdf|foto|immagine|video|documento|zip|rar|archivio|canzone|mp3)\b"
-     r"|\b(open|read|view|see|watch|listen|play)\w*[^.?!]{0,20}\b(files?|pdfs?|photos?|pictures?|images?|videos?"
-     r"|documents?|zip|rar|archives?|songs?|mp3)\b",
+    (_W["knowledge.16"],
      tr("Double-click the file, in the file manager or on the desktop: it opens with the right app. "
         "PDFs and documents in the viewer, photos and images in the image viewer, video and music in "
         "the player, zip, rar and 7z in the archive manager. Or tell me “open the file” followed by "
         "its name and I'll find it and open it.")),
-    (r"documenti|\bdocuments\b",
+    (_W["knowledge.17"],
      tr("The Documents folder is inside Home: double-click Home on the desktop, then Documents. "
         "Or tell me “open documents”.")),
-    (r"download|scaricat",
+    (_W["knowledge.18"],
      tr("Downloaded files are in the Downloads folder, inside Home. Or tell me “open downloads”.")),
-    (r"immagini|foto|\bpictures\b|\bphotos\b|\bimages\b",
+    (_W["knowledge.19"],
      tr("The Pictures folder is inside Home. Or tell me “open pictures”.")),
-    (r"musica|\bmusic\b",
+    (_W["knowledge.20"],
      tr("The Music folder is inside Home. Or tell me “open music”.")),
     (r"\bvideos?\b",
      tr("The Videos folder is inside Home. Or tell me “open videos”.")),
-    (r"\bhome\b|cartella personale|miei file|my files|home folder",
+    (_W["knowledge.21"],
      tr("Home is your personal folder: you'll find it on the desktop, at the top left. Inside are "
         "Documents, Pictures, Music, Downloads and Videos. Or tell me “open home”.")),
 ]
@@ -189,23 +160,21 @@ _EXTENSIONS = (r"pdf|png|jpe?g|gif|webp|heic|svg|txt|md|docx?|odt|rtf|xlsx?|ods|
                r"mp3|wav|flac|ogg|m4a|mp4|mov|avi|mkv|webm|zip|rar|7z|tar|gz|iso")
 
 
-# "le foto", "i video"...: a file type, i.e. several extensions together
+# "the photos", "the videos"...: a file type, i.e. several extensions together
 _FILE_TYPES = [
-    (r"(le |the |my )?(foto|fotografie|immagini|photos|pictures|images)",
+    (_W["file_types.1"],
      "*.jpg,*.jpeg,*.png,*.heic,*.webp,*.gif", tr("Searching for photos.")),
-    (r"(i |the |my )?(video|filmati|videos)",
+    (_W["file_types.2"],
      "*.mp4,*.mov,*.mkv,*.avi,*.webm", tr("Searching for videos.")),
-    (r"(la |the |my )?(musica|canzoni|brani|music|songs)",
+    (_W["file_types.3"],
      "*.mp3,*.flac,*.wav,*.ogg,*.m4a", tr("Searching for music.")),
-    (r"(i |the |my )?(documenti|pdf e documenti|documents)",
+    (_W["file_types.4"],
      "*.pdf,*.doc,*.docx,*.odt,*.txt,*.rtf,*.md", tr("Searching for documents.")),
 ]
 
 
 def _search_intent(t: str) -> Intent | None:
-    m = re.search(r"^(?:cerca|cercami|trova|trovami|dove (?:si trova|e|sta|trovo|ho messo)|dov'?e)\s+"
-                  r"(?:tutti |tutte )?(?:i |il |lo |la |le |gli |l'|un |una |dei |delle |miei |mie )?"
-                  r"(?:file |files )?(.+?)\s*\??$", t)
+    m = re.search(_W["search_intent.1"], t)
     if not m:
         m = re.search(r"^(?:search(?: for)?|find(?: me)?|look for|locate"
                       r"|where (?:is|are|did i (?:put|save))|where'?s)\s+"
@@ -214,30 +183,25 @@ def _search_intent(t: str) -> Intent | None:
     if not m:
         return None
     rest = m.group(1)
-    # "cerca su internet…" (search the internet) and "cerca di…" (try to…)
-    # are not file searches
-    if re.search(r"\b(su internet|su google|sul web|online|in rete"
-                 r"|on the internet|on google|on the web|on youtube|on wikipedia)\b", t) or \
-            re.match(r"(cerca|cercami|trova|trovami) di ", t) or \
+    # "search the internet for…" and the Italian "try to…" (same verb as
+    # "search") are not file searches
+    if re.search(_W["search_intent.2"], t) or \
+            re.match(_W["search_intent.3"], t) or \
             re.match(r"(search|find) (out|a way)\b", t):
         return None
     args = {}
-    if re.search(r"\b(di oggi|modificat\w* oggi|da oggi|oggi|today)\b", rest):
+    if re.search(_W["search_intent.4"], rest):
         args["today"] = True
-    g = re.search(r"(?:degli |negli |ultimi |ultime )+(\d{1,3}) giorni"
-                  r"|(?:in |from |of )?(?:the )?(?:last|past) (\d{1,3}) days", rest)
+    g = re.search(_W["search_intent.5"], rest)
     if g:
         args["days"] = int(g.group(1) or g.group(2))
-    elif re.search(r"(questa|ultima) settimana|della settimana|(this|last|past) week", rest):
+    elif re.search(_W["search_intent.6"], rest):
         args["days"] = 7
-    rest = re.sub(r"\b(modificat\w*|creat\w*|recenti|di oggi|da oggi|oggi|della settimana|questa settimana|"
-                   r"ultima settimana|(degli |negli |ultimi |ultime )+\d{1,3} giorni"
-                   r"|modified|created|changed|recent|from today|today|(from |of )?this week|last week|past week"
-                   r"|(in |from |of )?(the )?(last|past) \d{1,3} days)\b", " ", rest)
+    rest = re.sub(_W["search_intent.7"], " ", rest)
     rest = re.sub(r"\s+", " ", rest).strip(" .?!")
-    rest = re.sub(r"\s+(di|del|della|dei|delle|da|from|of|in|since)$", "", rest)   # "le foto di [questa settimana]"
-    rest = re.sub(r"^(il |i |la |le |the |my )?(documento|documenti|file|document|documents|files) (?=\S)",
-                   "", rest)   # "il documento fattura"
+    rest = re.sub(_W["search_intent.8"], "", rest)   # "the photos from [this week]"
+    rest = re.sub(_W["search_intent.9"],
+                   "", rest)   # "the document invoice"
     if not rest:
         return None
     for schema, extensions, answer in _FILE_TYPES:
@@ -265,18 +229,13 @@ def parse(text: str) -> Intent | None:
     if not t:
         return None
 
-    # --- "come va la rete" (how's the network): real status, not an explanation ---
-    # Must come before _knowledge_intent(), otherwise "ho internet?" ends up in the
-    # answer about the browser and "come va la rete" reaches the model, which
+    # --- "how's the network": real status, not an explanation ---
+    # Must come before _knowledge_intent(), otherwise "do I have internet?" ends up in the
+    # answer about the browser and "how's the network" reaches the model, which
     # cannot inspect the interfaces. Sentences asking for the panel or how to
     # browse are excluded: those are not questions about the status.
-    if not re.search(r"impostazion|settings|pannello|panel|^apri\b|^open\b|navig|browse", t) and \
-       re.search(r"\b(come va|come sta|stato|funziona|non funziona|controlla|verifica|c ?e)\b"
-                 r"[^.?!]{0,24}\b(rete|wifi|wi fi|connessione|internet)\b"
-                 r"|\b(rete|wifi|connessione|internet)\b[^.?!]{0,16}(va|funziona|attiva|connessa|caduta)"
-                 r"|sono (connesso|collegato|online)|network status|am i (online|connected)"
-                 r"|\b(do i have|is there|check|test)\b[^.?!]{0,16}\b(internet|connection|network|wifi|wi fi)\b"
-                 r"|\b(internet|wifi|wi fi|network|connection)\b[^.?!]{0,16}\b(working|down|connected|status)\b", t):
+    if not re.search(_W["network_status.1"], t) and \
+       re.search(_W["network_status.2"], t):
         return Intent("network_status", {}, tr("Checking the network."))
 
     question = _knowledge_intent(t)
@@ -284,14 +243,11 @@ def parse(text: str) -> Intent | None:
         return question
 
     # --- deleting a file by name ------------------------------------------
-    # "elimina la cartella X" was already understood, "cancella il file X" was
+    # "delete the folder X" was already understood, "erase the file X" was
     # not: two ways of saying the same thing cannot behave differently.
-    m = re.search(r"\b(?:cancella|elimina|butta|cestina|rimuovi)\b\s*(?:mi\s+)?"
-                  r"(?:il |lo |la |i |gli |le |l )?"
-                  # the noun is consumed only when it is a word on its own:
-                  # without the trailing space, "cestina foto.jpg" lost "foto".
-                  r"(?:(?:file|documento|cartella|foto|immagine)\s+)?"
-                  r"[\"«]?([^\"»]{2,60}?)[\"»]?[.!]?$", t)
+    # The noun ("file", "photo"...) is consumed only when it is a word on its
+    # own: otherwise "trash photo.jpg" lost "photo".
+    m = re.search(_W["trash_file.1"], t)
     english = False
     if not m and not re.search(_QUESTION, t):
         # in English "trash" is also a noun ("open the trash"): it counts as a
@@ -301,7 +257,7 @@ def parse(text: str) -> Intent | None:
                       r"(?:the |my |this |that )?"
                       r"(?:(?:file|document|folder|photo|picture|image)\s+)?"
                       r"[\"«“]?([^\"»”]{2,60}?)[\"»”]?[.!]?$", t)
-    if m and not re.search(r"\b(tutto|tutti|cestino|sistema|disco|programma|app)\b", m.group(1)) \
+    if m and not re.search(_W["trash_file.2"], m.group(1)) \
             and not (english and re.search(r"\b(everything|all|trash|bin|system|disk|program|history)\b",
                                            m.group(1))):
         name = m.group(1).strip()
@@ -309,22 +265,16 @@ def parse(text: str) -> Intent | None:
                       tr("Moving “{name}” to the Trash.").format(name=name))
 
     # --- open windows ------------------------------------------------------
-    if re.search(r"\b(che|quali|quanti)\b[^.?!]{0,24}\b(programmi|applicazioni|finestre|app)\b"
-                 r"[^.?!]{0,16}\b(apert\w+|in esecuzione|attiv\w+)\b"
-                 r"|\bfinestre aperte\b|\bcosa ho aperto\b"
-                 r"|\b(what|which|how many)\b[^.?!]{0,24}\b(programs|apps|applications|windows)\b"
-                 r"[^.?!]{0,16}\b(open|running|active)\b"
-                 r"|\bwhat do i have open\b", t):
+    if re.search(_W["list_windows.1"], t):
         return Intent("list_windows", {}, tr("Here are the open windows."))
 
     # --- accent color in words -------------------------------------------
     # The action wants an #RRGGBB: nobody says that out loud. Here the colors
     # people actually name become the shades used by the system.
     colors = "|".join(sorted(_COLORS, key=len, reverse=True))
-    m = re.search(r"\b(?:cambia|metti|imposta|usa|voglio|change|set|use|make|switch)\b[^.?!]{0,24}"
-                  r"\b(?:colore|accento|tinta|colou?r|accent)\b[^.?!]{0,12}\b(%s)\b" % colors, t)
+    m = re.search(_W["set_accent.1"] % colors, t)
     if not m:
-        m = re.search(r"\b(?:accento|colore|accent|accent colou?r)\s+(?:to\s+)?(%s)\b" % colors, t)
+        m = re.search(_W["set_accent.2"] % colors, t)
     if not m:
         m = re.search(r"\b(%s)\s+accent\b" % colors, t)
     if m:
@@ -333,25 +283,19 @@ def parse(text: str) -> Intent | None:
                       tr("Setting the accent color to {color}.").format(color=name))
 
     # --- turning off the screen (not the computer) ------------------------
-    if re.search(r"\bspegni\b[^.?!]{0,10}\b(lo )?(schermo|monitor|display)\b"
-                 r"|\bschermo\b[^.?!]{0,8}\bspegni\b"
-                 r"|\b(turn|switch) off (the )?(screen|monitor|display)\b"
-                 r"|\b(turn|switch) (the )?(screen|monitor|display) off\b|^screen off$", t):
+    if re.search(_W["screen_off"], t):
         return Intent("screen_off", {}, tr("Turning off the screen."))
 
     # --- brightness -------------------------------------------------------
-    m = re.search(r"\b(?:metti|imposta|porta)\b[^.?!]{0,20}luminosit\w*\s*(?:a|al)?\s*(\d{1,3})", t)
+    m = re.search(_W["set_brightness.1"], t)
     if not m:
         m = re.search(r"\b(?:set|put|make|turn)\b[^.?!]{0,20}brightness\s*(?:to|at)?\s*(\d{1,3})", t)
     if m:
         return Intent("set_brightness", {"level": max(0, min(100, int(m.group(1))))},
                       tr("Setting the brightness."))
-    if re.search(r"\b(alza|aumenta|su)\b[^.?!]{0,16}luminosit\w*|luminosit\w*[^.?!]{0,10}\b(alza|aumenta)\b"
-                 r"|\b(raise|increase|turn up|brighten)\b[^.?!]{0,16}brightness|brightness[^.?!]{0,10}\bup\b", t):
+    if re.search(_W["set_brightness.2"], t):
         return Intent("set_brightness", {"level": 100}, tr("Turning up the brightness."))
-    if re.search(r"\b(abbassa|riduci|diminuisci)\b[^.?!]{0,16}luminosit\w*"
-                 r"|luminosit\w*[^.?!]{0,10}\b(abbassa|riduci)\b"
-                 r"|\b(lower|decrease|reduce|dim|turn down)\b[^.?!]{0,16}brightness|brightness[^.?!]{0,10}\bdown\b", t):
+    if re.search(_W["set_brightness.3"], t):
         return Intent("set_brightness", {"level": 30}, tr("Turning down the brightness."))
 
     # --- web search ------------------------------------------------------
@@ -361,14 +305,13 @@ def parse(text: str) -> Intent | None:
     # does not track searchers; if the user names an engine, that one is used.
     _ENGINES = r"(google|internet|web|duckduckgo|youtube|wikipedia)"
     what = engine = None
-    m = re.search(r"\b(?:cerca|cercami|trova|trovami|guarda|cerchi)\b\s*(?:mi\s+)?(.{2,80}?)"
-                  r"\s+(?:su|sul|in|nel)\s+" + _ENGINES + r"\b[.?!]?$", t) or \
+    m = re.search(_W["open_url.1"] + _ENGINES + r"\b[.?!]?$", t) or \
         re.search(r"\b(?:search(?: for)?|look up|look for|find)\b\s+(.{2,80}?)"
                   r"\s+(?:on|in)\s+(?:the\s+)?" + _ENGINES + r"\b[.?!]?$", t)
     if m:
         what, engine = m.group(1), m.group(2)
     else:
-        m2 = re.search(r"\b(?:cerca|cercami|trova|trovami)\b\s+(?:su|sul|in|nel)\s+"
+        m2 = re.search(_W["open_url.2"]
                        + _ENGINES + r"\b\s+(.{2,80})$", t) or \
             re.search(r"\b(?:search|look up)\b\s+(?:on\s+)?(?:the\s+)?" + _ENGINES
                       + r"\b\s+(?:for\s+)?(.{2,80})$", t)
@@ -388,44 +331,33 @@ def parse(text: str) -> Intent | None:
                       tr("Searching the web for “{query}”.").format(query=what))
 
     # --- closing the window ---
-    if re.search(r"chiudi (questa |la )?finestra|close (this |the )?(current |active )?window"
-                 r"|chiudi l'app|close (this|the current) app\b", t):
+    if re.search(_W["close_active_window"], t):
         return Intent("close_active_window", {}, tr("Closing the active window."))
 
-    # --- closing a program by name: "chiudi firefox" ---
-    # Must come after the active window, otherwise "chiudi la finestra" would
-    # be read as "close the program called la finestra".
-    # "spegni" (turn off) is left out on purpose: "spegni il wifi" and "spegni
-    # lo schermo" do not close a program, yet with that verb in here they
+    # --- closing a program by name: "close firefox" ---
+    # Must come after the active window, otherwise "close the window" would
+    # be read as "close the program called the window".
+    # "turn off" is left out on purpose: "turn off the wifi" and "turn off
+    # the screen" do not close a program, yet with that verb in here they
     # ended up here.
-    m = re.search(r"\b(chiudi|termina|esci da)\s+(?:il |lo |la |l )?(?:programma |app |applicazione )?([a-z0-9 .+-]{2,30})$", t) or \
+    m = re.search(_W["close_application.1"], t) or \
         re.search(r"\b(close|quit|exit)\s+(?:the )?(?:program |app |application )?([a-z0-9 .+-]{2,30})$", t)
-    if m and not re.search(r"\b(computer|sistema|schermo|finestra|tutto|sessione"
-                           r"|wifi|wi fi|bluetooth|rete|volume|audio|musica|luce"
-                           r"|luminosita|schermata|sessione"
-                           r"|system|screen|windows?|everything|all|session|network|music|light"
-                           r"|brightness|screenshot|full ?screen)\b", m.group(2)):
+    if m and not re.search(_W["close_application.2"], m.group(2)):
         name = m.group(2).strip()
         return Intent("close_application", {"app": name}, tr("Closing {name}.").format(name=name))
 
     # --- screenshot ---
-    if re.search(r"(fai|scatta|cattura|prendi|salva)[^.?!]{0,14}(schermata|screenshot|foto dello schermo)"
-                 r"|^screenshot$|^schermata$"
-                 r"|\b(take|grab|capture|save)\b[^.?!]{0,14}(screenshot|screen ?shot|screen capture)"
-                 r"|\bcapture (the )?screen\b", t):
+    if re.search(_W["screenshot"], t):
         return Intent("screenshot", {}, tr("Saving a screenshot."))
 
     # --- searching INSIDE files, not in their names ---
-    # Filler words ("nei file", "la parola") must be consumed by the pattern
-    # one by one: counting them as characters, "cerca dentro i file la parola
-    # fattura" searched for "ola fattura".
-    m = re.search(r"(?:cerca|trova|cercami)\b[^.?!]{0,20}?\b(?:dentro|nel contenuto|nei contenuti|nel testo)\b"
-                  r"(?:\s+(?:a|ai|dei|delle|di|nei|nelle|d|i|gli|le|la|il|lo)(?!\s+(?:parola|frase|testo|termine)\b))?"
-                  r"(?:\s+(?:file|documenti|documento|pdf))?"
-                  r"(?:\s+(?:la|il|lo)\s+(?:parola|frase|testo|termine))?"
-                  r"\s+[\"«]?([^\"»]{2,60})[\"»]?$", t)
+    # Filler words ("in the files", "the word") must be consumed by the pattern
+    # one by one: counting them as characters, "search inside the files for
+    # the word invoice" (in Italian) searched for the last letters of "word"
+    # followed by "invoice".
+    m = re.search(_W["search_content.1"], t)
     if not m:
-        m = re.search(r"(?:quale|che) (?:file|documento)[^.?!]{0,20}(?:parla di|contiene|dice)\s+(.{2,60})$", t)
+        m = re.search(_W["search_content.2"], t)
     if not m:
         m = re.search(r"(?:search|find|look)\b[^.?!]{0,20}?\b(?:inside|within|in the contents? of|in the text of)\b"
                       r"(?:\s+(?:the|my|all))?"
@@ -442,7 +374,7 @@ def parse(text: str) -> Intent | None:
                       tr("Searching inside files for “{text}”.").format(text=query))
 
     # --- renaming ---
-    m = re.search(r"rinomina\s+[\"«]?([^\"»]{1,60}?)[\"»]?\s+(?:in|come)\s+[\"«]?([^\"»]{1,60})[\"»]?$", t) or \
+    m = re.search(_W["rename_file"], t) or \
         re.search(r"\brename\s+[\"«“]?([^\"»”]{1,60}?)[\"»”]?\s+(?:to|as|into)\s+[\"«“]?([^\"»”]{1,60})[\"»”]?$", t)
     if m:
         old, new = m.group(1).strip(), m.group(2).strip(" .")
@@ -450,223 +382,192 @@ def parse(text: str) -> Intent | None:
                       tr("Renaming “{old}” to “{new}”.").format(old=old, new=new))
 
     # --- moving ---
-    m = re.search(r"sposta\s+[\"«]?([^\"»]{1,60}?)[\"»]?\s+(?:in|dentro|nella|nel)\s+[\"«]?([^\"»]{1,40})[\"»]?$", t) or \
+    m = re.search(_W["move_file.1"], t) or \
         re.search(r"\bmove\s+[\"«“]?([^\"»”]{1,60}?)[\"»”]?\s+(?:to|into|in)\s+(?:the\s+)?"
                   r"[\"«“]?([^\"»”]{1,40})[\"»”]?$", t)
-    if m and not re.search(r"cestino|\btrash\b|\bbin\b|recycle", m.group(2)) \
+    if m and not re.search(_W["move_file.2"], m.group(2)) \
             and not re.search(r"\b(window|workspace)\b", m.group(1)):
         item, folder = m.group(1).strip(), m.group(2).strip(" .")
         return Intent("move_file", {"name": item, "folder": folder},
                       tr("Moving “{name}” to {folder}.").format(name=item, folder=folder))
 
     # --- window management ---
-    if re.search(r"\b(minimizza|minimize|minimise)\b|(riduci|nascondi|hide).*(finestra|window)", t):
+    if re.search(_W["minimize_window"], t):
         return Intent("minimize_window", {}, tr("Minimizing the active window."))
-    if re.search(r"\b(massimizza|maximize|maximise)\b|(ingrandisci|schermo intero|full ?screen).*(finestra|window)", t):
+    if re.search(_W["maximize_window"], t):
         return Intent("maximize_window", {}, tr("Maximizing the active window."))
-    # "quante finestre ho aperte", "dimmi le finestre", "che finestre ci sono":
+    # "how many windows do I have open", "tell me the windows", "what windows are there":
     # people do not use the verb we expected, and the sentence ended up at the
     # model, which answers that it cannot know which windows are open.
-    if re.search(r"(quante|quali|che|mostra|mostrami|elenca|dimmi|vedere"
-                 r"|how many|which|what|show|list|tell me)"
-                 r"[^.?!]{0,24}\b(finestre|window)|"
-                 r"\bfinestre\b[^.?!]{0,12}(aperte|ridotte|attive)"
-                 r"|\bwindows\b[^.?!]{0,12}\b(open|minimized|active)\b", t):
+    if re.search(_W["list_windows.2"], t):
         return Intent("list_windows", {}, tr("Here are the windows."))
 
     # --- opening a website ---
-    if re.search(r"\b(apri|vai su|portami su|mostrami|open|go to|take me to|show me|visit)\b[^.?!]{0,20}"
-                 r"(https?://|www\.|\b[a-z0-9-]+\.(it|com|org|net|eu|io|dev)\b)", t):
+    if re.search(_W["open_url.3"], t):
         m = re.search(r"(https?://\S+|www\.\S+|\b[a-z0-9-]+\.(?:it|com|org|net|eu|io|dev)\b\S*)", t)
         if m:
             return Intent("open_url", {"url": m.group(1)}, tr("Opening the website."))
 
     # --- opening a file by name ---
-    if re.search(r"\b(apri|open)\b[^.?!]{0,30}\b(il |la |lo |l |the |my )?"
-                 r"(file|documento|immagine|foto|video|pdf|document|image|photo|picture)\b", t):
-        m = re.search(r"\b(?:file|documento|immagine|foto|video|pdf|document|image|photo|picture)\s+"
-                      r"(?:chiamat[oa]\s+|called\s+|named\s+)?([\w .-]+)", t)
+    if re.search(_W["open_file.1"], t):
+        m = re.search(_W["open_file.2"], t)
         if m and m.group(1).strip() and m.group(1).strip() not in ("folder", "folders"):
             return Intent("open_file", {"name": m.group(1).strip()},
                           tr("Finding and opening the file."))
 
     # --- desktop wallpaper ---
-    if re.search(r"(cambia|cambiami|metti|imposta|change|set|put|use)[^.?!]{0,20}\b(sfondo|wallpaper|background)\b", t):
-        if re.search(r"(predefinit|originale|di zeta|default|original)", t):
+    if re.search(_W["set_wallpaper.1"], t):
+        if re.search(_W["set_wallpaper.2"], t):
             return Intent("set_wallpaper", {"name": "default"},
                           tr("Restoring the ZETA RAYS wallpaper."))
-        # one of the ZETA RAYS wallpapers by name ("metti lo sfondo onde rosse")
-        m = re.search(r"\b(?:sfondo|wallpaper|background)\b\s+(?:con |in |a |to )?([\w -]+?)\s*[.?!]*$", t)
+        # one of the ZETA RAYS wallpapers by name ("set the red waves wallpaper")
+        m = re.search(_W["set_wallpaper.3"], t)
         if m:
             from system import wallpapers
             if wallpapers.search(m.group(1)):
                 return Intent("set_wallpaper", {"name": m.group(1).strip()}, tr("Changing the wallpaper."))
-        m = re.search(r"\b(?:sfondo|wallpaper|background)\b[^.?!]{0,10}?\b(?:con|in|a|to|with)\s+([\w ./-]+)", t)
+        m = re.search(_W["set_wallpaper.4"], t)
         if m and m.group(1).strip():
             return Intent("set_wallpaper", {"name": m.group(1).strip()}, tr("Changing the wallpaper."))
         return Intent("open_settings", {"page": "appearance"},
                       tr("Opening Settings so you can pick a wallpaper."))
 
     # --- light / dark theme ---
-    if re.search(r"tema (chiaro|light)|modalita chiara|passa al chiaro"
-                 r"|light (theme|mode)|switch to light|(theme|mode) to light", t):
+    if re.search(_W["set_theme.1"], t):
         return Intent("set_theme", {"theme": "light"}, tr("Switching to the light theme."))
-    if re.search(r"tema (scuro|dark)|modalita scura|passa allo scuro"
-                 r"|dark (theme|mode)|switch to dark|(theme|mode) to dark", t):
+    if re.search(_W["set_theme.2"], t):
         return Intent("set_theme", {"theme": "dark"}, tr("Switching to the dark theme."))
 
     # --- trivial questions: instant answers, no need to bother the model ---
-    if re.search(r"che ore sono|che ora e|dimmi l ?ora|^ora$|what time|tell me the time|^time$", t):
+    if re.search(_W["current_time"], t):
         return Intent("current_time", {}, tr("It's…"))
-    if re.search(r"che giorno e|che data e|^data$|dimmi la data|what day|what.*date|today'?s date|^date$", t):
+    if re.search(_W["current_date"], t):
         return Intent("current_date", {}, tr("Today is…"))
-    if re.search(r"(quanta|stato).*batteria|^batteria$|battery", t):
+    if re.search(_W["battery_status"], t):
         return Intent("battery_status", {}, tr("Checking the battery."))
-    if re.search(r"(che |quale |quanto )?(volume|audio)[^.?!]{0,16}\b(e|adesso|ora)\b"
-                 r"|^volume$|a che volume"
-                 r"|what'?s the volume|what is the volume|current volume|how loud", t):
+    if re.search(_W["volume_status"], t):
         return Intent("volume_status", {}, tr("Checking the volume."))
-    if re.search(r"a che rete|come mi chiamo in rete|nome del computer|^hostname$"
-                 r"|computer name|what'?s my computer called", t):
+    if re.search(_W["system_info.1"], t):
         return Intent("system_info", {}, tr("Here's the system information."))
 
     # --- system status ---
-    if re.search(r"(uso|quanto)[^.?!]*\b(cpu|processore)\b|\bcpu\b[^.?!]*(uso|carico|percentuale)"
-                 r"|what.*\bcpu\b|\b(cpu|processor) (usage|load)\b", t):
+    if re.search(_W["cpu_usage"], t):
         return Intent("cpu_usage", {}, tr("Checking CPU usage."))
-    if re.search(r"(quanta|uso|quanto)[^.?!]*\b(ram|memoria)\b|\bmemoria\b[^.?!]*(uso|libera|disponibile)"
-                 r"|how much (ram|memory)|\b(ram|memory) usage\b|\bfree (ram|memory)\b", t):
+    if re.search(_W["memory_usage"], t):
         return Intent("memory_usage", {}, tr("Checking memory."))
-    if re.search(r"spazio.*(disco|libero)|(uso|quanto).*disco|disk (usage|space)"
-                 r"|free space|storage space|how much space", t):
+    if re.search(_W["disk_usage"], t):
         return Intent("disk_usage", {}, tr("Checking disk space."))
-    # "ip" without word boundaries matched inside "zip", "equipaggio",
-    # "principio": asking how to open a zip file got the IP address as answer.
-    if re.search(r"\b(mio |il mio )ip\b|\bindirizzo ip\b|\bip\b.{0,12}\b(pubblico|locale|privato)\b"
-                 r"|^ip$|what.*\bmy ip\b|\bip address", t):
+    # "ip" without word boundaries matched inside "zip" and inside Italian
+    # words: asking how to open a zip file got the IP address as answer.
+    if re.search(_W["ip_address"], t):
         return Intent("ip_address", {}, tr("Here are your IP addresses."))
-    if re.search(r"da quanto.*acceso|\buptime\b|tempo di attivita"
-                 r"|how long (has|have|is|was) [^.?!]{0,25}\b(on|running|up)\b", t):
+    if re.search(_W["uptime"], t):
         return Intent("uptime", {}, tr("How long the system has been on."))
-    if re.search(r"informazioni.*(sistema|zeta)|system info|che sistema|what system|about this (computer|system)", t):
+    if re.search(_W["system_info.2"], t):
         return Intent("system_info", {}, tr("Here's the system information."))
-    if re.search(r"process(i|es).*(attivi|in esecuzione|cpu)|cosa (sta |)consuma|what.*using.*cpu|running process", t):
+    if re.search(_W["open_system_monitor.1"], t):
         return Intent("open_system_monitor", {"section": "processes"}, tr("Opening processes in the Monitor."))
 
     # --- system monitor / security ---
-    if re.search(_OPEN + r".*(monitor|monitoraggio)", t):
+    if re.search(_OPEN + _W["open_system_monitor.2"], t):
         return Intent("open_system_monitor", {}, tr("Opening the System Monitor."))
-    if re.search(_OPEN + r".*(sicurezza|security|firewall|strumenti di sicurezza)", t):
+    if re.search(_OPEN + _W["open_security"], t):
         return Intent("open_security", {}, tr("Opening ZETA RAYS Security."))
 
     # --- terminal ---
-    if re.search(_OPEN + r".*(terminale|terminal|console|shell)", t) or t in ("terminale", "terminal"):
+    if re.search(_OPEN + _W["open_terminal.1"], t) or t in _W["open_terminal.2"]:
         return Intent("open_terminal", {}, tr("Opening the terminal."))
 
     # --- settings (with an optional page) ---
-    if re.search(_OPEN + r".*(impostazion|settings|preferenze|preferences|configurazione)", t):
+    if re.search(_OPEN + _W["open_settings.1"], t):
         page = _find(_SETTINGS, t)
         if page:
             from .actions import page_name
             return Intent("open_settings", {"page": page},
                           tr("Opening Settings › {page}.").format(page=page_name(page)))
         return Intent("open_settings", {}, tr("Opening Settings."))
-    if re.search(r"(impostazion|settings).*(rete|wifi|audio|bluetooth|sicurezza|ai|network|sound|security)"
-                 r"|(network|wifi|sound|audio|bluetooth|security|appearance) settings", t):
+    if re.search(_W["open_settings.2"], t):
         page = _find(_SETTINGS, t)
         return Intent("open_settings", {"page": page} if page else {}, tr("Opening Settings."))
 
-    # --- Wi-Fi (before power: "spegni il wifi" must not shut everything down) ---
-    if re.search(r"(attiva|accendi|enable|turn on|switch on)[^.?!]{0,8}(wi.?fi|wireless)"
-                 r"|\b(turn|switch) (the )?(wi.?fi|wireless) on\b", t):
+    # --- Wi-Fi (before power: "turn off the wifi" must not shut everything down) ---
+    if re.search(_W["wifi_toggle.1"], t):
         return Intent("wifi_toggle", {"on": True}, tr("Turning Wi-Fi on."))
-    if re.search(r"(disattiva|spegni|disable|turn off|switch off)[^.?!]{0,8}(wi.?fi|wireless)"
-                 r"|\b(turn|switch) (the )?(wi.?fi|wireless) off\b", t):
+    if re.search(_W["wifi_toggle.2"], t):
         return Intent("wifi_toggle", {"on": False}, tr("Turning Wi-Fi off."))
 
     # --- power ---
-    # "spegni" on its own, or referring to the computer. NOT "spegni lo
-    # schermo", "spegni il wifi", "spegni il bluetooth": the word "spegni"
+    # "turn off" on its own, or referring to the computer. NOT "turn off the
+    # screen", "turn off the wifi", "turn off the bluetooth": the Italian verb
     # anywhere used to be enough, so asking to turn off the screen offered to
     # shut down the computer. The confirmation prevented disaster, but the
     # question was wrong.
-    if re.search(r"^(ora |adesso |now |please )?(spegni(ti)?|spegnere|shutdown|shut down|power off|turn off)"
-                 r"( (il|questo|the|this|my) (computer|pc|sistema|tutto|system|laptop))?[.!]?$"
-                 r"|\bspegni(re)? (il |questo )?(computer|pc|sistema)\b"
-                 r"|\bchiudi (il |questo )?(computer|pc|sistema)\b"
-                 r"|\b(shut ?down|power off|turn off|switch off) (the |this |my )?(computer|pc|system|laptop)\b", t):
+    if re.search(_W["power_off"], t):
         return Intent("power_off", {}, tr("Shutting down the computer."))
-    if re.search(r"\briavvia(re)?\b|\breboot\b|riavviare il (computer|sistema)"
-                 r"|^(please )?restart( (the|this|my) (computer|pc|system|laptop))?[.!]?$"
-                 r"|\brestart (the |this |my )?(computer|pc|system|laptop)\b", t):
+    if re.search(_W["reboot"], t):
         return Intent("reboot", {}, tr("Restarting the computer."))
-    if re.search(r"\bsospendi\b|\bsospensione\b|\bsuspend\b|metti in pausa il computer"
-                 r"|put (the |this |my )?(computer|pc|laptop) to sleep|^sleep$", t):
+    if re.search(_W["suspend"], t):
         return Intent("suspend", {}, tr("Suspending the computer."))
-    if re.search(r"blocca( lo)? schermo|\block screen\b|blocca il computer"
-                 r"|\block (the |my )?(screen|computer|pc)\b", t):
+    if re.search(_W["lock_screen"], t):
         return Intent("lock_screen", {}, tr("Locking the screen."))
-    if re.search(r"\besci\b|disconnett|log ?out|chiudi (la )?sessione|sign out|log me out|end (the )?session", t):
+    if re.search(_W["log_out"], t):
         return Intent("log_out", {}, tr("Logging out."))
 
     # --- volume ---
     m = re.search(r"(?:volume|audio|sound)[^.?!]{0,12}?\b(\d{1,3})\s*%?", t)
-    if m and re.search(r"metti|imposta|porta|volume a|al |\bset\b|\bto\b|\bat\b", t):
+    if m and re.search(_W["set_volume.1"], t):
         return Intent("set_volume", {"level": int(m.group(1))}, tr("Setting the volume."))
-    # relative to the current volume: before, "alza" (raise) always went to
-    # 80% (lowering it from 95) and "abbassa" (lower) always to 30%
-    if re.search(r"(alza|aumenta|raise|increase|turn up)[^.?!]{0,10}(volume|audio|sound)"
-                 r"|\b(volume|sound) up\b|\blouder\b", t):
+    # relative to the current volume: before, "raise" always went to
+    # 80% (lowering it from 95) and "lower" always to 30%
+    if re.search(_W["set_volume.2"], t):
         return Intent("set_volume", {"step": "up", "amount": 10}, tr("Turning up the volume."))
-    if re.search(r"(abbassa|riduci|lower|decrease|reduce|turn down)[^.?!]{0,10}(volume|audio|sound)"
-                 r"|\b(volume|sound) down\b|\b(quieter|softer)\b", t):
+    if re.search(_W["set_volume.3"], t):
         return Intent("set_volume", {"step": "down", "amount": 10}, tr("Turning down the volume."))
-    if re.search(r"\b(silenzia|muto|mute|zittisci|silence)\b", t):
+    if re.search(_W["set_volume.4"], t):
         return Intent("set_volume", {"mute": True}, tr("Muting the audio."))
 
     # --- brightness ---
-    m = re.search(r"luminosit[aà][^.?!]{0,12}?\b(\d{1,3})\s*%?|brightness[^.?!]{0,12}?\b(\d{1,3})\s*%?", t)
+    m = re.search(_W["set_brightness.4"], t)
     if m:
         return Intent("set_brightness", {"level": int(m.group(1) or m.group(2))},
                       tr("Adjusting the brightness."))
 
     # --- programs ---
-    m = re.search(r"\binstalla(?:re)?\b\s+(?:il |lo |la |l )?([a-z0-9.+-]{2,40})", t) or \
+    m = re.search(_W["install_package"], t) or \
         re.search(r"^(?:please |can you |could you )?install\s+(?:the )?(?:program |app |package )?"
                   r"([a-z0-9.+-]{2,40})[.!?]?$", t)
     if m:
         name = m.group(1).strip()
         return Intent("install_package", {"name": name}, tr("Installing {name}.").format(name=name))
-    m = re.search(r"\b(?:disinstalla(?:re)?|rimuovi)\b\s+(?:il |lo |la |l )?([a-z0-9.+-]{2,40})", t) or \
-        re.search(r"^(?:please |can you |could you )?(?:uninstall|remove)\s+(?:the )?(?:program |app |package )?"
-                  r"([a-z0-9.+-]{2,40})[.!?]?$", t)
+    m = re.search(_W["remove_package.1"], t) or \
+        re.search(_W["remove_package.2"], t)
     if m:
         name = m.group(1).strip()
         return Intent("remove_package", {"name": name}, tr("Removing {name}.").format(name=name))
 
     # --- new folder ---
-    m = re.search(r"(?:crea|nuova)[^.?!]{0,12}cartella\s+(?:chiamata\s+)?([\w .-]{1,40})", t) or \
+    m = re.search(_W["create_folder"], t) or \
         re.search(r"(?:create|make|new)[^.?!]{0,12}folder\s+(?:called\s+|named\s+)?([\w .-]{1,40})", t)
     if m and m.group(1).strip():
         return Intent("create_folder", {"name": m.group(1).strip()}, tr("Creating the folder."))
 
     # --- moving to the Trash ---
-    m = re.search(r"(?:cestina|butta|sposta nel cestino|elimina)\s+(?:il |lo |la |l )?(?:file\s+)?([\w .-]{1,40})", t) or \
+    m = re.search(_W["trash_file.3"], t) or \
         re.search(r"\bmove\s+(?:the |my )?(?:file\s+)?([\w .-]{1,40}?)\s+to (?:the )?(?:trash|bin|recycle bin)$", t)
-    if m and m.group(1).strip() not in ("", "cestino", "trash"):
+    if m and m.group(1).strip() not in _W["trash_file.4"]:
         return Intent("trash_file", {"name": m.group(1).strip()}, tr("Moving it to the Trash."))
-    if re.search(r"svuota( il)? cestino|\bempty (the )?(trash|bin|recycle bin)\b", t):
+    if re.search(_W["empty_trash"], t):
         return Intent("empty_trash", {}, tr("Emptying the Trash."))
 
-    # --- finding files: "cerca fattura", "trova i file pdf di oggi",
-    #     "dove si trova il file prova.txt" ---
+    # --- finding files: "search invoice", "find today's pdf files",
+    #     "where is the file test.txt" ---
     file_search = _search_intent(t)
     if file_search:
         return file_search
 
     # --- folders ---
     folder = _find(_FOLDERS, t)
-    if folder and re.search(_OPEN + r"|cartella|folder", t):
+    if folder and re.search(_OPEN + _W["open_folder"], t):
         if folder == "trash":
             return Intent("open_folder", {"name": folder}, tr("Opening the Trash."))
         return Intent("open_folder", {"name": folder},
@@ -677,14 +578,13 @@ def parse(text: str) -> Intent | None:
     if app and re.search(_OPEN, t):
         return Intent("open_application", {"app": app}, tr("Opening {name}.").format(name=app))
 
-    # --- generic "apri <something>": passes the name to open_application ---
-    m = re.search(_OPEN + r"\s+(?:l'|lo |la |il |le |gli |i |the |my )?([a-z0-9 .-]{2,30})$", t)
+    # --- generic "open <something>": passes the name to open_application ---
+    m = re.search(_OPEN + _W["open_application.1"], t)
     if m:
         target = m.group(1).strip()
         # avoid catching sentences already handled above
-        if target and target not in ("finestra", "window"):
+        if target and target not in _W["open_application.2"]:
             return Intent("open_application", {"app": target},
                           tr("Trying to open {name}.").format(name=target))
 
     return None
-# i18n-data-end

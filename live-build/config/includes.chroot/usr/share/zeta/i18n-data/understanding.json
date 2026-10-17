@@ -1,0 +1,275 @@
+{
+ "preamble": "^(?:(?:zeta|ehi|ok|allora|per favore|per piacere|puoi|potresti|mi puoi|riesci a|vorrei|voglio|devi|please|can you|hey|hi|okay|could you|would you|will you|can you please|i want to|i'd like to|i would like to|i need to|go ahead and|kindly)[ ,]+)+",
+ "trailing": "[ ,]*(?:(?<![^ ,])(?:per favore|per piacere|grazie|please|subito|adesso|thanks|thank you|right now|now|for me))?[ .!?]*$",
+ "v_open": "(?:apri|aprimi|avvia|avviami|lancia|fai partire|esegui|open up|open|launch|start|run)",
+ "v_close": "(?:chiudi|chiudimi|esci da|termina|quit|close|exit)",
+ "v_restart": "(?:riavvia|riapri|restart|reboot|relaunch|reopen)",
+ "v_switch": "(?:passa a|vai su|vai a|torna a|torna su|metti in primo piano|mostrami|switch to|focus on|focus|go to|go back to|bring up|show me)",
+ "v_create": "(?:crea|creami|fai|nuova|nuovo|create|make|new)",
+ "v_search": "(?:cerca|cercami|trova|trovami|dove si trova|dov'e|dove e|search for|search|find me|find|look for|locate|where is|where's)",
+ "v_delete": "(?:elimina|cancella|rimuovi il file|rimuovi la cartella|butta|cestina|delete|erase|trash|remove the file|remove the folder|throw away|get rid of)",
+ "v_turn_on": "(?:accendi|attiva|abilita|turn on|enable|switch on|activate)",
+ "v_turn_off": "(?:spegni|disattiva|disabilita|turn off|disable|switch off|deactivate)",
+ "art": "(?:il |lo |la |l'|i |gli |le |un |una |uno |del |della |dello |dei |delle |the |a |an |my )?",
+ "computer": "(?:il |lo |the |my |this )?(?:computer|pc|sistema|portatile|mini pc|system|laptop|machine)",
+ "places": "scrivania|desktop|documenti|download|downloads|scaricati|immagini|foto|musica|video|home|cartella personale|modelli|pubblici|documents|pictures|photos|music|videos|templates|public|home folder",
+ "place_prep": "(?:sulla|sul|nella|nel|nei|negli|in|dentro|su|alla|al|dalla|dal|dai|on|to|into|inside|from|onto)",
+ "place": "\\s+(?:(?:the|my)\\s+)?(?:cartella\\s+)?(",
+ "strip_place": "\\s+(?:(?:the|my)\\s+)?(?:cartella\\s+)?(?:",
+ "connective": "\\b(?:e poi|poi|e dopo|dopodiche|e (?:apri|chiudi|avvia|elimina|sposta|copia|mostra)\\w*|and then|then|after that|and (?:open|close|start|launch|delete|move|copy|show)\\w*)\\b",
+ "object_name": "^(?:il |lo |la |l'|i |gli |le |un |una |uno )?(?:file |cartella |documento |immagine |foto )?",
+ "restart_system.1": "(?:riavvia|reboot|restart)(?: ",
+ "restart_system.2": "(?:riavvia(?:mi)?|fai ripartire) ",
+ "shutdown_system": "(?:spegni|arresta|shutdown|spegnimento|shut down|power off)(?: ",
+ "suspend_system": "(?:sospendi|metti in (?:sospensione|standby)|standby|vai in standby|suspend|sleep|go to sleep)(?: ",
+ "lock_screen.1": "(?:blocca|lock)(?: ",
+ "lock_screen.2": "| lo schermo| la sessione| schermo| the screen| my screen| screen| the session)?|lock screen",
+ "logout": "(?:esci|disconnettimi|logout|log out|chiudi la sessione|esci dalla sessione|termina la sessione|log me out|sign out|sign me out|end the session|close the session|exit the session)(?: dalla sessione| of the session| of my session)?",
+ "wifi": "(?:il |la |the )?(?:wi[ -]?fi|rete wireless|wireless)",
+ "wifi_disconnect": "(?:disconnetti|scollega|staccati da|disconnettiti da)(?:ti)?(?: dal| dalla| il| la)? (?:wi[ -]?fi|rete(?: wi[ -]?fi)?|internet)",
+ "devices": "(?:le |il |la |lo |i |the |my )?(?:cuffie|auricolari|mouse|tastiera|casse|altoparlant|telefono|dispositivo|bluetooth|headphones|earbuds|headset|keyboard|speaker|phone|device)",
+ "wifi_connect": "(?:connetti|collega|connettiti|collegati)(?:ti)?(?: al| alla| a)? (?:(?:rete )?(?:wi[ -]?fi )?|rete )?(.+?)(?: con (?:la )?password (.+))?",
+ "wifi_list": "\\b(?:reti|wi[ -]?fi) (?:disponibili|vicine|intorno)\\b|quali (?:reti|wi[ -]?fi)",
+ "network_status": "(?:stato della rete|sono connesso|sono collegato|c'e internet|funziona internet|indirizzo ip|il mio ip|che rete|a che rete|rete attuale)",
+ "bt": "(?:il |the )?bluetooth",
+ "bluetooth_devices": "dispositivi bluetooth|bluetooth (?:collegati|vicini|associati)",
+ "bt_types": "cuffie|auricolari|mouse|tastiera|casse|altoparlant|bluetooth|headphones|earbuds|headset|keyboard|speaker",
+ "bluetooth_connect.1": "(?:connetti|collega|associa)(?: le| il| la| lo| i)? (.+?)(?: (?:via|con il|al) bluetooth)?",
+ "bluetooth_connect.2": "^(?:cuffie|auricolari|mouse|tastiera|casse) ",
+ "bluetooth_disconnect": "(?:scollega|disconnetti)(?: le| il| la| lo| i)? (.+?)(?: bluetooth)?",
+ "adjustments": "\\b(?:impostazioni|preferenze|settings|preferences)\\b",
+ "set_volume.1": "\\b(?:volume|luminosita|luce|brightness)\\b",
+ "set_volume.2": "\\b(?:piu forte|alza la musica|alza l'audio|alza il suono)\\b",
+ "set_volume.3": "\\b(?:piu piano|abbassa la musica|abbassa l'audio|abbassa il suono)\\b",
+ "list_processes.1": "\\brallent\\w*|\\b(?:e|va|sta andando|diventato) (?:cosi |molto |troppo )?(?:lento|lenta|piano)\\b|\\b(?:impallato|bloccato|pesante)\\b",
+ "list_processes.2": "\\b(?:video|musica|internet|rete|wi ?fi|music|network|videos)\\b",
+ "set_volume.4": "\\b(?:volume|audio|suono|sound)\\b",
+ "set_volume.5": "\\b(?:muto|silenzia|togli l'audio|togli il volume|zittisci|mute|silence|turn off the sound|turn the sound off)\\b",
+ "set_volume.6": [
+  "muto",
+  "silenzio"
+ ],
+ "set_volume.7": "\\b(?:riattiva|rimetti|togli il muto|unmute|turn the sound back on|sound back on)\\b",
+ "set_volume.8": "\\b(?:al|a|allo|to|at)\\s+\\d",
+ "set_volume.9": "\\b(?:alza|aumenta|piu alto|su|up|raise|increase|higher|louder)\\b",
+ "set_volume.10": "\\b(?:abbassa|diminuisci|riduci|piu basso|giu|down|lower|decrease|reduce|quieter)\\b",
+ "set_volume.11": [
+  "muto",
+  "silenzio",
+  "silenzia",
+  "mute",
+  "silence"
+ ],
+ "set_brightness.1": "\\b(?:luminosita|luce dello schermo|brightness)\\b",
+ "set_brightness.2": "\\b(?:al|a|allo|to|at)\\s+\\d",
+ "set_brightness.3": "\\b(?:alza|aumenta|piu|up|raise|increase|more|higher|brighter)\\b",
+ "set_brightness.4": "\\b(?:abbassa|diminuisci|riduci|meno|down|lower|decrease|reduce|less|dim|dimmer)\\b",
+ "set_theme": "\\btema (chiaro|scuro)\\b|\\b(?:modalita|modo) (chiara|scura)\\b",
+ "set_wallpaper.1": "(?:cambia|metti|imposta)(?: lo)? sfondo(?: con| a| in)? (.+)",
+ "set_wallpaper.2": "(?:metti|usa|scegli|imposta)(?: lo| il)? sfondo (.+)",
+ "screenshot": "\\b(?:screenshot|schermata|foto dello schermo|cattura lo schermo|screen ?shot|screen capture|capture the screen)\\b",
+ "current_time": "\\bche (?:ore|ora) (?:sono|e)\\b|\\bche giorno\\b|\\bche data\\b",
+ "system_status.1": "\\b(?:quanta|quanto) (?:ram|memoria)\\b|\\b(?:uso|stato) della (?:ram|memoria)\\b|\\bram libera\\b",
+ "system_status.2": "\\b(?:spazio (?:libero|su disco)|quanto spazio|disco pieno|stato del disco)\\b",
+ "system_status.3": "\\b(?:batteria|battery)\\b",
+ "system_status.4": "\\b(?:uso della cpu|quanto (?:lavora|e carico) il processore|cpu)\\b",
+ "system_status.5": "\\bstato del (?:sistema|computer)\\b|\\bcome sta il computer\\b|\\bcome va il (?:sistema|computer)\\b",
+ "list_processes.3": "\\bprocess|\\bchi (?:usa|consuma)|\\bcosa (?:sta usando|consuma|usa)\\b",
+ "list_processes.4": "memoria|ram|memory",
+ "dest": "(?:in|nella|nel|nei|negli|sulla|sul|su|dentro|alla|al|to|into|inside|onto|on)\\s+(?:(?:the|my)\\s+)?(?:cartella\\s+)?",
+ "open_url.1": "\\s+(?:il sito(?: web)?|la pagina(?: web)?|il link|l'indirizzo|the (?:web)?site|the (?:web ?)?page|the link|the address|(?:the )?website)|vai su|vai a|visita|naviga su|portami su|go to|visit|browse to|navigate to|take me to)\\s+",
+ "open_url.2": "\\s+(?:il sito|la pagina web|il link|l'indirizzo|the (?:web)?site|the web ?page|the link|the address|website)\\s+(.+)",
+ "where_is_program.1": "(?:quale|che) comando (?:avvia|apre|lancia|fa partire|esegue)\\s+(.+)",
+ "where_is_program.2": "(?:quale|che) pacchetto (?:contiene|fornisce|installa|ha)\\s+(.+)",
+ "where_is_program.3": "(?:dov'e|dove e|dove si trova|mostrami|mostra|qual e)\\s+(?:l'|il |lo |la )?(?:eseguibile|programma|file desktop|file \\.desktop|voce del menu|comando)\\s+(?:di|del|della|dello|per)\\s+(.+)",
+ "where_is_program.4": "(?:dove e installato|dov'e installato|dove sono installati|dove si trova installato)\\s+(.+)",
+ "where_is_program.5": "(?:how do i (?:launch|start|run)|come (?:avvio|lancio|faccio partire))\\s+(.+?)(?:\\s+(?:from|dal) (?:the )?terminal(?:e)?)?",
+ "list_appimages": "(?:trova|mostra|mostrami|elenca|cerca)\\s+(?:le |tutte le )?(?:mie )?appimage",
+ "where_is_program.6": "(?:where is|where's|dove si trova|dov'e|dove e)\\s+(?:the |il |lo |la |l')?(.+)",
+ "open_folder.1": "(?:mi fai vedere|fammi vedere|fai vedere|mostrami|mostra|show me|let me see|can i see|show)\\s+(.+)",
+ "open_folder.2": "\\bscaricat|\\bdownload",
+ "folder_words": [
+  [
+   "foto",
+   "pictures"
+  ],
+  [
+   "immagini",
+   "pictures"
+  ],
+  [
+   "documenti",
+   "documents"
+  ],
+  [
+   "musica",
+   "music"
+  ],
+  [
+   "canzoni",
+   "music"
+  ],
+  [
+   "video",
+   "videos"
+  ],
+  [
+   "filmati",
+   "videos"
+  ],
+  [
+   "scrivania",
+   "desktop"
+  ],
+  [
+   "desktop",
+   "desktop"
+  ],
+  [
+   "cestino",
+   "trash"
+  ],
+  [
+   "photos",
+   "pictures"
+  ],
+  [
+   "pictures",
+   "pictures"
+  ],
+  [
+   "images",
+   "pictures"
+  ],
+  [
+   "documents",
+   "documents"
+  ],
+  [
+   "music",
+   "music"
+  ],
+  [
+   "songs",
+   "music"
+  ],
+  [
+   "videos",
+   "videos"
+  ],
+  [
+   "movies",
+   "videos"
+  ],
+  [
+   "trash",
+   "trash"
+  ]
+ ],
+ "create_folder": " (?:(?:una |la )?(?:nuova )?cartella(?: chiamata| di nome| con nome)?|(?:a |the )?(?:new )?(?:folder|directory)(?: called| named)?) (.+)",
+ "create_file": " (?:un |il )?(?:nuovo )?file(?: di testo)?(?: chiamato| di nome| con nome)? (.+?)(?: con (?:scritto|dentro|il testo) (.+))?",
+ "rename_item": "(?:rinomina|cambia (?:il )?nome (?:a|al|alla|del|della))\\s+(.+?)\\s+(?:in|come|con)\\s+(.+)",
+ "copy_item": "(?:copia|duplica|copy|duplicate)\\s+(.+?)\\s+",
+ "move_item.1": "(?:sposta|metti|trasferisci|move|put|transfer)\\s+(.+?)\\s+",
+ "move_item.2": "cestino|trash|recycle bin",
+ "delete_item.1": "\\s+(.+?)(?:\\s+(?:dalla|dal|dai|dalle|da|from)\\s+(?:(?:the|my)\\s+)?(?:cartella\\s+)?(.+?)(?:\\s+folder)?)?",
+ "delete_item.2": "(?:sposta|metti|butta)\\s+(.+?)\\s+nel cestino",
+ "show_location": "(?:dove si trova|dov'e|dove e|mostrami dove (?:si trova|e)|mostra la posizione di|apri la cartella (?:di|che contiene))\\s+(.+)",
+ "search_files": "\\s+(?:il |i |un |dei |tutti i |the |a |an |all |any |my )?(?:files|documents|folders|photos|pictures|images|file|documenti|cartelle|foto|immagini)?\\s*(?:chiamat[oi] |di nome |con nome |che si chiama(?:no)? |called |named |with the name )?(.+)",
+ "download_file": "(?:scarica|download)\\s+(https?://\\S+)(?:\\s+.*)?",
+ "close_all_windows": "(?:chiudi|chiudimi)(?: tutte le finestre| tutto| tutti i programmi| tutte le app)",
+ "close_window": "(?:chiudi|chiudimi)(?: questa| la)? finestra(?: attiva| corrente)?",
+ "force_close_application": "(?:forza la chiusura (?:di|del|della|dello)|chiudi (?:a forza|d'autorita|forzatamente)|uccidi|termina forzatamente)\\s+(.+)",
+ "minimize_window.1": "(?:riduci(?: a icona)?|minimizza|nascondi)(?: la finestra(?: di)?)?(?: (.+))?",
+ "minimize_window.2": "(?:minimi[sz]e|hide)(?: the window(?: of)?)?(?: (.+))?",
+ "maximize_window": "(?:ingrandisci|massimizza|allarga)(?: la finestra(?: di)?)?(?: (.+))?",
+ "fullscreen_window": "(?:metti a )?schermo intero(?: (?:per|a) (.+))?|(?:metti|porta) (.+) a schermo intero",
+ "roles": "(browser|posta|email|posta elettronica|gestore (?:dei )?file|file|terminale|editor(?: di testo)?|lettore video|lettore multimediale|lettore pdf|pdf|visualizzatore (?:di )?immagini|immagini)",
+ "set_default_app.1": "(?:imposta|usa|metti|rendi|scegli)\\s+(.+?)\\s+come\\s+(?:il |la |l'|lo )?",
+ "set_default_app.2": "(?: predefinit[oa]| di sistema)?",
+ "set_default_app.3": "(?:imposta|cambia|metti)\\s+(?:il |la |l'|lo )?",
+ "set_default_app.4": "\\s+predefinit[oa]\\s+(?:in|con|a|su)\\s+(.+)",
+ "list_default_apps.1": "\\b(?:app|applicazioni|programmi) predefinit[ei]\\b|\\bqual e il (?:browser|terminale|gestore file) predefinito\\b",
+ "list_default_apps.2": "\\b(?:impostazioni|settings)\\b",
+ "list_running_applications": "\\b(?:che|quali) (?:app|applicazioni|programmi|finestre) (?:sono |ho )?(?:aperte|aperti|in esecuzione)\\b|\\b(?:app|programmi|finestre) aperte?\\b",
+ "list_installed_applications": "\\b(?:che|quali) (?:app|applicazioni|programmi) (?:sono |ho )?installat",
+ "is_installed.1": "(?:e installato|c'e|ho) (.+?)(?: installato)?\\??",
+ "is_installed.2": "installat",
+ "install_package": "(?:installa|installami)\\s+(?:il |lo |la |l')?(?:programma |pacchetto |app )?(.+)",
+ "remove_package": "(?:disinstalla|rimuovi il programma|rimuovi il pacchetto|uninstall|remove the program|remove the package|remove the app)\\s+(.+)",
+ "dock_add": "(?:aggiungi|metti)\\s+(.+?)\\s+(?:al|nel|sul) dock",
+ "dock_remove": "(?:togli|rimuovi|leva)\\s+(.+?)\\s+dal dock",
+ "open_settings": "\\s+)?(?:le )?(?:impostazioni|preferenze|settings)(?:\\s+(?:di |del |della |dello |dei |delle |per |su |sul |sulla )?(.+))?",
+ "open_folder.4": "^(?:la |il |le |i |lo )?(?:cartella |cartelle )?(?:dei |delle |del |della )?",
+ "open_folder.5": [
+  "cestino",
+  "trash",
+  "recycle bin"
+ ],
+ "open_folder.6": "(?:la |le )?cartella",
+ "open_file": "(?:il |lo |la |l')?(?:file|documento|immagine|foto) ",
+ "units": {
+  "zero": 0,
+  "uno": 1,
+  "una": 1,
+  "due": 2,
+  "tre": 3,
+  "quattro": 4,
+  "cinque": 5,
+  "sei": 6,
+  "sette": 7,
+  "otto": 8,
+  "nove": 9,
+  "dieci": 10,
+  "undici": 11,
+  "dodici": 12,
+  "tredici": 13,
+  "quattordici": 14,
+  "quindici": 15,
+  "sedici": 16,
+  "diciassette": 17,
+  "diciotto": 18,
+  "diciannove": 19
+ },
+ "tens": {
+  "venti": 20,
+  "trenta": 30,
+  "quaranta": 40,
+  "cinquanta": 50,
+  "sessanta": 60,
+  "settanta": 70,
+  "ottanta": 80,
+  "novanta": 90
+ },
+ "one_words": [
+  "uno",
+  "una"
+ ],
+ "one_feminine": [
+  "una"
+ ],
+ "triggers": [
+  "al",
+  "allo",
+  "a",
+  "del",
+  "di",
+  "su",
+  "volume",
+  "luminosita",
+  "luminosità",
+  "to",
+  "at",
+  "by",
+  "of",
+  "brightness"
+ ],
+ "compound": "\\s*(?:,\\s*)?(?:\\be poi\\b|\\bpoi\\b|\\be dopo\\b|;|\\be\\b(?= (?:apri|chiudi|avvia|spegni|accendi|alza|abbassa|crea|copia|sposta|elimina|cerca|blocca|riavvia|metti|passa|riduci|ingrandisci))|\\band then\\b|\\bthen\\b|\\band after that\\b|\\bafter that\\b|\\band\\b(?= (?:open|close|start|launch|turn|raise|lower|create|make|copy|move|delete|search|find|lock|restart|put|switch|minimi[sz]e|maximi[sz]e|set|show|mute|unmute)\\b))\\s*",
+ "pronoun": "(?:e )?apri(?:la|lo|li|le|mela|melo)|aprimela|aprimelo|(?:e )?mostra(?:mela|melo|la|lo)|(?:and )?(?:open|show) (?:it|them)(?: to me| for me)?|(?:and )?show me",
+ "number": "(\\d{1,3})\\s*(?:%|per ?cento|percent)?",
+ "hundred_words": [
+  "cento",
+  "hundred"
+ ],
+ "percent_word": "per"
+}

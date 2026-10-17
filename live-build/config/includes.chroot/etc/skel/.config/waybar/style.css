@@ -112,6 +112,20 @@ tooltip {
   border-radius: 10px;
   color: @ink;
 }
+/* Windows list (only when the windows have no title bars) */
+#custom-windows,
+#custom-windowlist {
+  padding: 0 10px;
+  margin-right: 2px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: @ink_2;
+}
+#custom-windows:hover,
+#custom-windowlist:hover {
+  background: @hover;
+}
 /* Current keyboard layout (only with several layouts): clickable code */
 #custom-keyboard {
   padding: 0 10px;

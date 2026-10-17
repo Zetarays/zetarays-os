@@ -6,12 +6,14 @@ followed by the downloads table (links, sizes, SHA-256 checksums).
     tools/gen-release-notes.py CHANGELOG.md DELIVERY_DIR OUTPUT.md
 
 DELIVERY_DIR holds the four images and their .sha256 files, as written by
-tools/build-all-2.0.sh deliver.
+tools/build-all.sh deliver. The version comes from the VERSION file; the
+newest changelog section must be the one of that version.
 """
 import os
 import re
 import sys
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = "https://download.zetarays.org/releases"
 IMAGES = [("amd64", "iso"), ("amd64", "ova"), ("arm64", "iso"), ("arm64", "ova")]
 
@@ -23,9 +25,16 @@ def newest_section(text):
     return m.group(0).rstrip() + "\n"
 
 
+def read_version():
+    v = open(os.path.join(ROOT, "VERSION"), encoding="ascii").read().strip()
+    if not re.fullmatch(r"\d+\.\d+(\.\d+)?", v):
+        sys.exit("VERSION does not hold a version number: %r" % v)
+    return v
+
+
 def version_of(section):
     m = re.match(r"## (\S+)", section)
-    return m.group(1) if m else "2.0"
+    return m.group(1) if m else ""
 
 
 def main(argv):
@@ -33,7 +42,12 @@ def main(argv):
         sys.exit(__doc__)
     changelog, delivery, output = argv[1:]
     section = newest_section(open(changelog, encoding="utf-8").read())
-    version = version_of(section)
+    version = read_version()
+    if version_of(section) != version:
+        sys.exit("the newest changelog section is %r, VERSION is %s"
+                 % (version_of(section), version))
+    if "(filled at release)" in section or re.match(r"## .*XX", section):
+        sys.exit("the changelog section of %s still has placeholders (date or list)" % version)
     rows = []
     for arch, kind in IMAGES:
         name = "zetarays-%s-%s.%s" % (version, arch, kind)

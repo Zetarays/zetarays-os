@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Builds a VirtualBox virtual machine with ZETA RAYS preinstalled, as an .ova file.
 #
-#   ZETA_ARCH=amd64  (default)      -> out/zetarays-2.0-amd64.ova  (Intel/AMD PC)
-#   ZETA_ARCH=arm64                 -> out/zetarays-2.0-arm64.ova  (Apple Silicon Mac,
+#   ZETA_ARCH=amd64  (default)      -> out/zetarays-X.Y-amd64.ova  (Intel/AMD PC)
+#   ZETA_ARCH=arm64                 -> out/zetarays-X.Y-arm64.ova  (Apple Silicon Mac,
 #                                       VirtualBox 7.2+ with ARM support)
+# X.Y is the release version, read from the VERSION file.
 #
 # Starts from the matching ISO (./build.sh <arch>) and uses Docker + VBoxManage.
 set -euo pipefail
@@ -12,9 +13,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"
 ARCH="${ZETA_ARCH:-amd64}"
-ISO="${ZETA_ISO:-$OUT/zetarays-2.0-$ARCH.iso}"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null || true)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "VERSION missing or invalid: '$VERSION'" >&2; exit 1; }
+ISO="${ZETA_ISO:-$OUT/zetarays-$VERSION-$ARCH.iso}"
 DISK_GB="${ZETA_DISK_GB:-24}"
-VM_NAME="ZETA RAYS 2.0 ($ARCH)"
+VM_NAME="ZETA RAYS $VERSION ($ARCH)"
 
 # Architecture-dependent parameters
 if [ "$ARCH" = "arm64" ]; then
@@ -38,8 +41,8 @@ if [ "$ARCH" = "amd64" ] && [ "$(uname -m)" = "arm64" ] && command -v colima >/d
   trap 'colima ssh -- sudo sh -c "echo 1 > $BINFMT/rosetta; echo 0 > $BINFMT/qemu-x86_64"' EXIT
 fi
 
-VMDK="$OUT/zetarays-2.0-$ARCH.vmdk"
-OVA="$OUT/zetarays-2.0-$ARCH.ova"
+VMDK="$OUT/zetarays-$VERSION-$ARCH.vmdk"
+OVA="$OUT/zetarays-$VERSION-$ARCH.ova"
 
 if [ "${ZETA_ONLY_OVA:-}" != 1 ]; then
 rm -f "$VMDK"
@@ -125,20 +128,11 @@ EOF
 
     rm -f $T/etc/apt/sources.list
     grep -rl "/run/live/medium" $T/etc/apt/sources.list.d/ 2>/dev/null | xargs -r rm -f || true
-    cat > $T/etc/apt/sources.list.d/debian.sources <<EOF
-Types: deb
-URIs: http://deb.debian.org/debian
-Suites: trixie trixie-updates trixie-backports
-Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-
-Types: deb
-URIs: http://security.debian.org/debian-security
-Suites: trixie-security
-Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-EOF
-    rm -f $T/etc/apt/sources.list.d/backports.list
+    # the package sources are written below by zeta-apt-sources, as on a
+    # system installed from the ISO; the backports stay in backports.list
+    # (Hyprland and its libraries come from there, see zeta-backports.pref)
+    [ -s $T/etc/apt/sources.list.d/backports.list ] || {
+        echo "ERROR: backports.list missing from the live system" >&2; exit 1; }
     ln -sf /usr/share/zoneinfo/Europe/Rome $T/etc/localtime; echo "Europe/Rome" > $T/etc/timezone
     # English and US keyboard, like the USB stick: the welcome window offers
     # the language and keyboard at the first start (Settings > Language &
@@ -149,6 +143,9 @@ EOF
     GPKG_ENV="$GPKG"
     chroot $T /bin/bash -euo pipefail -c "
       export DEBIAN_FRONTEND=noninteractive
+      # same package sources and automatic security updates as a system
+      # installed from the ISO (Calamares runs the same helper)
+      /usr/local/libexec/zeta-apt-sources
       apt-get update -qq
       apt-get purge -y -qq live-boot live-boot-initramfs-tools live-config live-config-systemd user-setup || true
       for b in /usr/sbin/grub-install /usr/sbin/update-grub; do dpkg-divert --local --rename --add \$b >/dev/null; ln -sf /bin/true \$b; done
@@ -214,16 +211,16 @@ EOF
     rm -f $W/root.img $W/esp.img
 
     echo "== Converting to VMDK"
-    qemu-img convert -O vmdk -o subformat=streamOptimized $W/disk.raw /out/zetarays-2.0-'"$ARCH"'.vmdk
+    qemu-img convert -O vmdk -o subformat=streamOptimized $W/disk.raw /out/zetarays-'"$VERSION"'-'"$ARCH"'.vmdk
     rm -rf $W/*
   '
 fi
 
 echo "== Creating the virtual machine and the OVA ($ARCH)"
 # Temporary VM with a unique name: it must NEVER clash with the user's VMs
-# (e.g. an already imported "ZETA RAYS 2.0 (arm64)"). --vmname sets the final name.
+# (e.g. an already imported "ZETA RAYS X.Y (arm64)"). --vmname sets the final name.
 BUILD_VM="zeta-build-$ARCH-$$"
-for u in $(VBoxManage list hdds | awk -v f="zetarays-2.0-$ARCH.vmdk" '/^UUID:/{u=$2} $0 ~ f {print u}'); do
+for u in $(VBoxManage list hdds | awk -v f="zetarays-$VERSION-$ARCH.vmdk" '/^UUID:/{u=$2} $0 ~ f {print u}'); do
   VBoxManage closemedium disk "$u" >/dev/null 2>&1 || true
 done
 TMPVM="$(mktemp -d)"
@@ -259,7 +256,7 @@ VBoxManage storageattach "$BUILD_VM" --storagectl SATA --port 0 --device 0 --typ
 # speed and not losing data, we choose not losing data.
 rm -f "$OVA"
 VBoxManage export "$BUILD_VM" --output "$OVA" --ovf20 --manifest \
-  --vsys 0 --vmname "$VM_NAME" --product "ZETA RAYS OS" --version "2.0" --description "ZETA RAYS OS 2.0 ($ARCH)"
+  --vsys 0 --vmname "$VM_NAME" --product "ZETA RAYS OS" --version "$VERSION" --description "ZETA RAYS OS $VERSION ($ARCH)"
 VBoxManage unregistervm "$BUILD_VM" >/dev/null 2>&1 || true
 VBoxManage closemedium disk "$VMDK" >/dev/null 2>&1 || true
 rm -rf "$TMPVM" "$VMDK"

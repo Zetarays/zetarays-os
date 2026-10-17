@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Print language data for shell scripts, one value per line.
+
+    zeta-i18n-data NAME KEY [KEY...]
+
+NAME is a file in /usr/share/zeta/i18n-data (without .json); the keys walk
+into the JSON object. A list prints one item per line, a string prints itself.
+"""
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n_data import load  # noqa: E402
+
+
+def main(argv):
+    if len(argv) < 2:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    value = load(argv[1])
+    for key in argv[2:]:
+        value = value[key]
+    for item in (value if isinstance(value, list) else [value]):
+        print(item)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

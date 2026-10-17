@@ -13,9 +13,10 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from i18n import tr  # noqa: E402
 from intelligence import ollama_manager as og  # noqa: E402
+from intelligence import resources, websearch  # noqa: E402
 from intelligence.registry import (CATALOG, DEFAULT_SYSTEM, Registry,  # noqa: E402
-                                   keyring_set, keyring_where, default_model,
-                                   save_settings)
+                                   capabilities, keyring_set, keyring_where, default_model,
+                                   load_settings, save_settings)
 
 
 def _in_thread(job, done):
@@ -41,7 +42,18 @@ class AIPage:
         self._choice_group()
         self._ollama_group()
         self._cloud_group()
+        self._web_group()
+        self._language_group()
         self._behavior_group()
+        self._voice_group()
+
+    def _voice_group(self):
+        """Settings › AI › Voice (ui/voice_settings.py, owned by the voice)."""
+        try:
+            from ui import voice_settings
+            self.page.add(voice_settings.build_group(self.toast))
+        except Exception as e:  # noqa: BLE001 - the voice section must not bring the page down
+            print("ai_page: voice section: %s" % e)
 
     def toast(self, t):
         self.w.toast(t)
@@ -58,7 +70,8 @@ class AIPage:
         g = Adw.PreferencesGroup(
             title=tr("Active Intelligence"),
             description=tr("Automatic uses Ollama, the model on this computer, which works even "
-                           "without internet; if it isn't available, the first online service with a key."))
+                           "without internet. Questions go to an online service only if you choose "
+                           "it here, or accept it in the chat for one question."))
         self.ids = ["auto"] + list(CATALOG)
         names = [tr("Automatic")] + [
             (tr("{name} (on this computer)") if CATALOG[p][2] == "local"
@@ -90,9 +103,10 @@ class AIPage:
     def _update_effective(self):
         def job():
             p = Registry().resolve_default()
-            model = p.config.model or default_model(p.config.name)
-            if not model and hasattr(p, "_model"):
-                model = p._model()          # Ollama: the first installed model
+            if p.config.kind == "local" and hasattr(p, "_model"):
+                model = p._model()          # Ollama: the default one, or the first installed
+            else:
+                model = p.config.model or default_model(p.config.name)
             return tr("{name} · model {model}").format(name=p.config.label,
                                                        model=model or tr("default"))
         _in_thread(job, lambda r: self.effective_row.set_subtitle(
@@ -101,7 +115,11 @@ class AIPage:
     # --- Ollama -------------------------------------------------------------
     def _ollama_group(self):
         g = Adw.PreferencesGroup(title=tr("Ollama · On This Computer"),
-                                 description=tr("Your questions stay on this computer."))
+                                 description=tr("Free and private: your questions stay on this "
+                                                "computer, and it works without internet."))
+        self.o_ram = Adw.ActionRow(title=tr("Memory"), subtitle="…")
+        g.add(self.o_ram)
+        self._o_ram_refresh()
         self.o_state = Adw.ActionRow(title=tr("Status"), subtitle=tr("checking…"))
         self.o_start = Gtk.Button(valign=Gtk.Align.CENTER, sensitive=False)
         self._o_active = False
@@ -118,7 +136,7 @@ class AIPage:
         g.add(self.ollama_models)
         self._model_rows = []
 
-        self.o_download = Adw.EntryRow(title=tr("Download a model (e.g. qwen3:4b, gemma3:4b, llama3.2:3b)"),
+        self.o_download = Adw.EntryRow(title=tr("Download a model (e.g. qwen3:1.7b, qwen3:4b-instruct, gemma3:4b)"),
                                       show_apply_button=True)
         self.o_download.connect("apply", self._o_download)
         g.add(self.o_download)
@@ -163,7 +181,7 @@ class AIPage:
                                 else tr("no model in memory")),
                         ram=_gb(d["res"]["ram_gb"])))
             else:
-                self.o_state.set_subtitle(tr("Stopped: ZETA will use an online service, if one is set up"))
+                self.o_state.set_subtitle(tr("Stopped: start it, or choose an online service above"))
             self.o_free_memory.set_sensitive(bool(d["loaded"]))
             self._o_models(d["models"])
         _in_thread(job, done)
@@ -172,7 +190,9 @@ class AIPage:
         for r in self._model_rows:
             self.ollama_models.remove(r)
         self._model_rows = []
-        in_use = self._option("ollama", "model", "") or (models[0]["name"] if models else "")
+        names = [m["name"] for m in models]
+        in_use = self._option("ollama", "model", "") or (
+            default_model("ollama") if default_model("ollama") in names or not names else names[0])
         self.ollama_models.set_subtitle(tr("{n} · in use: {model}").format(n=len(models), model=in_use)
                                     if models else tr("none: download one below"))
         for m in models:
@@ -286,7 +306,8 @@ class AIPage:
              "temperature", 0.7, 0.0, 2.0, 0.1, 1)
         spin(tr("Maximum Reply Length"), tr("in tokens (about 3/4 of a word each)"),
              "max_tokens", 220 if locale else 4096, 16, 32768, 16)
-        spin(tr("Maximum Wait Time"), tr("seconds; 0 = default (2 minutes, 5 when streaming)"),
+        spin(tr("Maximum Wait Time"), tr("seconds for the whole reply; 0 = default (5 minutes "
+                                         "on this computer, 3 online)"),
              "timeout", 0, 0, 900, 5)
         if locale:
             spin(tr("Context"), tr("conversation tokens the model remembers; 0 = the model's "
@@ -324,6 +345,7 @@ class AIPage:
                 continue
             e = Adw.ExpanderRow(title=name, subtitle="…")
             self._expanders[pid] = e
+            e.add_row(self._about_row(pid))
 
             key = Adw.PasswordEntryRow(title=tr("API Key") if pid != "custom"
                                           else tr("API Key (optional for services on this computer)"),
@@ -357,6 +379,129 @@ class AIPage:
             e.add_row(test)
             g.add(e)
             self._cloud_state(pid)
+        self.page.add(g)
+
+    @staticmethod
+    def _about_row(pid):
+        """What this service costs (where verified) and what ZETA really does
+        with it: only the capabilities the code supports are listed."""
+        notes = {
+            # checked at api-docs.deepseek.com on 17 October 2026
+            "deepseek": tr("Pay as you go: the API has no permanent free tier. The DeepSeek web "
+                           "chat is free, but ZETA can't use it. Default model: deepseek-flash "
+                           "(DeepSeek V4.1 Flash)."),
+            # checked at ai.google.dev/gemini-api/docs/pricing on 17 October 2026
+            "gemini": tr("Has a free tier with rate limits; on the free tier Google may use what "
+                         "you send to improve its products (not on the paid tier)."),
+            "perplexity": tr("Searches the web by itself and cites its sources."),
+            "custom": tr("Any OpenAI-compatible service. At a localhost address nothing leaves "
+                         "this computer."),
+        }
+        caps = capabilities(pid)
+        parts = [tr("Can run ZETA's actions (with your confirmation)") if caps["tools"] else
+                 tr("Replies appear as they are written")]
+        text = " · ".join(parts)
+        if pid in notes:
+            text = notes[pid] + "\n" + text
+        row = Adw.ActionRow(title=tr("About This Service"), subtitle=text)
+        row.set_subtitle_lines(0)
+        return row
+
+    def _o_ram_refresh(self):
+        def job():
+            from intelligence.providers.ollama import OllamaProvider
+            prov = Registry().get("ollama")
+            need = prov._model_gb() if isinstance(prov, OllamaProvider) else 0.0
+            return resources.plan(need), need
+
+        def done(r):
+            if isinstance(r, Exception):
+                self.o_ram.set_subtitle(tr("can't be determined"))
+                return
+            p, need = r
+            text = tr("{total} GB of RAM, {free} GB free; the model needs about {need} GB. "
+                      "Kept in memory {keep} after the last question.").format(
+                total="%.0f" % p["nominal_gb"], free="%.1f" % p["available_gb"],
+                need="%.1f" % (need or resources.MODEL_GB), keep=p["keep_alive"])
+            if p["advice"]:
+                text += "\n" + p["advice"]
+            elif not p["can_load"]:
+                text += "\n" + resources.memory_reason(need)
+            self.o_ram.set_subtitle(text)
+            self.o_ram.set_subtitle_lines(0)
+        _in_thread(job, done)
+
+    # --- current information from the web ----------------------------------
+    def _web_group(self):
+        s = load_settings()
+        g = Adw.PreferencesGroup(
+            title=tr("Current Information"),
+            description=tr("A model only knows the world up to its training date. For questions "
+                           "about current facts (office holders, news, prices, versions, weather, "
+                           "results) ZETA can look up public sources first, and shows them under "
+                           "the answer."))
+        on = Adw.SwitchRow(title=tr("Search the web for current information"),
+                           subtitle=tr("Only for questions about current facts. Only the question, "
+                                       "shortened, is sent to Wikipedia: never the chat, never "
+                                       "your files."))
+        on.set_active(websearch.enabled(s))
+        ddg = Adw.SwitchRow(title=tr("Also ask DuckDuckGo"),
+                            subtitle=tr("Instant answers (api.duckduckgo.com): the shortened "
+                                        "question is sent there too."))
+        ddg.set_active(bool(s.get(websearch.SETTING_DDG)))
+        ddg.set_sensitive(on.get_active())
+
+        def save(key, value):
+            st = load_settings()
+            st[key] = value
+            if key == websearch.SETTING_ENABLED and value:
+                st.pop(websearch.SETTING_DECLINED, None)
+            try:
+                save_settings(st)
+            except OSError as e:
+                self.toast(tr("Choice not saved: {error}").format(error=e))
+                return
+            self.reg.settings = st
+
+        def toggled(w, _p):
+            save(websearch.SETTING_ENABLED, w.get_active())
+            ddg.set_sensitive(w.get_active())
+        on.connect("notify::active", toggled)
+        ddg.connect("notify::active", lambda w, _p: save(websearch.SETTING_DDG, w.get_active()))
+        g.add(on)
+        g.add(ddg)
+        self.page.add(g)
+
+    # --- language of the replies --------------------------------------------
+    def _language_group(self):
+        """ZETA answers in the language the user writes or speaks in (the
+        system language when that is unclear), or always in the system
+        language chosen in Language & Region."""
+        from i18n import language
+        from intelligence.registry import REPLY_LANGUAGE, language_label
+        g = Adw.PreferencesGroup(title=tr("Language"))
+        system_name = language_label(language())
+        modes = ["auto", "system"]
+        row = Adw.ComboRow(
+            use_markup=False,          # "Language & Region": a plain ampersand
+            title=tr("Reply language"),
+            subtitle=tr("The language set in Language & Region: {language}").format(language=system_name),
+            model=Gtk.StringList.new([tr("Same as my message"),
+                                      tr("Always {language}").format(language=system_name)]))
+        current = load_settings().get(REPLY_LANGUAGE, "auto")
+        row.set_selected(modes.index(current) if current in modes else 0)
+
+        def changed(r, _p):
+            st = load_settings()
+            st[REPLY_LANGUAGE] = modes[r.get_selected()]
+            try:
+                save_settings(st)
+            except OSError as e:
+                self.toast(tr("Choice not saved: {error}").format(error=e))
+                return
+            self.reg.settings = st
+        row.connect("notify::selected", changed)
+        g.add(row)
         self.page.add(g)
 
     def _cloud_state(self, pid):

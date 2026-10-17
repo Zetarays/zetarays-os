@@ -13,26 +13,34 @@ English. Four kinds of findings are reported:
               classes, shell variables, f-string fields, CSS classes and ids,
               unit and config keys, or a dashed/underscored/file name quoted
               in a comment
-  string      a string literal used as a value (subcommand, option, state,
-              key, path) made of Italian words, or an Italian sentence
+  string      a string literal (or an unquoted shell word) containing Italian
   filename    a file or directory whose name is made of Italian words
 
-Italian is allowed only where it is deliberate localization:
+Code files (Python, shell, Lua, QML/JS, CSS, systemd units, live-build hooks,
+tools and tests) contain no Italian at all: any Italian word in their code,
+strings, docstrings or comments is a finding, and no marker exempts it. Italian
+words and phrases the system must recognize, say or show are data: they live
+in JSON files (usr/share/zeta/i18n-data/*.json in the image, data/*.json next
+to a build tool) and the code loads them.
 
-- po/*.po, the compiled translations and the Calamares .ts catalogs;
-- `Name[it]=`, `Comment[it]=`, Calamares `name[it]:`, `xml:lang="it"` and similar;
-- bilingual pages: lines with a `data-en` attribute;
-- data the system must recognize or show in Italian (voice and text command
-  patterns, Italian keyword lists): mark such a line with the comment
-  `i18n-data`, or put the block between the comments `i18n-data-begin` and
-  `i18n-data-end`;
-- Italian editions of documents: files named `*.it.md` and files with the
-  marker `i18n-data-file` in their first lines.
+Italian is allowed only in data files, where it is deliberate localization:
 
-The Italian vocabulary is tools/check-italian-words.txt (identifier parts)
-plus the function words below. Paths ignored by the repository's .gitignore
+- po/*.po, the compiled translations, JSON files and the Calamares .ts catalogs;
+- `Name[it]=`, `Comment[it]=`, Calamares `name[it]:`, `xml:lang="it"` and similar
+  in configuration, desktop and markup files;
+- bilingual pages (HTML): lines with a `data-en` attribute;
+- Italian editions of documents (`*.it.md`) and plain-text word lists or
+  documents with the marker `i18n-data-file` in their first lines;
+- in documents and configuration files (not code), a line marked with the
+  comment `i18n-data` or a block between `i18n-data-begin` and `i18n-data-end`.
+
+The Italian vocabulary (function words and other words) is the word list
+tools/check-italian-words.txt. In prose (documents, configuration comments) a
+line is reported when it reads as Italian rather than English; in code a
+single Italian word is enough. Paths ignored by the repository's .gitignore
 (local drafts, the separate website repository) are skipped unless --all is
-given. --summary prints only the number of findings per area and kind.
+given; pass a path explicitly to check it anyway. --summary prints only the
+number of findings per area and kind.
 Exit code 1 when something is found.
 """
 import fnmatch
@@ -48,18 +56,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 WORDS_FILE = os.path.join(HERE, "check-italian-words.txt")
 
-# i18n-data-begin: Italian function words used to recognize Italian prose
-STRONG = set("""
-della delle dello degli nella nelle nello negli nel nei sulla sulle sullo sugli
-sul dalla dalle dallo dagli dal alla alle allo agli che gli questo questa
-questi queste quello quella quelli quelle perche perché anche ancora sempre
-viene vengono essere senza ogni gia già cosi così però quindi invece oppure
-mentre quando niente nulla nessun nessuno nessuna tutto tutti tutte fatto
-deve devono può possono servono qui allora molto troppo altro altri altra
-altre stessa stesso sono siamo erano stata stato stati più piu cioè ovvero
-""".split())
-WEAK = set("il lo la le di da del un uno una con ed ma se tra fra non".split())
-# i18n-data-end
 ENGLISH = set("""
 the and is are of to with for not this that when from it be on in an by or if
 as at was which only has have can does do into its than then there these those
@@ -95,17 +91,28 @@ FIELD = re.compile(r"(?<!\{)\{([A-Za-z_]\w*)")
 
 
 def load_words():
-    words = set()
+    """The sections of the word list: {"strong": set, "weak": set, "words": set}."""
+    sections = {"strong": set(), "weak": set(), "words": set()}
+    current = "words"
     try:
         for line in open(WORDS_FILE, encoding="utf-8"):
-            if not line.lstrip().startswith("#"):
-                words.update(w.lower() for w in line.split())
+            s = line.strip()
+            if s.startswith("#"):
+                continue
+            if s.startswith("[") and s.endswith("]"):
+                current = s[1:-1]
+                sections.setdefault(current, set())
+                continue
+            sections[current].update(w.lower() for w in s.split())
     except OSError:
         sys.exit("check-italian: %s is missing" % WORDS_FILE)
-    return words
+    return sections
 
 
-LEXICON = load_words()
+_SECTIONS = load_words()
+STRONG = _SECTIONS["strong"]     # function words that make a line Italian
+WEAK = _SECTIONS["weak"]         # short function words, Italian only next to others
+LEXICON = _SECTIONS["words"] | STRONG
 
 
 # ------------------------------------------------------------------ scoring
@@ -141,9 +148,48 @@ def italian_parts(name):
     return [p for p in name_parts(name) if len(p) >= 4 and p in LEXICON]
 
 
-def exempt(line):
-    return ("i18n-data" in line or "xml:lang" in line or "data-en" in line
-            or re.search(r"\[(it|it_IT)\]\s*[=:]", line) is not None)
+ESCAPE = re.compile(r"\\[A-Za-z]")              # \b, \s, \n... in regexes and strings
+# a word ending with the only accented vowel it has (not a character range like
+# a-zà-ÿ), or with a grave accent inside (Italian phonetic respellings)
+ACCENTED = re.compile(r"[a-z]{2,}[àèìòù]|[a-z]+[àèìòù][a-z]+")
+
+
+def italian_words(text):
+    """Every Italian word of a code comment or string, in order.
+
+    A word is Italian when it is an Italian function word, is in the
+    vocabulary or ends with an accented vowel; the short function words count
+    only next to another Italian word. Acronyms are skipped."""
+    found, weak = [], []
+    for token in WORD.findall(ESCAPE.sub(" ", text)):
+        for w in re.sub(r"([a-zà-ÿ])([A-Z])", r"\1 \2", token).split():
+            if len(w) > 1 and w.isupper():
+                continue
+            lw = w.lower()
+            if lw in STRONG or (len(lw) >= 3 and lw in LEXICON) or ACCENTED.fullmatch(lw):
+                found.append(w)
+            elif lw in WEAK:
+                weak.append(w)
+    return found + weak if found else []
+
+
+# the markers as words: a path or command name containing them (the data folder
+# usr/share/zeta/i18n-data, /usr/libexec/zeta-i18n-data) is not a marker
+MARKER = re.compile(r"(?<![\w/.-])i18n-data(?:-(begin|end|file))?(?![\w/.-])")
+
+
+def marker(line, kind=None):
+    """The line carries the i18n-data marker (kind None) or i18n-data-<kind>."""
+    return any(m.group(1) == kind for m in MARKER.finditer(line))
+
+
+def exempt(line, code=False):
+    """Deliberate localization in data and configuration files. Code files
+    (see is_code) have no exemptions: their language data lives in JSON."""
+    if code:
+        return False
+    return bool(marker(line) or "xml:lang" in line or re.search(r"\bdata-en\s*=", line)
+                or re.search(r"\[(it|it_IT)\]\s*[=:]", line))
 
 
 # ------------------------------------------------------------------ findings
@@ -151,6 +197,7 @@ class Report:
     def __init__(self, kinds):
         self.kinds = kinds
         self.items = []
+        self.code = False          # the file being scanned is code (is_code)
 
     def add(self, kind, path, n, text):
         if self.kinds and kind not in self.kinds:
@@ -158,8 +205,22 @@ class Report:
         self.items.append((path, n, kind, text.strip()[:120]))
 
 
+def word_finding(rep, kind, path, n, text):
+    """Code files: any Italian word is a finding."""
+    words = italian_words(text)
+    if words:
+        rep.add(kind, path, n, "%s: %s" % (", ".join(dict.fromkeys(words)), text.strip()))
+    return bool(words)
+
+
 def comment_text(rep, path, n, text):
     """A comment line: Italian prose, or Italian names quoted in English prose."""
+    if rep.code:
+        if not word_finding(rep, "prose", path, n, text):
+            bad = [t for t in ID_IN_TEXT.findall(text) if italian_parts(t)]
+            if bad:
+                rep.add("identifier", path, n, "in comment: " + ", ".join(sorted(set(bad))))
+        return
     if exempt(text) or len(text.strip()) < 6:
         return
     if is_prose(text):
@@ -172,6 +233,9 @@ def comment_text(rep, path, n, text):
 
 def string_value(rep, path, n, s):
     t = s.strip()
+    if rep.code:
+        word_finding(rep, "string", path, n, t)
+        return
     if not t or exempt(t):
         return
     tokens = t.split()
@@ -188,21 +252,24 @@ def names(rep, path, n, found):
     bad = sorted({x for x in found if italian_parts(x) and not keyword.iskeyword(x)})
     if bad:
         rep.add("identifier", path, n, ", ".join(bad))
+    return bool(bad)
 
 
 # ------------------------------------------------------------------ line state
 class Lines:
-    """Line numbers excluded by i18n-data markers."""
+    """Line numbers excluded by i18n-data markers (never in code files)."""
 
-    def __init__(self, lines):
+    def __init__(self, lines, code=False):
         self.skip = set()
+        if code:
+            return
         inside = False
         for n, line in enumerate(lines, 1):
-            if "i18n-data-begin" in line:
+            if marker(line, "begin"):
                 inside = True
             if inside or exempt(line):
                 self.skip.add(n)
-            if "i18n-data-end" in line:
+            if marker(line, "end"):
                 inside = False
 
 
@@ -229,7 +296,10 @@ def scan_python(rep, path, text, lines, state):
                 and nxt in (tokenize.NEWLINE, tokenize.ENDMARKER)
             body = re.sub(r"^[A-Za-z]*('''|\"\"\"|'|\")|('''|\"\"\"|'|\")$", "", value) \
                 if kind == tokenize.STRING else value
-            if standalone:                                  # docstring
+            if standalone and rep.code:                     # docstring
+                for k, line in enumerate(body.splitlines()):
+                    word_finding(rep, "prose", path, row + k, line)
+            elif standalone:
                 for k, line in enumerate(body.splitlines()):
                     if row + k not in state.skip and len(line.strip()) >= 6 and is_prose(line):
                         rep.add("prose", path, row + k, line)
@@ -239,7 +309,9 @@ def scan_python(rep, path, text, lines, state):
                     names(rep, path, row, FIELD.findall(body))
             else:
                 for k, line in enumerate(body.splitlines()):
-                    if row + k not in state.skip and len(line.strip()) >= 15 and is_prose(line, 3):
+                    if rep.code:
+                        word_finding(rep, "string", path, row + k, line)
+                    elif row + k not in state.skip and len(line.strip()) >= 15 and is_prose(line, 3):
                         rep.add("string", path, row + k, line)
         if kind not in (tokenize.NL, tokenize.COMMENT):
             prev = tok
@@ -284,7 +356,8 @@ def code_line(rep, path, n, code, shell):
     if not shell:
         rest = re.sub(r"(?<=\w)-(?=\w)", " - ", rest)        # a-b is a subtraction
     found += NAMEISH.findall(rest)
-    names(rep, path, n, [f.lstrip("$") for f in found])
+    if not names(rep, path, n, [f.lstrip("$") for f in found]) and shell and rep.code:
+        word_finding(rep, "string", path, n, rest)       # unquoted shell words
 
 
 def scan_generic(rep, path, lines, state, marker, block=None):
@@ -369,6 +442,23 @@ def language(path, head):
     return None
 
 
+SHELL_EXT = (".sh", ".bash", ".service", ".timer", ".socket", ".target", ".path", ".mount",
+             ".hook", ".hook.chroot", ".hook.binary")
+
+
+def is_code(path, lang, head):
+    """Code (Python, shell, Lua, QML/JS, CSS, systemd units, live-build hooks,
+    tools): no Italian at all, not even marked. Everything else (documents,
+    configuration, markup, word lists) may hold deliberate localization."""
+    if lang in ("python", "lua", "slash"):
+        return not path.endswith(".jsonc")
+    if lang != "hash":
+        return False
+    base = os.path.basename(path)
+    return (base.endswith(SHELL_EXT) or head.startswith("#!")
+            or os.sep + "hooks" + os.sep in path)
+
+
 def scan_file(rep, path):
     try:
         if os.path.getsize(path) > 3_000_000:
@@ -377,10 +467,12 @@ def scan_file(rep, path):
     except (UnicodeDecodeError, OSError):
         return
     lines = text.splitlines()
-    if path.endswith(".it.md") or any("i18n-data-file" in x for x in lines[:5]):
+    head = lines[0] if lines else ""
+    lang = language(path, head)
+    rep.code = is_code(path, lang, head)
+    if not rep.code and (path.endswith(".it.md") or any(marker(x, "file") for x in lines[:5])):
         return
-    state = Lines(lines)
-    lang = language(path, lines[0] if lines else "")
+    state = Lines(lines, rep.code)
     if lang == "python":
         scan_python(rep, path, text, lines, state)
     elif lang == "prose":

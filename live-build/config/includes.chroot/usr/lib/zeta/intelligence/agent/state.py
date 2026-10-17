@@ -18,6 +18,7 @@ import time
 import unicodedata
 
 from i18n import tr, language
+from i18n_data import load
 
 HOME = os.path.expanduser("~")
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
@@ -182,50 +183,12 @@ DESKTOP_ENTRY_DIRS = [os.path.join(HOME, ".local/share/applications"),
                 os.path.join(HOME, ".local/share/flatpak/exports/share/applications"),
                 "/var/lib/flatpak/exports/share/applications"]
 
+# Italian and English names the user may say, language data in
+# i18n-data/state.json
+_W = load("state")
+
 # common ways of naming apps (after norm): -> .desktop id, without .desktop
-# i18n-data-begin: Italian and English app names the user may say
-SYNONYMS = {
-    "browser": "firefox-esr", "internet": "firefox-esr", "navigatore": "firefox-esr",
-    "web": "firefox-esr", "firefox": "firefox-esr",
-    "posta": "thunderbird", "email": "thunderbird", "e-mail": "thunderbird", "mail": "thunderbird",
-    "posta elettronica": "thunderbird", "thunderbird": "thunderbird",
-    "terminale": "foot", "console": "foot", "shell": "foot", "prompt dei comandi": "foot",
-    "file": "thunar", "gestore file": "thunar", "gestore dei file": "thunar", "esplora file": "thunar",
-    "esplora risorse": "thunar", "cartelle": "thunar", "thunar": "thunar",
-    "editor": "org.gnome.TextEditor", "editor di testo": "org.gnome.TextEditor",
-    "blocco note": "org.gnome.TextEditor", "note": "org.gnome.TextEditor",
-    "calcolatrice": "org.gnome.Calculator", "calcolatore": "org.gnome.Calculator",
-    "impostazioni": "zeta-settings", "preferenze": "zeta-settings", "settings": "zeta-settings",
-    "pannello di controllo": "zeta-settings",
-    "monitor": "zeta-monitor", "monitor di sistema": "zeta-monitor", "gestione attivita": "zeta-monitor",
-    "task manager": "zeta-monitor", "gestione processi": "zeta-monitor",
-    "sicurezza": "zeta-security", "security": "zeta-security",
-    "zeta share": "zeta-share", "share": "zeta-share", "localsend": "zeta-share", "condivisione": "zeta-share",
-    "pacchetti": "synaptic", "gestore pacchetti": "synaptic", "synaptic": "synaptic",
-    "visualizzatore immagini": "org.gnome.eog", "foto": "org.gnome.eog", "immagini": "org.gnome.eog",
-    "pdf": "org.gnome.Evince", "lettore pdf": "org.gnome.Evince", "documenti pdf": "org.gnome.Evince",
-    "video": "mpv", "lettore video": "mpv", "musica": "mpv", "lettore multimediale": "mpv",
-    "archivi": "org.gnome.FileRoller", "gestore archivi": "org.gnome.FileRoller",
-    "zeta": "zeta-core", "zeta core": "zeta-core", "assistente": "zeta-core",
-    "testo da immagine": "zeta-text-capture", "ocr": "zeta-text-capture", "stampanti avanzate": "system-config-printer",
-    "cerca": "zeta-search", "ricerca": "zeta-search",
-    # in English
-    "web browser": "firefox-esr", "email client": "thunderbird", "mail client": "thunderbird",
-    "terminal": "foot", "command prompt": "foot", "command line": "foot",
-    "files": "thunar", "file manager": "thunar", "file explorer": "thunar", "explorer": "thunar",
-    "folders": "thunar", "text editor": "org.gnome.TextEditor", "notepad": "org.gnome.TextEditor",
-    "notes": "org.gnome.TextEditor", "calculator": "org.gnome.Calculator",
-    "system monitor": "zeta-monitor", "activity monitor": "zeta-monitor", "process manager": "zeta-monitor",
-    "control panel": "zeta-settings", "preferences": "zeta-settings",
-    "sharing": "zeta-share", "packages": "synaptic", "package manager": "synaptic",
-    "image viewer": "org.gnome.eog", "photos": "org.gnome.eog", "pictures": "org.gnome.eog",
-    "images": "org.gnome.eog", "pdf viewer": "org.gnome.Evince", "pdf reader": "org.gnome.Evince",
-    "video player": "mpv", "media player": "mpv", "music": "mpv", "music player": "mpv",
-    "archives": "org.gnome.FileRoller", "archive manager": "org.gnome.FileRoller",
-    "assistant": "zeta-core", "text from image": "zeta-text-capture", "advanced printers": "system-config-printer",
-    "printer settings": "system-config-printer", "search": "zeta-search",
-}
-# i18n-data-end
+SYNONYMS = _W["synonyms"]
 
 _PLACEHOLDER = re.compile(r"%[a-zA-Z]")
 
@@ -308,26 +271,8 @@ def installed_apps(reload=False) -> list[App]:
 
 
 # generic words that name a role, not an app: they map to the app chosen in
-# Settings › Default Apps («apri il browser» opens the chosen one)
-# i18n-data-begin: Italian and English role names the user may say
-ROLES = {
-    "browser": "browser", "internet": "browser", "navigatore": "browser", "web": "browser",
-    "posta": "mail", "email": "mail", "e-mail": "mail", "mail": "mail", "posta elettronica": "mail",
-    "terminale": "terminal", "console": "terminal", "shell": "terminal", "prompt dei comandi": "terminal",
-    "file": "file", "gestore file": "file", "gestore dei file": "file", "esplora file": "file",
-    "esplora risorse": "file",
-    "editor": "editor", "editor di testo": "editor", "blocco note": "editor",
-    "lettore video": "video", "lettore multimediale": "video",
-    "visualizzatore immagini": "images", "lettore pdf": "pdf",
-    # in English
-    "web browser": "browser", "email client": "mail", "mail client": "mail",
-    "terminal": "terminal", "command prompt": "terminal", "command line": "terminal",
-    "file manager": "file", "file explorer": "file", "files": "file",
-    "text editor": "editor", "notepad": "editor",
-    "video player": "video", "media player": "video", "music player": "video",
-    "image viewer": "images", "photo viewer": "images", "pdf viewer": "pdf", "pdf reader": "pdf",
-}
-# i18n-data-end
+# Settings › Default Apps («open the browser» opens the chosen one)
+ROLES = _W["roles"]
 
 
 def _default_app(role: str) -> str | None:
@@ -345,11 +290,10 @@ def _default_app(role: str) -> str | None:
 def find_app(text: str, roles: bool = True) -> App | None:
     """The app being talked about: synonyms, exact name, then words of the name."""
     t = norm(text)
-    # i18n-data-begin: Italian and English articles and words for "app"
-    t = re.sub(r"^(?:(?:il|lo|la|i|gli|le|un|una|uno|the|a|an|my)\s+|l'\s*)", "", t)
-    t = re.sub(r"\s+(app|applicazione|programma|application|program)$", "", t)
-    t = re.sub(r"^(app|applicazione|programma|application|program)\s+", "", t)
-    # i18n-data-end
+    # articles and the words for "app", in both languages
+    t = re.sub(_W["leading_articles"], "", t)
+    t = re.sub(_W["trailing_app_word"], "", t)
+    t = re.sub(_W["leading_app_word"], "", t)
     if not t:
         return None
     all_apps = installed_apps()
@@ -362,7 +306,7 @@ def find_app(text: str, roles: bool = True) -> App | None:
         return by_id[SYNONYMS[t]]
     visible = [a for a in all_apps if not a.is_hidden]
     # for the same executable the real app wins, not its settings window
-    # («mousepad» -> Mousepad, not «Impostazioni di Mousepad»)
+    # («mousepad» -> Mousepad, not its «Mousepad Settings» entry)
     visible.sort(key=lambda a: ("settings" in a.id.lower() or "preferen" in a.id.lower()))
     for a in visible:
         if t == norm(a.name) or t in (norm(a.id), norm(a.id.rsplit(".", 1)[-1])):
@@ -373,18 +317,15 @@ def find_app(text: str, roles: bool = True) -> App | None:
     for a in visible:
         if t in a.names:
             return a
-    # whole word inside a name («text editor» -> «Editor di testo» no; «firefox esr» yes)
+    # whole word inside a name (only whole words: «firefox esr» yes, a translated
+    # name with the words in another order no)
     for a in visible:
         if any(re.search(r"\b%s\b" % re.escape(t), n) for n in a.names if len(t) > 3):
             return a
-    # a description: «quel programma per le email», «qualcosa per la musica»
-    # i18n-data-begin: Italian and English description patterns
-    m = re.match(r"^(?:quel|quello|qualcosa|qualche|un|una|il|la|l')?\s*"
-                 r"(?:programma|app|applicazione|cosa|coso|roba)?\s*"
-                 r"(?:per|della|delle|dei|del|di|da)\s+(?:(?:il|lo|la|l'|i|gli|le|un|una)\s*)?(.+)$", t) or \
+    # a description: «that program for email», «something for music»
+    m = re.match(_W["description"], t) or \
         re.match(r"^(?:(?:that|some|something|an|a)\s+)?(?:(?:program|app|application|thing)\s+)?"
                  r"(?:for|to)\s+(?:(?:the|my|a|an)\s+)?(.+)$", t)
-    # i18n-data-end
     if m and m.group(1) != t:
         return find_app(m.group(1), roles)
     return None

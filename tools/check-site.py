@@ -9,8 +9,9 @@ Checks:
 - every element with Italian text has a non-empty English version
   (data-en), and so do accessibility labels and image descriptions that
   have an English attribute (data-en-aria, data-en-alt);
-- terminology (docs/GLOSSARY.md): no "clic"/"clicca" in the Italian text, no
-  "Donate"/"Dona" anywhere: the project uses "Support";
+- terminology (docs/GLOSSARY.md): "click" also in the Italian text (no
+  Italian form of the word), no "Donate" (nor its Italian forms) anywhere:
+  the project uses "Support" (the patterns are in data/check-site.json);
 - the support link points to the PayPal pool and every in-page link (#id)
   has a target;
 - the downloads table lists four images with 64-character SHA-256 codes.
@@ -18,6 +19,8 @@ Checks:
 Exit code 1 when a check fails.
 """
 import html
+import json
+import os
 import re
 import sys
 from html.parser import HTMLParser
@@ -25,6 +28,9 @@ from html.parser import HTMLParser
 VOID = {"meta", "link", "img", "br", "hr", "input", "source", "area", "col", "base", "wbr",
         "path", "circle", "rect", "polyline", "line", "polygon", "stop", "use", "ellipse"}
 PAYPAL = "https://www.paypal.com/pool/9sSHdLylmE"
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "check-site.json"),
+          encoding="utf-8") as _f:
+    TERMS = json.load(_f)
 
 
 class Nesting(HTMLParser):
@@ -74,9 +80,9 @@ def main(argv):
 
     visible_it = re.sub(r'data-en(-[a-z]+)?="[^"]*"', "", body)
     visible_it = re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", visible_it, flags=re.S)
-    for word in re.findall(r"\b(clic|clicca\w*|clicchi|cliccando)\b", visible_it, re.I):  # i18n-data
+    for word in re.findall(TERMS["italian_click"], visible_it, re.I):
         problems.append('terminology: "%s" (write "click", see docs/GLOSSARY.md)' % word)
-    for word in re.findall(r"\b(Donate|Dona ora|Dona con|Donazion\w*)\b", body):  # i18n-data
+    for word in re.findall(TERMS["donate"], body):
         problems.append('terminology: "%s" (the project uses "Support")' % word)
 
     if not any(h.startswith(PAYPAL) for h in p.links):

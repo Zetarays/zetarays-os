@@ -17,6 +17,8 @@ gettext reads LANGUAGE, LC_ALL, LC_MESSAGES and LANG, like every other
 program of the system, so ZETA follows the language chosen in Settings or in
 the installer.
 """
+import contextlib
+import contextvars
 import gettext
 import os
 
@@ -25,19 +27,53 @@ LOCALEDIR = "/usr/share/locale"
 
 _catalog = gettext.translation(DOMAIN, LOCALEDIR, fallback=True)
 
+# ZETA answers a question in the language it was asked in, even when that is
+# not the system language: inside `speaking(lang)` the texts of this thread
+# (and of its asyncio tasks) use that language's catalog.
+_override = contextvars.ContextVar("zeta_speaking", default=None)
+_catalogs = {}
+
+
+def _current():
+    lang = _override.get()
+    if lang is None:
+        return _catalog
+    if lang not in _catalogs:
+        _catalogs[lang] = (gettext.NullTranslations() if lang == "en" else
+                           gettext.translation(DOMAIN, LOCALEDIR, languages=[lang], fallback=True))
+    return _catalogs[lang]
+
+
+@contextlib.contextmanager
+def speaking(lang):
+    """Translate into `lang` ("it", "en"...) inside the block; None = the
+    system language."""
+    token = _override.set(lang)
+    try:
+        yield
+    finally:
+        _override.reset(token)
+
+
+def speaking_language():
+    """The language set by the enclosing `speaking()` (None = system): a
+    worker thread passes it on to the code that builds its texts in the
+    interface thread."""
+    return _override.get()
+
 
 def tr(text):
-    return _catalog.gettext(text)
+    return _current().gettext(text)
 
 
 def ntr(singular, plural, n):
-    return _catalog.ngettext(singular, plural, n)
+    return _current().ngettext(singular, plural, n)
 
 
 def trc(context, text):
     """tr() for a word whose translation depends on what it describes
     ("Open" a file vs an "Open" Wi-Fi network)."""
-    return _catalog.pgettext(context, text)
+    return _current().pgettext(context, text)
 
 
 def language():

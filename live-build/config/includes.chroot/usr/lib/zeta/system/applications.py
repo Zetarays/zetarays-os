@@ -42,6 +42,7 @@ gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
 from i18n import tr  # noqa: E402
+from i18n_data import load  # noqa: E402
 
 try:
     from ui.app_names import NAMES
@@ -56,6 +57,9 @@ USER_APPS = os.path.join(HOME, ".local", "share", "applications")
 APPIMAGE_PREFIX = "zeta-appimage-"
 GENERIC_ICON = "/usr/share/icons/zeta/scalable/apps/zeta-app.svg"
 
+# Italian names of the user folders of earlier installs
+_FOLDERS = load("applications")
+
 FLATPAK_EXPORTS = ["/var/lib/flatpak/exports/share",
                    os.path.join(HOME, ".local", "share", "flatpak", "exports", "share")]
 
@@ -66,15 +70,15 @@ def _appimage_folders():
     puts them, where people "install" them, /opt for the whole system).
     Downloads and Desktop are the XDG ones (their name changes with the
     language); ~/Applications is the standard AppImage folder. The Italian
-    folders of earlier installs are kept too, if they exist."""
+    folders of earlier installs are kept too, if they exist (their names are
+    language data: i18n-data/applications.json)."""
     folders = [os.path.join(HOME, "Applications")]
     for which in (GLib.UserDirectory.DIRECTORY_DOWNLOAD, GLib.UserDirectory.DIRECTORY_DESKTOP):
         d = GLib.get_user_special_dir(which)
         if d and os.path.normpath(d) != os.path.normpath(HOME):
             folders.append(d)
-    # Italian folder names of earlier installs  # i18n-data
-    folders += [os.path.join(HOME, n) for n in ("Downloads", "Desktop", "Applicazioni",  # i18n-data
-                                                 "Scaricati", "Scrivania")]  # i18n-data
+    folders += [os.path.join(HOME, n) for n in ("Downloads", "Desktop",
+                                                 *_FOLDERS["appimage_folders"])]
     folders += [os.path.join(HOME, ".local", "bin"), "/opt"]
     seen, out = set(), []
     for d in folders:
@@ -342,6 +346,14 @@ _CACHE = {"signature": None, "app": []}
 
 def _invalidate():
     _CACHE["signature"] = None
+    # "Open With" (file manager and Desktop) finds the apps of
+    # ~/.local/share/applications (AppImages, programs in /opt) only through
+    # its mimeinfo.cache: rebuilt here when an entry is newer than it
+    try:
+        from system import open_with
+        open_with.refresh_mime_cache(USER_APPS)
+    except (ImportError, OSError):
+        pass
 
 
 def _desktop_entries():
@@ -785,7 +797,7 @@ def desktop_folder():
     d = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DESKTOP)
     if d:
         return d
-    old = os.path.join(HOME, "Scrivania")       # earlier installs  # i18n-data
+    old = os.path.join(HOME, _FOLDERS["desktop_folder"])       # earlier installs
     return old if os.path.isdir(old) else os.path.join(HOME, "Desktop")
 
 
@@ -920,6 +932,10 @@ def _write_kf(kf, dest):
     tmp = dest + ".tmp"
     with open(tmp, "w") as f:
         f.write(kf.to_data()[0])
+    # keep the permissions: a Desktop shortcut rewritten here lost its
+    # executable bit, and the Desktop then asked whether to trust it
+    if os.path.exists(dest):
+        shutil.copymode(dest, tmp)
     os.replace(tmp, dest)
 
 
@@ -1664,7 +1680,7 @@ def _origin_candidates(prog):
         d = GLib.get_user_special_dir(which)
         if d:
             base_dirs.append(d)
-    base_dirs += [os.path.join(HOME, n) for n in ("Downloads", "Scaricati")]  # i18n-data
+    base_dirs += [os.path.join(HOME, n) for n in ("Downloads", *_FOLDERS["download_folders"])]
     seen = set()
     for b in base_dirs:
         b = os.path.normpath(b)

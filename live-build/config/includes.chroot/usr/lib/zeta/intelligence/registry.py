@@ -23,10 +23,13 @@ The old plain-text file (keys.json) is converted and then deleted.
 Only if systemd-creds were missing does it fall back to that file, readable
 by the user only.
 
-Order in which the default provider is chosen:
-  1. the provider chosen by the user
-  2. Ollama, if it is running with a local model (offline-first)
-  3. the first cloud provider with a configured key
+Which provider answers:
+  1. the provider chosen by the user (Settings › AI or zeta --provider),
+     even when it is not ready: ZETA then says what is wrong;
+  2. otherwise («Automatic») Ollama, the local model, always.
+A question is never sent to an online service the user did not choose: not
+when the local model is stopped, short of memory or failing. ZETA can only
+offer it in the chat, and the user's click is the choice for that question.
 """
 from __future__ import annotations
 
@@ -74,16 +77,53 @@ _LANGUAGE_NAMES = {"it": "Italian", "en": "English", "de": "German", "fr": "Fren
                 "es": "Spanish", "pt": "Portuguese", "nl": "Dutch", "pl": "Polish"}
 
 
+# Settings › AI › "Reply language": "auto" (the language the user writes in,
+# the system language when unclear) or "system" (always the language chosen in
+# Language & Region, whatever language the user writes in).
+REPLY_LANGUAGE = "reply_language"
+LANGUAGES_FILE = "/usr/share/zeta/languages.json"
+
+
+def language_name(code: str) -> str:
+    """English name of a system language ("de" -> "German"), from the list of
+    the 35 languages offered in Language & Region."""
+    if code in _LANGUAGE_NAMES:
+        return _LANGUAGE_NAMES[code]
+    try:
+        with open(LANGUAGES_FILE, encoding="utf-8") as f:
+            for entry in json.load(f):
+                if entry.get("locale", "").split("_")[0] == code:
+                    return entry.get("name", code).split(" (")[0]
+    except (OSError, ValueError):
+        pass
+    return code
+
+
+def language_label(code: str) -> str:
+    """Name of a system language as shown in Language & Region (its own
+    name, e.g. "Deutsch", "Italiano")."""
+    try:
+        with open(LANGUAGES_FILE, encoding="utf-8") as f:
+            for entry in json.load(f):
+                if entry.get("locale", "").split("_")[0] == code:
+                    return entry.get("name", code)
+    except (OSError, ValueError):
+        pass
+    return language_name(code)
+
+
 def _default_prompt() -> str:
     lang = language()
-    name = _LANGUAGE_NAMES.get(lang, lang)
+    name = language_name(lang)
     return (
-        "You are ZETA, the assistant of ZETA RAYS OS. Always reply in the language the user "
-        "writes in (if unclear, use %s), briefly, clearly and kindly. Be glad to help: write "
-        "texts and poems, explain, answer questions, give advice. Refuse only requests that are "
-        "clearly illegal or harm other people; security work on your own or authorized systems "
-        "is legitimate. Never say you performed an action on the computer: the system performs "
-        "actions and reports the real outcome. The operating system is called ZETA RAYS OS."
+        "You are ZETA, the assistant of ZETA RAYS OS, private by design. Always reply in the "
+        "language the user writes in (if unclear, use %s), briefly, clearly and kindly: no "
+        "filler, no repeating the question. Be glad to help: write texts and poems, explain, "
+        "answer questions, give advice. When you are not sure, say so instead of guessing. "
+        "Refuse only requests that are clearly illegal or harm other people; security work on "
+        "your own or authorized systems is legitimate. Never say you performed an action on the "
+        "computer: the system performs actions and reports the real outcome. The operating "
+        "system is called ZETA RAYS OS."
         % name
     )
 
@@ -376,23 +416,28 @@ class Registry:
             return False, tr("Unexpected error: {error}").format(error=e)
 
     def resolve_default(self) -> Provider:
-        """Chooses the provider to use (see the order at the top of the file)."""
+        """Chooses the provider to use (see the order at the top of the file).
+
+        A provider the user chose is used even when it is not ready: ZETA then
+        says what is wrong. Switching silently to another one would send the
+        questions somewhere the user did not choose (a cloud service instead
+        of the local model) or hide the problem. «Automatic» means the local
+        model, never an online service (security audit, 2.1): when Ollama is
+        stopped or short of memory ZETA explains it and can offer, in the
+        chat, a service that has a key (see cloud_offer).
+        """
         chosen = self.settings.get("default")
         if chosen and chosen in CATALOG:
-            prov = self.get(chosen)
-            if prov.available():
-                return prov
-        # offline-first: try Ollama
-        ollama = self.get("ollama")
-        if ollama.available():
-            return ollama
-        # first cloud provider with a key
+            return self.get(chosen)
+        return self.get("ollama")
+
+    def cloud_offer(self) -> str:
+        """An online service with a key that ZETA may OFFER (never use by
+        itself) when the local model can't answer; "" if there is none."""
         for pid, (_cls, _label, kind) in CATALOG.items():
-            if kind == "cloud":
-                prov = self.get(pid)
-                if prov.available():
-                    return prov
-        return ollama  # even if not ready: ZETA will show how to set it up
+            if kind == "cloud" and pid != "custom" and self.get(pid).available():
+                return pid
+        return ""
 
     def status(self) -> list[dict]:
         """Status of every provider, for Settings and diagnostics."""
@@ -411,9 +456,27 @@ class Registry:
 
 def default_model(provider_id: str) -> str:
     """The model used when the user does not choose one."""
-    from .providers import claude, gemini, openai_compat
+    from .providers import claude, gemini, ollama, openai_compat
     if provider_id == "claude":
         return claude.DEFAULT_MODEL
     if provider_id == "gemini":
         return gemini.DEFAULT_MODEL
+    if provider_id == "ollama":
+        return ollama.DEFAULT_MODEL
     return openai_compat.PRESETS.get(provider_id, ("", "", ""))[2]
+
+
+def capabilities(provider_id: str) -> dict:
+    """What ZETA's code really does with each provider (not what the service
+    could do in general): ZETA's actions (tool calling), streamed replies
+    (only without actions: the first round of a request with actions must
+    arrive whole), its own web search. Images are not sent to any provider."""
+    from .providers.openai_compat import WITHOUT_TOOLS
+    cls = CATALOG[provider_id][0]
+    if provider_id in ("ollama", "gemini"):
+        tools = False
+    elif cls is OpenAICompatProvider:
+        tools = provider_id not in WITHOUT_TOOLS
+    else:
+        tools = bool(getattr(cls, "uses_tools", True))
+    return {"streaming": not tools, "tools": tools, "web": provider_id == "perplexity"}

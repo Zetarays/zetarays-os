@@ -72,12 +72,14 @@ xdg-user-dirs-update 2>/dev/null
 # name of a submenu: the "Folder Color" submenu is named here in the user's
 # language.
 UCA="$HOME/.config/Thunar/uca.xml"
+# The Italian name is language data (i18n-data/zeta-session.json).
 if [ -f "$UCA" ]; then
-    # i18n-data-begin: the Italian submenu name
-    case "${LANG:-}" in it*) SUB="Colore della cartella" ;; *) SUB="Folder Color" ;; esac
-    grep -q "<submenu>$SUB</submenu>" "$UCA" || \
-        sed -i -E "s#<submenu>(Folder Color|Colore della cartella)</submenu>#<submenu>$SUB</submenu>#" "$UCA"
-    # i18n-data-end
+    SUB_IT=$(/usr/libexec/zeta-i18n-data zeta-session folder_color_submenu 2>/dev/null)
+    if [ -n "$SUB_IT" ]; then
+        case "${LANG:-}" in it*) SUB="$SUB_IT" ;; *) SUB="Folder Color" ;; esac
+        grep -q "<submenu>$SUB</submenu>" "$UCA" || \
+            sed -i -E "s#<submenu>(Folder Color|$SUB_IT)</submenu>#<submenu>$SUB</submenu>#" "$UCA"
+    fi
 fi
 # Folder for AppImages: those placed here (or in Downloads, or in /opt) join
 # the menu by themselves (zeta-appimage.path). At first login the ones already

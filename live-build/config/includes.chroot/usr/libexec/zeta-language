@@ -34,7 +34,9 @@ from i18n import tr  # noqa: E402
 C = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
 LOCALE_RE = re.compile(r"^[a-z]{2,3}(_[A-Z]{2})?(\.UTF-8)?(@[a-z]+)?$")
 LAYOUT_RE = re.compile(r"^[a-z]{2,10}(,[a-z]{2,10}){0,3}$")
-VARIANT_RE = re.compile(r"^[a-z0-9_-]{0,30}(,[a-z0-9_-]{0,30}){0,3}$")
+# \Z, not $: "$" also matches before a final newline, which would end up
+# inside /etc/default/keyboard
+VARIANT_RE = re.compile(r"^[a-z0-9_-]{0,30}(,[a-z0-9_-]{0,30}){0,3}\Z")
 XKB_SYMBOLS = "/usr/share/X11/xkb/symbols"
 
 

@@ -63,39 +63,17 @@ def short_datetime(ts):
                                             time=time.strftime("%H:%M", t))
 
 
-def classify_service(props):
-    """State of one service from `systemctl show` properties (see services())."""
-    active = props.get("ActiveState", "")
-    sub = props.get("SubState", "")
-    if active == "failed" or sub == "failed":
-        # a job started by a timer that failed is a warning, not a broken system
-        return "WARNING" if ".timer" in props.get("TriggeredBy", "") else "FAILED"
-    if sub == "running":
-        return "RUNNING"
-    if active == "active":
-        return "DONE"
-    evaluated = props.get("ConditionTimestampMonotonic", "0") not in ("", "0")
-    if evaluated and props.get("ConditionResult") == "no":
-        return "NOT_APPLICABLE"
-    return "STOPPED"
+# The state of services is decided in one place (unitstate.py), shared with
+# zeta-health, "zeta system", zeta-selftest and zeta-diagnostics.
+from monitor.unitstate import classify_service, failed_verdicts  # noqa: E402,F401
 
 
 def failed_services():
-    """(failed, warnings): names of failed services, split like services()."""
-    out = _run(["systemctl", "show", "--state=failed", "--type=service", "--no-pager",
-                "-p", "Id,ActiveState,SubState,TriggeredBy", "*"])
-    failed, warnings = [], []
-    for block in out.split("\n\n"):
-        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
-        unit = props.get("Id", "")
-        if not unit.endswith(".service"):
-            continue
-        state = classify_service(props)
-        if state == "FAILED":
-            failed.append(unit[:-8])
-        elif state == "WARNING":
-            warnings.append(unit[:-8])
-    return failed, warnings
+    """(errors, warnings): names of the failed services that are a confirmed
+    problem, and of those that only need attention (see unitstate.assess)."""
+    verdicts = failed_verdicts()
+    return ([v["unit"][:-8] for v in verdicts if v["level"] == "error"],
+            [v["unit"][:-8] for v in verdicts if v["level"] == "warning"])
 
 
 class Collectors:
@@ -642,11 +620,10 @@ class Collectors:
             sev = "ALERT" if status == "FAILED" else ("NOTICE" if svc == "SUDO" else "INFO")
             events.append((t, "%s %s %s" % (svc, ev, status),
                            tr("{user} from {ip}").format(user=user, ip=ip) if ip and ip != "—" else user, sev))
-        failed = _run(["systemctl", "--failed", "--no-legend", "--plain", "--no-pager"])
-        for line in failed.splitlines():
-            unit = line.split(None, 1)[0] if line.strip() else ""
-            if unit:
-                events.append((time.strftime("%H:%M:%S"), tr("FAILED SERVICE"), unit, "WARNING"))
+        for v in failed_verdicts():
+            if v["level"] in ("error", "warning"):
+                events.append((time.strftime("%H:%M:%S"), v["title"], v["unit"],
+                               "ALERT" if v["level"] == "error" else "WARNING"))
         return events
 
 

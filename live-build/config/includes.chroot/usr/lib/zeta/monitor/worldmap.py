@@ -16,6 +16,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import language  # noqa: E402
+from i18n_data import load  # noqa: E402
 
 DATA = "/usr/share/zeta/monitor/world.json"
 ISO_CODES = "/usr/share/iso-codes/json/iso_3166-1.json"
@@ -52,7 +53,7 @@ def _load():
         return []
     if language() != "it":
         english = _english_names()
-        extra = {"Cipro del Nord": "Northern Cyprus"}      # no ISO code in world.json (i18n-data)
+        extra = load("worldmap")["english_names"]      # no ISO code in world.json
         for c in countries:
             c["name"] = english.get(c.get("iso")) or extra.get(c.get("name"), c.get("name"))
     return countries

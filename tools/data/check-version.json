@@ -1,0 +1,16 @@
+{
+ "_comment": "tools/check-version.py: Italian names and texts it must know (file names, legal text lines, the web pages' word for version as a regex fragment).",
+ "skip_files": [
+  "ZETA-RAYS-sito.zip"
+ ],
+ "allowed": [
+  [
+   "live-build/config/includes.chroot/usr/share/zeta/legal/PRIVACY.it.md",
+   "con ZETA RAYS OS 2.0.",
+   "legal text: the version in which the policy last changed"
+  ]
+ ],
+ "page_patterns": [
+  "\\bversione? "
+ ]
+}

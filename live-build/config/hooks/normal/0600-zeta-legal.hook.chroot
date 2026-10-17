@@ -10,13 +10,20 @@ set +e
 
 python3 - <<'PYEND'
 import collections
+import json
 import os
 import re
+import shutil
 import time
 
 DEST = "/usr/share/zeta/legal"
 os.makedirs(DEST, exist_ok=True)
-TODAY = time.strftime("%d/%m/%Y")
+# Release version: from /etc/os-release, written by hook 0100 from VERSION
+VERSION = ""
+with open("/etc/os-release", encoding="utf-8") as f:
+    for line in f:
+        if line.startswith("VERSION_ID="):
+            VERSION = line.split("=", 1)[1].strip().strip('"')
 
 # --- packages actually installed ---
 status = open("/var/lib/dpkg/status", encoding="utf-8", errors="replace").read()
@@ -64,25 +71,25 @@ with open("%s/COMPONENTS.csv" % DEST, "w") as f:
                                    packages[name]["description"].replace(";", ",")))
 
 # --- families: count PACKAGES, not "License:" lines ---
-# (key, English name, Italian name, full text)
-# i18n-data-begin: the Italian names are the localized edition's data
-FAMILIES = [("GPL", "GNU General Public License", "GNU General Public License", "/usr/share/common-licenses/GPL-3"),
-            ("LGPL", "GNU Lesser General Public License", "GNU Lesser General Public License", "/usr/share/common-licenses/LGPL-3"),
-            ("Apache", "Apache License 2.0", "Apache License 2.0", "/usr/share/common-licenses/Apache-2.0"),
-            ("BSD", "BSD License", "Licenza BSD", "/usr/share/common-licenses/BSD"),
-            ("MIT", "MIT License (Expat)", "Licenza MIT (Expat)", "—"),
-            ("Expat", "MIT License (Expat)", "Licenza MIT (Expat)", "—"),
-            ("MPL", "Mozilla Public License", "Mozilla Public License", "/usr/share/common-licenses/MPL-2.0"),
-            ("CC0", "Creative Commons Zero", "Creative Commons Zero", "—"),
-            ("ISC", "ISC License", "Licenza ISC", "—")]
-# i18n-data-end
+# The license families, the main components and the document texts are data in
+# /usr/share/zeta/legal-templates: components.json (both languages of each
+# table row) and one template per edition (LICENSES.md, LICENSES.it.md).
+# Each edition is filled with the same data: LICENSES.md is the one the apps
+# open by default; the English edition points Italian readers to theirs.
+TEMPLATES = "/usr/share/zeta/legal-templates"
+with open(TEMPLATES + "/components.json", encoding="utf-8") as f:
+    DATA = json.load(f)
+EDITIONS = DATA["editions"]
+LANGS = [e["lang"] for e in EDITIONS]
+# (key, name in each edition's language, full text)
+FAMILIES = [(r["key"], tuple(r["name"][l] for l in LANGS), r["text"]) for r in DATA["families"]]
 
 
 def family_of(l):
     u = l.upper()
-    for key, name_en, name_it, where in FAMILIES:
+    for key, names, where in FAMILIES:
         if u.startswith(key.upper()):
-            return (name_en, name_it), where
+            return names, where
     return None, None
 
 
@@ -97,43 +104,6 @@ for name, v in licenses.items():
 families = sorted(((f, len(s), where_family[f]) for f, s in per_family.items()),
                   key=lambda r: -r[1])
 
-# (component, what it does in English, in Italian, license, website)
-# i18n-data-begin: the third column is the Italian edition's data
-MAIN_COMPONENTS = [
-    ("ZETA RAYS", "ZETA, ZETA Core, Monitor, Settings, desktop, scripts and themes", "ZETA, ZETA Core, Monitor, Impostazioni, scrivania, script e temi", "GPL-3.0-or-later", "zetarays.org"),
-    ("Linux", "system kernel", "kernel del sistema", "GPL-2", "kernel.org"),
-    ("systemd", "startup and service management", "avvio e gestione dei servizi", "LGPL-2.1+", "systemd.io"),
-    ("Hyprland", "graphical compositor (ZETA RAYS Shell)", "compositore grafico (ZETA RAYS Shell)", "BSD-3-clause", "hypr.land"),
-    ("hyprbars", "window title bars", "barre del titolo delle finestre", "BSD-3-clause", "github.com/hyprwm/hyprland-plugins"),
-    ("Waybar", "bar and dock", "barra e dock", "MIT", "github.com/Alexays/Waybar"),
-    ("mako", "notifications", "notifiche", "MIT", "github.com/emersion/mako"),
-    ("foot", "terminal", "terminale", "MIT", "codeberg.org/dnkl/foot"),
-    ("Thunar", "file manager", "gestore file", "GPL-2+", "docs.xfce.org/xfce/thunar"),
-    ("GTK / libadwaita", "application interface", "interfaccia delle applicazioni", "LGPL-2.1+", "gtk.org"),
-    ("SDDM", "login screen", "schermata di accesso", "GPL-2+", "github.com/sddm/sddm"),
-    ("Calamares", "system installer", "installatore di sistema", "GPL-3+", "calamares.io"),
-    ("Plymouth", "boot screen", "schermata di avvio", "GPL-2+", "freedesktop.org"),
-    ("GRUB", "boot loader", "avviatore", "GPL-3+", "gnu.org/software/grub"),
-    ("PipeWire / WirePlumber", "audio", "audio", "MIT", "pipewire.org"),
-    ("NetworkManager", "networking", "rete", "GPL-2+", "networkmanager.dev"),
-    ("nftables", "firewall", "firewall", "GPL-2", "netfilter.org"),
-    ("Firefox ESR", "web browser", "navigatore web", "MPL-2.0", "mozilla.org"),
-    ("mpv", "audio and video player", "riproduttore audio e video", "GPL-2+ / LGPL-2.1+", "mpv.io"),
-    ("FFmpeg", "audio and video codecs", "codec audio e video", "LGPL-2.1+ / GPL-2+", "ffmpeg.org"),
-    ("Evince", "document viewer", "lettore di documenti", "GPL-2+", "wiki.gnome.org/Apps/Evince"),
-    ("Eye of GNOME", "image viewer", "visualizzatore di immagini", "GPL-2+", "wiki.gnome.org/Apps/EyeOfGnome"),
-    ("File Roller, p7zip, unar", "archives", "archivi", "GPL-2+ / LGPL", "—"),
-    ("GNOME Text Editor", "text editor", "editor di testo", "GPL-3+", "gitlab.gnome.org/GNOME/gnome-text-editor"),
-    ("fastfetch", "system summary in the terminal", "riepilogo di sistema nel terminale", "MIT", "github.com/fastfetch-cli/fastfetch"),
-    ("Ollama", "runs the AI model locally", "esecuzione del modello AI in locale", "MIT", "ollama.com"),
-    ("Llama 3.2 (1B)", "included language model", "modello linguistico incluso", "Llama 3.2 Community License", "llama.com"),
-    ("Vosk", "offline speech recognition", "riconoscimento vocale offline", "Apache-2.0", "alphacephei.com/vosk"),
-    ("eSpeak NG", "speech synthesis", "sintesi vocale", "GPL-3+", "github.com/espeak-ng/espeak-ng"),
-    ("Tesseract", "text recognition in images", "riconoscimento del testo nelle immagini", "Apache-2.0", "github.com/tesseract-ocr"),
-    ("Roboto", "interface font", "carattere dell'interfaccia", "Apache-2.0", "fonts.google.com"),
-]
-# i18n-data-end
-
 
 def table(rows, headers):
     out = ["| " + " | ".join(headers) + " |",
@@ -142,221 +112,97 @@ def table(rows, headers):
     return "\n".join(out)
 
 
-# The document is generated in English (LICENSES.md, the one the apps open by
-# default) and in Italian (LICENSES.it.md): same data, two languages.
-# The English edition points Italian readers to their version, in Italian.
-IT_POINTER = "*(Versione italiana: `LICENSES.it.md`, in this same folder.)*"  # i18n-data
-TEXT_EN = """# ZETA RAYS OS — third-party software and licenses
-
-*Generated automatically from the ZETA RAYS OS 2.0 image on {today}.*
-
-{it_pointer}
-
-ZETA RAYS OS is made up overwhelmingly of **free and open source software**
-written by others. This document lists what is inside, under which licenses,
-and where to find their full text.
-
-## In short
-
-The image contains **{n} installed packages**. For each one, the full license
-text and the list of authors are on the system itself, in
-`/usr/share/doc/<package-name>/copyright`.
-
-The complete list, package by package with version and license, is in the
-file `COMPONENTS.csv` next to this document.
-
-## License families present
-
-A package can appear in more than one family: many projects use different
-licenses for different parts of their code.
-
-{families}
-
-The texts of the most common licenses are in `/usr/share/common-licenses/`.
-
-## Main components
-
-These are the programs that shape ZETA RAYS. Each one remains the property of
-its authors and keeps its own license.
-
-{main_components}
-
-## System base
-
-ZETA RAYS OS is built on the **Debian GNU/Linux 13 (trixie)** distribution and
-uses its package archives (`deb.debian.org`, sections `main`, `contrib`,
-`non-free`, `non-free-firmware` and `trixie-backports`).
-
-Debian is a trademark of SPI Inc. ZETA RAYS OS is not produced, endorsed or
-approved by Debian or by SPI Inc.: it is an independent system that uses its
-technical base, as the free software licenses allow.
-
-## Components written for ZETA RAYS
-
-The desktop and the system applications (the `zeta-*` commands), the themes,
-the icons, the brand and the interface texts and their translations belong to
-ZETA RAYS.
-
-**The ZETA RAYS trademark, name, symbol and logotype are not free
-software**: they remain the property of the project owner. Free software
-licenses cover the code, not trademarks (GPL-3 §7e, Apache-2.0 §6).
-
-## Included language model
-
-The image includes **Llama 3.2 (1B)**, distributed by Meta under the *Llama 3.2
-Community License*: a license of its own, not an approved open source license.
-It allows use, copying and modification under certain conditions, including
-the limit of 700 million monthly active users and the requirement to display
-«Built with Llama». The text is at llama.com/llama3_2/license.
-
-## Non-free firmware
-
-The image includes the `firmware-*` packages from Debian's `non-free-firmware`
-section, needed for network cards, graphics cards and wireless adapters to
-work on real hardware. They are distributed by their manufacturers under
-redistribution-only licenses, whose text is in the corresponding `copyright`
-files.
-
-## How to get the source code
-
-For every included package, the corresponding source code can be obtained
-from the Debian archives with:
-
-    apt-get source <package-name>
-
-This meets the obligation to make the source available under the GPL and
-similar licenses.
-""".format(today=time.strftime("%Y-%m-%d"), n=len(packages), it_pointer=IT_POINTER,
-           families=table([(f[0], "%d of %d" % (c, len(packages)), d)
-                             for f, c, d in families],
-                            ["License family", "Packages", "Full text"]),
-           main_components=table([(c, en, lic, site) for c, en, _it, lic, site in MAIN_COMPONENTS],
-                          ["Component", "What it does", "License", "Home"]))
-
-# i18n-data-begin: the Italian edition of the license document (localization)
-TEXT_IT = """# ZETA RAYS OS — software di terze parti e licenze
-
-*Generato automaticamente dall'immagine di ZETA RAYS OS 2.0 il {today}.*
-
-ZETA RAYS OS è composto in larghissima parte da **software libero e open
-source** scritto da altri. Questo documento elenca che cosa c'è dentro, con
-quali licenze, e dove trovarne il testo completo.
-
-## In breve
-
-L'immagine contiene **{n} pacchetti** installati. Per ognuno, il testo
-integrale della licenza e l'elenco degli autori sono nel sistema stesso, in
-`/usr/share/doc/<nome-del-pacchetto>/copyright`.
-
-L'elenco completo, pacchetto per pacchetto con versione e licenza, è nel file
-`COMPONENTS.csv` accanto a questo documento.
-
-## Famiglie di licenza presenti
-
-Un pacchetto può comparire in più famiglie: molti progetti usano licenze
-diverse per parti diverse del codice.
-
-{families}
-
-I testi delle licenze più diffuse sono in `/usr/share/common-licenses/`.
-
-## Componenti principali
-
-Questi sono i programmi che danno forma a ZETA RAYS. Ognuno resta dei suoi
-autori e mantiene la propria licenza.
-
-{main_components}
-
-## Base del sistema
-
-ZETA RAYS OS è costruito sulla distribuzione **Debian GNU/Linux 13 (trixie)**
-e ne usa gli archivi dei pacchetti (`deb.debian.org`, sezioni `main`,
-`contrib`, `non-free`, `non-free-firmware` e `trixie-backports`).
-
-Debian è un marchio di SPI Inc. ZETA RAYS OS non è prodotto, sostenuto né
-approvato da Debian o da SPI Inc.: è un sistema indipendente che ne usa la
-base tecnica, come le licenze del software libero consentono.
-
-## Componenti scritti per ZETA RAYS
-
-Sono di ZETA RAYS la scrivania e le applicazioni di sistema (i comandi
-`zeta-*`), i temi, le icone, il marchio e i testi dell'interfaccia con le
-loro traduzioni.
-
-**Il marchio ZETA RAYS, il nome, il simbolo e il logotipo non sono software
-libero**: restano di proprietà del titolare del progetto. Le licenze del
-software libero riguardano il codice, non i marchi (GPL-3 §7e, Apache-2.0 §6).
-
-## Modello linguistico incluso
-
-L'immagine include **Llama 3.2 (1B)**, distribuito da Meta con la *Llama 3.2
-Community License*: una licenza propria, non una licenza open source
-approvata. Consente uso, copia e modifica con alcune condizioni, fra cui il
-limite dei 700 milioni di utenti attivi mensili e l'obbligo di indicare
-«Built with Llama». Il testo è su llama.com/llama3_2/license.
-
-## Firmware non libero
-
-L'immagine include i pacchetti `firmware-*` della sezione `non-free-firmware`
-di Debian, necessari perché schede di rete, schede video e adattatori senza
-fili funzionino su hardware reale. Sono distribuiti dai rispettivi produttori
-con licenze di sola redistribuzione, il cui testo è nei relativi file
-`copyright`.
-
-## Come ottenere il codice sorgente
-
-Per ogni pacchetto incluso, il codice sorgente corrispondente si ottiene dagli
-archivi Debian con:
-
-    apt-get source <nome-del-pacchetto>
-
-Questo soddisfa l'obbligo di messa a disposizione del sorgente previsto dalla
-GPL e dalle licenze analoghe.
-""".format(today=TODAY, n=len(packages),
-           families=table([(f[1], "%d su %d" % (c, len(packages)), d)
-                             for f, c, d in families],
-                            ["Famiglia di licenza", "Pacchetti", "Testo integrale"]),
-           main_components=table([(c, it, lic, site) for c, _en, it, lic, site in MAIN_COMPONENTS],
-                          ["Componente", "A che serve", "Licenza", "Dove sta di casa"]))
-# i18n-data-end
-
-open("%s/LICENSES.md" % DEST, "w").write(TEXT_EN)
-open("%s/LICENSES.it.md" % DEST, "w").write(TEXT_IT)
+for i, ed in enumerate(EDITIONS):
+    with open("%s/%s" % (TEMPLATES, ed["template"]), encoding="utf-8") as f:
+        template = f.read()
+    text = template.format(
+        today=time.strftime(ed["date"]), version=VERSION, n=len(packages), it_pointer=ed["pointer"],
+        families=table([(f[i], ed["count"] % (c, len(packages)), d) for f, c, d in families],
+                       ed["family_headers"]),
+        main_components=table([(r["component"], r["role"][ed["lang"]], r["license"], r["home"])
+                               for r in DATA["main_components"]],
+                              ed["component_headers"]))
+    open("%s/%s" % (DEST, ed["output"]), "w").write(text)
+# the templates are only needed here
+shutil.rmtree(TEMPLATES, ignore_errors=True)
 print("ZETA RAYS: legal documents generated (%d packages, %d license families)"
       % (len(packages), len(families)))
 
-# --- Llama 3.2: the license obligations of the included model ---
-# The Llama 3.2 Community License requires whoever distributes the model to
-# (A) ship it with a copy of the license, (iii) keep a "Notice" file with a
-# specific attribution sentence, and comply with the acceptable use policy.
-# The official texts already travel inside the model ("license" layers of the
-# Ollama package): they are taken from there, so they always match the
-# included version, and placed next to the other documents.
+# --- Piper voices: attribution of the voice models and their training data ---
+# Serena is trained on a CC BY 4.0 dataset: the license requires crediting the
+# author, linking the license and saying whether changes were made. Only the
+# voices actually installed (hook 0210) are listed.
+VOICE_NOTICES = {
+    "it_IT-serena": (
+        "Italian voice \"Serena\" (Piper, rhasspy/piper-voices, MIT).\n"
+        "Trained on the dataset \"serena-synthetic-it-27h\" by Committa,\n"
+        "https://huggingface.co/datasets/committa/serena-synthetic-it-27h,\n"
+        "licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).\n"
+        "The dataset's transcripts are adapted from Tatoeba sentences (https://tatoeba.org,\n"
+        "CC BY 2.0 FR). ZETA RAYS OS uses the trained model as published, without changes\n"
+        "to the voice; only the phoneme table of its configuration file is reduced to the\n"
+        "single-character phonemes understood by the Piper 2023.11.14-2 program."),
+    "it_IT-paola": (
+        "Italian voice \"Paola\" (Piper, rhasspy/piper-voices, MIT).\n"
+        "Trained on the dataset \"Voice-Dataset-Italian\" by paolapersico1,\n"
+        "https://huggingface.co/datasets/paolapersico1/Voice-Dataset-Italian, CC0 1.0."),
+    "en_US-lessac": (
+        "English voice \"Lessac\" (Piper, rhasspy/piper-voices, MIT).\n"
+        "Trained on the Lessac Blizzard 2013 dataset,\n"
+        "http://www.cstr.ed.ac.uk/projects/blizzard/2011/lessac_blizzard2013/ (see its terms)."),
+}
+VOICES_DIR = "/usr/share/zeta/voices"
+voices_installed = sorted(f[:-5] for f in os.listdir(VOICES_DIR) if f.endswith(".onnx")) \
+    if os.path.isdir(VOICES_DIR) else []
+voice_notes = ["%s\n%s\n" % (name, VOICE_NOTICES.get("-".join(name.split("-")[:2]),
+                                                     "Piper voice, see https://huggingface.co/rhasspy/piper-voices"))
+               for name in voices_installed]
+os.makedirs(DEST + "/piper-voices", exist_ok=True)
+open(DEST + "/piper-voices/NOTICE.txt", "w").write(
+    "ZETA RAYS OS speaks with Piper (https://github.com/rhasspy/piper, MIT) and these voices:\n\n"
+    + "\n".join(voice_notes))
+print("ZETA RAYS: voice attributions in %s/piper-voices/NOTICE.txt (%d voices)"
+      % (DEST, len(voices_installed)))
+
+# --- Included model: its license, taken from the model package itself ---
+# Qwen3 4B Instruct (2507) is Apache-2.0 (section 4: whoever redistributes it
+# gives recipients a copy of the license). The official text travels inside
+# the model (the "license" layer of the Ollama package): it is copied from
+# there, so it always matches the included version.
 import json, os
 MODELS_DIR = "/usr/share/ollama/.ollama/models"
-MANIFEST = MODELS_DIR + "/manifests/registry.ollama.ai/library/llama3.2/1b"
-LLAMA = DEST + "/llama-3.2"
-os.makedirs(LLAMA, exist_ok=True)
+MODEL_NAME, MODEL_TAG = "qwen3", "4b-instruct"
+MANIFEST = MODELS_DIR + "/manifests/registry.ollama.ai/library/%s/%s" % (MODEL_NAME, MODEL_TAG)
+MODEL_DOCS = DEST + "/qwen3"
+os.makedirs(MODEL_DOCS, exist_ok=True)
 texts = []
 for layer in json.load(open(MANIFEST))["layers"]:
     if layer["mediaType"] == "application/vnd.ollama.image.license":
         blob = MODELS_DIR + "/blobs/" + layer["digest"].replace(":", "-")
         texts.append(open(blob, encoding="utf-8").read())
-# the license MENTIONS the policy by name, so "Acceptable Use Policy" appears
-# in both texts: the license is the one with the agreement title, the policy
-# is the other one (the one that is NOT the license), not "the first one that
-# names the policy".
-license_text = next(t for t in texts if "COMMUNITY LICENSE AGREEMENT" in t)
-policy = next(t for t in texts if "COMMUNITY LICENSE AGREEMENT" not in t)
-open(LLAMA + "/LICENSE.txt", "w").write(license_text)
-open(LLAMA + "/USE_POLICY.md", "w").write(policy)
-# the sentence is the one required by section 1.b.iii, word for word
-open(LLAMA + "/NOTICE.txt", "w").write(
-    "Llama 3.2 is licensed under the Llama 3.2 Community License, "
-    "Copyright \u00a9 Meta Platforms, Inc. All Rights Reserved.\n\n"
-    "Built with Llama.\n\n"
-    "ZETA RAYS OS includes the Llama 3.2 (1B) model for ZETA's local AI.\n"
-    "License: LICENSE.txt. Acceptable use policy: USE_POLICY.md (also at https://www.llama.com/llama3_2/use-policy).\n")
-print("ZETA RAYS: Llama 3.2 license, policy and notice in %s" % LLAMA)
+license_text = next(t for t in texts if "Apache License" in t)
+open(MODEL_DOCS + "/LICENSE.txt", "w").write(license_text)
+open(MODEL_DOCS + "/NOTICE.txt", "w").write(
+    "ZETA RAYS OS includes the Qwen3 4B Instruct (2507) model by the Qwen team\n"
+    "(Alibaba Cloud) for ZETA's local AI, unmodified, as packaged by Ollama\n"
+    "(qwen3:4b-instruct). License: Apache License 2.0 (LICENSE.txt).\n")
+print("ZETA RAYS: model license and notice in %s" % MODEL_DOCS)
+
+# Kokoro-82M (Apache-2.0): ZETA's Italian voice, installed by hook 0210
+KOKORO_DIR = "/usr/share/zeta/voices/kokoro"
+if os.path.isfile(KOKORO_DIR + "/kokoro-v1.0.int8.onnx"):
+    os.makedirs(DEST + "/kokoro", exist_ok=True)
+    open(DEST + "/kokoro/LICENSE.txt", "w").write(
+        open("/usr/share/common-licenses/Apache-2.0", encoding="utf-8").read())
+    open(DEST + "/kokoro/NOTICE.txt", "w").write(
+        "ZETA RAYS OS speaks Italian with the voice \"Sara\" (if_sara) of Kokoro-82M by\n"
+        "hexgrad, https://huggingface.co/hexgrad/Kokoro-82M, Apache License 2.0\n"
+        "(LICENSE.txt). Files used, unmodified: kokoro-v1.0.int8.onnx (the model,\n"
+        "quantized to 8 bits) and voices-v1.0.bin (the voice styles), as published by\n"
+        "the kokoro-onnx project, https://github.com/thewh1teagle/kokoro-onnx (MIT),\n"
+        "whose text-to-phoneme steps (through phonemizer, GPL-3.0) ZETA follows in\n"
+        "/usr/lib/zeta/intelligence/kokoro.py. The model runs with ONNX Runtime (MIT)\n"
+        "and espeak-ng (GPL-3.0-or-later), both Debian packages.\n")
+    print("ZETA RAYS: Kokoro license and notice in %s/kokoro" % DEST)
 PYEND
 exit 0

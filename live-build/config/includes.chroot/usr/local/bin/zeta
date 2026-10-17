@@ -21,7 +21,8 @@ import sys
 
 sys.path.insert(0, "/usr/lib/zeta")
 
-from i18n import tr  # noqa: E402
+from i18n import speaking, tr  # noqa: E402
+from i18n_data import load  # noqa: E402
 from intelligence.actions import ActionResult  # noqa: E402
 from intelligence.assistant import Assistant  # noqa: E402
 from intelligence.memory import Memory  # noqa: E402
@@ -31,6 +32,10 @@ ACCENT = "\033[38;2;58;141;255m"
 DIM = "\033[38;2;140;140;145m"
 BOLD = "\033[1m"
 R = "\033[0m"
+
+# The answers accepted in Italian and English ("yes", "always", "exit"):
+# language data in zeta.json (see /usr/lib/zeta/i18n_data.py)
+ANSWERS = load("zeta")
 
 
 def _confirm(res: ActionResult) -> bool:
@@ -42,7 +47,55 @@ def _confirm(res: ActionResult) -> bool:
         ans = input("  " + tr("Allow? [y/N] ")).strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
-    return ans in ("s", "si", "sì", "y", "yes")  # i18n-data: Italian and English "yes"
+    return ans in ANSWERS["yes"]
+
+
+def _consent(services: list) -> str | None:
+    """«Search the web?» (asked once): "yes", "always", "no"; None when
+    nobody can answer (not a terminal)."""
+    if not sys.stdin.isatty():
+        return None
+    print("%s%s%s" % (DIM, tr("Search the web? This sends your question to {services}.").format(
+        services=", ".join(services)), R))
+    try:
+        ans = input("  " + tr("[y]es, [a]lways, [n]o: ")).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if ans in ANSWERS["always"]:
+        return "always"
+    if ans in ANSWERS["yes"]:
+        return "yes"
+    return "no" if ans in ("n", "no") else None
+
+
+def _ask(assistant: Assistant, text: str) -> str:
+    """One question; Ctrl+C stops it (the connection is closed) and leaves
+    no half turn in the conversation."""
+    kept = len(assistant.history)
+    try:
+        answer = assistant.respond(text, confirm=_confirm, consent=_consent)
+    except KeyboardInterrupt:
+        assistant.cancel()
+        del assistant.history[kept:]
+        return tr("Request canceled.")
+    turn = assistant.last_turn
+    with speaking(turn.get("language")):
+        return _with_notes(answer, turn)
+
+
+def _with_notes(answer: str, turn: dict) -> str:
+    """The answer followed by its sources and the offer of another service."""
+    extra = []
+    if turn.get("sources"):
+        extra.append(tr("Sources (retrieved {date}):").format(date=turn["sources"][0].retrieved))
+        extra += ["  [%d] %s  %s" % (i, s.title, s.url) for i, s in enumerate(turn["sources"], 1)]
+    if turn.get("offer"):
+        extra.append(tr("To ask {name} this question: zeta --provider {id} QUESTION").format(
+            name=CATALOG.get(turn["offer"], ("", turn["offer"]))[1], id=turn["offer"]))
+    if extra:
+        answer += "\n%s%s%s" % (DIM, "\n".join(extra), R)
+    return answer
 
 
 def cmd_status() -> int:
@@ -76,7 +129,7 @@ def not_configured() -> int:
         ans = input("%s%s%s" % (DIM, tr("Press Enter to open Settings › AI, or type 'exit': "), R))
     except (EOFError, KeyboardInterrupt):
         return 0
-    if ans.strip().lower() not in ("esci", "exit", "quit", "q"):  # i18n-data: Italian "exit"
+    if ans.strip().lower() not in ANSWERS["exit"] + ["q"]:
         import subprocess
         subprocess.Popen(["zeta-settings", "ai"], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -100,10 +153,9 @@ def interactive(assistant: Assistant) -> int:
             break
         if not text:
             continue
-        if text.lower() in ("esci", "exit", "quit"):  # i18n-data: Italian "exit"
+        if text.lower() in ANSWERS["exit"]:
             break
-        answer = assistant.respond(text, confirm=_confirm)
-        print("%s\n" % answer)
+        print("%s\n" % _ask(assistant, text))
     return 0
 
 
@@ -157,8 +209,7 @@ def main(argv: list[str]) -> int:
 
     assistant = Assistant(provider)
     if args:
-        answer = assistant.respond(" ".join(args), confirm=_confirm)
-        print(answer)
+        print(_ask(assistant, " ".join(args)))
         return 0
     return interactive(assistant)
 

@@ -125,7 +125,7 @@ def download(name: str, progress=None, should_stop=None) -> tuple[bool, str]:
     """
     name = name.strip()
     if not name or any(c.isspace() for c in name):
-        return False, tr("Invalid model name (example: llama3.2:3b).")
+        return False, tr("Invalid model name (example: qwen3:1.7b).")
     try:
         resp = _request("POST", "/api/pull", {"model": name, "stream": True}, 3600)
     except urllib.error.HTTPError as e:

@@ -1,0 +1,73 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: weekly reminder for software updates (off by default).
+
+Started once a day by the user timer zeta-update-reminder.timer, which
+Settings › Software Update turns on and off. At most once a week it asks
+PackageKit for the available updates and, when there are some, shows a
+notification that opens Settings › Software Update. It never installs
+anything: installing always needs the user, and the administrator password.
+
+    zeta-update-reminder           the timer's run (does nothing when off)
+    zeta-update-reminder --now     check and notify now, even if off (testing)
+"""
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import ntr, tr  # noqa: E402
+from system import software_update as su  # noqa: E402
+
+
+def notify(count, security):
+    if security:
+        body = ntr("{n} update available, including security fixes.",
+                   "{n} updates available, including security fixes.", count).format(n=count)
+    else:
+        body = ntr("{n} update available.", "{n} updates available.", count).format(n=count)
+    body += " " + tr("Click to open Software Update.")
+    cmd = ["notify-send", "-a", "ZETA RAYS", "-i", "zeta-update", "-A",
+           "default=" + tr("Open"), "--wait", tr("Software updates"), body]
+    try:
+        # --wait prints the action when the notification is clicked
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=6 * 3600)
+    except (OSError, subprocess.SubprocessError):
+        return
+    if r.stdout.strip() == "default":
+        subprocess.Popen(["zeta-settings", "software-update"], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+
+
+def main():
+    now = "--now" in sys.argv
+    if not su.available():
+        return 0
+    state = su.load_state()
+    if not now:
+        if not state.get("reminder"):
+            return 0
+        # in the live session the updates would be lost at restart: no reminder
+        if su.is_live():
+            return 0
+        if time.time() - int(state.get("reminder_last") or 0) < su.CHECK_EVERY:
+            return 0
+    session = su.Session()
+    outcome = su.run_sync(lambda done: session.check(None, done), timeout=1800)
+    if not outcome.ok and outcome.kind != su.NOT_AUTHORIZED and not outcome.updates:
+        # no network or sources unreachable: try again at the next run (tomorrow)
+        print("zeta-update-reminder: %s (%s)" % (outcome.kind, outcome.detail[:200]), file=sys.stderr)
+        return 0
+    data = su.load_state()
+    data["reminder_last"] = int(time.time())
+    su.save_state(data)
+    if outcome.updates:
+        notify(len(outcome.updates), sum(1 for u in outcome.updates if u.security))
+    return 0
+
+
+if __name__ == "__main__":
+    os.umask(0o077)
+    sys.exit(main())

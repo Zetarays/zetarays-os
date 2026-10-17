@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Builds the four ZETA RAYS 2.0 images and copies them to the release
-# folder.
+# Builds the four ZETA RAYS images and copies them to the release folder.
+# The version (image names, delivery folder) comes from the VERSION file.
 #
 # Rules, learned the hard way:
 #  - ALWAYS start from scratch. Previously, if an arm64 ISO already existed it
@@ -17,8 +17,11 @@ set -uo pipefail
 # without breaking anything.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"
-DEST="${ZETA_DELIVERY_DIR:-$HOME/Desktop/ZETA RAYS 2.0}"
-IMAGES="zetarays-2.0-arm64.iso zetarays-2.0-arm64.ova zetarays-2.0-amd64.iso zetarays-2.0-amd64.ova"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "VERSION missing or invalid: '$VERSION'" >&2; exit 1; }
+DEST="${ZETA_DELIVERY_DIR:-$HOME/Desktop/ZETA RAYS $VERSION}"
+P="zetarays-$VERSION"
+IMAGES="$P-arm64.iso $P-arm64.ova $P-amd64.iso $P-amd64.ova"
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 fail() { log "FAILED: $* — no release, the folder on the Desktop is left as it was"; exit 1; }
 
@@ -38,7 +41,7 @@ if [ "$SKIP_BUILD" = 1 ]; then :; elif pgrep -f "build.sh (arm64|amd64)" >/dev/n
     fail "a build is already in progress"
 fi
 if [ "$SKIP_BUILD" = 0 ]; then
-for f in $IMAGES zetarays-2.0-arm64.vmdk zetarays-2.0-amd64.vmdk; do
+for f in $IMAGES $P-arm64.vmdk $P-amd64.vmdk; do
     rm -f "$OUT/$f"
 done
 log "out/ folder cleaned: starting from scratch"
@@ -46,7 +49,7 @@ log "out/ folder cleaned: starting from scratch"
 # 2) the four images, in order; each one must succeed
 log "building the arm64 ISO"
 "$ROOT/build.sh" arm64 > "$OUT/run-arm64.log" 2>&1 || fail "arm64 ISO (see run-arm64.log)"
-log "arm64 ISO ready ($(du -h "$OUT/zetarays-2.0-arm64.iso" | cut -f1))"
+log "arm64 ISO ready ($(du -h "$OUT/$P-arm64.iso" | cut -f1))"
 
 # Colima's virtual disk does not give freed space back on its own: after the
 # amd64 build the Mac was left with a couple of GB and the OVA export failed
@@ -59,17 +62,17 @@ free_space() {
 free_space
 log "creating the arm64 OVA"
 ZETA_ARCH=arm64 "$ROOT/tools/make-ova.sh" > "$OUT/run-ova-arm64.log" 2>&1 || fail "arm64 OVA (see run-ova-arm64.log)"
-log "arm64 OVA ready ($(du -h "$OUT/zetarays-2.0-arm64.ova" | cut -f1))"
+log "arm64 OVA ready ($(du -h "$OUT/$P-arm64.ova" | cut -f1))"
 
 free_space
 log "building the amd64 ISO"
 "$ROOT/build.sh" amd64 > "$OUT/run-amd64.log" 2>&1 || fail "amd64 ISO (see run-amd64.log)"
-log "amd64 ISO ready ($(du -h "$OUT/zetarays-2.0-amd64.iso" | cut -f1))"
+log "amd64 ISO ready ($(du -h "$OUT/$P-amd64.iso" | cut -f1))"
 
 free_space
 log "creating the amd64 OVA"
 ZETA_ARCH=amd64 "$ROOT/tools/make-ova.sh" > "$OUT/run-ova-amd64.log" 2>&1 || fail "amd64 OVA (see run-ova-amd64.log)"
-log "amd64 OVA ready ($(du -h "$OUT/zetarays-2.0-amd64.ova" | cut -f1))"
+log "amd64 OVA ready ($(du -h "$OUT/$P-amd64.ova" | cut -f1))"
 
 for f in $IMAGES; do
     [ -s "$OUT/$f" ] || fail "$f missing"
@@ -78,7 +81,7 @@ done
 fi   # end of the build (skipped with "deliver")
 
 # With BUILD_ONLY=1 we stop here: the images stay in out/ for the full
-# check, and are released later with: tools/build-all-2.0.sh deliver
+# check, and are released later with: tools/build-all.sh deliver
 if [ "${BUILD_ONLY:-0}" = 1 ]; then
     log "BUILT — not released: run the full check first (images in $OUT)"
     exit 0
@@ -95,5 +98,5 @@ for f in $IMAGES; do
     mv -f "$DEST/.$f.partial" "$DEST/$f"
     log "copied $f"
 done
-log "DONE — images in $DEST"
+log "DONE — ZETA RAYS $VERSION images in $DEST"
 ls -la "$DEST"

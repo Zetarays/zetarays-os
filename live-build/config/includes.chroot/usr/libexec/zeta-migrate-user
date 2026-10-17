@@ -5,9 +5,10 @@ versions to the English names of 2.0.
 
     zeta-migrate-user [--dry-run] [--force]
 
-Runs once per user at login (zeta-session), before anything reads the
-settings. The steps are data: /usr/share/zeta/migration/english-2.0.json,
-applied in order:
+Runs at login (zeta-desktop-session), before anything reads the settings.
+The steps are data: every /usr/share/zeta/migration/*.json, in name order
+(english-2.0: the Italian names of earlier versions; update-2.1: configuration
+files of 2.0 that the user never changed), each applied once per user:
 
   file       rename a file or folder (OLD may end in "*": same suffix kept);
              if the new name already exists the old one is left alone
@@ -26,7 +27,7 @@ applied in order:
 
 Nothing is ever deleted except a file whose content was moved to its new
 name. A copy of every file changed is kept in
-~/.local/state/zeta/migration-backup/. Done: ~/.local/state/zeta/migrated-english-2.0
+~/.local/state/zeta/migration-backup/. Done: ~/.local/state/zeta/migrated-<name> for each file.
 """
 import glob
 import hashlib
@@ -38,10 +39,11 @@ import subprocess
 import sys
 import time
 
-DATA = "/usr/share/zeta/migration/english-2.0.json"
+DATA_DIR = "/usr/share/zeta/migration"
 HOME = os.path.expanduser("~")
 STATE = os.path.join(HOME, ".local/state/zeta")
-STAMP = os.path.join(STATE, "migrated-english-2.0")
+# one stamp per migration file: migrated-<name> (english-2.0, update-2.1, ...)
+STAMP_PREFIX = os.path.join(STATE, "migrated-")
 BACKUP = os.path.join(STATE, "migration-backup")
 DRY = "--dry-run" in sys.argv
 log = []
@@ -243,14 +245,16 @@ STEPS = {"skel": step_skel, "file": step_file, "text": step_text, "jsonkey": ste
          "cred": step_cred, "commands": step_commands}
 
 
-def main():
-    if os.path.exists(STAMP) and "--force" not in sys.argv:
+def run(data, stamp):
+    """Apply one migration file once (its stamp records that it ran)."""
+    if os.path.exists(stamp) and "--force" not in sys.argv:
         return 0
     try:
-        steps = json.load(open(DATA, encoding="utf-8"))["steps"]
+        steps = json.load(open(data, encoding="utf-8"))["steps"]
     except (OSError, ValueError) as e:
         print("zeta-migrate-user: %s" % e, file=sys.stderr)
         return 1
+    del log[:]
     for s in steps:
         try:
             STEPS[s["kind"]](s)
@@ -260,9 +264,18 @@ def main():
         print(line)
     if not DRY:
         os.makedirs(STATE, exist_ok=True)
-        with open(STAMP, "w") as f:
+        with open(stamp, "w") as f:
             f.write(time.strftime("%Y-%m-%d %H:%M:%S\n") + "".join(x + "\n" for x in log))
     return 0
+
+
+def main():
+    # in name order: english-2.0 (Italian names of 1.x) before update-2.1
+    rc = 0
+    for data in sorted(glob.glob(os.path.join(DATA_DIR, "*.json"))):
+        name = os.path.basename(data)[:-5]
+        rc |= run(data, STAMP_PREFIX + name)
+    return rc
 
 
 if __name__ == "__main__":

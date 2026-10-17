@@ -1,0 +1,11 @@
+{
+ "appimage_folders": [
+  "Applicazioni",
+  "Scaricati",
+  "Scrivania"
+ ],
+ "desktop_folder": "Scrivania",
+ "download_folders": [
+  "Scaricati"
+ ]
+}

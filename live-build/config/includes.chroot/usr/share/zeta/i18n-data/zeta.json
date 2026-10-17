@@ -1,0 +1,19 @@
+{
+ "yes": [
+  "s",
+  "si",
+  "sì",
+  "y",
+  "yes"
+ ],
+ "always": [
+  "a",
+  "always",
+  "sempre"
+ ],
+ "exit": [
+  "esci",
+  "exit",
+  "quit"
+ ]
+}

@@ -26,10 +26,11 @@ import urllib.parse
 import urllib.request
 
 from i18n import tr
+from system.release import product_token
 
 MAX_SIZE = 4 * 1024 ** 3            # 4 GB: beyond that we give up (and say why)
 CHUNK = 256 * 1024
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) ZETA-RAYS/2.0"
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) " + product_token()
 
 
 def safe_name(name: str, default: str = "download") -> str:

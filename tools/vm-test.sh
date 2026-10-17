@@ -10,7 +10,8 @@
 #   tools/vm-test.sh stop            shuts it down
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISO="${ZETA_ISO:-$ROOT/out/zetarays-2.0-arm64.iso}"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"   # release version (VERSION file)
+ISO="${ZETA_ISO:-$ROOT/out/zetarays-$VERSION-arm64.iso}"
 VM="$ROOT/.cache/vm"
 SOCK="$VM/qmp.sock"
 mkdir -p "$VM"

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build the release README.txt from the docs/README-2.0.txt.in template.
+"""Build the release README.txt from the docs/README.txt.in template.
 
 Sizes and SHA-256 sums are read from the images and the .sha256 files in the
 release folder, and the kernel version from the build log: nothing is copied
-by hand.
+by hand. The version comes from the VERSION file.
 
-  tools/gen-readme.py RELEASE_FOLDER
+  tools/gen-readme.py [RELEASE_FOLDER]     (default: ~/Desktop/ZETA RAYS <VERSION>)
 """
 import os
 import re
@@ -16,10 +16,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGES = ["amd64.iso", "arm64.iso", "amd64.ova", "arm64.ova"]
 
 
-def main(dest):
-    text = open(os.path.join(ROOT, "docs", "README-2.0.txt.in"), encoding="ascii").read()
+def read_version():
+    v = open(os.path.join(ROOT, "VERSION"), encoding="ascii").read().strip()
+    if not re.fullmatch(r"\d+\.\d+(\.\d+)?", v):
+        sys.exit("VERSION does not hold a version number: %r" % v)
+    return v
+
+
+def main(dest, version):
+    text = open(os.path.join(ROOT, "docs", "README.txt.in"), encoding="ascii").read()
+    text = text.replace("{VERSION}", version)
     for name in IMAGES:
-        f = os.path.join(dest, "zetarays-2.0-%s" % name)
+        f = os.path.join(dest, "zetarays-%s-%s" % (version, name))
         n = os.path.getsize(f)
         text = text.replace("{SIZE_%s}" % name, "{:,} bytes ({:.2f} GB)".format(n, n / 1e9))
         sha = open(f + ".sha256").read().split()[0]
@@ -42,4 +50,6 @@ def main(dest):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Desktop/ZETA RAYS 2.0"))
+    VERSION = read_version()
+    main(sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Desktop/ZETA RAYS " + VERSION),
+         VERSION)

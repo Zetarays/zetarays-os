@@ -83,6 +83,9 @@ class ClaudeProvider(Provider):
             except ValueError:
                 continue
             t = ev.get("type")
+            if t == "error":
+                # e.g. overloaded_error in the middle of the reply
+                raise self._stream_failed(ev.get("error") or {})
             if t == "content_block_delta":
                 delta = ev.get("delta", {})
                 if delta.get("type") == "text_delta":

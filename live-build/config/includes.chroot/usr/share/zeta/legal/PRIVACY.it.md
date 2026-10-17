@@ -14,23 +14,32 @@ qui sotto c'è l'elenco completo.
 
 ## 1. Aggiornamenti del sistema
 
-**Dove**: `deb.debian.org` e i suoi mirror.
-**Quando**: quando aggiorni o installi programmi (Pacchetti, oppure `apt`).
+**Dove**: `deb.debian.org`, `security.debian.org` e i loro mirror.
+**Quando**: quando controlli gli aggiornamenti o installi programmi
+(Impostazioni › Aggiornamento software, Synaptic, oppure `apt`). Su un sistema
+installato anche una volta al giorno per gli aggiornamenti di sicurezza
+automatici (attivi dopo l'installazione), e una volta a settimana se attivi il
+promemoria degli aggiornamenti. Mai nella sessione live, se non lo chiedi tu.
 **Che cosa**: quali pacchetti chiedi. Il tuo indirizzo IP è visibile al
 server, come per qualunque scaricamento.
-**Si può evitare**: sì, non aggiornando — ma è sconsigliato: gli aggiornamenti
-portano le correzioni di sicurezza.
+**Si può evitare**: sì. Disattiva "Installa automaticamente gli aggiornamenti
+di sicurezza" in Impostazioni › Aggiornamento software, e non aggiornare. È
+sconsigliato: gli aggiornamenti portano le correzioni di sicurezza.
 
 ## 2. Assistente ZETA
 
 ZETA funziona in due modi, e la differenza conta.
 
-**Modello locale (predefinito).** Il modello Llama 3.2 gira **sul tuo
+**Modello locale (predefinito).** Il modello locale gira **sul tuo
 computer**. Le domande, le risposte e la cronologia non escono mai. Funziona
 anche senza rete.
 
-**Provider cloud (solo se lo configuri tu).** Se in *Impostazioni › AI*
-inserisci una chiave API, le tue domande vengono inviate al provider scelto:
+**Provider cloud (solo se ne scegli uno).** Se in *Impostazioni › AI*
+inserisci una chiave API e scegli quel provider, le tue domande vengono
+inviate a lui. ZETA non passa mai da solo a un servizio online: quando il
+modello locale non può rispondere, può solo proporne uno nella chat, e la
+domanda parte solo se accetti con un click, per quella domanda. Dove vanno i
+dati:
 
 | Provider | Dove vanno i dati |
 |---|---|
@@ -49,6 +58,24 @@ inserisci una chiave API, le tue domande vengono inviate al provider scelto:
 Da quel momento valgono le condizioni e l'informativa **di quel provider**,
 non queste. ZETA RAYS non vede e non conserva nulla di quel traffico.
 **Senza chiave API, nessuna di queste connessioni avviene.**
+
+**Cercare informazioni aggiornate (spento di serie).** Un modello conosce il
+mondo solo fino alla data del suo addestramento. Per le domande su fatti
+attuali (chi ricopre una carica, notizie, prezzi, versioni, meteo, risultati)
+ZETA può prima consultare fonti pubbliche, se lo permetti: la prima volta
+chiede ("Cercare sul web?", Sì / Sempre / No), e l'interruttore è in
+*Impostazioni › AI › Informazioni aggiornate*.
+
+| Cosa | Dove va |
+|---|---|
+| La tua domanda, ridotta alle parole chiave | `it.wikipedia.org` o `en.wikipedia.org` (ricerca ed estratto della pagina) |
+| La stessa, solo se accendi anche questa opzione | `api.duckduckgo.com` (risposte istantanee) |
+
+Parte solo la domanda: mai la conversazione, mai i tuoi file, nient'altro.
+Nessun cookie viene conservato, le richieste si presentano come ZETA RAYS
+(User-Agent) e si fermano dopo 5 secondi. Le fonti usate compaiono sotto la
+risposta, con indirizzo e data. Con l'interruttore spento, o senza rete, ZETA
+dice che i fatti attuali non si possono verificare.
 
 Le chiavi API sono conservate nel portachiavi del sistema, se ce n'è uno
 attivo; altrimenti in file cifrati leggibili solo da te, in

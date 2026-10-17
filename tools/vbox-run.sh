@@ -8,9 +8,10 @@
 set -uo pipefail
 ARCH="${1:-arm64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OVA="$ROOT/out/zetarays-2.0-$ARCH.ova"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"   # release version (VERSION file)
+OVA="$ROOT/out/zetarays-$VERSION-$ARCH.ova"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage
-NAME="ZETA RAYS 2.0 ($ARCH)"
+NAME="ZETA RAYS $VERSION ($ARCH)"
 
 [ -f "$OVA" ] || { echo "OVA not found: $OVA"; exit 1; }
 

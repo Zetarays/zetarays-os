@@ -33,35 +33,35 @@ from search import indexer  # noqa: E402
 from system import applications as reg  # noqa: E402
 from ui import app_menu, popup  # noqa: E402
 from i18n import tr  # noqa: E402
+from i18n_data import load  # noqa: E402
 
 HOME = os.path.expanduser("~")
 
-# Actions and settings reachable from search: (title, subtitle, icon, keywords, command)
-# i18n-data-begin: the keywords are Italian and English words the user may type
+# Actions and settings reachable from search: (title, subtitle, icon, keywords, command).
+# The keywords are the Italian and English words the user may type: language
+# data in zeta-search.json (see /usr/lib/zeta/i18n_data.py)
+KEYWORDS = load("zeta-search")["keywords"]
 ACTIONS = [
-    (tr("Settings"), tr("System preferences"), "zeta-settings", "impostazioni settings preferenze preferences", ["zeta-settings"]),
-    (tr("Appearance"), tr("Color, theme, wallpaper"), "zeta-palette", "aspetto tema colore sfondo wallpaper appearance theme color colour background", ["zeta-settings", "appearance"]),
-    (tr("Dock"), tr("Customize the bar"), "zeta-dock", "dock barra taskbar bar", ["zeta-settings", "dock"]),
-    (tr("Wi-Fi & Network"), tr("Network connections"), "zeta-wifi", "rete wifi network internet connection", ["zeta-settings", "network"]),
+    (tr("Settings"), tr("System preferences"), "zeta-settings", KEYWORDS["settings"], ["zeta-settings"]),
+    (tr("Appearance"), tr("Color, theme, wallpaper"), "zeta-palette", KEYWORDS["appearance"], ["zeta-settings", "appearance"]),
+    (tr("Dock"), tr("Customize the bar"), "zeta-dock", KEYWORDS["dock"], ["zeta-settings", "dock"]),
+    (tr("Wi-Fi & Network"), tr("Network connections"), "zeta-wifi", KEYWORDS["network"], ["zeta-settings", "network"]),
     (tr("Connect to Server"), tr("Windows, Mac, NAS, SSH, FTP, WebDAV"), "zeta-server-network",
-     "server samba smb ssh sftp ftp webdav nfs nas condivisione cartella condivisa rete "
-     "share shared folder network connect", ["zeta-server"]),
-    (tr("Sound"), tr("Volume and devices"), "zeta-volume", "audio suono volume sound speakers microphone", ["zeta-settings", "audio"]),
-    (tr("AI"), tr("ZETA and providers"), "zeta-ai", "ai intelligenza assistente intelligence assistant", ["zeta-settings", "ai"]),
+     KEYWORDS["server"], ["zeta-server"]),
+    (tr("Sound"), tr("Volume and devices"), "zeta-volume", KEYWORDS["sound"], ["zeta-settings", "audio"]),
+    (tr("AI"), tr("ZETA and providers"), "zeta-ai", KEYWORDS["ai"], ["zeta-settings", "ai"]),
     (tr("System Monitor"), tr("CPU, network, processes"), "zeta-monitor",
-     "monitor sistema cpu processi rete system processes network task manager", ["zeta-monitor"]),
-    (tr("Security"), tr("Firewall and tools"), "zeta-security", "sicurezza firewall security", ["zeta-security"]),
-    (tr("Terminal"), tr("Command line"), "foot", "terminale terminal console shell command", ["foot"]),
-    ("ZETA", tr("Talk to ZETA"), "zeta-core", "core assistente intelligenza voce zeta assistant intelligence voice", ["zeta-core"]),
-    (tr("Lock Screen"), tr("Lock the session"), "zeta-lock", "blocca lock schermo screen", ["hyprlock"]),
-    (tr("Power"), tr("Shut down, restart, suspend"), "zeta-power",
-     "energia spegni riavvia sospendi standby esci power shut down shutdown restart reboot suspend sleep log out logout",
+     KEYWORDS["monitor"], ["zeta-monitor"]),
+    (tr("Security"), tr("Firewall and tools"), "zeta-security", KEYWORDS["security"], ["zeta-security"]),
+    (tr("Terminal"), tr("Command line"), "foot", KEYWORDS["terminal"], ["foot"]),
+    ("ZETA", tr("Talk to ZETA"), "zeta-core", KEYWORDS["zeta"], ["zeta-core"]),
+    (tr("Lock Screen"), tr("Lock the session"), "zeta-lock", KEYWORDS["lock"], ["hyprlock"]),
+    (tr("Power"), tr("Shut down, restart, suspend"), "zeta-power", KEYWORDS["power"],
      ["zeta-panel", "power"]),
     (tr("Windows"), tr("Open and minimized"), "zeta-dock",
-     "finestre window ridotte minimizzate aperte windows minimized open", ["zeta-windows"]),
-    (tr("Desktop"), tr("Open the Desktop folder"), "system-file-manager", "scrivania desktop cartella folder", ["zeta-open-desktop-folder"]),
+     KEYWORDS["windows"], ["zeta-windows"]),
+    (tr("Desktop"), tr("Open the Desktop folder"), "system-file-manager", KEYWORDS["desktop"], ["zeta-open-desktop-folder"]),
 ]
-# i18n-data-end
 
 CSS = """
 window.zeta-search { background: @scrim_strong; }

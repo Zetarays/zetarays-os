@@ -16,22 +16,30 @@ for, and the complete list is below.
 
 ## 1. System updates
 
-**Where**: `deb.debian.org` and its mirrors.
-**When**: when you update or install apps (Packages, or `apt`).
+**Where**: `deb.debian.org`, `security.debian.org` and their mirrors.
+**When**: when you check for updates or install apps (Settings › Software
+Update, Synaptic, or `apt`). On an installed system, also once a day for the
+automatic security updates (on by default after installation), and once a
+week if you turn on the update reminder. Never in the live session unless
+you ask.
 **What**: which packages you request. Your IP address is visible to the
 server, as with any download.
-**Can it be avoided**: yes, by not updating — but that is not recommended:
-updates bring security fixes.
+**Can it be avoided**: yes. Turn off "Install security updates
+automatically" in Settings › Software Update, and do not update. This is not
+recommended: updates bring security fixes.
 
 ## 2. The ZETA assistant
 
 ZETA works in two ways, and the difference matters.
 
-**Local model (default).** The Llama 3.2 model runs **on your computer**.
+**Local model (default).** The local model runs **on your computer**.
 Questions, answers and history never leave it. It also works offline.
 
-**Cloud providers (only if you set one up).** If you enter an API key in
-*Settings › AI*, your questions are sent to the provider you chose:
+**Cloud providers (only if you choose one).** If you enter an API key in
+*Settings › AI* and choose that provider, your questions are sent to it.
+ZETA never switches to an online service by itself: when the local model
+can't answer, it can only offer one in the chat, and the question is sent
+only if you click to accept, for that question. Where the data goes:
 
 | Provider | Where the data goes |
 |---|---|
@@ -50,6 +58,24 @@ Questions, answers and history never leave it. It also works offline.
 From then on, **that provider's** terms and privacy policy apply, not these.
 ZETA RAYS neither sees nor keeps any of that traffic.
 **Without an API key, none of these connections take place.**
+
+**Looking up current information (off by default).** A model only knows
+the world up to its training date. For questions about current facts (who
+holds an office, news, prices, versions, weather, results) ZETA can look up
+public sources first, if you allow it: it asks the first time ("Search the
+web?", Yes / Always / No), and the switch is in *Settings › AI › Current
+Information*.
+
+| What | Where it goes |
+|---|---|
+| Your question, shortened to its key words | `it.wikipedia.org` or `en.wikipedia.org` (search and page extract) |
+| The same, only if you also turn it on | `api.duckduckgo.com` (instant answers) |
+
+Only the question is sent: never the conversation, never your files, never
+anything else. No cookies are kept, the requests identify themselves as
+ZETA RAYS (User-Agent), and they stop after 5 seconds. The sources used are
+shown under the answer with their address and date. With the switch off, or
+without a network, ZETA says that current facts can't be verified.
 
 API keys are stored in the system keyring, if one is running; otherwise in
 encrypted files only you can read, in `~/.config/zeta/keys/` (permissions

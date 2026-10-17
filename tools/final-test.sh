@@ -4,7 +4,8 @@
 # runs a sequence of checks and saves screenshots in .cache/vm/final-*.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VM="ZETA RAYS 2.0 (arm64)"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"   # release version (VERSION file)
+VM="ZETA RAYS $VERSION (arm64)"
 T="$ROOT/tools/vbox-keys.py"
 P="$ROOT/tools/vbox-test.sh"
 VBM=/Applications/VirtualBox.app/Contents/MacOS/VBoxManage

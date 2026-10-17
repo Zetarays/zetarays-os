@@ -239,7 +239,8 @@ def minimize(addr=None):
     state[addr] = {"workspace": ws or "1",
                    "title": win.get("title") or "",
                    "class": win.get("class") or "",
-                   "rect": rectangle(win)}
+                   "rect": rectangle(win),
+                   "time": time.time()}
     _save(state)
     ok = dispatch('hl.dsp.window.move({ workspace = "%s", follow = false, window = "%s" })'
                   % (HIDDEN, _sel(addr)))
@@ -249,13 +250,74 @@ def minimize(addr=None):
     return ok
 
 
+def title_bars_present():
+    """True when the windows have title bars with their buttons (hyprbars).
+
+    hyprland.lua writes "1" at every configuration load when the buttons are
+    registered. Otherwise the plugin list is asked: at login the plugin is
+    loaded but its buttons only arrive with the reload zeta-session does two
+    seconds later, and the bar must not flash a Windows button meanwhile.
+    Without title bars the bar shows the Windows button, so that every
+    window can still be closed and minimized with the mouse."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+    try:
+        with open(os.path.join(runtime, "zeta-title-bars")) as f:
+            if f.read().strip() == "1":
+                return True
+    except OSError:
+        pass
+    out = _hyprctl(["plugin", "list"])
+    return out is None or "hyprbars" in out.lower()
+
+
+def _active_workspace():
+    ws = _hyprctl(["activeworkspace"], as_json=True)
+    name = str((ws or {}).get("name") or "") if isinstance(ws, dict) else ""
+    return name if name and not name.startswith("special:") else ""
+
+
+def _placeholder_preview(addr, class_name):
+    """Thumbnail without a snapshot (dark card with the app icon), for a
+    minimized window whose snapshot is missing: it can no longer be
+    captured, since a hidden window is not drawn."""
+    try:
+        compose_preview(os.path.join(PREVIEWS, "-none-.png"), _preview_file(addr, "mini"), class_name)
+    except Exception:  # noqa: BLE001 - the window stays in the list anyway
+        pass
+
+
+ADOPT_AFTER = 10            # seconds: zeta-minimize writes the snapshot meanwhile
+
+
 def minimized():
-    """List of minimized windows that still exist (the others are removed)."""
+    """List of minimized windows that still exist (the others are removed).
+
+    Windows on a hidden (special) workspace that the state file does not
+    know are adopted: zeta-minimize may have crashed, the state file may
+    have been deleted, or a program may have moved itself there. Without
+    this they would be in neither list, unreachable."""
     state = _load()
+    all_clients = _hyprctl(["clients"], as_json=True)
+    if not isinstance(all_clients, list):
+        # Hyprland did not answer (busy computer): forget nothing
+        return [{"address": a, "title": i.get("title") or tr("Window"),
+                 "class": i.get("class") or "", "workspace": i.get("workspace") or ""}
+                for a, i in state.items()]
+    live = {c.get("address"): c for c in all_clients}
+    changed = False
+    for c in all_clients:
+        addr = c.get("address")
+        ws = str((c.get("workspace") or {}).get("name", ""))
+        if addr and ws.startswith("special:") and addr not in state and c.get("mapped", True):
+            # restored to the workspace on screen at that moment
+            state[addr] = {"workspace": "", "title": c.get("title") or "",
+                           "class": c.get("class") or "", "rect": None,
+                           "adopted": True}
+            changed = True
     if not state:
         return []
-    live = {c.get("address"): c for c in clients()}
-    out, changed = [], False
+    now = time.time()
+    out = []
     for addr, info in list(state.items()):
         c = live.get(addr)
         if c is None:
@@ -269,19 +331,25 @@ def minimized():
             remove_preview(addr)
             changed = True
             continue
+        if (not os.path.exists(_preview_file(addr, "mini"))
+                and (info.get("adopted") or now - float(info.get("time") or 0) > ADOPT_AFTER)):
+            _placeholder_preview(addr, c.get("class") or info.get("class") or "")
         out.append({"address": addr,
                     "title": c.get("title") or info.get("title") or tr("Window"),
                     "class": c.get("class") or info.get("class") or "",
-                    "workspace": info.get("workspace") or "1"})
+                    "workspace": info.get("workspace") or ""})
     if changed:
         _save(state)
     return out
 
 
 def restore(addr):
-    """Move the window back to its workspace and give it focus."""
+    """Move the window back to its workspace and give it focus. A window
+    with no known workspace (adopted from a hidden workspace) comes back to
+    the one on screen. The window guard in hyprland.lua then makes sure it
+    is reachable, even if its old place was on a display that is gone."""
     state = _load()
-    ws = (state.get(addr) or {}).get("workspace") or "1"
+    ws = (state.get(addr) or {}).get("workspace") or _active_workspace() or "1"
     ok = dispatch('hl.dsp.window.move({ workspace = "%s", follow = false, window = "%s" })'
                   % (ws, _sel(addr)))
     if ok:
@@ -295,6 +363,13 @@ def restore(addr):
 
 def focus(addr):
     return dispatch('hl.dsp.focus({ window = "%s" })' % _sel(addr))
+
+
+def recover_all():
+    """Every window back inside the screen, title bar and buttons within
+    reach; full screen windows leave full screen (the window guard in
+    hyprland.lua, the same as Super+Shift+W)."""
+    return _hyprctl(["eval", "if zeta_recover then zeta_recover() end"]) is not None
 
 
 def close(addr=None):

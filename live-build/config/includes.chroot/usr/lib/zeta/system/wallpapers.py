@@ -4,33 +4,37 @@
 They live in /usr/share/zeta/wallpapers, with a small thumbnail in
 thumbnails/ (the Settings gallery must not load eight large images just to
 show them at 190 pixels). This module only holds the list with the display
-names and the lookup by name, also used by ZETA («metti lo sfondo onde
-rosse»). The wallpaper itself is always applied by zeta-wallpaper.
+names and the lookup by name, also used by ZETA ("set the red waves
+wallpaper"). The wallpaper itself is always applied by zeta-wallpaper.
 """
 from __future__ import annotations
 
 import os
 
 from i18n import tr
+from i18n_data import load
 
 FOLDER = "/usr/share/zeta/wallpapers"
 THUMBNAILS = os.path.join(FOLDER, "thumbnails")
 
-# file: display name, and the names it can be searched by (in English and in
-# Italian: «metti lo sfondo onde rosse» and «red waves» both work, whatever
-# the system language). The order is the gallery order.
-# i18n-data-begin
-CATALOG = [
-    ("zeta-blue-waves.jpg", tr("Blue waves"), ("blue waves", "onde blu")),
-    ("zeta-green-circuits.jpg", tr("Green circuits"), ("green circuits", "circuiti verdi")),
-    ("zeta-red-waves.jpg", tr("Red waves"), ("red waves", "onde rosse")),
-    ("zeta-terminal.jpg", tr("Terminal"), ("terminal", "terminale")),
-    ("zeta-blue.jpg", tr("Blue logo"), ("blue logo", "logo blu")),
-    ("zeta-green.jpg", tr("Green logo"), ("green logo", "logo verde")),
-    ("zeta-red.jpg", tr("Red logo"), ("red logo", "logo rosso")),
-    ("zeta-white.jpg", tr("White logo"), ("white logo", "logo bianco")),
-]
-# i18n-data-end
+# Names a wallpaper can be searched by, in English and in Italian whatever the
+# system language, and the words that may precede them: language data in
+# /usr/share/zeta/i18n-data/wallpapers.json.
+_DATA = load("wallpapers")
+
+# file: display name, and the names it can be searched by. The order is the
+# gallery order.
+CATALOG = [(f, name, tuple(_DATA["search_names"][f])) for f, name in (
+    ("zeta-goddess.jpg", tr("Goddess")),
+    ("zeta-blue-waves.jpg", tr("Blue waves")),
+    ("zeta-green-circuits.jpg", tr("Green circuits")),
+    ("zeta-red-waves.jpg", tr("Red waves")),
+    ("zeta-terminal.jpg", tr("Terminal")),
+    ("zeta-blue.jpg", tr("Blue logo")),
+    ("zeta-green.jpg", tr("Green logo")),
+    ("zeta-red.jpg", tr("Red logo")),
+    ("zeta-white.jpg", tr("White logo")),
+)]
 
 
 def listing() -> list:
@@ -65,10 +69,10 @@ def _names(path: str, name: str) -> list:
 
 def search(text: str) -> str | None:
     """The path of the official wallpaper with that name (even a partial
-    match: «onde rosse», «circuiti», «terminale»), None if there is none or if
+    match: "red waves", "circuits", "terminal"), None if there is none or if
     the name matches more than one."""
     t = _simple(text)
-    for prefix in ("sfondo ", "wallpaper ", "background "):  # i18n-data
+    for prefix in _DATA["prefixes"]:
         if t.startswith(prefix):
             t = t[len(prefix):]
             break

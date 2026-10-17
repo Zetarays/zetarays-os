@@ -107,10 +107,25 @@ while read -r used free mp; do
 done < <(df -k --output=pcent,avail,target -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs -x vfat -x iso9660 -x udf 2>/dev/null | tail -n +2)
 
 # --- failed services ---
-FAILED=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | paste -sd, -)
-if [ -n "$FAILED" ]; then
-    notify services "$(gettext "Failed services")" "$(printf "$(gettext 'Not working: %s. Details: journalctl -u <name>.')" "$FAILED")"
-fi
+# Same verdict as the Monitor (/usr/lib/zeta/monitor/unitstate.py): only a
+# confirmed problem notifies, once per failure (not every hour); a scheduled
+# job that failed once and will run again only goes to the report; services
+# for hardware this computer does not have are not mentioned at all. Each
+# failure is written to the journal once, then only to /run/zeta-health.txt.
+while IFS=$'\t' read -r level unit since title why; do
+    key="service-$unit-$since"
+    if [ "$level" != error ] && [ "$level" != warning ]; then
+        continue
+    elif [ -f "$STATE_DIR/notified/$key" ]; then
+        REPORT+=("$title: $why")
+    elif [ "$level" = error ]; then
+        notify "$key" "$title" "$why $(gettext "To see why and try again: Monitor, Services.")"
+    else
+        echo "$NOW" > "$STATE_DIR/notified/$key"
+        record "$title" "$why"
+    fi
+done < <(python3 -I /usr/lib/zeta/monitor/unitstate.py --health 2>/dev/null)
+find "$STATE_DIR/notified" -name 'service-*' -mtime +30 -delete 2>/dev/null
 
 # --- graphics card ---
 GPU=$(journalctl -k --since "$SINCE" --no-pager -o cat 2>/dev/null \

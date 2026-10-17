@@ -88,17 +88,16 @@ ZETA can be wrong: language models make things up, even when they sound
 confident. **Do not rely on an answer for decisions that matter** without
 checking it — all the more so for medical, legal or financial matters.
 
-The local Llama 3.2 model is distributed by Meta under the *Llama 3.2
-Community License*, which has its own conditions: the license text, the
-acceptable use policy and the attribution notice are in `llama-3.2/`, next to
-this file. Built with Llama.
+The local model, Qwen3 4B Instruct (2507) by the Qwen team (Alibaba Cloud),
+is distributed under the *Apache License 2.0*: the license text and a notice
+are in `qwen3/`, next to this file.
 
 If you connect a cloud provider, that provider's terms also apply.
 
 ## Third-party trademarks
 
 Debian is a trademark of SPI Inc. Firefox is a trademark of the Mozilla
-Foundation. Llama is a trademark of Meta Platforms. GNOME, Linux and the other
+Foundation. Qwen is a trademark of Alibaba Cloud. GNOME, Linux and the other
 names mentioned belong to their respective owners. ZETA RAYS OS **is not
 produced, endorsed or approved** by any of them.
 

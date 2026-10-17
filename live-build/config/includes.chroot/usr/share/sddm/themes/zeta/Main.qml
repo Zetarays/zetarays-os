@@ -8,10 +8,10 @@ Rectangle {
     color: "#000000"
 
     property color accent: config.accent || "#3A8DFF"
-    // Text in English, in Italian if the system language is Italian
-    // (SDDM passes the LANG from /etc/default/locale to the greeter).
-    readonly property bool italian: Qt.locale().name.indexOf("it") === 0
-    function t(en, it) { return italian ? it : en }
+    // Text in English (qsTr), translated by SDDM with the theme's Qt
+    // translations (translations/<language>.qm, see metadata.desktop) in the
+    // system language: SDDM passes the LANG from /etc/default/locale to the
+    // greeter. Sources: tools/qt-lang.
     // password visible while typing (eye icon in the field)
     property bool showPassword: false
     // Always the ZETA RAYS session (zeta.desktop): at the first login after
@@ -205,7 +205,7 @@ Rectangle {
             color: "#6E6E73"
             font.family: "Roboto"
             font.pixelSize: 12
-            text: root.t("Press Enter to sign in", "Premi Invio per accedere")  // i18n-data
+            text: qsTr("Press Enter to sign in")
         }
     }
 
@@ -219,9 +219,9 @@ Rectangle {
 
         Repeater {
             model: [
-                { icon: "moon", label: root.t("Suspend", "Sospendi"), action: "suspend" },  // i18n-data
-                { icon: "restart", label: root.t("Restart", "Riavvia"), action: "reboot" },  // i18n-data
-                { icon: "power", label: root.t("Shut Down", "Spegni"), action: "powerOff" }  // i18n-data
+                { icon: "moon", label: qsTr("Suspend"), action: "suspend" },
+                { icon: "restart", label: qsTr("Restart"), action: "reboot" },
+                { icon: "power", label: qsTr("Shut Down"), action: "powerOff" }
             ]
             delegate: Column {
                 spacing: 8
@@ -263,7 +263,7 @@ Rectangle {
     }
 
     function doLogin() {
-        hint.text = root.t("Signing in…", "Accesso in corso…")  // i18n-data
+        hint.text = qsTr("Signing in…")
         sddm.login(root.userName, password.text, root.sessionIndex)
     }
 
@@ -272,7 +272,7 @@ Rectangle {
         function onLoginFailed() {
             password.text = ""
             hint.color = "#FF6B6B"
-            hint.text = root.t("Wrong password, try again", "Password errata, riprova")  // i18n-data
+            hint.text = qsTr("Wrong password, try again")
         }
     }
 }

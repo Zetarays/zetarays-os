@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ZETA RAYS: system-wide defaults of the file manager (Thunar 4.20).
+
+  xfconfd reads this file from XDG_CONFIG_DIRS (/etc/xdg) for every user,
+  existing ones included; a value the user changes is saved in
+  ~/.config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml and wins over this
+  one. Names and values come from the Thunar 4.20.2 source
+  (thunar/thunar-preferences.c, thunar/thunar-window.c), not from guesses:
+  enums are stored as the C value name ("THUNAR_COLUMN_NAME").
+
+  - Toolbar like the file managers of Windows and macOS: back, forward, up,
+    home, the address bar, then the three view buttons (icons, detailed list,
+    compact list), zoom out / zoom in and search. Item ids and the
+    "id:visible" format are those of "last-toolbar-items"; every known item
+    is listed so the toolbar editor keeps a sensible order. Items left out
+    (the custom actions, "uca-action-...") stay hidden, as by default.
+  - Each folder remembers its own view, sort order and zoom
+    (misc-directory-specific-settings, kept in the gvfs metadata).
+  - Sort by name, folders first, thumbnails on (tumbler) for files on this
+    computer and on USB drives (not on slow network shares).
+-->
+<channel name="thunar" version="1.0">
+  <property name="last-view" type="string" value="ThunarIconView"/>
+  <property name="last-toolbar-items" type="string" value="menu:0,back:1,forward:1,open-parent:1,open-home:1,new-tab:0,new-window:0,toggle-split-view:0,undo:0,redo:0,location-bar:1,view-as-icons:1,view-as-detailed-list:1,view-as-compact-list:1,view-switcher:0,zoom-out:1,zoom-in:1,zoom-reset:0,reload:0,search:1"/>
+  <property name="misc-directory-specific-settings" type="bool" value="true"/>
+  <property name="last-icon-view-zoom-level" type="string" value="THUNAR_ZOOM_LEVEL_100_PERCENT"/>
+  <property name="last-details-view-zoom-level" type="string" value="THUNAR_ZOOM_LEVEL_38_PERCENT"/>
+  <property name="last-compact-view-zoom-level" type="string" value="THUNAR_ZOOM_LEVEL_38_PERCENT"/>
+  <property name="last-sort-column" type="string" value="THUNAR_COLUMN_NAME"/>
+  <property name="last-sort-order" type="string" value="GTK_SORT_ASCENDING"/>
+  <property name="misc-folders-first" type="bool" value="true"/>
+  <property name="misc-thumbnail-mode" type="string" value="THUNAR_THUMBNAIL_MODE_ONLY_LOCAL"/>
+  <property name="last-statusbar-visible" type="bool" value="true"/>
+</channel>

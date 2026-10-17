@@ -1,0 +1,9 @@
+[Unit]
+Description=ZETA RAYS: reminder for available software updates (never installs)
+Documentation=file:/usr/local/libexec/zeta-update-reminder
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/zeta-update-reminder
+Nice=10
+IOSchedulingClass=idle

@@ -90,7 +90,8 @@ the ZETA RAYS apps stay in English.
 | `Super + Shift + T` | Text from an area of the screen (OCR), copied to the clipboard |
 | `Super + Shift + S` | Screenshot of an area, copied to the clipboard |
 | `Ctrl + Tab` | App switcher (`Ctrl + Q` inside it closes the chosen app) |
-| `Super + Shift + W` | Every window back inside the screen, title bar and buttons within reach |
+| `Super + Shift + W` | Every window back inside the screen, title bar and buttons within reach; full screen windows leave full screen (also a button in the Windows list) |
+| `Super + drag` / `Super + right-drag` | Move / resize a window, grabbing it anywhere (also one larger than the screen) |
 | `Ctrl + Alt + Esc` | Force quit: crosshair, click the frozen window (background = full list, including programs without a window) |
 | `Ctrl + Shift + Esc` | Emergency: closes the active window at once, without any interface |
 | `Ctrl + Alt + Delete` | Emergency panel |

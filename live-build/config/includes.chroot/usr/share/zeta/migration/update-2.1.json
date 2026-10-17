@@ -1,0 +1,20 @@
+{
+ "version": "2.1",
+ "steps": [
+  {
+   "kind": "skel",
+   "files": {
+    ".config/hypr/hyprland.lua": [
+     "5e958abb42a4a94cc6ecf462b337dacea62115b24e5edd4844cdc362bfe42d1c"
+    ],
+    ".config/waybar/config.jsonc": [
+     "730ebac345b11fa7d61cc26c3d38830636e4ae5410646cacd06acdcc2bee0f19"
+    ],
+    ".config/waybar/style.css": [
+     "337d1c476074a3daae4a05b8043367c8196090be74ae2711ebc1d6a62396c761"
+    ]
+   },
+   "renamed": {}
+  }
+ ]
+}

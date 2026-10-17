@@ -1,0 +1,14 @@
+[Unit]
+Description=ZETA RAYS: daily look at whether the weekly update reminder is due
+# Off by default: Settings > Software Update > "Weekly reminder" runs
+# "systemctl --user enable --now zeta-update-reminder.timer". The program
+# itself checks at most once a week.
+
+[Timer]
+OnStartupSec=15min
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

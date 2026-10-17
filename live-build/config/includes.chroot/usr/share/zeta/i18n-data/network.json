@@ -1,0 +1,3 @@
+{
+ "wired_connection": "^(Wired connection|Connessione via cavo)\\s*(\\d+)$"
+}

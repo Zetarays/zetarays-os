@@ -10,6 +10,9 @@ zeta-selftest (live-build/config/includes.chroot/usr/local/bin/zeta-selftest).
 Each test is a function returning (passed, detail). It changes nothing:
 it reads, queries and compares. Tests that do modify the system put things
 back the way they found them.
+
+The Italian test phrases are language data: data/zeta-tests.json next to this
+file.
 """
 import json
 import os
@@ -18,6 +21,7 @@ import sys
 import time
 
 sys.path.insert(0, "/usr/lib/zeta")
+PHRASES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "zeta-tests.json")
 
 GREEN, RED, GRAY, COLOR_RESET = "\033[32m", "\033[31m", "\033[90m", "\033[0m"
 groups = {}
@@ -28,6 +32,12 @@ def test(group):
         groups.setdefault(group, []).append(fn)
         return fn
     return dec
+
+
+def _phrases(test_name):
+    """The test phrases of a test (data/zeta-tests.json, keyed by test name)."""
+    with open(PHRASES_FILE, encoding="utf-8") as f:
+        return json.load(f)[test_name]
 
 
 def _sh(cmd, timeout=15):
@@ -44,29 +54,7 @@ def _sh(cmd, timeout=15):
 def intents_recognized():
     """Common phrases must not end up at the language model."""
     from intelligence import intents
-    # i18n-data-begin: Italian phrases the assistant must recognize
-    expected_cases = [
-        ("che ore sono", "current_time"), ("che giorno e oggi", "current_date"),
-        ("quanta batteria ho", "battery_status"), ("volume", "volume_status"),
-        ("quante finestre ho aperte", "list_windows"),
-        ("quali finestre sono aperte", "list_windows"),
-        ("mostrami le finestre", "list_windows"),
-        ("riduci la finestra", "minimize_window"),
-        ("ingrandisci la finestra", "maximize_window"),
-        ("chiudi questa finestra", "close_active_window"),
-        ("apri le impostazioni", "open_settings"),
-        ("apri firefox", "open_application"),
-        ("passa al tema chiaro", "set_theme"),
-        ("qual e il mio ip", "ip_address"),
-        ("apri www.google.it", "open_url"),
-        ("vai su https://debian.org", "open_url"),
-        ("apri il documento relazione", "open_file"),
-        ("metti lo sfondo predefinito", "set_wallpaper"),
-        ("quanta ram sto usando", "memory_usage"),
-        ("uso della cpu", "cpu_usage"),
-        ("da quanto e acceso", "uptime"),
-    ]
-    # i18n-data-end
+    expected_cases = _phrases("intents_recognized")
     wrong = []
     for phrase, expected_value in expected_cases:
         i = intents.parse(phrase)
@@ -80,13 +68,7 @@ def intents_recognized():
 def intents_without_false_positives():
     """Ordinary phrases must NOT trigger a system command."""
     from intelligence import intents
-    # i18n-data-begin: Italian phrases that must not run anything
-    harmless = ["come si apre un file zip",
-               "scrivimi una poesia sulle finestre di una casa",
-               "parlami della memoria storica italiana",
-               "chi ha formulato il principio di archimede",
-               "consigliami un equipaggiamento da campeggio"]
-    # i18n-data-end
+    harmless = _phrases("intents_without_false_positives")
     hits = []
     for phrase in harmless:
         i = intents.parse(phrase)
@@ -136,12 +118,7 @@ def zeta_can_do_everything_with_confirmation():
 def system_commands_recognized():
     """Computer-control phrases must reach the right action."""
     from intelligence import intents
-    # i18n-data-begin: Italian commands
-    pairs = [("spegni il computer", "power_off"), ("riavvia", "reboot"),
-              ("blocca lo schermo", "lock_screen"), ("spegni il wifi", "wifi_toggle"),
-              ("metti il volume a 40", "set_volume"), ("installa gimp", "install_package"),
-              ("svuota il cestino", "empty_trash")]
-    # i18n-data-end
+    pairs = _phrases("system_commands_recognized")
     wrong = []
     for phrase, expected_value in pairs:
         i = intents.parse(phrase)
@@ -156,7 +133,7 @@ def immediate_answers():
     from intelligence.assistant import Assistant
     a = Assistant()
     slow = []
-    for phrase in ("che ore sono", "che giorno e oggi", "quanta memoria sto usando"):  # i18n-data
+    for phrase in _phrases("immediate_answers"):
         t0 = time.perf_counter()
         r = a.respond(phrase)
         dt = time.perf_counter() - t0

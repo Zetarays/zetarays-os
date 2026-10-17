@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass
 
 from i18n import tr
+from i18n_data import load
 
 from . import capabilities as C
 from . import state as S
@@ -114,59 +115,9 @@ INSTRUCTIONS = (
 # that action. The local model is small: on its own it picked "screenshot"
 # for any sentence (tested). An action with no words here cannot be chosen by
 # the model: only local understanding can trigger it.
-# Italian and English: the request may arrive in either language.
-# i18n-data-begin: Italian and English trigger words
-WORDS = {
-    "open_application": r"apr|avvi|lanc|usa|ascolt|guard|open|launch|start|run|use|listen|watch|play",
-    "close_application": r"chiud|esc|termin|basta|smetti|close|quit|exit|stop",
-    "restart_application": r"riavvi|riapr|ripart|restart|reopen|relaunch",
-    "focus_application": r"pass|torn|vai|mostr|primo piano|switch|go to|go back|bring|show|focus",
-    "minimize_window": r"ridu|minimizz|nascond|togli di mezzo|minimi[sz]|hide|out of the way",
-    "maximize_window": r"ingrand|massimizz|grande|allarg|maximi[sz]|enlarge|bigger",
-    "fullscreen_window": r"schermo intero|tutto schermo|full ?screen",
-    "open_folder": r"apr|mostr|vedere|vedi|cartell|download|scaricat|document|immagin|foto|music|video|scrivania|"
-                   r"open|show|see|folder|picture|photo|desktop",
-    "open_file": r"apr|mostr|vedere|legg|guard|open|show|see|read|view",
-    "search_files": r"cerc|trov|dove|dov'|search|find|look for|where|locate",
-    "show_location": r"dove|dov'|posizione|where|location",
-    "create_folder": r"cre[ai]|nuov|create|make|new",
-    "create_file": r"cre[ai]|nuov|create|make|new",
-    "rename_item": r"rinomin|nome|rename|name",
-    "copy_item": r"copi|duplic|copy|duplicat",
-    "move_item": r"spost|metti|trasfer|move|put|transfer",
-    "delete_item": r"elimin|cancell|butt|cestin|rimuov|delet|remov|trash|erase|throw",
-    "open_settings": r"impostazion|preferenz|configur|settings|preferenc",
-    "set_volume": r"volum|audio|suono|muto|silenz|forte|piano|alza|abbass|sound|mute|unmute|silen|loud|quiet|"
-                  r"turn up|turn down",
-    "set_brightness": r"luminos|luce|scuro|chiaro|brightness|bright|dim|dark|light",
-    "set_theme": r"tema|scuro|chiaro|modalita|theme|dark|light|mode",
-    "lock_screen": r"blocc|lock",
-    "suspend_system": r"sospen|standby|dormi|suspend|sleep",
-    "wifi_on": r"wi.?fi|wireless|rete|network",
-    "wifi_off": r"wi.?fi|wireless|rete|network",
-    "wifi_connect": r"connett|colleg|rete|wi.?fi|connect|join|network",
-    "wifi_disconnect": r"disconnett|scolleg|stacc|disconnect",
-    "wifi_list": r"reti|wi.?fi|networks",
-    "network_status": r"rete|internet|connes|colleg|ip|network|connect|online",
-    "bluetooth_on": r"bluetooth", "bluetooth_off": r"bluetooth",
-    "bluetooth_devices": r"bluetooth|dispositiv|device",
-    "bluetooth_connect": r"bluetooth|cuffi|auricolar|mouse|tastier|cass|headphone|earbud|headset|keyboard|speaker",
-    "bluetooth_disconnect": r"bluetooth|cuffi|auricolar|mouse|tastier|cass|headphone|earbud|headset|keyboard|speaker",
-    "system_status": r"ram|memoria|cpu|processore|disco|spazio|batteria|stato del|come sta il|come va il|lent|"
-                     r"memory|processor|disk|space|storage|battery|status|slow",
-    "list_processes": r"process|consum|rallent|lent|pesant|usa|occupa|slow|heavy|using|hog",
-    "list_running_applications": r"apert|aperti|in esecuzione|finestre|running|windows",
-    "list_installed_applications": r"installat|installed",
-    "is_installed": r"installat|c'e|ce l|installed|do i have",
-    "current_time": r"ore|ora|giorno|data|time|day|date|clock",
-    "screenshot": r"screenshot|schermata|cattura|screen ?shot|capture",
-    "dock_add": r"dock", "dock_remove": r"dock",
-    "set_wallpaper": r"sfondo|wallpaper|background",
-    "set_default_app": r"predefinit|default", "list_default_apps": r"predefinit|default",
-    "open_url": r"sito|www|http|pagina|internet|site|web|page",
-    "download_file": r"scaric|download",
-}
-# i18n-data-end
+# Italian and English: the request may arrive in either language. The table
+# (capability -> regex alternatives) is language data: i18n-data/agent.json.
+WORDS = load("agent")["words"]
 
 
 def _plausible(name: str, text: str) -> bool:
@@ -205,14 +156,17 @@ def choose_with_model(text: str, provider) -> list | None:
               "required": ["action"]}
     body = {"model": provider._model(), "stream": False, "format": schema,
              "keep_alive": provider.KEEP_ALIVE,
-             "options": {"temperature": 0, "num_predict": 120},
+             # same load options as the chat: otherwise Ollama reloads the model
+             "options": {"temperature": 0, "num_predict": 120, **provider.load_options()},
              "messages": [{"role": "system", "content": INSTRUCTIONS + _catalog(candidates)},
                           {"role": "user", "content": text}]}
     try:
         req = urllib.request.Request(provider._base() + "/api/chat", data=json.dumps(body).encode(),
                                      headers={"content-type": "application/json"})
-        with urllib.request.urlopen(req, timeout=45) as r:
-            answer = json.loads(r.read().decode()).get("message", {}).get("content", "")
+        # cancelable (Stop in the ZETA window closes this connection too)
+        from ..providers.base import open_url
+        with open_url(req, read_timeout=45, token=provider.cancel_token) as r:
+            answer = json.loads(r.read(256 * 1024).decode()).get("message", {}).get("content", "")
         choice = json.loads(answer)
     except Exception:  # noqa: BLE001 - if the model does not answer, fall back to chatting
         return None

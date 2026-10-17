@@ -14,6 +14,8 @@
                              minimize the active window (or the given one)
   zeta-windows restore <address>
   zeta-windows count        text for the bar (empty if nothing is minimized)
+  zeta-windows button       text of the bar's Windows button: only when the
+                             windows have no title bars (hyprbars missing)
   zeta-windows recover      bring every window back inside the screen, with
                              the title bar within reach (Super+Shift+W)
   zeta-windows preview N    thumbnail N of the bar (path and tooltip)
@@ -114,8 +116,7 @@ def cli():
         return _close_active()
     if cmd == "recover":
         # the window guardian lives in Hyprland (hyprland.lua)
-        return subprocess.call(["hyprctl", "eval", "zeta_recover()"],
-                               stdout=subprocess.DEVNULL)
+        return 0 if windows.recover_all() else 1
     if cmd == "minimize":
         # with an address that window is minimized, not the active one;
         # zeta-minimize takes the snapshot for the bar and plays the animation
@@ -157,10 +158,20 @@ def cli():
             return subprocess.call(["zeta-minimize", "menu", sys.argv[2]])
         windows.restore(addr)
         return 0 if windows.close(addr) else 1
+    if cmd == "button":
+        # the bar's Windows button (generated bar, next to the thumbnails):
+        # only when the windows have no title bars of their own
+        if not windows.title_bars_present():
+            print(tr("Windows"))
+        return 0
     if cmd == "count":
         n = len(windows.minimized())
         if n:
             print(ntr("{n} minimized", "{n} minimized", n).format(n=n))
+        elif not windows.title_bars_present():
+            # no title bars, so no close/minimize buttons on the windows:
+            # the bar keeps a way to reach, close and minimize every window
+            print(tr("Windows"))
         return 0
     if cmd == "force":
         FORCE_MODE = True
@@ -180,6 +191,8 @@ def cli():
                              minimize the active window (or the given one)
   zeta-windows restore <address>
   zeta-windows count        text for the bar (empty if nothing is minimized)
+  zeta-windows recover      bring every window back inside the screen, with
+                             the title bar within reach (Super+Shift+W)
 """))
         return 1
     return None
@@ -233,7 +246,43 @@ window.zeta-overlay.zeta-windows-list { background: @scrim; }
 .win-sub { font-size: 11px; color: @ink_dim; }
 .win-icon { min-width: 28px; min-height: 28px; }
 .win-empty { font-size: 12px; color: @ink_dim; padding: 10px 4px; }
+.win-key { font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 6px;
+           background: alpha(@ink_dim, 0.16); }
 """
+
+
+def _exit_shortcuts():
+    """(keys, what they do): every way out of a window state, from the
+    keyboard. The same keys are bound in hyprland.lua ("zeta-exit:"
+    descriptions, checked by zeta-selftest)."""
+    return [
+        (tr("Super + Q"), tr("Close the active window")),
+        (tr("Super + H"), tr("Minimize the active window")),
+        (tr("Super + M"), tr("Maximize or restore the active window")),
+        (tr("Super + F"), tr("Full screen on or off")),
+        (tr("Super + W"), tr("This list: open and minimized windows")),
+        (tr("Super + Shift + W"), tr("Bring every window back inside the screen")),
+        (tr("Super + drag"), tr("Move a window, grabbing it anywhere")),
+        (tr("Super + right-drag"), tr("Resize a window")),
+        (tr("Ctrl + Tab"), tr("Switch between apps")),
+        (tr("Ctrl + Shift + Esc"), tr("Close the active window at once")),
+        (tr("Ctrl + Alt + Esc"), tr("Force quit: click the window that isn't responding")),
+        (tr("Ctrl + Alt + Delete"), tr("Emergency panel")),
+    ]
+
+
+def _list_height():
+    """Highest the window lists may grow (logical pixels): a bit more than
+    half of the smallest display, so the card always fits on screen."""
+    try:
+        from gi.repository import Gdk
+        monitors = Gdk.Display.get_default().get_monitors()
+        heights = [monitors.get_item(i).get_geometry().height for i in range(monitors.get_n_items())]
+        if heights:
+            return max(200, int(min(heights) * 0.52))
+    except Exception:  # noqa: BLE001 - a fixed height is fine too
+        pass
+    return 380
 
 
 def icon_for(cls):
@@ -268,6 +317,14 @@ class WindowList(Gtk.ApplicationWindow):
         self.card.append(Gtk.Label(label=tr("Force Quit Applications") if force else tr("Windows"),
                                    css_classes=["win-title"], halign=Gtk.Align.START))
 
+        # The lists scroll: with many windows the card must still fit on
+        # the screen, otherwise the rows at the bottom could not be reached.
+        self.lists = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                      propagate_natural_height=True,
+                                      max_content_height=_list_height())
+        scroller.set_child(self.lists)
+
         if force:
             self.card.append(Gtk.Label(
                 label=tr("Choose the program that isn't responding. Unsaved work will be lost."),
@@ -277,24 +334,51 @@ class WindowList(Gtk.ApplicationWindow):
                                 halign=Gtk.Align.START, css_classes=["zeta-row"])
             crosshair.connect("clicked", self._open_crosshair)
             self.card.append(crosshair)
+            self.card.append(scroller)
             self._section(tr("Open Programs"), windows.open_windows(), restore=False,
                           empty=tr("No open programs."))
             self._windowless_section()
         else:
+            self.card.append(scroller)
             mini = windows.minimized()
             self._section(tr("Minimized Windows"), mini, restore=True,
                           empty=tr("No minimized windows."))
             self._section(tr("Open Windows"), windows.open_windows(), restore=False,
                           empty=tr("No open windows."))
+            # a window out of reach, or one whose title bar is hidden: one
+            # click brings every window back on screen (Super+Shift+W)
+            back = Gtk.Button(css_classes=["zeta-row"], halign=Gtk.Align.FILL,
+                              tooltip_text=tr("Every window back inside the screen, with its "
+                                              "title bar and buttons within reach"))
+            inside = Gtk.Box(spacing=10)
+            inside.append(Gtk.Image(icon_name="view-restore-symbolic", pixel_size=16))
+            inside.append(Gtk.Label(label=tr("Bring All Windows Back"), xalign=0, hexpand=True))
+            inside.append(Gtk.Label(label=tr("Super + Shift + W"), css_classes=["win-key"]))
+            back.set_child(inside)
+            back.connect("clicked", lambda _b: self.act(lambda _a: windows.recover_all(), None))
+            self.card.append(back)
+            self.card.append(self._shortcuts())
 
         self.card.append(Gtk.Label(label=tr("Press Esc to close"), css_classes=["zeta-caption"],
                                    halign=Gtk.Align.START, margin_top=4))
         self.set_child(self.card)
         popup.close_on_outside(self, self.card, self.close_app)
 
+    def _shortcuts(self):
+        """The keyboard ways out: they work even when a window covers the
+        bar, has no title bar or sits where the mouse cannot reach it."""
+        exp = Gtk.Expander(label=tr("Keyboard Shortcuts"), margin_top=4)
+        grid = Gtk.Grid(column_spacing=14, row_spacing=4, margin_top=6, margin_start=6)
+        for row, (keys, what) in enumerate(_exit_shortcuts()):
+            grid.attach(Gtk.Label(label=keys, xalign=0, css_classes=["win-key"]), 0, row, 1, 1)
+            grid.attach(Gtk.Label(label=what, xalign=0, wrap=True, max_width_chars=34,
+                                  css_classes=["win-sub"]), 1, row, 1, 1)
+        exp.set_child(grid)
+        return exp
+
     def _section(self, title, items, restore, empty):
-        self.card.append(Gtk.Label(label=title, css_classes=["zeta-caption"],
-                                   halign=Gtk.Align.START, margin_top=6))
+        self.lists.append(Gtk.Label(label=title, css_classes=["zeta-caption"],
+                                    halign=Gtk.Align.START, margin_top=6))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                       css_classes=["zeta-section"])
         if not items:
@@ -303,7 +387,7 @@ class WindowList(Gtk.ApplicationWindow):
             box.append(lab)
         for w in items:
             box.append(self._row(w, restore))
-        self.card.append(box)
+        self.lists.append(box)
 
     def _row(self, w, restore):
         """One row: the main button opens/restores, the ones beside it
@@ -381,8 +465,8 @@ class WindowList(Gtk.ApplicationWindow):
                           lambda _b, n=model_name: self._unload_model(n)))
         if not lines:
             return
-        self.card.append(Gtk.Label(label=tr("Without a Window"), css_classes=["zeta-caption"],
-                                   halign=Gtk.Align.START, margin_top=6))
+        self.lists.append(Gtk.Label(label=tr("Without a Window"), css_classes=["zeta-caption"],
+                                    halign=Gtk.Align.START, margin_top=6))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                       css_classes=["zeta-section"])
         for title, below, operation, fn in lines:
@@ -399,7 +483,7 @@ class WindowList(Gtk.ApplicationWindow):
             b.connect("clicked", fn)
             line.append(b)
             box.append(line)
-        self.card.append(box)
+        self.lists.append(box)
 
     def _unload_model(self, model_name):
         """Unload the model from memory (keep_alive 0): no administrator

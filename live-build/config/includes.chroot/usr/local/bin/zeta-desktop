@@ -65,6 +65,8 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import (Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk,  # noqa: E402
                            Pango)
+# after the layer-shell preload (which restarts the process): it imports GIO
+from system import launcher_trust, open_with  # noqa: E402
 
 CFG = os.path.expanduser("~/.config/zeta")
 STATE = os.path.join(CFG, "desktop.json")
@@ -83,6 +85,9 @@ window.zeta-desktop { background: transparent; }
 .desk-item.cut { opacity: 0.45; }
 .desk-item.moving { opacity: 0.8; background: @hover_2; }
 .desk-band { background: @accent_soft; border: 1px solid @accent; border-radius: 4px; }
+/* an app or folder icon under files being dragged: dropping opens them with
+   the app, or puts them inside the folder */
+.desk-item.drop-target { background: @accent_soft; border: 1px solid @accent; }
 """
 
 SORT_MODES = [("name", tr("Name")), ("type", tr("Type")), ("date", tr("Date Modified")),
@@ -277,6 +282,27 @@ def _shortcut_app(path):
         return Gio.DesktopAppInfo.new_from_filename(path)
     except (GLib.Error, TypeError):
         return None
+
+
+def _launcher_appinfo(path):
+    """The app a launcher on the Desktop starts, as a Gio.DesktopAppInfo that
+    can be handed files (dropped on its icon). The same program as a
+    double-click (see open()): GIO's own entry when it starts that program,
+    otherwise the entry with the paths resolved by the app registry (a
+    program unpacked in /opt with «Exec=blender», which GIO refuses or would
+    resolve to the packaged Blender). None if no program can be found."""
+    app = _shortcut_app(path)
+    try:
+        kf = _app_registry().resolved_entry(path)
+    except (OSError, GLib.Error):
+        kf = None
+    resolved = open_with.app_from_keyfile(kf)
+    if app is None or resolved is None:
+        return app or resolved
+    command = _shortcut_command(path)
+    same = command is not None and \
+        GLib.find_program_in_path(app.get_executable() or "") == GLib.find_program_in_path(command[0][0])
+    return app if same else resolved
 
 
 # ---------------------------------------- launchers for programs
@@ -545,6 +571,8 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.band = None
         self._ref_timer = 0
         self._dragging = []
+        self._drop_cache = {}         # icon under a drag: what it accepts (per drag)
+        self._drop_highlight = None   # the icon shown as the drop target
         self._moving = None
         self._grab, self._grab_name = (0, 0), None
 
@@ -552,6 +580,12 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.fixed = Gtk.Fixed(hexpand=True, vexpand=True)
         self.set_child(self.fixed)
         self.add_css_class("zeta-desktop")
+
+        # launchers made by ZETA RAYS before the trust check existed keep
+        # starting without a question (once; see launcher_trust)
+        if not self.state.get("trust_migrated") and launcher_trust.trust_own_shortcuts(self.dir):
+            self.state["trust_migrated"] = True
+            save_state(self.state)
 
         self._add_desktop_gestures()
         self.monitor = None
@@ -954,31 +988,9 @@ class DesktopWindow(Gtk.ApplicationWindow):
         # a text editor, because GIO does not trust an arbitrary .desktop
         # file. Here the file is read and the application is launched.
         elif it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
-            command = _shortcut_command(it.path)
-            app = _shortcut_app(it.path)
-            # GIO only when it would start the same program: with «Exec=blender»
-            # next to Blender 5.2 in /opt it would start /usr/bin/blender
-            if command is not None and app is not None and \
-                    GLib.find_program_in_path(app.get_executable() or "") and \
-                    GLib.find_program_in_path(command[0][0]) == \
-                    GLib.find_program_in_path(app.get_executable() or ""):
-                try:
-                    app.launch([], None)   # program installed in the system
-                    return
-                except GLib.Error:
-                    pass
-            if command is not None:
-                argv, folder = command
-                try:
-                    _spawn(argv, cwd=folder, start_new_session=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    return
-                except OSError as e:
-                    self._error(tr("Couldn't start “{name}”: {error}").format(
-                        name=it.display, error=e.strerror))
-                    return
-            self._error(tr("“{name}” is not a valid shortcut: the program it points "
-                           "to can't be found.").format(name=it.display))
+            # a launcher from a download or an archive runs only once the
+            # user trusts it (see launcher_trust)
+            self._when_trusted(it, lambda: self._run_launcher(it))
             return
         elif _is_program(it.path):
             # a program (or a link to a program): started from its own folder,
@@ -1000,6 +1012,76 @@ class DesktopWindow(Gtk.ApplicationWindow):
             except OSError:
                 continue
         self._error(tr("No app available to open “{name}”.").format(name=it.display))
+
+    def _when_trusted(self, it, then):
+        """Run then() if the launcher may start without asking; otherwise
+        show what it would run and ask first. «Trust and Launch» marks it
+        (executable + metadata::trusted), so it asks only once."""
+        if launcher_trust.is_trusted(it.path):
+            then()
+            return
+        title = tr("This launcher is not trusted")
+        d, box = self._dialog(title)
+        box.append(Gtk.Label(label=title, xalign=0, wrap=True, css_classes=["zeta-title"]))
+        box.append(Gtk.Label(
+            label=tr("“{name}” was not created by ZETA RAYS and has not been marked as trusted. "
+                     "It runs this command:").format(name=it.display),
+            xalign=0, wrap=True, max_width_chars=60))
+        command = Gtk.Label(label=launcher_trust.exec_line(it.path) or "?", xalign=0, wrap=True,
+                            wrap_mode=Pango.WrapMode.CHAR, selectable=True, max_width_chars=60)
+        command.add_css_class("monospace")
+        box.append(command)
+        box.append(Gtk.Label(label=tr("Launch it only if you know where it comes from."),
+                             xalign=0, wrap=True, css_classes=["zeta-dim"]))
+        row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=tr("Cancel"))
+        trust = Gtk.Button(label=tr("Trust and Launch"), css_classes=["zeta-primary"])
+
+        def trusted(*_a):
+            d.destroy()
+            try:
+                launcher_trust.mark_trusted(it.path)
+            except (OSError, GLib.Error) as e:
+                self._error(tr("Couldn't mark “{name}” as trusted: {error}").format(
+                    name=it.display, error=getattr(e, "strerror", None) or getattr(e, "message", None) or e))
+                return
+            then()
+
+        cancel.connect("clicked", lambda *_: d.destroy())
+        trust.connect("clicked", trusted)
+        row.append(cancel)
+        row.append(trust)
+        box.append(row)
+        d.present()
+        cancel.grab_focus()           # the safe choice is the default one
+
+    def _run_launcher(self, it):
+        """Start the program of a launcher (already trusted)."""
+        command = _shortcut_command(it.path)
+        app = _shortcut_app(it.path)
+        # GIO only when it would start the same program: with «Exec=blender»
+        # next to Blender 5.2 in /opt it would start /usr/bin/blender
+        if command is not None and app is not None and \
+                GLib.find_program_in_path(app.get_executable() or "") and \
+                GLib.find_program_in_path(command[0][0]) == \
+                GLib.find_program_in_path(app.get_executable() or ""):
+            try:
+                app.launch([], None)   # program installed in the system
+                return
+            except GLib.Error:
+                pass
+        if command is not None:
+            argv, folder = command
+            try:
+                _spawn(argv, cwd=folder, start_new_session=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except OSError as e:
+                self._error(tr("Couldn't start “{name}”: {error}").format(
+                    name=it.display, error=e.strerror))
+                return
+        self._error(tr("“{name}” is not a valid shortcut: the program it points "
+                       "to can't be found.").format(name=it.display))
 
     # ---------------------------------------- dragging
     def _drag_prepare(self, _source, x, y, it):
@@ -1064,6 +1146,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
         drop = Gtk.DropTargetAsync.new(formats, Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
         drop.connect("drag-enter", self._dnd_action)
         drop.connect("drag-motion", self._dnd_action)
+        drop.connect("drag-leave", self._dnd_leave)
         drop.connect("drop", self._dnd_drop)
         self.fixed.add_controller(drop)
 
@@ -1160,12 +1243,31 @@ class DesktopWindow(Gtk.ApplicationWindow):
 
     # ---------------------------------------- dropping on the desktop
     # ---- drop: choosing the best format among those offered
-    @staticmethod
-    def _dnd_action(_t, drop, _x, _y):
+    def _dnd_action(self, _t, drop, x, y):
+        internal = drop.get_drag() is not None and bool(self._dragging)
+        target = self._drop_target(x, y, self._dragged_files() if internal else None)
+        self._highlight(target[1] if target else None)
+        if target is not None and target[0] == "app":
+            return Gdk.DragAction.COPY      # the files stay where they are
         # from the desktop itself it is a move, from outside a copy
         return Gdk.DragAction.MOVE if drop.get_drag() is not None else Gdk.DragAction.COPY
 
+    def _dnd_leave(self, *_a):
+        self._highlight(None)
+        self._drop_cache = {}
+
     def _dnd_drop(self, _t, drop, x, y):
+        internal = drop.get_drag() is not None and bool(self._dragging)
+        target = self._drop_target(x, y, self._dragged_files() if internal else None,
+                                   strict=False)
+        self._dnd_leave()
+        if internal and target is not None:
+            # this Desktop's icons dropped on an app (open them with it) or
+            # on a folder (moved inside)
+            done = self._drop_onto(target, self._dragged_files(), move=True)
+            drop.finish((Gdk.DragAction.COPY if target[0] == "app" else Gdk.DragAction.MOVE)
+                        if done else 0)
+            return True
         if drop.get_drag() is not None and self._dragging:
             # icons of this Desktop: they only move, whatever the data says
             self._move_internal(list(self._dragging), x, y)
@@ -1187,7 +1289,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
                     file_name = m.split("name=", 1)[1].strip().strip('"')
                     break
         state = {"x": x, "y": y, "image": image, "name": file_name,
-                 "data": None, "value": None, "closed": False}
+                 "data": None, "value": None, "closed": False, "target": target}
 
         def close_window():
             # only once: when the reads finish or when the timeout expires
@@ -1271,6 +1373,11 @@ class DesktopWindow(Gtk.ApplicationWindow):
             uri = [r.strip() for r in value.replace("\r", "").split("\n") if r.strip()]
         downloadable = [u for u in uri if u.startswith(("http://", "https://", "data:"))]
         local_uris = [u for u in uri if u.startswith("file:")]
+        # 0) files from another program (the file manager) dropped on an app
+        #    icon (opened with that app) or on a folder icon (copied inside)
+        local_paths = [p for p in (Gio.File.new_for_uri(u).get_path() for u in local_uris) if p]
+        if st.get("target") is not None and local_paths:
+            return self._drop_onto(st["target"], local_paths, move=False)
         # 1) real files (from a file manager, or already downloaded): copy them
         if local_uris or isinstance(value, list) and value and not downloadable and not data:
             return self._on_drop(None, value, st["x"], st["y"])
@@ -1370,6 +1477,130 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 r = row + (col + i) // cols
                 moves.append((name, self._slot_xy(c, r)))
         self._place_icons(moves)
+
+    # ---- drop onto an icon: open with the app, or put inside the folder
+    # As on Windows and macOS. Everything else (dropping on empty space or
+    # on an ordinary file) keeps working as before: the icons just move.
+    def _dragged_files(self):
+        """The files of this Desktop being dragged (never Home or the Trash)."""
+        return [p for p in self._dragging if os.path.dirname(p) == self.dir]
+
+    def _item_app(self, it):
+        """The app of a launcher (.desktop) or AppImage on the Desktop, as a
+        Gio.AppInfo; None for any other icon."""
+        if it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
+            return _launcher_appinfo(it.path)
+        if it.name.lower().endswith(".appimage"):
+            real_path = os.path.realpath(it.path)
+            app = next((a for a in _app_registry().all_apps()
+                        if a.appimage and os.path.realpath(a.appimage) == real_path), None)
+            return app.info() if app is not None else None
+        return None
+
+    def _drop_target(self, x, y, dragged=None, strict=True):
+        """The icon under the pointer that takes files: ("app", item, appinfo),
+        ("folder", item, None) or None. dragged: this Desktop's files being
+        moved (None when they come from another program); an icon never
+        takes itself. strict: during the motion an app is only highlighted
+        if it can open at least one of this Desktop's files; at the drop it
+        is returned anyway, so the user is told why nothing opens."""
+        it = self._icon_at(x, y)
+        if it is None or it.kind == "trash":
+            return None          # the Trash has its own drop target
+        if dragged is not None:
+            if not dragged or any(os.path.realpath(p) == os.path.realpath(it.path) for p in dragged):
+                return None
+        if it.path not in self._drop_cache:
+            if it.is_dir:
+                self._drop_cache[it.path] = ("folder", None)
+            else:
+                app = self._item_app(it)
+                self._drop_cache[it.path] = ("app", app) if app is not None else None
+        found = self._drop_cache[it.path]
+        if found is None:
+            return None
+        kind, app = found
+        if kind == "app" and strict and dragged:
+            key = (it.path, tuple(dragged))
+            if key not in self._drop_cache:
+                self._drop_cache[key] = any(open_with.can_open(app, open_with.content_type(p))
+                                            for p in dragged)
+            if not self._drop_cache[key]:
+                return None
+        return kind, it, app
+
+    def _highlight(self, it):
+        old, self._drop_highlight = self._drop_highlight, it
+        if old is it:
+            return
+        if old is not None and old.widget is not None:
+            old.widget.remove_css_class("drop-target")
+        if it is not None and it.widget is not None:
+            it.widget.add_css_class("drop-target")
+
+    def _drop_onto(self, target, paths, move):
+        """Files dropped on an app icon open with that app (GIO expands its
+        Exec= field codes, no shell); on a folder they go inside it. True if
+        something was done."""
+        kind, it, app = target
+        if not paths:
+            return False
+        if kind == "folder":
+            return self._into_folder(paths, it.path, move)
+        good, bad = open_with.split(app, paths)
+        if bad:
+            # short notice, like a toast: nothing is wrong, the app just
+            # does not declare that file type (MimeType=)
+            self._notice(tr("{app} can't open this type of file.").format(app=it.display))
+        if not good:
+            return False
+
+        def start():
+            ok, error = open_with.launch(app, good)
+            if not ok:
+                self._error(tr("Couldn't open the files with {app}: {error}").format(
+                    app=it.display, error=error))
+        if it.name.endswith(".desktop") or os.path.realpath(it.path).endswith(".desktop"):
+            # the same trust rule as a double-click on the launcher
+            self._when_trusted(it, start)
+        else:
+            start()
+        return True
+
+    def _into_folder(self, paths, folder, move):
+        """Files dropped on a folder icon: moved inside when they come from
+        this Desktop, copied when they come from elsewhere (the same rule as
+        dropping them on the Desktop). A name already there gets « (2)»."""
+        errors, done = [], 0
+        real_folder = os.path.realpath(folder)
+        for p in paths:
+            name = os.path.basename(p.rstrip("/")) or p
+            real_path = os.path.realpath(p)
+            if real_path == real_folder or real_folder.startswith(real_path + os.sep):
+                errors.append(tr("“{name}” can't be put inside itself.").format(name=name))
+                continue
+            if os.path.dirname(os.path.abspath(p)) == os.path.abspath(folder):
+                continue                        # already in that folder
+            dest = self._unique_name(name, folder)
+            try:
+                if move and os.path.islink(p) and not os.path.isabs(os.readlink(p)):
+                    # a relative link would point elsewhere from there
+                    os.symlink(real_path, dest)
+                    os.unlink(p)
+                elif move:
+                    shutil.move(p, dest)
+                elif os.path.isdir(p):
+                    shutil.copytree(p, dest, symlinks=True)
+                else:
+                    shutil.copy2(p, dest)
+                done += 1
+            except (OSError, shutil.Error) as e:
+                errors.append("%s: %s" % (name, getattr(e, "strerror", None) or e))
+        if errors:
+            self._error("\n".join(errors[:5]))
+        if done and move:
+            self.refresh()
+        return done > 0
 
     def _app_shortcut(self, path):
         """The Desktop icon of the app in this file (an AppImage, a menu
@@ -1485,21 +1716,33 @@ class DesktopWindow(Gtk.ApplicationWindow):
     def _copy_here(self, gfile, name):
         """Copy onto the Desktop; the new file's name, or "" on error."""
         dest_path = self._unique_name(name)
+        source = gfile.get_path()
         try:
-            gfile.copy(Gio.File.new_for_path(dest_path), Gio.FileCopyFlags.NONE,
-                       None, None, None)
+            if source and os.path.isdir(source):
+                # GIO does not copy folders («Can't recursively copy
+                # directory», tested): a folder dragged from the file
+                # manager onto the Desktop failed with that error
+                shutil.copytree(source, dest_path, symlinks=True)
+            else:
+                gfile.copy(Gio.File.new_for_path(dest_path), Gio.FileCopyFlags.NONE,
+                           None, None, None)
         except GLib.Error as e:
             self._error(tr("Couldn't copy “{name}”: {error}").format(name=name, error=e.message))
             return ""
+        except (OSError, shutil.Error) as e:
+            self._error(tr("Couldn't copy “{name}”: {error}").format(
+                name=name, error=getattr(e, "strerror", None) or e))
+            return ""
         return os.path.basename(dest_path)
 
-    def _unique_name(self, name):
-        dest = os.path.join(self.dir, name)
+    def _unique_name(self, name, folder=None):
+        folder = folder or self.dir
+        dest = os.path.join(folder, name)
         base, ext = os.path.splitext(name)
         base = re.sub(r" \(\d+\)$", "", base)      # «blender (3)», not «blender (2) (2)»
         n = 2
-        while os.path.exists(dest):
-            dest = os.path.join(self.dir, "%s (%d)%s" % (base, n, ext))
+        while os.path.lexists(dest):
+            dest = os.path.join(folder, "%s (%d)%s" % (base, n, ext))
             n += 1
         return dest
 
@@ -1662,6 +1905,11 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 (tr("Open") if not many
                  else ntr("Open {n} Item", "Open {n} Items", n).format(n=n),
                  lambda: [self.open(i) for i in list(self.selection)]),
+            ]
+            open_with_menu = self._open_with_menu([i for i in self.selection if not i.special] or [it])
+            if open_with_menu is not None:
+                entries.append(open_with_menu)
+            entries += [
                 None,
                 (tr("Copy"), lambda: self.copy(False)),
                 (tr("Cut"), lambda: self.copy(True)),
@@ -1692,6 +1940,131 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 entries += [(tr("Copy Path"), lambda: self.copy_path(it)),
                          (tr("Properties"), lambda: self.properties(it))]
         self._popover(widget, x, y, entries)
+
+    # ---------------------------------------- Open With
+    # The same list as the file manager's "Open With" (GIO: MimeType= of the
+    # installed apps, default from mimeapps.list), not a list of our own.
+    OPEN_WITH_MAX = 12
+
+    @staticmethod
+    def _opens_itself(it):
+        """Launchers and AppImages are started, not opened with an app."""
+        return (it.special or it.name.endswith(".desktop")
+                or os.path.realpath(it.path).endswith(".desktop")
+                or it.name.lower().endswith(".appimage"))
+
+    def _open_with_menu(self, items):
+        """("sub", "Open With", entries) for the items, or None."""
+        if not items or any(self._opens_itself(i) for i in items):
+            return None
+        paths = [i.path for i in items]
+        types = [i.mime or open_with.content_type(i.path) for i in items]
+        entries = []
+        for app, is_default in open_with.apps_for(types)[:self.OPEN_WITH_MAX]:
+            # "_" would be taken as a keyboard shortcut marker in the menu
+            label = (app.get_display_name() or app.get_name() or "").replace("_", "__")
+            if is_default:
+                label = tr("{app} (default)").format(app=label)
+            entries.append((label, lambda a=app: self._open_with(a, paths)))
+        if entries:
+            entries.append(None)
+        entries.append((tr("Other Application…"), lambda: self._choose_open_with(items, types)))
+        return ("sub", tr("Open With"), entries)
+
+    def _open_with(self, app, paths):
+        ok, error = open_with.launch(app, paths)
+        if not ok:
+            self._error(tr("Couldn't open the files with {app}: {error}").format(
+                app=app.get_display_name(), error=error))
+
+    def _choose_open_with(self, items, types):
+        """Every app, those that declare the file type first, with «Always
+        use this app» (Gio set_as_default_for_type: ~/.config/mimeapps.list,
+        the same choice the file manager and double-click use)."""
+        paths = [i.path for i in items]
+        recommended = [a for a, _d in open_with.apps_for(types)]
+        ids = {a.get_id() for a in recommended}
+        apps = recommended + [a for a in open_with.all_apps() if a.get_id() not in ids]
+        single_type = len(set(types)) == 1
+
+        win = Gtk.Window(title=tr("Open With"), modal=True, default_width=420,
+                         default_height=540, css_classes=["zeta-dialog"])
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=14,
+                      margin_bottom=14, margin_start=14, margin_end=14)
+        if len(items) == 1:
+            prompt = tr("Choose an app to open “{name}”.").format(name=items[0].display)
+        else:
+            prompt = ntr("Choose an app to open {n} item.", "Choose an app to open {n} items.",
+                         len(items)).format(n=len(items))
+        box.append(Gtk.Label(label=prompt, xalign=0, wrap=True))
+        search = Gtk.SearchEntry(placeholder_text=tr("Search for an app…"))
+        rows = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, css_classes=["boxed-list"])
+        scroll = Gtk.ScrolledWindow(vexpand=True, child=rows)
+
+        def fill(text=""):
+            c = rows.get_first_child()
+            while c:
+                rows.remove(c)
+                c = rows.get_first_child()
+            t = text.casefold()
+            for a in apps:
+                name = a.get_display_name() or a.get_name() or ""
+                if t and t not in name.casefold():
+                    continue
+                line = Gtk.Box(spacing=10, margin_top=6, margin_bottom=6, margin_start=8, margin_end=8)
+                img = Gtk.Image(pixel_size=24)
+                if a.get_icon() is not None:
+                    img.set_from_gicon(a.get_icon())
+                else:
+                    img.set_from_icon_name("application-x-executable")
+                line.append(img)
+                line.append(Gtk.Label(label=name, xalign=0, hexpand=True,
+                                      ellipsize=Pango.EllipsizeMode.END))
+                if a.get_id() in ids:
+                    line.append(Gtk.Label(label=tr("Suggested"), css_classes=["dim-label"]))
+                r = Gtk.ListBoxRow(child=line)
+                r.app = a
+                rows.append(r)
+            first = rows.get_row_at_index(0)
+            if first is not None:
+                rows.select_row(first)
+
+        fill()
+        search.connect("search-changed", lambda e: fill(e.get_text()))
+        always = None
+        if single_type:
+            kind = Gio.content_type_get_description(types[0]) or types[0]
+            always = Gtk.CheckButton(label=tr("Always use this app to open “{type}” files").format(type=kind))
+
+        def chosen(*_a):
+            row = rows.get_selected_row()
+            if row is None:
+                return
+            if always is not None and always.get_active():
+                ok, error = open_with.set_default(row.app, types[0])
+                if not ok:
+                    self._error(tr("Couldn't make {app} the default app: {error}").format(
+                        app=row.app.get_display_name(), error=error))
+            win.close()
+            self._open_with(row.app, paths)
+
+        rows.connect("row-activated", chosen)
+        search.connect("activate", chosen)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=tr("Cancel"))
+        cancel.connect("clicked", lambda *_: win.close())
+        ok_button = Gtk.Button(label=tr("Open"), css_classes=["suggested-action"])
+        ok_button.connect("clicked", chosen)
+        buttons.append(cancel)
+        buttons.append(ok_button)
+        box.append(search)
+        box.append(scroll)
+        if always is not None:
+            box.append(always)
+        box.append(buttons)
+        win.set_child(box)
+        win.present()
+        search.grab_focus()
 
     def set_folder_color(self, items, key):
         """Color (or reset, key None) the chosen folders, then redraw."""

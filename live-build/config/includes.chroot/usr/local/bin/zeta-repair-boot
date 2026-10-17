@@ -163,9 +163,19 @@ info "$(gettext "then the other installed systems will be detected (os-prober)")
 echo
 info "$(gettext "Partitions, data and personal files are not touched.")"
 echo
-# the answer is also accepted in Italian (marked as i18n-data below)
+# the answer is also accepted in Italian (the words are language data:
+# i18n-data/zeta-repair-boot.json)
+is_yes() {
+    case "$1" in
+        y|Y|yes|YES|Yes) return 0 ;;
+        "") return 1 ;;
+    esac
+    local words
+    words=$(/usr/libexec/zeta-i18n-data zeta-repair-boot yes_answers 2>/dev/null) || return 1
+    grep -qxF -- "$1" <<<"$words"
+}
 read -r -p "  $(gettext "Go ahead? [type yes]") " ANSWER
-case "$ANSWER" in si|SI|Si|sì|s|S|y|Y|yes|YES|Yes) ;; *) echo "  $(gettext "Cancelled.")"; exit 0;; esac  # i18n-data
+is_yes "$ANSWER" || { echo "  $(gettext "Cancelled.")"; exit 0; }
 
 # ------------------------------------------------------------ 4. repair
 title "$(gettext "Repair")"

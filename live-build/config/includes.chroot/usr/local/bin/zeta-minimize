@@ -28,6 +28,10 @@ SOCK = os.path.join(RUNTIME, "zeta-minimize.sock")
 
 def _send(msg):
     s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    # a daemon that hangs fills its queue: then sendto would block forever,
+    # and the button would do nothing; with a timeout the window is
+    # minimized here instead
+    s.settimeout(0.5)
     try:
         s.sendto(msg.encode(), SOCK)
         return True
@@ -217,6 +221,20 @@ class App(Gtk.Application):
                        ".zeta-card { padding: 6px; }")
         self.hold()
         self._listen()
+        # After a crash (or a restart of the session's watchdog) the
+        # windows minimized before are still hidden: find them again, also
+        # those the state file no longer knows, and put them back in the bar.
+        GLib.timeout_add(500, self._find_minimized)
+
+    def _find_minimized(self):
+        def work():
+            try:
+                windows.minimized()
+            except Exception as e:  # noqa: BLE001
+                print("zeta-minimize: minimized windows: %s" % e, file=sys.stderr)
+            GLib.idle_add(windows._notify_bar)
+        threading.Thread(target=work, daemon=True).start()
+        return False
 
     def do_activate(self):
         if self.anim is None:
@@ -239,10 +257,14 @@ class App(Gtk.Application):
                 pieces = self.sock.recv(256).decode(errors="replace").split()
                 if not pieces:
                     continue
+                # unknown commands are ignored; an error inside a command is
+                # logged (it used to be swallowed: the thumbnail menu called a
+                # method with an old name and silently did nothing)
+                handler = getattr(self, "c_" + pieces[0].replace("-", "_"), None)
+                if handler is None:
+                    continue
                 try:
-                    getattr(self, "c_" + pieces[0].replace("-", "_"))(pieces[1] if len(pieces) > 1 else "")
-                except AttributeError:
-                    pass
+                    handler(pieces[1] if len(pieces) > 1 else "")
                 except Exception as e:  # noqa: BLE001 - the daemon must not die
                     print("zeta-minimize: %s: %s" % (pieces[0], e), file=sys.stderr)
         except (BlockingIOError, OSError):
@@ -345,7 +367,7 @@ class App(Gtk.Application):
         popup.close_on_outside(self.menu, card, self._menu_close)
         self.menu.present()
 
-    def _menu_via(self):
+    def _menu_close(self):
         if self.menu is not None:
             self.menu.destroy()
             self.menu = None

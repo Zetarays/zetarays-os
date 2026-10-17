@@ -11,7 +11,8 @@ the way they found them.
 
 Tests never compare text shown to the user (it changes with the language):
 only stable keys, exit codes and values. The phrases for the assistant are
-given in Italian and in English: it understands both.
+given in Italian and in English (it understands both); they are language
+data, in /usr/share/zeta/i18n-data/selftest.json.
 """
 import json
 import os
@@ -22,6 +23,7 @@ import time
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import tr, ntr  # noqa: E402
+from i18n_data import load  # noqa: E402
 
 GREEN, RED, GRAY, COLOR_RESET = "\033[32m", "\033[31m", "\033[90m", "\033[0m"
 groups = {}
@@ -63,6 +65,11 @@ def _cases_passed(n):
     return ntr("{n} correct case", "{n} correct cases", n).format(n=n)
 
 
+def _phrases(test_name):
+    """The phrases of a test, from selftest.json (keyed by test function name)."""
+    return load("selftest")[test_name]
+
+
 def _outside_session():
     return tr("skipped (outside the graphical session)")
 
@@ -72,41 +79,8 @@ def _outside_session():
 def intents_recognized():
     """Common phrases must not end up at the language model."""
     from intelligence import intents
-    # i18n-data-begin: Italian phrases the assistant must recognize
-    expected_cases = [
-        ("che ore sono", "current_time"), ("che giorno e oggi", "current_date"),
-        ("quanta batteria ho", "battery_status"), ("volume", "volume_status"),
-        ("quante finestre ho aperte", "list_windows"),
-        ("quali finestre sono aperte", "list_windows"),
-        ("mostrami le finestre", "list_windows"),
-        ("riduci la finestra", "minimize_window"),
-        ("ingrandisci la finestra", "maximize_window"),
-        ("chiudi questa finestra", "close_active_window"),
-        ("apri le impostazioni", "open_settings"),
-        ("apri firefox", "open_application"),
-        ("passa al tema chiaro", "set_theme"),
-        ("qual e il mio ip", "ip_address"),
-        ("apri www.google.it", "open_url"),
-        ("vai su https://debian.org", "open_url"),
-        ("apri il documento relazione", "open_file"),
-        ("metti lo sfondo predefinito", "set_wallpaper"),
-        ("quanta ram sto usando", "memory_usage"),
-        ("uso della cpu", "cpu_usage"),
-        ("da quanto e acceso", "uptime"),
-        # the same requests in English
-        ("what time is it", "current_time"), ("what's the date today", "current_date"),
-        ("how much battery do i have", "battery_status"),
-        ("which windows are open", "list_windows"),
-        ("minimize the window", "minimize_window"),
-        ("maximize the window", "maximize_window"),
-        ("close this window", "close_active_window"),
-        ("open settings", "open_settings"), ("open firefox", "open_application"),
-        ("switch to light theme", "set_theme"), ("what is my ip", "ip_address"),
-        ("open www.google.com", "open_url"),
-        ("how much ram am i using", "memory_usage"), ("cpu usage", "cpu_usage"),
-        ("uptime", "uptime"),
-    ]
-    # i18n-data-end
+    data = _phrases("intents_recognized")
+    expected_cases = data["it"] + data["en"]
     wrong = []
     for phrase, expected_value in expected_cases:
         i = intents.parse(phrase)
@@ -122,17 +96,8 @@ def intents_recognized():
 def intents_without_false_positives():
     """Ordinary phrases must NOT trigger a system command."""
     from intelligence import intents
-    # i18n-data-begin: Italian phrases that must not run anything
-    harmless = ["come si apre un file zip",
-               "scrivimi una poesia sulle finestre di una casa",
-               "parlami della memoria storica italiana",
-               "chi ha formulato il principio di archimede",
-               "consigliami un equipaggiamento da campeggio",
-               "how do i open a zip file",
-               "write me a poem about the windows of a house",
-               "who formulated archimedes principle",
-               "recommend some camping equipment"]
-    # i18n-data-end
+    data = _phrases("intents_without_false_positives")
+    harmless = data["it"] + data["en"]
     # What must not happen is that a harmless phrase RUNS something.
     # An intent with action None runs nothing: it is just a definite answer
     # (for example «how do i open a zip file» explains the double click). That
@@ -187,16 +152,8 @@ def zeta_does_not_run_free_commands():
 def system_commands_recognized():
     """Computer-control phrases must reach the right action."""
     from intelligence import intents
-    # i18n-data-begin: Italian commands
-    pairs = [("spegni il computer", "power_off"), ("riavvia", "reboot"),
-              ("blocca lo schermo", "lock_screen"), ("spegni il wifi", "wifi_toggle"),
-              ("metti il volume a 40", "set_volume"), ("installa gimp", "install_package"),
-              ("svuota il cestino", "empty_trash"),
-              ("shut down the computer", "power_off"), ("reboot", "reboot"),
-              ("lock the screen", "lock_screen"), ("turn off the wifi", "wifi_toggle"),
-              ("set the volume to 40", "set_volume"), ("install gimp", "install_package"),
-              ("empty the trash", "empty_trash")]
-    # i18n-data-end
+    data = _phrases("system_commands_recognized")
+    pairs = data["it"] + data["en"]
     wrong = []
     for phrase, expected_value in pairs:
         i = intents.parse(phrase)
@@ -212,8 +169,8 @@ def immediate_answers():
     from intelligence.assistant import Assistant
     a = Assistant()
     slow = []
-    for phrase in ("che ore sono", "che giorno e oggi", "quanta memoria sto usando",  # i18n-data
-                   "what time is it"):
+    data = _phrases("immediate_answers")
+    for phrase in data["it"] + data["en"]:
         t0 = time.perf_counter()
         r = a.respond(phrase)
         dt = time.perf_counter() - t0
@@ -249,7 +206,7 @@ def proportional_preload():
     pre = resources.preload_allowed()
     # an 8 GB machine (the kernel sees ~7.7) must count as 8
     expected_preload = gb >= resources.PRELOAD_THRESHOLD
-    ok = (pre == expected_preload) and ka in ("2m", "5m", "10m", "30m")
+    ok = (pre == expected_preload) and ka in ("1m", "2m", "5m", "10m", "30m")
     return ok, tr("{gb} GB nominal -> preload={preload} keep_alive={keep}").format(
         gb="%.0f" % gb, preload=pre, keep=ka)
 
@@ -338,16 +295,29 @@ def no_fake_menu_entries():
 # ---------------------------------------------------------------- system
 @test("system")
 def no_failed_units():
-    """Neither the system nor the session may have failed units."""
-    failed_units = []
-    for cmd in (["systemctl", "--failed", "--no-legend", "--no-pager"],
-                ["systemctl", "--user", "--failed", "--no-legend", "--no-pager"]):
+    """Neither the system nor the session may have failed units. A system
+    service that only failed for hardware this computer does not have (the
+    Monitor's "information" level, with log evidence) does not count."""
+    from monitor import unitstate
+    verdicts = {v["unit"]: v for v in unitstate.failed_verdicts(include_normal=True)}
+    failed_units, notes = [], []
+    for cmd in (["systemctl", "--failed", "--no-legend", "--no-pager", "--plain"],
+                ["systemctl", "--user", "--failed", "--no-legend", "--no-pager", "--plain"]):
         _, out, _ = _sh(cmd)
         for line in out.splitlines():
+            unit = line.split()[0] if line.split() else line
             # ydotool is a testing tool, not part of ZETA RAYS
-            if line.strip() and "ydotool" not in line:
-                failed_units.append(line.split()[0] if line.split() else line)
-    return not failed_units, ", ".join(failed_units) or tr("no failed units")
+            if not line.strip() or "ydotool" in line:
+                continue
+            v = verdicts.get(unit) if "--user" not in cmd else None
+            if v and v["level"] in (unitstate.INFO, unitstate.NORMAL):
+                notes.append("%s (%s)" % (unit, v["kind"]))
+            else:
+                failed_units.append(unit)
+    detail = ", ".join(failed_units) or tr("no failed units")
+    if notes:
+        detail += "; " + ", ".join(notes)
+    return not failed_units, detail
 
 
 @test("system")
@@ -426,7 +396,7 @@ def ai_providers_fast_and_robust():
     if choose_model("openai", ["text-embedding-3-large", "gpt-5-mini"]) != "gpt-5-mini":
         prob.append(tr("OpenAI fallback"))
     src = open(assistant.__file__).read()
-    if "_fall_back_to_other_model" not in src or "_local_answer" not in src:
+    if "_fall_back_to_other_model" not in src or "_with_offer" not in src:
         prob.append(tr("assistant fallbacks missing"))
     return not prob, "; ".join(prob) if prob else tr(
         "fast defaults, fallbacks ready, keys only in the headers")
@@ -889,6 +859,438 @@ def ollama_manageable():
                               len(m)).format(version=v or "?", n=len(m))
 
 
+# ------------------------------------------------ ZETA RAYS 2.1: AI honesty and robustness
+# All offline: no request leaves the computer (the slow servers are local sockets).
+@test("ai")
+def ai_prompt_has_today():
+    """Every request, to every provider, carries today's date and the rule on
+    facts that change over time; a custom prompt cannot remove them."""
+    from datetime import date
+    from intelligence import context
+    from intelligence.registry import DEFAULT_SYSTEM, Registry
+    from intelligence.providers.base import Message
+    today = date.today().isoformat()
+    prompt = context.system_prompt(DEFAULT_SYSTEM)
+    custom = context.system_prompt("You are a pirate.", web="off")
+    wrong = []
+    if today not in prompt or "training" not in prompt:
+        wrong.append("default prompt")
+    if today not in custom or "cannot verify" not in custom:
+        wrong.append("custom prompt")
+    msgs = [Message("user", "hi")]
+    reg = Registry()
+    for pid in ("claude", "gemini", "openai", "deepseek", "ollama"):
+        p = reg.get(pid)
+        p.config.system = prompt
+        if pid == "claude":
+            payload = p._payload(msgs, None, False)
+        elif pid == "gemini":
+            payload = p._contents(msgs)
+        elif pid == "ollama":
+            payload = p._messages(msgs)
+        else:
+            payload = p._base(msgs)
+        if today not in json.dumps(payload):
+            wrong.append(pid)
+    return not wrong, _missing(wrong) if wrong else tr("today ({date}) in every request").format(date=today)
+
+
+@test("ai")
+def ai_history_budget():
+    """History sent to the model: latest turns within the token budget,
+    starting with a question, never dropping the new question."""
+    from intelligence.memory import HISTORY_BUDGET, HISTORY_TURNS, approx_tokens, trim_history
+    from intelligence.providers.base import Message
+    msgs = []
+    for i in range(30):
+        msgs.append(Message("user", "question %d " % i + "x" * 300))
+        msgs.append(Message("assistant", "answer %d " % i + "y" * 600))
+    msgs.append(Message("user", "the new question"))
+    wrong = []
+    for kind in ("local", "cloud"):
+        kept = trim_history(msgs, HISTORY_TURNS[kind], HISTORY_BUDGET[kind])
+        cost = sum(approx_tokens(m.content) for m in kept)
+        users = sum(1 for m in kept if m.role == "user")
+        if (not kept or kept[-1] is not msgs[-1] or kept[0].role != "user"
+                or cost > HISTORY_BUDGET[kind] or users > HISTORY_TURNS[kind]):
+            wrong.append(kind)
+    huge = [Message("user", "z" * 40000)]
+    if trim_history(huge, 6, 1500) != huge:
+        wrong.append("long question")
+    return not wrong, _missing(wrong) if wrong else tr("within {local} tokens (local), {cloud} (online)").format(
+        local=HISTORY_BUDGET["local"], cloud=HISTORY_BUDGET["cloud"])
+
+
+@test("ai")
+def ai_time_sensitive_detection():
+    """Questions about current facts are recognized (Italian and English);
+    ordinary questions and the clock are not."""
+    from intelligence import websearch
+    data = _phrases("ai_time_sensitive_detection")
+    current, ordinary = data["current"], data["ordinary"]
+    wrong = [t for t in current if not websearch.is_time_sensitive(t)]
+    wrong += [t for t in ordinary if websearch.is_time_sensitive(t)]
+    return not wrong, ", ".join(wrong) if wrong else _cases_passed(len(current) + len(ordinary))
+
+
+@test("ai")
+def ai_web_lookup_off_by_default():
+    """Without the user's choice nothing is looked up on the web: a
+    time-sensitive question asks first, and with no answer stays offline."""
+    from intelligence import websearch
+    from intelligence.assistant import Assistant
+    from intelligence.providers.base import Provider, ProviderConfig
+    wrong = []
+    if websearch.enabled({}) or websearch.mode({}) != "ask":
+        wrong.append("default")
+    if websearch.mode({websearch.SETTING_DECLINED: True}) != "off":
+        wrong.append("declined")
+    calls = []
+    real = websearch.lookup
+    websearch.lookup = lambda *a, **k: calls.append(a) or ([], True)
+    try:
+        a = Assistant(Provider(ProviderConfig(name="test", label="Test", kind="local")))
+        state, _src = a._web_context(_phrases("ai_web_lookup_off_by_default")["question"], {}, None,
+                                     a.provider)
+        if state != "off" or calls:
+            wrong.append("no consent")
+        asked = []
+        state, _src = a._web_context("who is the current pope?", {},
+                                     lambda services: asked.append(services) or "no", a.provider)
+        if not asked or calls or state != "off":
+            wrong.append("consent no")
+    finally:
+        websearch.lookup = real
+    return not wrong, _missing(wrong) if wrong else tr("off until the user says yes")
+
+
+@test("ai")
+def ai_sources_formatting():
+    """Sources go into the prompt with number, title, address and date, and
+    the excerpt keeps the sentence about the present."""
+    from intelligence import context, websearch
+    data = _phrases("ai_sources_formatting")
+    src = [websearch.Source(data["title"], data["url"], data["text"], "2026-10-17", "it.wikipedia.org")]
+    block = context.format_sources(src)
+    prompt = context.system_prompt("base", web="sources", sources=src)
+    article = data["article"]
+    excerpt = websearch.best_excerpt(article, data["query"])
+    wrong = []
+    if not block.startswith("Sources") or "[1] " not in block or "2026-10-17" not in block or src[0].url not in block:
+        wrong.append("block")
+    if block not in prompt:
+        wrong.append("prompt")
+    if data["person"] not in excerpt or len(excerpt) > websearch.SNIPPET_CHARS:
+        wrong.append("excerpt")
+    if websearch.make_query(data["question"]) != data["query"]:
+        wrong.append("query")
+    return not wrong, _missing(wrong) if wrong else tr("title, address, date and excerpt")
+
+
+def _slow_server(mode):
+    """A local HTTP server that is slow on purpose (timeouts and Stop).
+    mode "silent": never answers; "drip": streams one line every 0.3 s."""
+    import socket
+    import threading
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    state = {"closed": 0}
+
+    def client(conn):
+        try:
+            conn.settimeout(20)
+            data = b""
+            while b"\r\n\r\n" not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    return
+                data += chunk
+            if b"/api/ps" in data or b"/api/tags" in data:
+                body = b'{"models": [{"name": "test:1b"}]}'
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n"
+                             b"Connection: close\r\n\r\n%s" % (len(body), body))
+                return
+            if mode == "silent":
+                while conn.recv(4096):
+                    pass
+                state["closed"] += 1
+                return
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n")
+            for _ in range(200):
+                conn.sendall(b'{"message": {"content": "word "}, "done": false}\n')
+                time.sleep(0.3)
+        except OSError:
+            state["closed"] += 1
+        finally:
+            conn.close()
+
+    def accept():
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=client, args=(conn,), daemon=True).start()
+    threading.Thread(target=accept, daemon=True).start()
+    return srv, "http://127.0.0.1:%d" % srv.getsockname()[1], state
+
+
+@test("ai")
+def ai_timeout_and_cancel():
+    """A model that never answers ends with a timeout; Stop really closes a
+    reply that is still streaming; the total limit stops an endless reply;
+    after all this the next request works (local sockets only)."""
+    import threading
+    from intelligence.providers.base import CancelToken, Canceled, Message, ProviderConfig, ProviderError
+    from intelligence.providers.ollama import OllamaProvider
+    wrong = []
+    msgs = [Message("user", "hi")]
+
+    def provider(url, **kw):
+        p = OllamaProvider(ProviderConfig(name="ollama", label="Ollama", kind="local", model="test:1b",
+                                          endpoint=url, **kw))
+        p.cancel_token = CancelToken()
+        return p
+
+    # 1) silent server: first-token timeout (shortened to 1 s for the test)
+    srv, url, _state = _slow_server("silent")
+    p = provider(url)
+    p.timeout = 1.0
+    t0 = time.monotonic()
+    try:
+        p.stream(msgs, lambda c: None)
+        wrong.append("no timeout")
+    except ProviderError as e:
+        if e.kind != "timeout" or time.monotonic() - t0 > 4:
+            wrong.append("timeout: %s %.1fs" % (e.kind, time.monotonic() - t0))
+    srv.close()
+
+    # 2) streaming server: Stop after the first words
+    srv, url, state = _slow_server("drip")
+    p = provider(url)
+    got, out = [], {}
+
+    def run():
+        try:
+            p.stream(msgs, got.append)
+            out["end"] = "finished"
+        except Canceled:
+            out["end"] = "canceled"
+        except ProviderError as e:
+            out["end"] = e.kind
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+    for _ in range(50):
+        if got:
+            break
+        time.sleep(0.1)
+    t0 = time.monotonic()
+    p.cancel()
+    th.join(3)
+    if th.is_alive() or out.get("end") != "canceled" or time.monotonic() - t0 > 2:
+        wrong.append("stop: %s" % out.get("end", "still running"))
+
+    # 3) total limit: an endless reply is cut at config.timeout
+    p = provider(url, timeout=1.5)
+    t0 = time.monotonic()
+    try:
+        p.stream(msgs, lambda c: None)
+        wrong.append("no limit")
+    except ProviderError as e:
+        if e.kind != "timeout" or time.monotonic() - t0 > 4:
+            wrong.append("limit: %s" % e.kind)
+
+    # 4) the next request on a fresh token works
+    p = provider(url)
+    first = []
+    def run_next():
+        try:
+            p.stream(msgs, first.append)
+        except ProviderError:
+            pass
+    th = threading.Thread(target=run_next, daemon=True)
+    th.start()
+    for _ in range(30):
+        if first:
+            break
+        time.sleep(0.1)
+    p.cancel()
+    th.join(3)
+    if not first:
+        wrong.append("next request")
+    srv.close()
+    return not wrong, "; ".join(wrong) if wrong else tr("timeout, Stop and time limit work")
+
+
+@test("ai")
+def ai_no_silent_cloud_fallback():
+    """No question goes to an online service the user did not choose: with
+    keys saved and the local model down, «Automatic» stays local; a failing
+    local model only OFFERS an online service (offline: nothing is sent)."""
+    from intelligence import assistant as A, registry as R
+    from intelligence.providers.base import Provider, ProviderConfig, ProviderError
+    from intelligence.providers.claude import ClaudeProvider
+    from intelligence.providers.gemini import GeminiProvider
+    from intelligence.providers.openai_compat import OpenAICompatProvider
+    sent = []
+
+    def spy(self, *a, **k):
+        sent.append(self.config.name)
+        raise ProviderError("blocked by the test", kind="network")
+    patched = [(c, m, getattr(c, m)) for c in (ClaudeProvider, GeminiProvider, OpenAICompatProvider)
+               for m in ("chat", "stream")]
+    real_key = R._keyring_get
+    wrong = []
+    try:
+        for c, m, _f in patched:
+            setattr(c, m, spy)
+        R._keyring_get = lambda name: "test-key-not-real"        # every service "has a key"
+        reg = R.Registry()
+        reg.settings = {"providers": {"ollama": {"endpoint": "http://127.0.0.1:9"}}}  # local model down
+        if reg.resolve_default().config.kind != "local":
+            wrong.append("automatic chose an online service")
+        if not reg.cloud_offer():
+            wrong.append("no offer")
+
+        class DownLocal(Provider):
+            uses_tools = False
+
+            def available(self):
+                return True
+
+            def stream(self, messages, on_text):
+                raise ProviderError("local model down", kind="network")
+        a = A.Assistant(DownLocal(ProviderConfig(name="ollama", label="Ollama", kind="local")))
+        a.registry = reg
+        a.memory.enabled = False
+        a.history = []
+        a.respond("tell me a story about a lighthouse", on_text=lambda c: None)
+        if sent:
+            wrong.append("sent to %s" % ", ".join(sent))
+        if not a.last_turn.get("offer") or a.last_turn["offer"] == "ollama":
+            wrong.append("online service not offered")
+        # accepting the offer is an explicit choice: only then is it used
+        a.respond_with(a.last_turn["offer"] or "claude", "tell me a story", on_text=lambda c: None)
+        if len(sent) != 1:
+            wrong.append("accepted offer not used")
+    finally:
+        for c, m, f in patched:
+            setattr(c, m, f)
+        R._keyring_get = real_key
+    return not wrong, "; ".join(wrong) if wrong else tr("online services only when chosen")
+
+
+@test("ai")
+def ai_ram_decisions():
+    """Local model and RAM, with synthetic /proc/meminfo values: never loaded
+    at login below 16 GB, released soon on small machines, never loaded when
+    it would push the computer into swap (4, 8 and 16 GB computers)."""
+    import tempfile
+    from intelligence import resources as R
+    cases = [  # (MemTotal kB, MemAvailable kB, model GB, preload, keep_alive, can load, advice)
+        (3_900_000, 2_600_000, 0.0, False, "2m", False, True),     # 4 GB
+        (8_000_000, 5_800_000, 0.0, False, "5m", True, False),     # 8 GB, normal use
+        (8_000_000, 3_100_000, 0.0, False, "5m", False, False),    # 8 GB, busy: say so
+        (3_900_000, 3_000_000, 2.0, False, "2m", True, False),     # 4 GB, small model
+        (16_100_000, 12_000_000, 0.0, True, "30m", True, False),   # 16 GB
+        (16_100_000, 400_000, 0.0, True, "1m", False, False),      # 16 GB, memory short now
+    ]
+    old = R.MEMINFO
+    wrong = []
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".meminfo", delete=False) as f:
+            path = f.name
+        R.MEMINFO = path
+        for total, avail, model, preload, keep, can, advice in cases:
+            with open(path, "w") as f:
+                f.write("MemTotal: %d kB\nMemFree: 100000 kB\nMemAvailable: %d kB\n" % (total, avail))
+            p = R.plan(model)
+            got = (p["preload_at_login"], p["keep_alive"], p["can_load"], bool(p["advice"]))
+            if got != (preload, keep, can, advice):
+                wrong.append("%.0f GB/%.1f free: %s" % (p["nominal_gb"], p["available_gb"], got))
+            if not can and R.SMALLER_MODEL not in R.memory_reason(model) and model == 0.0:
+                wrong.append("no smaller model suggested")
+    finally:
+        R.MEMINFO = old
+        try:
+            os.unlink(path)
+        except (OSError, UnboundLocalError):
+            pass
+    return not wrong, "; ".join(wrong) if wrong else _cases_passed(len(cases))
+
+
+@test("ai")
+def ai_one_request_at_a_time():
+    """A new question cancels the one still running: one reply, no
+    duplicates, and the canceled question leaves no trace in the history."""
+    import threading
+    from intelligence.assistant import Assistant
+    from intelligence.providers.base import Canceled, Provider, ProviderConfig, Reply
+
+    class Slow(Provider):
+        uses_tools = False
+
+        def stream(self, messages, on_text):
+            on_text("...")
+            if messages[-1].content.startswith("first"):
+                token = self.cancel_token
+                for _ in range(100):
+                    if token is not None and token.wait(0.05):
+                        raise Canceled()
+            return Reply(text="answer to " + messages[-1].content)
+
+    a = Assistant(Slow(ProviderConfig(name="test", label="Test", kind="local")))
+    a.memory.enabled = False
+    a.history = []
+    out = {}
+    th = threading.Thread(target=lambda: out.setdefault("first", a.respond(
+        "first story about a cat", on_text=lambda c: None)), daemon=True)
+    th.start()
+    time.sleep(0.3)
+    second = a.respond("second story about a dog", on_text=lambda c: None)
+    th.join(3)
+    wrong = []
+    if "second" not in second:
+        wrong.append("second reply")
+    if th.is_alive() or "first" in out.get("first", "first"):
+        wrong.append("first not canceled")
+    if any("first" in m.content for m in a.history) or len(a.history) != 2:
+        wrong.append("history")
+    return not wrong, _missing(wrong) if wrong else tr("the newer question wins, history clean")
+
+
+@test("ai")
+def ai_provider_errors_are_clear():
+    """HTTP errors become clear messages with a stable kind; keys never
+    appear in them; a chosen provider is never replaced silently."""
+    from intelligence.providers.base import ProviderConfig
+    from intelligence.providers.openai_compat import OpenAICompatProvider
+    from intelligence.registry import Registry
+    secret = "sk-test-NOTREAL0123456789"
+    p = OpenAICompatProvider(ProviderConfig(name="deepseek", label="DeepSeek", kind="cloud", api_key=secret))
+    cases = [(401, "{}", None, "auth"), (402, '{"error": {"message": "Insufficient Balance"}}', None, "quota"),
+             (429, "{}", {"Retry-After": "17"}, "rate_limit"), (404, "{}", None, "model"),
+             (400, '{"error": {"message": "Model deepseek-x does not exist"}}', None, "model"),
+             (413, "{}", None, "too_long"), (503, "{}", None, "server"),
+             (400, '{"error": {"message": "bad key %s"}}' % secret, None, "bad_request")]
+    wrong = []
+    for code, body, headers, kind in cases:
+        e = p._http_error(code, body, headers)
+        if e.kind != kind or secret in str(e) or "NOTREAL" in str(e):
+            wrong.append("%d->%s" % (code, e.kind))
+    if p._http_error(429, "{}", {"Retry-After": "17"}).retry_after != 17:
+        wrong.append("Retry-After")
+    if p._unreachable(ConnectionRefusedError(111, "refused")).kind != "network":
+        wrong.append("network")
+    reg = Registry()
+    reg.settings = dict(reg.settings, default="deepseek")
+    if reg.resolve_default().config.name != "deepseek":
+        wrong.append("silent switch")
+    return not wrong, ", ".join(wrong) if wrong else _cases_passed(len(cases) + 3)
+
+
 @test("windows")
 def switcher_and_emergency_ready():
     """Ctrl+Tab and Ctrl+Alt+Del: shortcuts configured and processes ready."""
@@ -1020,6 +1422,58 @@ def security_no_fake_install():
 
 
 @test("system")
+def software_update_service_responds():
+    """Settings › Software Update talks to PackageKit on the system bus: the
+    service must answer and list the updates. Read-only: it uses the package
+    lists already on disk, downloads nothing and installs nothing."""
+    try:
+        from system import software_update as su
+    except Exception as e:                    # the module itself must import
+        return False, str(e)[:120]
+    if not su.available():
+        return False, _missing(["gir1.2-packagekitglib-1.0"])
+    if not os.path.exists("/usr/share/dbus-1/system-services/org.freedesktop.PackageKit.service"):
+        return False, _missing(["packagekit"])
+    session = su.Session()
+    outcome = su.run_sync(lambda done: session.check(None, done, refresh=False), timeout=120)
+    if not outcome.ok:
+        return False, "%s: %s" % (outcome.kind, (outcome.detail or outcome.message)[:120])
+    n = len(outcome.updates)
+    return True, ntr("PackageKit responds, {n} update in the current lists",
+                     "PackageKit responds, {n} updates in the current lists", n).format(n=n)
+
+
+@test("system")
+def automatic_updates_security_only():
+    """Automatic updates (unattended-upgrades) install only the security
+    archive, never restart by themselves and never run in the live session."""
+    if not os.path.exists("/usr/bin/unattended-upgrade"):
+        return False, _missing(["unattended-upgrades"])
+    rc, out, err = _sh(["apt-config", "dump", "Unattended-Upgrade"])
+    if rc != 0:
+        return False, err[:120]
+    origins = re.findall(r'^Unattended-Upgrade::(?:Origins-Pattern|Allowed-Origins):: "(.*)";$', out, re.M)
+    wide = [o for o in origins if "label=Debian-Security" not in o]
+    problems = []
+    if not origins:
+        problems.append(tr("no origin allowed"))
+    if wide:
+        problems.append(tr("not only security: {names}").format(names=", ".join(wide)))
+    if re.search(r'^Unattended-Upgrade::Automatic-Reboot "(true|1)";$', out, re.M):
+        problems.append(tr("automatic restart on"))
+    _, value, _ = _sh(["apt-config", "shell", "V", "APT::Periodic::Unattended-Upgrade"])
+    on = value not in ("", "V='0'")
+    live = os.path.isdir("/run/live/medium")
+    if live and on:
+        problems.append(tr("on in the live session"))
+    if problems:
+        return False, ", ".join(problems)
+    if live:
+        return True, tr("off in the live session")
+    return True, tr("security archive only, on") if on else tr("security archive only, off by choice")
+
+
+@test("system")
 def zeta_commands_respond():
     """zeta system/memory/processes/repositories/ai answer without errors."""
     slow, broken = [], []
@@ -1042,45 +1496,19 @@ def zeta_commands_respond():
 def agent_understands_phrases():
     """Common phrases become the right action, without the model and without errors."""
     from intelligence.agent.understanding import understanding
-    # i18n-data-begin: Italian requests the agent must understand
-    expected_cases = [
-        ("apri firefox", "open_application"), ("chiudi firefox", "close_application"),
-        ("riavvia firefox", "restart_application"), ("disconnetti il wifi", "wifi_disconnect"),
-        ("spegni il wi-fi", "wifi_off"), ("alza il volume al 60%", "set_volume"),
-        ("alza il volume al sessanta per cento", "set_volume"), ("metti la musica un po piu forte", "set_volume"),
-        ("crea una cartella progetti sulla scrivania", "create_folder"), ("elimina nota.txt", "delete_item"),
-        ("quanta ram sto usando", "system_status"), ("c'e qualcosa che rallenta il computer?", "list_processes"),
-        ("mi fai vedere le foto che ho scaricato", "open_folder"), ("apri le impostazioni audio", "open_settings"),
-        ("apri il sito www.debian.org", "open_url"), ("apri documenti.pdf", "open_file"),
-        ("imposta mousepad come editor predefinito", "set_default_app"),
-        ("quali sono le app predefinite", "list_default_apps"), ("blocca il computer", "lock_screen"),
-        ("dov'e installato firefox", "where_is_program"), ("trova le mie appimage", "list_appimages"),
-        # the same requests in English
-        ("open the terminal", "open_application"), ("close firefox", "close_application"),
-        ("disconnect the wifi", "wifi_disconnect"), ("turn off the wi-fi", "wifi_off"),
-        ("set the volume to 60%", "set_volume"), ("create a folder projects on the desktop", "create_folder"),
-        ("delete note.txt", "delete_item"), ("how much ram am i using", "system_status"),
-        ("is something slowing down the computer?", "list_processes"),
-        ("show me the photos i downloaded", "open_folder"), ("open audio settings", "open_settings"),
-        ("open the website www.debian.org", "open_url"), ("make mousepad the default editor", "set_default_app"),
-        ("what are the default apps", "list_default_apps"), ("lock the computer", "lock_screen"),
-        ("where is firefox", "where_is_program"), ("where is firefox installed", "where_is_program"),
-        ("find my appimages", "list_appimages"),
-    ]
+    data = _phrases("agent_understands_phrases")
+    expected_cases = data["it"] + data["en"]
     wrong = []
     for phrase, name in expected_cases:
         r = understanding(phrase)
         if not r or r[0][0] != name:
             wrong.append("%s -> %s" % (phrase, r[0][0] if r else None))
-    compound = ("apri i documenti e poi alza il volume",
-                "open my documents and then turn up the volume")
+    compound = data["compound"]
     for phrase in compound:
         r = understanding(phrase)
         if not r or [n for n, _a in r] != ["open_folder", "set_volume"]:
             wrong.append(tr("compound sentence: {phrase}").format(phrase=phrase))
-    harmless = ("scrivi una poesia sul mare", "come stai?", "spiegami cos'e un kernel",
-               "write a poem about the sea", "how are you?", "explain what a kernel is")
-    # i18n-data-end
+    harmless = data["harmless"]
     for phrase in harmless:
         if understanding(phrase):
             wrong.append(tr("{phrase} is not a command").format(phrase=phrase))
@@ -1097,7 +1525,7 @@ def agent_no_root_and_confirmations():
               "logout", "force_close_application", "close_all_windows"}
     without = [n for n in must_confirm if n in C.REGISTRY and C.REGISTRY[n].risk != "confirm"]
     absent = [n for n in must_confirm if n not in C.REGISTRY]
-    forbidden = [n for n in C.REGISTRY if re.search(r"shell|command|comando|sudo|root|exec", n)]
+    forbidden = [n for n in C.REGISTRY if re.search(r"shell|command|sudo|root|exec", n)]
     src = open(C.__file__).read()
     # sudo used as a command (not the word in the list of protected packages)
     sudo = re.findall(r'\[\s*"sudo"|\bsudo -S|\bsudo\s+(?:apt|rm|sh|bash)\b', src)
@@ -1126,7 +1554,7 @@ def agent_really_verifies():
         res = A.execute("delete_item", {"item": "beta", "location": base}, confirm=lambda r: False, origin="tests")
         if res.ok or not os.path.isdir(os.path.join(base, "beta")):
             return False, tr("delete_item acted without confirmation")
-        for vague in ("tutto", "everything"):  # i18n-data: «tutto» = everything
+        for vague in _phrases("agent_really_verifies")["vague"]:   # "everything", in both languages
             res = A.execute("delete_item", {"item": vague}, confirm=lambda r: True, origin="tests")
             if res.ok:
                 return False, tr("“delete {what}” accepted").format(what=vague)
@@ -1139,14 +1567,8 @@ def agent_really_verifies():
 def agent_model_does_not_invent_actions():
     """The local model may only choose actions the sentence talks about."""
     from intelligence.agent import agent as A
-    # i18n-data-begin: Italian sentences
-    test_cases = [("screenshot", "scrivi una poesia sul mare", False), ("screenshot", "fammi uno screenshot", True),
-            ("lock_screen", "come stai", False), ("set_volume", "metti la musica piu forte", True),
-            ("suspend_system", "spiegami il kernel", False),
-            ("screenshot", "write a poem about the sea", False), ("screenshot", "take a screenshot", True),
-            ("lock_screen", "how are you", False), ("set_volume", "make the music louder", True),
-            ("suspend_system", "explain the kernel", False)]
-    # i18n-data-end
+    data = _phrases("agent_model_does_not_invent_actions")
+    test_cases = data["it"] + data["en"]
     incorrect_ones = ["%s/%s" % (n, f) for n, f, expected_value in test_cases if A._plausible(n, f) != expected_value]
     return not incorrect_ones, ", ".join(incorrect_ones) if incorrect_ones else _cases_passed(len(test_cases))
 
@@ -1169,8 +1591,7 @@ def agent_writes_no_password():
         A.LOG = old
     if "secret123" in written:
         return False, tr("password in the action log")
-    for phrase in ("connettiti a Casa con password secret123",  # i18n-data
-                   "connect to Home with password secret123"):
+    for phrase in _phrases("agent_writes_no_password")["phrases"]:
         if "secret123" in Memory._without_secrets(phrase):
             return False, tr("password in the chat history")
     return True, tr("action log and chat history mask passwords")
@@ -1184,14 +1605,10 @@ def agent_chat_does_not_fake_actions():
     # check whether the answer got longer.
     def with_note(text, executed):
         return len(Assistant._honest(text, executed)) > len(text)
-    # i18n-data-begin: Italian answers of the model
-    test_cases = [("Ho aperto Firefox.", True), ("Fatto!", True), ("Ecco una poesia sul mare.", False),
-            ("Non ho aperto nulla.", False),
-            ("I've opened Firefox.", True), ("Done!", True), ("Here is a poem about the sea.", False),
-            ("I didn't open anything.", False)]
-    # i18n-data-end
+    data = _phrases("agent_chat_does_not_fake_actions")
+    test_cases = data["it"] + data["en"]
     incorrect_ones = [t for t, note in test_cases if with_note(t, False) != note]
-    for t in ("Ho aperto Firefox.", "I've opened Firefox."):  # i18n-data
+    for t in data["real_action"]:
         if with_note(t, True):
             incorrect_ones.append(tr("note even after a real action: {text}").format(text=t))
     return not incorrect_ones, ", ".join(incorrect_ones) if incorrect_ones else _cases_passed(len(test_cases))
@@ -1266,7 +1683,7 @@ def safe_downloads():
 
 @test("system")
 def zeta_rays_wallpapers():
-    """The 8 official wallpapers with thumbnails, found by name, really applied
+    """The official wallpapers (9) with thumbnails, found by name, really applied
     to the desktop (the lock screen stays black); then the previous wallpaper is restored."""
     from system import wallpapers
     from intelligence.agent.understanding import understanding
@@ -1277,17 +1694,13 @@ def zeta_rays_wallpapers():
     if without:
         return False, tr("no thumbnail: {names}").format(names=", ".join(without))
     # Italian and English names: both are found, whatever the language
-    # i18n-data-begin: Italian wallpaper names
-    test_cases = {"onde rosse": "zeta-red-waves.jpg", "circuiti": "zeta-green-circuits.jpg",
-            "Terminale": "zeta-terminal.jpg", "logo bianco": "zeta-white.jpg", "blu": None,
-            "red waves": "zeta-red-waves.jpg", "circuits": "zeta-green-circuits.jpg",
-            "Terminal": "zeta-terminal.jpg", "white logo": "zeta-white.jpg", "blue": None}
-    # i18n-data-end
+    data = _phrases("zeta_rays_wallpapers")
+    test_cases = data["names"]
     for t, f in test_cases.items():
         found = wallpapers.search(t)
         if (os.path.basename(found) if found else None) != f:
             return False, tr("“{text}” -> {found}").format(text=t, found=found)
-    for phrase in ("metti lo sfondo onde rosse", "set the wallpaper to red waves"):  # i18n-data
+    for phrase in data["phrases"]:
         r = understanding(phrase)
         if not r or r[0][0] != "set_wallpaper" or wallpapers.search(r[0][1].get("image", "")) is None:
             return False, tr("phrase not understood: {result}").format(result="%s -> %r" % (phrase, r))
@@ -1296,7 +1709,7 @@ def zeta_rays_wallpapers():
         before = open(conf).read()
     except OSError:
         before = None
-    chosen = wallpapers.search("onde blu")  # i18n-data
+    chosen = wallpapers.search(data["chosen"])
     try:
         rc, out, err = _sh(["zeta-wallpaper", "set", chosen])
         current = _sh(["zeta-wallpaper", "get"])[1].split("\n")[0]
@@ -1443,22 +1856,28 @@ def wifi_detects_wrong_password():
 
 @test("ai")
 def natural_voice_speaks():
-    """ZETA's voice: Piper must really turn a sentence into audio, in Italian
-    and in English (the other languages use espeak-ng)."""
+    """ZETA's voice: the natural voice of Italian (Kokoro) and of English
+    (Piper) must really turn a sentence into audio (the other languages use
+    espeak-ng)."""
     import tempfile
     from intelligence import speech
     done = []
-    for language, phrase in (("it", "Ciao, sono ZETA."), ("en", "Hello, I am ZETA.")):  # i18n-data
+    for language, phrase in _phrases("natural_voice_speaks")["phrases"].items():
         entry = speech._natural_voice(language)
         if entry is None:
             return False, tr("no natural voice for {language}").format(language=language)
-        with tempfile.NamedTemporaryFile(suffix=".wav") as wav:
-            r = subprocess.run([speech.PIPER, "--model", entry[0], "--output_file", wav.name],
-                               input=phrase, capture_output=True, text=True, timeout=60)
-            if r.returncode != 0 or os.path.getsize(wav.name) < 10000:
-                return False, tr("{language}: no audio").format(language=language)
-        done.append(language)
-    return True, tr("Piper speaks: {languages}").format(languages=", ".join(done))
+        if entry["engine"] == "kokoro":
+            command = [speech.KOKORO] + speech.kokoro_options(entry["name"], entry["config"])
+        else:
+            command = [speech.PIPER, "--model", entry["model"], "--output_raw", "-q"]
+        with tempfile.TemporaryFile() as raw:
+            r = subprocess.run(command, input=phrase.encode("utf-8"), stdout=raw,
+                               stderr=subprocess.PIPE, timeout=120)
+            size = raw.seek(0, os.SEEK_END)
+        if r.returncode != 0 or size < 10000:
+            return False, tr("{language}: no audio").format(language=language)
+        done.append("%s (%s)" % (language, speech.voice_label(entry["name"])))
+    return True, tr("Natural voice speaks: {languages}").format(languages=", ".join(done))
 
 
 @test("settings")
@@ -1539,6 +1958,242 @@ def windows_always_reachable():
         proc.kill()
 
 
+# Small X11 test programs for the window guard (GTK 3 through XWayland: X11
+# programs are the ones that place and size themselves).
+_MIN_SIZE_SCRIPT = """
+import sys, gi
+gi.require_version("Gtk", "3.0"); gi.require_version("Gdk", "3.0")
+from gi.repository import Gtk, Gdk
+mw, mh = int(sys.argv[1]), int(sys.argv[2])
+w = Gtk.Window(title="zeta-selftest min size")
+w.add(Gtk.Label(label="zeta-selftest"))
+g = Gdk.Geometry()
+g.min_width, g.min_height = mw, mh
+w.set_geometry_hints(None, g, Gdk.WindowHints.MIN_SIZE)
+w.set_default_size(mw, mh)
+w.connect("destroy", Gtk.main_quit)
+w.show_all()
+Gtk.main()
+"""
+
+_DIALOG_SCRIPT = """
+import sys, gi
+gi.require_version("Gtk", "3.0"); gi.require_version("Gdk", "3.0")
+from gi.repository import Gtk, Gdk, GLib
+x, y = int(sys.argv[1]), int(sys.argv[2])
+main = Gtk.Window(title="zeta-selftest parent")
+main.set_default_size(500, 350)
+main.add(Gtk.Label(label="parent"))
+main.connect("destroy", Gtk.main_quit)
+main.show_all()
+d = Gtk.Window(title="zeta-selftest dialog", transient_for=main)
+d.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+d.set_default_size(400, 260)
+d.add(Gtk.Label(label="dialog"))
+d.show_all()
+def away():
+    d.move(x, y)        # a dialog that places itself off screen
+    return False
+GLib.timeout_add(2000, away)
+Gtk.main()
+"""
+
+_PLAIN_SCRIPT = """
+import sys, gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+w = Gtk.Window(title=sys.argv[1])
+w.add(Gtk.Label(label="zeta-selftest"))
+w.set_default_size(500, 350)
+w.connect("destroy", Gtk.main_quit)
+w.show_all()
+Gtk.main()
+"""
+
+
+def _test_window(script, *args):
+    env = dict(os.environ, GDK_BACKEND="x11")
+    return subprocess.Popen([sys.executable, "-c", script] + [str(a) for a in args], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _client(title):
+    _rc, out, _e = _sh(["hyprctl", "-j", "clients"])
+    try:
+        return next((c for c in json.loads(out or "[]") if c.get("title") == title), None)
+    except ValueError:
+        return None
+
+
+def _handle_reachable(c, bar):
+    """The left part of the title bar (close, minimize, maximize) lies
+    inside the usable area of one display."""
+    x, y = c["at"]
+    w, _h = c["size"]
+    top = y - bar
+    for x0, y0, x1, y1 in _usable_area().values():
+        if x >= x0 - 1 and top >= y0 - 1 and x + min(w, 96) <= x1 + 1 and y + (0 if bar else 24) <= y1 + 1:
+            return True
+    return False
+
+
+@test("windows")
+def windows_exits_on_keyboard():
+    """Every way out of a window state is bound in Hyprland (close, minimize,
+    maximize, full screen, Windows list, bring back, force quit, emergency
+    panel, Super + drag) and the window guard is loaded."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    super_, shift, ctrl, alt = 64, 1, 4, 8
+    expected = {
+        "close": (super_, "q"), "minimize": (super_, "h"), "maximize": (super_, "m"),
+        "fullscreen": (super_, "f"), "windows": (super_, "w"), "recover": (super_ | shift, "w"),
+        "force-pick": (ctrl | alt, "escape"), "force-active": (ctrl | shift, "escape"),
+        "emergency": (ctrl | alt, "delete"), "drag": (super_, "mouse:272"),
+        "resize": (super_, "mouse:273"),
+    }
+    _rc, out, _e = _sh(["hyprctl", "-j", "binds"])
+    try:
+        binds = json.loads(out or "[]")
+    except ValueError:
+        return False, "hyprctl binds"
+    found = {}
+    for b in binds:
+        d = b.get("description") or ""
+        if d.startswith("zeta-exit:") and not b.get("submap"):
+            found[d.split(":", 1)[1]] = (b.get("modmask"), (b.get("key") or "").lower())
+    wrong = []
+    for name, (mods, key) in expected.items():
+        got = found.get(name)
+        if not got or got[0] != mods or (got[1] and got[1] != key):
+            wrong.append(name)
+    if wrong:
+        return False, _missing(wrong)
+    _rc, out, _e = _sh(["hyprctl", "eval",
+                        "if not zeta_window_guard_ready then error('window guard not loaded') end"])
+    if not out.startswith("ok"):
+        return False, tr("window guard not loaded: {detail}").format(detail=out[:120])
+    return True, ntr("{n} keyboard exit bound", "{n} keyboard exits bound",
+                     len(expected)).format(n=len(expected))
+
+
+@test("windows")
+def windows_min_size_larger_than_screen():
+    """An X11 window whose minimum size is larger than the screen: title bar
+    and buttons within reach, and no endless resize loop."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    from system import windows
+    bar = 32 if windows.title_bars_present() else 0
+    areas = list(_usable_area().values())
+    if not areas:
+        return False, tr("no displays from hyprctl")
+    width = int(max(a[2] - a[0] for a in areas)) + 300
+    height = int(max(a[3] - a[1] for a in areas)) + 200
+    proc = _test_window(_MIN_SIZE_SCRIPT, width, height)
+    try:
+        deadline = time.monotonic() + 15
+        c = None
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            c = _client("zeta-selftest min size")
+            if c and _handle_reachable(c, bar):
+                break
+        if not c:
+            return False, tr("the test window did not appear")
+        if not _handle_reachable(c, bar):
+            return False, tr("title bar out of reach: {x},{y} {w}x{h}").format(
+                x=c["at"][0], y=c["at"][1], w=c["size"][0], h=c["size"][1])
+        # it must also stay still: the guard does not chase a size it cannot get
+        first = (tuple(c["at"]), tuple(c["size"]))
+        time.sleep(4)
+        c = _client("zeta-selftest min size")
+        if c and (tuple(c["at"]), tuple(c["size"])) != first:
+            return False, tr("the window keeps changing: {a} -> {b}").format(
+                a=first, b=(tuple(c["at"]), tuple(c["size"])))
+        return True, tr("reachable at {x},{y}, {w}x{h}").format(
+            x=first[0][0], y=first[0][1], w=first[1][0], h=first[1][1])
+    finally:
+        proc.kill()
+
+
+@test("windows")
+def windows_dialog_off_screen():
+    """An X11 dialog that moves itself beyond every display comes back
+    within reach."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    from system import windows
+    bar = 32 if windows.title_bars_present() else 0
+    areas = list(_usable_area().values())
+    if not areas:
+        return False, tr("no displays from hyprctl")
+    x = int(max(a[2] for a in areas)) + 500
+    y = int(max(a[3] for a in areas)) + 400
+    proc = _test_window(_DIALOG_SCRIPT, x, y)
+    try:
+        deadline = time.monotonic() + 15
+        seen_outside = False
+        while time.monotonic() < deadline:
+            time.sleep(0.4)
+            c = _client("zeta-selftest dialog")
+            if not c:
+                continue
+            if not _handle_reachable(c, bar):
+                seen_outside = True
+                continue
+            if seen_outside:
+                return True, tr("back inside: {x},{y} {w}x{h}").format(
+                    x=c["at"][0], y=c["at"][1], w=c["size"][0], h=c["size"][1])
+        return False, tr("the window stayed out of reach") if seen_outside else \
+            tr("the test window did not move out (nothing to check)")
+    finally:
+        proc.kill()
+
+
+@test("windows")
+def minimized_found_after_crash():
+    """A window hidden in the minimized windows' workspace that the state
+    file does not know (zeta-minimize crashed, state file lost) is found
+    again, listed, and restored within reach."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    from system import windows
+    title = "zeta-selftest hidden"
+    proc = _test_window(_PLAIN_SCRIPT, title)
+    addr = None
+    try:
+        deadline = time.monotonic() + 10
+        c = None
+        while time.monotonic() < deadline and not c:
+            time.sleep(0.4)
+            c = _client(title)
+        if not c:
+            return False, tr("the test window did not appear")
+        addr = c["address"]
+        # hidden without going through zeta-minimize: nothing is recorded
+        windows.dispatch('hl.dsp.window.move({ workspace = "%s", follow = false, window = "address:%s" })'
+                         % (windows.HIDDEN, addr))
+        time.sleep(0.5)
+        if addr not in [w["address"] for w in windows.minimized()]:
+            return False, tr("the hidden window is not offered again")
+        if not windows.restore(addr):
+            return False, tr("restore failed")
+        time.sleep(1.5)
+        c = _client(title)
+        if not c or str((c.get("workspace") or {}).get("name", "")).startswith("special:"):
+            return False, tr("the window is still hidden")
+        bar = 32 if windows.title_bars_present() else 0
+        if not _handle_reachable(c, bar):
+            return False, tr("title bar out of reach: {x},{y} {w}x{h}").format(
+                x=c["at"][0], y=c["at"][1], w=c["size"][0], h=c["size"][1])
+        return True, tr("found again and restored")
+    finally:
+        proc.kill()
+        if addr:
+            windows.forget(addr)
+
+
 @test("settings")
 def displays_read_and_settings_valid():
     """Settings › Displays: displays are read from Hyprland with their modes;
@@ -1575,7 +2230,7 @@ def avatar_in_system_colors():
     colors = [c for _k, c, _n in accent.PALETTE]
     if colors != ["#3A8DFF", "#C8102E", "#4CC94A", "#FFFFFF"]:
         return False, "%r" % colors
-    for word, k in (("blu", "blue"), ("rosso", "red"), ("verde", "green"), ("bianco", "white")):  # i18n-data
+    for word, k in _phrases("avatar_in_system_colors")["colors"].items():
         if intents._COLORS[word] != accent.color_of(k):
             return False, "%s: %s" % (word, intents._COLORS[word])
     ok, _msg = avatar.set_color("#123456")
@@ -1629,7 +2284,7 @@ def folder_colors_persist_and_reset():
     import tempfile
     from system import folder_colors
     base = tempfile.mkdtemp(prefix="zeta-tests-", dir=os.path.expanduser("~"))
-    folder = os.path.join(base, "Folder è & #1")
+    folder = os.path.join(base, "Folder \u00e8 & #1")       # a non-ASCII letter
     os.mkdir(folder)
     try:
         before = os.stat(folder).st_mtime_ns
@@ -1682,6 +2337,68 @@ def monitor_service_states_are_honest():
     if 'MAILTO=""' not in conf:
         return False, "chkrootkit mails reports to a missing mail server"
     return True, "%d states classified, chkrootkit reports to the journal" % len(cases)
+
+
+@test("system")
+def monitor_service_verdicts_are_calm():
+    """ZETA RAYS Monitor: synthetic `systemctl show` properties and log lines
+    must get the right level (normal, info, warning, error): a healthy or
+    recovered service shows nothing, a scheduled job that failed once is a
+    warning with its next run, a missing device with log evidence is
+    information, a real failure (or a device message without evidence) an error."""
+    from monitor import unitstate as U
+    now = 1792222910.0
+
+    def failed(**kw):
+        p = {"Id": "t.service", "Description": "Test", "LoadState": "loaded", "ActiveState": "failed",
+             "SubState": "failed", "Result": "exit-code", "ExecMainStatus": "1", "ExecMainCode": "1",
+             "InactiveEnterTimestamp": "@%d" % (now - 60), "ActiveEnterTimestamp": "", "TriggeredBy": "",
+             "Type": "simple", "UnitFileState": "enabled", "CanStart": "yes", "RefuseManualStart": "no"}
+        p.update(kw)
+        return p
+    backlight = "systemd-backlight@backlight:acpi_video0.service"
+    once = ["chkrootkit.service: Failed with result 'exit-code'."]
+    cases = [  # (name, props, journal, history, next runs, network up, level, kind)
+        ("healthy", {"Id": "cups.service", "ActiveState": "active", "SubState": "running"}, [], [], {}, None,
+         "normal", "ok"),
+        ("timer job failed once", failed(Id="chkrootkit.service", Type="oneshot", TriggeredBy="chkrootkit.timer",
+                                         ExecMainStatus="127"), ["mail: not found"], once,
+         {"chkrootkit.timer": now + 3600}, None, "warning", "periodic"),
+        ("timer job keeps failing", failed(TriggeredBy="t.timer"), [], once * 3, {"t.timer": now + 60}, None,
+         "error", "periodic-repeated"),
+        ("timer job not scheduled again", failed(TriggeredBy="t.timer"), [], once, {"t.timer": 0}, None,
+         "error", "periodic-unscheduled"),
+        ("stale: recovered", failed(ActiveState="inactive", SubState="dead", Result="success"), [], [], {}, None,
+         "normal", "ok"),
+        ("stale: active after the failure", failed(ActiveEnterTimestamp="@%d" % now), [], [], {}, None,
+         "normal", "stale"),
+        ("stale: later run succeeded", failed(), [], once + ["t.service: Deactivated successfully."], {}, None,
+         "normal", "stale"),
+        ("hardware absent", failed(Id=backlight, Type="oneshot"),
+         ["Failed to get backlight or LED device 'backlight:acpi_video0': No such device"], [], {}, None,
+         "info", "hardware"),
+        ("hardware unit without evidence", failed(Id=backlight, Type="oneshot"), ["Permission denied"], [], {},
+         None, "error", "failed"),
+        ("evidence in another unit", failed(Id="cups.service"), ["No such device"], [], {}, None,
+         "error", "failed"),
+        ("network late", failed(Id="NetworkManager-wait-online.service", Type="oneshot"), [], [], {}, True,
+         "info", "network-late"),
+        ("real failure", failed(Id="cups.service", ExecMainStatus="3"), ["error: config missing"], [], {}, None,
+         "error", "failed"),
+    ]
+    for name, props, journal, history, next_runs, net, level, kind in cases:
+        v = U.assess(props, journal, history, next_runs, net, now)
+        if (v["level"], v["kind"]) != (level, kind):
+            return False, "%s: %s/%s instead of %s/%s" % (name, v["level"], v["kind"], level, kind)
+        if v["level"] == "warning" and not v["next_run"]:
+            return False, "%s: no next run" % name
+        if v["level"] == "error" and "dismiss" not in v["actions"]:
+            return False, "%s: cannot be dismissed" % name
+    if U.assess(failed(ExecMainStatus="127"), now=now)["explanation"] != tr("A program it needs is missing."):
+        return False, "exit 127 not explained"
+    if U.valid_unit("-H.service") or U.valid_unit("../x.service") or not U.valid_unit(backlight):
+        return False, "unit name validation"
+    return True, "%d cases, 4 levels" % len(cases)
 
 
 def _usage():

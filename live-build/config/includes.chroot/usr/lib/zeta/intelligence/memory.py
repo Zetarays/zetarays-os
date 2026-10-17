@@ -12,12 +12,52 @@ import os
 import time
 from pathlib import Path
 
+from i18n_data import load
+
 from .providers.base import Message
 
 STATE_DIR = Path(os.path.expanduser("~/.local/share/zeta"))
 HISTORY_FILE = STATE_DIR / "history.jsonl"
 PREFS_FILE = Path(os.path.expanduser("~/.config/zeta/memory.json"))
 MAX_TURNS = 20     # how many user/assistant pairs to keep in context
+
+# History sent with each question: the most recent turns that fit in an
+# approximate token budget (and never more than the turn limit). A small local
+# model with a long history slows down and loses track; online models have
+# room for more, but every token costs time (and money).
+HISTORY_BUDGET = {"local": 1500, "cloud": 6000}
+HISTORY_TURNS = {"local": 6, "cloud": MAX_TURNS}
+
+
+def approx_tokens(text: str) -> int:
+    """About 4 characters per token (English and Italian), plus the
+    per-message overhead. Approximate on purpose: no tokenizer needed."""
+    return (len(text or "") + 3) // 4 + 4
+
+
+def trim_history(messages: list, max_turns: int, max_tokens: int) -> list:
+    """The latest messages that fit both limits, starting with a user message.
+
+    The newest message (the question being asked) is always kept, even when
+    it alone exceeds the budget: dropping it would make no sense.
+    """
+    kept: list = []
+    used = 0
+    users = 0
+    for m in reversed(messages):
+        cost = approx_tokens(m.content)
+        if kept and used + cost > max_tokens:
+            break
+        if m.role == "user":
+            if users >= max_turns:
+                break
+            users += 1
+        kept.append(m)
+        used += cost
+    kept.reverse()
+    while len(kept) > 1 and kept[0].role != "user":
+        kept.pop(0)
+    return kept
 
 
 class Memory:
@@ -48,7 +88,7 @@ class Memory:
                 d = json.loads(line)
                 # executed commands stay in the file but not in the context:
                 # a small model would reread them and answer by imitating them
-                # ("Schermata salvata…" in reply to any question; actually seen)
+                # ("Screenshot saved…" in reply to any question; actually seen)
                 if d.get("action"):
                     continue
                 msgs.append(Message(d["role"], d["content"]))
@@ -58,10 +98,11 @@ class Memory:
 
     @staticmethod
     def _without_secrets(text: str) -> str:
-        """"connettiti a Casa con password abc123" -> "... password ***":
+        """"connect to Home with password abc123" -> "... password ***":
         a password spoken to ZETA is never left written in the history."""
         import re
-        return re.sub(r"(?i)\b(password|passwd|pass|chiave|psk|pin|token|passphrase|passcode|key)\b(\s*[:=]?\s*)\S+", r"\1\2***", text)  # i18n-data: «chiave»
+        # the words that introduce a secret, in Italian and English
+        return re.sub(load("memory")["secret"], r"\1\2***", text)
 
     def save_turn(self, user_text: str, assistant_text: str, operation: bool = False) -> None:
         if not self.enabled:

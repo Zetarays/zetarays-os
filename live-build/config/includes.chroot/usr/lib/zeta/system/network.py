@@ -4,15 +4,16 @@ import os
 import re
 
 from i18n import tr
+from i18n_data import load
 
 from . import run
 
 VPN_TYPES = ("vpn", "wireguard")
+_DATA = load("network")
 
-# nmcli translates states and messages into the system language (e.g.
-# Italian "connesso", "abilitato"): whenever its output is parsed, English is
-# always used. C.UTF-8
-# rather than C, so network names with accented letters stay intact.
+# nmcli translates states and messages into the system language: whenever
+# its output is parsed, English is always used. C.UTF-8 rather than C, so
+# network names with accented letters stay intact.
 NMCLI = ["env", "LC_ALL=C.UTF-8", "LANGUAGE=C", "nmcli"]
 
 
@@ -41,8 +42,9 @@ def _rows(args, timeout=8):
 
 def nice_name(conn, typ):
     """Display name: NetworkManager's automatic names become readable."""
-    # the automatic name in English or as NetworkManager writes it in Italian  # i18n-data
-    m = re.match(r"^(Wired connection|Connessione via cavo)\s*(\d+)$", conn or "")  # i18n-data
+    # the automatic name in English or as NetworkManager writes it in Italian
+    # (i18n-data/network.json)
+    m = re.match(_DATA["wired_connection"], conn or "")
     if m:
         if m.group(2) == "1":
             return tr("Wired connection")

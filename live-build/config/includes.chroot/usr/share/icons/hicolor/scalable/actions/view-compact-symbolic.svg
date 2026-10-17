@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- ZETA RAYS: "compact list" view button of the file manager. Thunar asks
+       for view-compact-symbolic, which the Adwaita icon theme does not have
+       (the button showed a broken image). Two columns of small icon + name
+       rows, in the style of Adwaita's view-list-symbolic. The comment stays
+       inside <svg>: before it, gdk-pixbuf no longer recognizes the file. -->
+  <g fill="#2e3436">
+    <rect x="0" y="1.5" width="3" height="3" rx="0.75"/>
+    <rect x="4" y="2.25" width="3" height="1.5"/>
+    <rect x="0" y="6.5" width="3" height="3" rx="0.75"/>
+    <rect x="4" y="7.25" width="3" height="1.5"/>
+    <rect x="0" y="11.5" width="3" height="3" rx="0.75"/>
+    <rect x="4" y="12.25" width="3" height="1.5"/>
+    <rect x="9" y="1.5" width="3" height="3" rx="0.75"/>
+    <rect x="13" y="2.25" width="3" height="1.5"/>
+    <rect x="9" y="6.5" width="3" height="3" rx="0.75"/>
+    <rect x="13" y="7.25" width="3" height="1.5"/>
+    <rect x="9" y="11.5" width="3" height="3" rx="0.75"/>
+    <rect x="13" y="12.25" width="3" height="1.5"/>
+  </g>
+</svg>

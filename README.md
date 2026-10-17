@@ -8,7 +8,8 @@ no internet connection required.
 
 - Website: <https://zetarays.org>
 - Downloads (ISO and VirtualBox OVA, amd64 and arm64): <https://zetarays.org/#download>
-- User guide: [`docs/README-2.0.txt.in`](docs/README-2.0.txt.in) (the `README.txt` shipped next to the images)
+- User guide: [`docs/README.txt.in`](docs/README.txt.in) (the `README.txt` shipped next to the images)
+- Current version: [`VERSION`](VERSION) (the only place where the release number is written)
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md)
 
 > This repository contains the **source** used to build ZETA RAYS OS, not the
@@ -27,7 +28,7 @@ no internet connection required.
 |  | Minimum | Recommended |
 |---|---|---|
 | Processor | 64-bit (x86-64 or ARM64) | 4 cores or more |
-| Memory | 4 GB | 8 GB (16 GB keeps the AI model loaded) |
+| Memory | 8 GB (4 GB without the local AI) | 16 GB (keeps the AI model loaded) |
 | Disk | 15 GB free | 20 GB free or more |
 | Firmware | UEFI or BIOS (amd64) | UEFI with Secure Boot |
 
@@ -41,7 +42,7 @@ no internet connection required.
   and per-display memory.
 - **Folder colors**: right-click a folder › Folder Color (red, white, green,
   blue, purple, default), on the desktop and in the file manager.
-- **ZETA**, a local AI (Ollama with Llama 3.2) that acts on the system, with
+- **ZETA**, a local AI (Ollama with Qwen3 4B Instruct) that acts on the system, with
   confirmations for destructive actions and no unrestricted root access;
   optional online providers with your own key.
 - Security center, real-time Monitor, nftables firewall on by default, SSH
@@ -102,16 +103,17 @@ not install, or the boot archive is too large.
 |---|---|
 | Shell and Python syntax, firewall syntax, secrets (CI) | `.github/workflows/checks.yml` |
 | Every UI string has an Italian translation | `python3 tools/i18n.py check` |
-| No Italian prose in code comments and developer docs | `python3 tools/check-italian.py` |
+| No Italian in code (strings, comments) or developer docs; Italian only in data files | `python3 tools/check-italian.py` |
 | A comment translation did not change code | `python3 tools/check-translation-safety.py OLD NEW` |
 | `pkill -f`/`pgrep -f` patterns cannot hit another program | `python3 tools/check-process-names.py` |
+| The release version is only in `VERSION` (no stale image names or links) | `python3 tools/check-version.py` |
 | Website source, before a release (the site is a separate repository) | `python3 tools/check-site.py PATH/index.html` |
 | Built-in tests on a running system (68+) | `zeta-selftest` (inside ZETA RAYS) |
 
 ## Troubleshooting
 
 The user guide has a full troubleshooting section
-([`docs/README-2.0.txt.in`](docs/README-2.0.txt.in), section 9). The most
+([`docs/README.txt.in`](docs/README.txt.in), section 9). The most
 useful command on an affected computer is:
 
 ```bash
@@ -136,5 +138,5 @@ do not open a public issue. Contributions: see
 - ZETA RAYS name, logo and wallpapers: **not** under the GPL, see
   [`LICENSE-ARTWORK.md`](LICENSE-ARTWORK.md).
 - Third-party software keeps its own license (Debian packages, Hyprland,
-  Ollama, the Llama 3.2 model, LocalSend, fonts): see `docs/` and the legal
+  Ollama, the Qwen3 model, LocalSend, fonts): see `docs/` and the legal
   notes inside the system (`/usr/share/zeta/legal/`).

@@ -23,7 +23,7 @@ DEFAULT = "#3A8DFF"
 
 # The ZETA RAYS accent colors: the system's only palette. It is used by
 # Settings › Appearance, the account picture colors and spoken or typed
-# commands ("metti il rosso", "red"). (key, color, English name to translate)
+# commands ("set the red one", in any language). (key, color, English name to translate)
 PALETTE = (
     ("blue", "#3A8DFF", "Blue"),
     ("red", "#C8102E", "Red"),

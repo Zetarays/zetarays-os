@@ -11,7 +11,11 @@ Firefox's homepage (policies.json) is file:///usr/share/zetarays/start/index.htm
 Run by build.sh before every build, so the copy always matches the website.
 
   gen-firefox-start-page.py <site dir> <output dir>
+
+The text of the offline note, in both languages, is in
+data/gen-firefox-start-page.json.
 """
+import json
 import os
 import re
 import shutil
@@ -20,6 +24,9 @@ import sys
 ONLINE_URL = "https://zetarays.org/"
 PROBE_URL = "https://zetarays.org/"
 PROBE_TIMEOUT_MS = 2500
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gen-firefox-start-page.json"),
+          encoding="utf-8") as _f:
+    OFFLINE_NOTE = json.load(_f)["offline_note"]
 
 HEAD_EXTRA = """
 <!-- ZETA RAYS: local copy of zetarays.org used as Firefox's start page.
@@ -66,8 +73,8 @@ BODY_EXTRA = """
   var note = document.getElementById("zr-offline-note");
   function setNoteText() {
     note.textContent = document.documentElement.lang === "it"
-      ? "Copia offline di zetarays.org \u00b7 link disattivati"  // i18n-data
-      : "Offline copy of zetarays.org \u00b7 links are disabled";
+      ? %(note_it)s
+      : %(note_en)s;
   }
   setNoteText();
   new MutationObserver(setNoteText).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
@@ -117,10 +124,12 @@ def main(site, out):
     # goes right after </title>, the body part at the very end
     assert page.count("</title>") == 1
     page = page.replace("</title>", "</title>" + extra, 1)
+    body_extra = BODY_EXTRA % {"note_it": json.dumps(OFFLINE_NOTE["it"], ensure_ascii=False),
+                               "note_en": json.dumps(OFFLINE_NOTE["en"], ensure_ascii=False)}
     if page.count("</html>") == 1:
-        page = page.replace("</html>", BODY_EXTRA + "</html>", 1)
+        page = page.replace("</html>", body_extra + "</html>", 1)
     else:
-        page = page.rstrip() + "\n" + BODY_EXTRA
+        page = page.rstrip() + "\n" + body_extra
 
     # nothing left that would load from the network
     external = re.findall(r'(?:src|href)="(https?://[^"]+)"', page)

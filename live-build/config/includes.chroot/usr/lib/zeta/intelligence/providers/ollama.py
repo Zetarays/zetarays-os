@@ -13,10 +13,17 @@ from typing import Callable
 
 from i18n import tr
 
-from .base import Message, Provider, Reply, ToolSpec
+from .base import Message, Provider, ProviderError, Reply, ToolSpec
 from .. import resources
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
+
+# The local model ZETA uses when the user has not picked one in Settings › AI.
+# This is the ONLY place to change it (the model shipped in the image is set
+# up by the build hooks, separately). If it is not installed, the first
+# installed model is used. Chosen for 2.1 after a benchmark: Qwen3-4B-Instruct-2507
+# (Apache-2.0, 2.5 GB file, about 3.7 GB loaded, no "thinking" mode).
+DEFAULT_MODEL = "qwen3:4b-instruct"
 
 
 class InsufficientMemoryError(RuntimeError):
@@ -38,9 +45,12 @@ class OllamaProvider(Provider):
         getting this provider chosen and then freezing the computer the moment
         the user asks the first question.
         """
-        if not resources.memory_for_model() and not self._already_loaded():
+        models = self._tags()
+        if not models:
             return False
-        return bool(self.list_models())
+        if not resources.memory_for_model(self._model_gb(models)) and not self._already_loaded():
+            return False
+        return True
 
     def test(self, timeout: float = 25.0) -> tuple[bool, str]:
         """Test the local connection without making it load the model.
@@ -61,20 +71,37 @@ class OllamaProvider(Provider):
         if self._already_loaded():
             return True, tr("Connected, model {model} already in memory (instant replies).").format(
                 model=wanted)
-        if not resources.memory_for_model():
+        if not resources.memory_for_model(self._model_gb()):
             return False, tr("Ollama is responding, but there isn't enough free memory to "
                              "load the model: questions would hang.")
         return True, tr("Connected, model {model} ready. The first reply needs to "
                         "load it into memory.").format(model=wanted)
 
     def _already_loaded(self) -> bool:
-        """The model is already in memory: using it costs no extra memory."""
+        """Our model is already in memory: using it costs no extra memory.
+        (Another model in memory does not count: ours would need room too.)"""
         try:
             with urllib.request.urlopen(self._base() + "/api/ps", timeout=2.0) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            return bool(data.get("models"))
-        except (urllib.error.URLError, ValueError, OSError):
+                data = json.loads(resp.read(256 * 1024).decode("utf-8"))
+            names = {m.get("name") or m.get("model") for m in data.get("models") or []}
+            return bool(names) and self._model() in names
+        except (urllib.error.URLError, ValueError, OSError, AttributeError):
             return False
+
+    def _tags(self) -> dict:
+        """Installed models: {name: file size in GB} (empty if Ollama isn't running)."""
+        try:
+            with urllib.request.urlopen(self._base() + "/api/tags", timeout=2.0) as resp:
+                data = json.loads(resp.read(1024 * 1024).decode("utf-8"))
+            return {m["name"]: (m.get("size") or 0) / 1e9 for m in data.get("models", [])
+                    if m.get("name")}
+        except (urllib.error.URLError, ValueError, OSError, KeyError, TypeError, AttributeError):
+            return {}
+
+    def _model_gb(self, tags: dict | None = None) -> float:
+        """Memory the model in use needs once loaded (estimated from its file)."""
+        tags = self._tags() if tags is None else tags
+        return resources.model_memory_gb(tags.get(self._model_from(list(tags)), 0.0))
 
     def preload(self) -> bool:
         """Load the model into memory without generating anything.
@@ -82,11 +109,14 @@ class OllamaProvider(Provider):
         This removes the wait on first use: from cold, the model takes tens of
         seconds to load, then answers in fractions of a second.
         """
-        if not resources.memory_for_model():
+        if not resources.memory_for_model(self._model_gb()):
             return False
         try:
+            # same options as the questions: a different context size would
+            # make Ollama load the model a second time at the first question
             payload = json.dumps({"model": self._model(), "messages": [],
-                                  "keep_alive": self.KEEP_ALIVE}).encode()
+                                  "keep_alive": self.KEEP_ALIVE,
+                                  "options": self.load_options()}).encode()
             req = urllib.request.Request(self._base() + "/api/chat", data=payload,
                                          headers={"content-type": "application/json"})
             with urllib.request.urlopen(req, timeout=300) as resp:
@@ -97,18 +127,19 @@ class OllamaProvider(Provider):
 
     def list_models(self) -> list[str]:
         """Locally installed models (empty if Ollama isn't running)."""
-        try:
-            with urllib.request.urlopen(self._base() + "/api/tags", timeout=2.0) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
-        except (urllib.error.URLError, ValueError, OSError):
-            return []
+        return list(self._tags())
 
     def _model(self) -> str:
         if self.config.model:
             return self.config.model
-        models = self.list_models()
-        return models[0] if models else "llama3.2"
+        return self._model_from(self.list_models())
+
+    def _model_from(self, models: list[str]) -> str:
+        if self.config.model:
+            return self.config.model
+        if not models or DEFAULT_MODEL in models:
+            return DEFAULT_MODEL
+        return models[0]
 
     def _messages(self, messages: list[Message]) -> list[dict]:
         out = []
@@ -133,21 +164,35 @@ class OllamaProvider(Provider):
         """How long the model stays in memory after the last question.
 
         It isn't a constant: it depends on how much RAM the computer has.
-        Keeping 1.8 GB busy for half an hour on a 4 GB machine is the exact
+        Keeping 3.7 GB busy for half an hour on an 8 GB machine is the exact
         recipe for the freezes and slowdowns we want to avoid.
         """
         return resources.keep_alive()
 
+    def load_options(self) -> dict:
+        """The options that decide how the model is loaded (Ollama reloads the
+        model when they change): every request must send the same ones."""
+        return {"num_ctx": self.config.context} if self.config.context else {}
+
     def _options(self) -> dict:
         opts = {"temperature": self.config.temperature,
                "num_predict": self.config.max_tokens or self.MAX_TOKEN}
-        if self.config.context:
-            opts["num_ctx"] = self.config.context
+        opts.update(self.load_options())
         return opts
 
+    def _http_error(self, code: int, body: str, headers=None) -> ProviderError:
+        err = super()._http_error(code, body, headers)
+        if err.kind == "model" or (code == 404 and "not found" in body.lower()):
+            return ProviderError(tr("The local model “{model}” isn't installed. Choose an installed "
+                                    "one in Settings › AI.").format(model=self._model()),
+                                 status=code, kind="model")
+        return err
+
     def _check_memory(self) -> None:
-        if not self._already_loaded() and not resources.memory_for_model():
-            raise InsufficientMemoryError(resources.memory_reason())
+        if not self._already_loaded():
+            need = self._model_gb()
+            if not resources.memory_for_model(need):
+                raise InsufficientMemoryError(resources.memory_reason(need))
 
     def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None) -> Reply:
         self._check_memory()
@@ -176,6 +221,8 @@ class OllamaProvider(Provider):
                 ev = json.loads(line)
             except ValueError:
                 continue
+            if ev.get("error"):
+                raise self._stream_failed(ev.get("error"))
             chunk = ev.get("message", {}).get("content", "")
             if chunk:
                 reply.text += chunk

@@ -110,6 +110,25 @@ if $is_vm; then
     export XWAYLAND_NO_GLAMOR=1      # Xwayland: no GPU buffers
 fi
 
+# --- graphics test settings (docs/FLICKER-TESTS.md) --------------------------
+# Optional, normally absent: ~/.config/zeta/graphics.env, one NAME=value per
+# line, to try another GTK renderer for every app of the session (for
+# example GSK_RENDERER=cairo) without touching system files. Deleting the
+# file and logging in again restores the defaults. Only these GTK variables
+# and plain values (letters, digits, "-", "_", ",") are accepted.
+if [ -r "$HOME/.config/zeta/graphics.env" ]; then
+    while IFS='=' read -r name value || [ -n "$name" ]; do
+        case "$name" in
+            GSK_RENDERER|GDK_DEBUG|GDK_DISABLE|GSK_DEBUG) ;;
+            *) continue ;;
+        esac
+        case "$value" in
+            ''|*[!A-Za-z0-9_,-]*) continue ;;
+        esac
+        export "$name=$value"
+    done < "$HOME/.config/zeta/graphics.env"
+fi
+
 # After a crash Hyprland restarts by itself, but in "safe mode", with an
 # emergency configuration: no bar, no ZETA RAYS shortcuts. zeta-recovery (a
 # user service) notices, leaves a marker here and shuts it down cleanly:

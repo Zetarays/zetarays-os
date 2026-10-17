@@ -1,0 +1,65 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: read text aloud with Kokoro (the natural Italian voice).
+
+    zeta-kokoro --voice if_sara --espeak it [--speed 1.0] [--pause 0.25] < TEXT > RAW
+    zeta-kokoro --phonemes --espeak it < TEXT     (only print the phonemes)
+
+Reads the text on standard input and writes raw audio (24 kHz, mono,
+signed 16-bit little endian) on standard output, one sentence at a time, so
+the player (pw-play, started by the speech module) begins with the first
+sentence while the next ones are computed. Ending this process stops the
+reading at once. Errors go to standard error and the exit status is 1:
+the speech module then reads the text with the next available voice.
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+
+from intelligence import kokoro  # noqa: E402
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="zeta-kokoro")
+    ap.add_argument("--voice", default="if_sara")
+    ap.add_argument("--espeak", default="it", help="espeak-ng voice for the phonemes")
+    ap.add_argument("--speed", type=float, default=1.0, help="0.5-2.0, above 1 is faster")
+    ap.add_argument("--pause", type=float, default=0.25, help="seconds after each sentence")
+    ap.add_argument("--phonemes", action="store_true", help="print the phonemes, no audio")
+    a = ap.parse_args()
+    text = sys.stdin.read()
+    if a.phonemes:
+        import json
+        with open(kokoro.VOCAB, encoding="utf-8") as f:
+            vocab = json.load(f)
+        espeak = kokoro.Espeak(a.espeak)
+        for s in kokoro.sentences(text):
+            print(kokoro.phonemize(espeak, s, vocab))
+        return 0
+    speed = min(2.0, max(0.5, a.speed))
+    synth = kokoro.Synth(a.voice, a.espeak)
+    np = synth.np
+    silence = kokoro.to_pcm16(np, np.zeros(int(kokoro.SAMPLE_RATE * max(0.0, a.pause)),
+                                            dtype=np.float32))
+    out = sys.stdout.buffer
+    for sentence in kokoro.sentences(text):
+        for piece in kokoro.split_phonemes(synth.phonemes(sentence)):
+            out.write(kokoro.to_pcm16(np, synth.audio(piece, speed)))
+            out.flush()
+        out.write(silence)
+        out.flush()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        # the player was closed (reading stopped): nothing left to do
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(0)
+    except Exception as e:  # noqa: BLE001
+        print("zeta-kokoro: %s" % e, file=sys.stderr)
+        sys.exit(1)

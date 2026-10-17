@@ -22,8 +22,13 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from i18n import ntr, tr
+from i18n_data import load
 
 from . import state as S
+
+# The Italian and English words the user may say (folder names, Settings
+# pages, sources...) are language data: i18n-data/capabilities.json
+_W = load("capabilities")
 
 
 @dataclass
@@ -428,11 +433,8 @@ def list_appimages(args):
 
 
 # the same app installed more than once (APT, Flatpak, AppImage): which one
-# i18n-data-begin: Italian and English words for an installation source
-_SOURCE_WORDS = {"flatpak": "flatpak", "appimage": "appimage", "apt": "apt", "debian": "apt",
-                 "deb": "apt", "opt": "opt", "user": "user", "utente": "user", "local": "local",
-                 "locale": "local"}
-# i18n-data-end
+# Italian and English words for an installation source
+_SOURCE_WORDS = _W["source_words"]
 # the word to say for each source (the first word above that selects it)
 _SOURCE_WORD = {"apt": "APT", "flatpak": "Flatpak", "appimage": "AppImage", "opt": "opt",
                  "user": "user", "local": "local"}
@@ -445,7 +447,7 @@ def choose_installation(name):
     programs = _programs_module()
     words = name.casefold().split()
     source = next((_SOURCE_WORDS[p] for p in words if p in _SOURCE_WORDS), "")
-    rest = " ".join(p for p in words if p not in _SOURCE_WORDS and p not in ("version", "versione"))  # i18n-data
+    rest = " ".join(p for p in words if p not in _SOURCE_WORDS and p not in _W["version_words"])
     exact_matches = [r for r in programs.apps(rest) if r["name"].casefold() == rest]
     if source:
         exact_matches = [r for r in exact_matches if r["source"] == source]
@@ -461,21 +463,8 @@ def choose_installation(name):
 
 
 # ================================================================ FILES AND FOLDERS
-# i18n-data-begin: Italian and English names of the well-known folders
-PLACES = {
-    "scrivania": "DESKTOP", "desktop": "DESKTOP",
-    "documenti": "DOCUMENTS", "documents": "DOCUMENTS",
-    "download": "DOWNLOAD", "downloads": "DOWNLOAD", "scaricati": "DOWNLOAD",
-    "immagini": "PICTURES", "foto": "PICTURES", "pictures": "PICTURES",
-    "musica": "MUSIC", "music": "MUSIC",
-    "video": "VIDEOS", "filmati": "VIDEOS", "videos": "VIDEOS",
-    "modelli": "TEMPLATES", "pubblici": "PUBLICSHARE",
-    "home": "HOME", "casa": "HOME", "cartella personale": "HOME", "personale": "HOME",
-    # English names
-    "photos": "PICTURES", "templates": "TEMPLATES", "public": "PUBLICSHARE",
-    "home folder": "HOME", "personal folder": "HOME",
-}
-# i18n-data-end
+# Italian and English names of the well-known folders
+PLACES = _W["places"]
 _XDG = {}
 
 
@@ -484,9 +473,10 @@ def folder_of(place: str) -> str | None:
     if not place:
         return None
     l = S.norm(place)
-    l = re.sub(r"^(la|il|lo|le|i|gli|nella|nel|nei|negli|sulla|sul|in|su|alla|al)\s+", "", l)  # i18n-data
+    l = re.sub(_W["place_articles"], "", l)                 # Italian articles and prepositions
     l = re.sub(r"^(?:(?:in|on|to|into|inside|from)\s+)?(?:(?:the|my)\s+)?", "", l)
-    l = l.replace("cartella ", "") if l.startswith("cartella ") and l[9:] in PLACES else l  # i18n-data: «cartella documenti»
+    word = _W["folder_word"]                                # Italian word order: «folder documents»
+    l = l.replace(word, "") if l.startswith(word) and l[len(word):] in PLACES else l
     l = l[:-7] if l.endswith(" folder") and l[:-7] in PLACES else l       # «documents folder»
     if l in PLACES:
         k = PLACES[l]
@@ -720,12 +710,8 @@ def move_item(args):
                  {"path": dest})
 
 
-# i18n-data-begin: vague Italian and English words that never name one item
-_VAGUE = {"tutto", "tutti", "tutte", "ogni cosa", "qualcosa", "tutto quanto", "tutti i file", "questo", "quello",
-          "everything", "all", "all of it", "all files", "all the files", "all my files", "every file",
-          "anything", "something", "this", "that", "it", "them", "these", "those", "stuff", "all of them",
-          "files", "my files", "the files", "every thing"}
-# i18n-data-end
+# vague Italian and English words that never name one item
+_VAGUE = set(_W["vague"])
 
 
 def _check_delete(args):
@@ -820,7 +806,7 @@ def open_file(args):
           ["folder"])
 def open_folder(args):
     c = (args.get("folder") or "home").strip()
-    if S.norm(c) in ("cestino", "il cestino", "trash", "the trash", "trash can", "recycle bin"):  # i18n-data
+    if S.norm(c) in _W["trash_names"]:
         return _open_and_verify(["zeta-default-app", "file", "trash:///"], tr("the trash"))
     d = folder_of(c)
     if not d:
@@ -861,7 +847,8 @@ def download_file(args):
     dest = _unique_name(base, name)
     tmp = dest + ".part"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "ZETA-RAYS/2.0"})
+        from system.release import product_token
+        req = urllib.request.Request(url, headers={"User-Agent": product_token()})
         with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
             cd = r.headers.get("Content-Disposition", "")
             m = re.search(r'filename="?([^";]+)"?', cd)
@@ -883,30 +870,9 @@ def download_file(args):
 
 # ================================================================ SYSTEM
 # Words for a Settings page -> the page id that zeta-settings accepts.
-# i18n-data-begin: Italian and English names of the Settings pages
-PAGES = {"aspetto": "appearance", "tema": "appearance", "colori": "appearance", "sfondo": "appearance",
-          "dock": "dock", "barra": "dock", "schermo": "lock-screen", "blocco": "lock-screen",
-          "display": "lock-screen", "luminosita": "lock-screen", "monitor": "lock-screen",
-          "notifiche": "notifications", "rete": "network", "wifi": "network", "wi-fi": "network",
-          "internet": "network",
-          "bluetooth": "bluetooth", "audio": "audio", "suono": "audio", "volume": "audio",
-          "stampanti": "printers", "stampante": "printers", "stampa": "printers",
-          "ai": "ai", "intelligenza": "ai", "intelligenza artificiale": "ai", "zeta": "ai",
-          "informazioni": "info", "info": "info", "sistema": "info",
-          "app predefinite": "default-apps", "applicazioni predefinite": "default-apps",
-          "predefinite": "default-apps",
-          # English names
-          "appearance": "appearance", "theme": "appearance", "colors": "appearance", "colours": "appearance",
-          "wallpaper": "appearance", "background": "appearance", "bar": "dock", "taskbar": "dock",
-          "panel": "dock",
-          "screen": "lock-screen", "lock screen": "lock-screen", "brightness": "lock-screen",
-          "notifications": "notifications", "network": "network", "sound": "audio",
-          "printers": "printers", "printer": "printers", "printing": "printers",
-          "artificial intelligence": "ai", "assistant": "ai", "about": "info", "information": "info",
-          "system": "info", "default apps": "default-apps", "default applications": "default-apps"}
-SETTINGS_APPS = {"sicurezza": "zeta-security", "firewall": "zeta-security",
-                    "pacchetti": "synaptic", "security": "zeta-security", "packages": "synaptic"}
-# i18n-data-end
+# (Italian and English names of the Settings pages)
+PAGES = _W["pages"]
+SETTINGS_APPS = _W["settings_apps"]
 
 
 def _page_name(page):
@@ -914,14 +880,14 @@ def _page_name(page):
     return {"appearance": tr("Appearance"), "dock": tr("Dock"), "lock-screen": tr("Display"),
             "notifications": tr("Notifications"), "network": tr("Network"), "bluetooth": "Bluetooth",
             "audio": tr("Sound"), "printers": tr("Printers"), "ai": "AI", "info": tr("About"),
-            "default-apps": tr("Default Apps")}.get(page, page)
+            "default-apps": tr("Default Apps"), "software-update": tr("Software Update")}.get(page, page)
 
 
 @capabilities("open_settings", "Opens Settings, optionally on a page (appearance, dock, display, notifications, "
           "network, bluetooth, sound, printers, ai, about, default apps).", {"page": "optional"})
 def open_settings(args):
     p = S.norm(args.get("page") or "")
-    p = re.sub(r"^(di |del |della |dello |dei |delle |per |su |sul |sulla )", "", p)  # i18n-data
+    p = re.sub(_W["page_prepositions"], "", p)                 # Italian prepositions
     p = re.sub(r"^(?:(?:of|for|on|about)\s+)?(?:(?:the|my)\s+)?", "", p)
     if p in SETTINGS_APPS:
         return open_application({"app": SETTINGS_APPS[p]})
@@ -963,7 +929,7 @@ def set_volume(args):
         return Outcome(False, tr("I can't find the audio output."))
     if "mute" in args and args["mute"] is not None:
         want_mute = bool(args["mute"]) if not isinstance(args["mute"], str) else \
-            args["mute"].lower() in ("true", "si", "sì", "yes", "1")  # i18n-data
+            args["mute"].lower() in _W["yes_words"]
         S.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if want_mute else "0"])
         _, m2 = _volume()
         S.run(["pkill", "-RTMIN+11", "-x", "waybar"])
@@ -1075,14 +1041,14 @@ def _power_action(operation, message):
         return Outcome(True, message)
     reason = (err or out or "").strip().splitlines()
     reason = reason[-1][:160] if reason else tr("unknown reason")
-    if "authentication" in reason.lower() or "autenticazione" in reason.lower():  # i18n-data
+    if "authentication" in reason.lower() or _W["authentication_word"] in reason.lower():
         reason = tr("you need to be in the computer's local session (or have the administrator password)")
     return Outcome(False, tr("The system refused: {reason}.").format(reason=reason))
 
 
 @capabilities("set_theme", "Light or dark theme.", {"theme": "light or dark"}, ["theme"])
 def set_theme(args):
-    t = "light" if S.norm(args.get("theme", "")).startswith(("chiar", "light")) else "dark"  # i18n-data
+    t = "light" if S.norm(args.get("theme", "")).startswith(tuple(_W["light_prefixes"])) else "dark"
     S.run(["zeta-appearance", "set", "theme", t], timeout=40)      # also applies it
     try:
         now = open(os.path.join(S.HOME, ".config/zeta/theme")).read().strip()
@@ -1099,15 +1065,11 @@ def set_theme(args):
           {"image": "image file, name of a ZETA RAYS wallpaper, or \"default\""}, ["image"])
 def set_wallpaper(args):
     name = (args.get("image") or "").strip()
-    # i18n-data-begin: Italian and English words for the default wallpaper
-    if S.norm(name) in ("predefinito", "originale", "zeta", "zeta rays", "di zeta rays",
-                        "default", "the default", "the default one", "original", "the original",
-                        "the original one", "zeta rays default"):
-        # i18n-data-end
+    if S.norm(name) in _W["default_wallpaper_names"]:
         rc, _o, e = S.run(["zeta-wallpaper", "reset"], timeout=30)
         return Outcome(rc == 0, tr("The ZETA RAYS wallpaper is back.") if rc == 0 else
                      tr("That didn't work: {error}").format(error=e))
-    # first the ZETA RAYS wallpapers by name («onde rosse»), then the user's files
+    # first the ZETA RAYS wallpapers by name («red waves»), then the user's files
     from system import wallpapers
     official = wallpapers.search(name)
     if official:
@@ -1127,7 +1089,7 @@ def set_wallpaper(args):
 
 # ================================================================ NETWORK
 def _wifi_radio():
-    # the output is parsed and compared: force English (in Italian it said «abilitato»)
+    # the output is parsed and compared: force English (translated, it never says «enabled»)
     rc, out, _ = S.run(["nmcli", "-t", "radio", "wifi"], timeout=5, c_locale=True)
     return out.strip() == "enabled" if rc == 0 else None
 
@@ -1465,11 +1427,7 @@ def dock_remove(args):
 def system_status(args):
     import psutil
     what = S.norm(args.get("what") or "all")
-    # i18n-data-begin: Italian and English words for each part
-    what = {"tutto": "all", "everything": "all", "processor": "cpu", "processore": "cpu", "memory": "ram",
-            "memoria": "ram", "disco": "disk", "storage": "disk", "space": "disk", "spazio": "disk",
-            "batteria": "battery"}.get(what, what)
-    # i18n-data-end
+    what = _W["status_parts"].get(what, what)                 # Italian and English words for each part
     pieces = []
     if what in ("all", "cpu"):
         pieces.append(tr("CPU at {percent}% (load {load} on {cores} cores)").format(

@@ -11,10 +11,12 @@ windowPlacement: center
 strings:
     productName:         ZETA RAYS OS
     shortProductName:    ZETA RAYS
-    version:             2.0
-    shortVersion:        2.0
-    versionedName:       ZETA RAYS OS 2.0
-    shortVersionedName:  ZETA RAYS 2.0
+    # The version placeholders are filled in at build time by hook 0100
+    # (from the repository's VERSION file, the same as /etc/os-release)
+    version:             @VERSION@
+    shortVersion:        @VERSION@
+    versionedName:       ZETA RAYS OS @VERSION@
+    shortVersionedName:  ZETA RAYS @VERSION@
     bootloaderEntryName: ZETA RAYS OS
     productUrl:          ""
     supportUrl:          ""

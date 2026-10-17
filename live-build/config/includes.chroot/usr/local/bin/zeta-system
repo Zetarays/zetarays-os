@@ -212,9 +212,16 @@ def cmd_system():
             line(tr("max temperature"), "%.0f °C" % max(t), level(max(t), 80, 90))
     except (AttributeError, OSError):
         pass
-    failed = run(["systemctl", "--failed", "--no-legend", "--plain"]).split("\n")
-    failed = [f.split()[0] for f in failed if f.strip()]
-    line(tr("failed services"), ", ".join(failed) if failed else tr("none"), "problem" if failed else "ok")
+    try:
+        # same verdict as the Monitor: red only for a confirmed problem
+        from monitor import unitstate
+        shown = [v for v in unitstate.failed_verdicts() if v["level"] != unitstate.NORMAL]
+        line(tr("failed services"), "; ".join(v["title"] for v in shown) or tr("none"),
+             {"error": "problem", "warning": "warning", "info": None}.get(unitstate.worst(shown), "ok"))
+    except Exception:  # noqa: BLE001 - fall back to the plain list
+        failed = run(["systemctl", "--failed", "--no-legend", "--plain"]).split("\n")
+        failed = [f.split()[0] for f in failed if f.strip()]
+        line(tr("failed services"), ", ".join(failed) if failed else tr("none"), "problem" if failed else "ok")
     via = run(["ip", "-j", "route", "show", "default"])
     try:
         v = json.loads(via or "[]")

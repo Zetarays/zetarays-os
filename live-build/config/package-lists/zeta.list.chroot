@@ -1,4 +1,4 @@
-# ZETA RAYS 2.0 — packages (Debian 13 "trixie" repositories only)
+# ZETA RAYS — packages (Debian 13 "trixie" repositories only)
 
 # --- Base system ---
 live-boot
@@ -156,6 +156,17 @@ python3
 python3-gi
 gir1.2-gtk-4.0
 gir1.2-adw-1
+# Settings > Software Update: PackageKit installs the updates for the user
+# (APT lock, signatures, dependencies, password through PolicyKit) and its
+# GObject API is what the page calls; pkcon (packagekit-tools) is for
+# diagnosing it from a terminal
+packagekit
+gir1.2-packagekitglib-1.0
+packagekit-tools
+# Automatic security updates (Settings > Software Update, on for new
+# installs, off in the live session): Debian's own mechanism, limited to the
+# security archive by /etc/apt/apt.conf.d/52zeta-security-updates
+unattended-upgrades
 
 # --- Fonts and themes ---
 fonts-roboto-unhinted
@@ -286,7 +297,7 @@ shim-signed
 grub-efi-arm64-signed
 #endif
 
-# --- ZETA RAYS 2.0: universal search, OCR, indexing, fastfetch ---
+# --- Added in 2.0: universal search, OCR, indexing, fastfetch ---
 fastfetch
 plocate
 poppler-utils
@@ -304,6 +315,8 @@ zstd
 # --- ZETA's voice: offline speech synthesis (Italian) ---
 espeak-ng
 espeak-ng-data
+# Kokoro (ZETA's Italian voice, Sara): the model runs with ONNX Runtime
+python3-onnxruntime
 
 # --- Desktop: localized personal folders, opening files ---
 xdg-user-dirs

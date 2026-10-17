@@ -1,6 +1,22 @@
-# i18n-data-file: Italian words (identifier parts and function words) that
-# tools/check-italian.py looks for. Lowercase, separated by blanks; lines
-# starting with # are comments. English words must not be listed here.
+# i18n-data-file: Italian words that tools/check-italian.py looks for.
+# Lowercase, separated by blanks; lines starting with # are comments.
+# English words must not be listed here: a word that is also English (such as
+# the Italian for "how" or "where") would make the checker report English text.
+# Sections: [strong] function words that make a line Italian, [weak] short
+# function words that count only next to other Italian words, [words]
+# identifier parts and vocabulary.
+[strong]
+della delle dello degli nella nelle nello negli nel nei sulla sulle sullo sugli
+sul dalla dalle dallo dagli dal alla alle allo agli che gli questo questa
+questi queste quello quella quelli quelle perche perché anche ancora sempre
+viene vengono essere senza ogni gia già cosi così però quindi invece oppure
+mentre quando niente nulla nessun nessuno nessuna tutto tutti tutte fatto
+deve devono può possono servono qui allora molto troppo altro altri altra
+altre stessa stesso sono siamo erano stato stati più piu cioè ovvero
+è sì né
+[weak]
+il lo la le di da del un uno una con ed ma se tra fra non
+[words]
 accanto accedi accendi accensione accento accesi acceso accessi accesso accosta
 adatta adattamenti adattato adesso agente agganciato aggiorna aggiornamenti aggiornamento aggiornata
 aggiorno aggiungi aggiunte agiata agli aiutante albero alla alle allegato
@@ -12,7 +28,7 @@ attesa attese attesi atteso attiva attive attivi attivo attuale attuali
 automatiche autorizzato avanzamento avanzate avvia avviabile avvio avvisa avviso azione
 azioni banda barra basi benvenuto bersaglio bianca bianco binario blocca
 bloccati bloccato blocchi blocco bordo bottone bottoni bugie buoni cadute
-cambia cambiata cambiate cambiato campi campione campioni campo candidati capacita
+cambia cambiata cambiate cambiato campi campione campioni candidati capacita
 capire capisce carattere caratteri carica caricata caricati caricato carico cartella
 cartelle casa casella caselle casi cataloghi catalogo categoria categorie cattura
 celle cerca cercando cercata cercato cerchio cestino chiamata chiaro chiave
@@ -29,7 +45,7 @@ dati dato davvero decifrate decine degli della delle dello demone
 dentro descrivi descrizione descrizioni destinazione destra destro dettagli dettaglio detto
 deve devono dialogo differenze dimensione dimentica diretti diretto dischi disegna
 disegnata disegno disinstalla disinstallabile disinstallazione disponibile disponibili disponibilita dispositivi dispositivo
-disposizione documenti domanda dopo doppi doppie doppio doppione dove durata
+disposizione documenti domanda dopo doppi doppie doppio doppione durata
 effetti effettiva elementi elenco elimina emergenza energia entro erano errate
 errati errore errori esatta esatte esci escluse esegue esegui eseguibile
 eseguite esempio esistente esistenti esistono esiti esito espansori esportato essere
@@ -45,14 +61,14 @@ impronta inattivita incerto inclusa incluso incolla indice indici indicizza indi
 indirizzi indirizzo inglese ingrandimento ingresso iniziale inizio innocue insieme installa
 installabili installate installati installato installazione insufficiente integra integrazione intenti intera
 intere interessanti interni interno intero intestazioni intoccabili invalida invece inventa
-invia invio ispeziona istruzioni lancia larg largh larghezza lato lavora
+invia invio ispeziona istruzioni lancia largh larghezza lato lavora
 lavori lavoro legale legali legge leggero leggi leggibili lenti lento
 letta letterale letti letto lettura libera libere liberi libero libreria
-licenza licenze limite lingua lingue lista liste livelli livello locali
+licenza licenze limite lingua lingue lista livelli livello locali
 logica lucchetto lunga lunghezza luoghi luogo macchina manca mancano mancanti
 maniglia mantieni manutenzione mappa marca marchio margine mascherati massima massimo
 memoria mentre mesi messaggio metodo metti mezzi microfono migliore migra
-miniatura minimo minuto mirino misura modelli modello modi modifica modificato
+miniatura minimo minuto mirino misura modelli modello modifica modificato
 modo molti molto monitori montato mosse mostra mostrata mostrato motivi
 motivo motore motori muovi muto nascondi nascosta nascoste nascosti nascosto
 nativa naturale negli nella nelle nello nero nessun nessuna nessuno
@@ -69,19 +85,19 @@ precedente predefinita predefinite predefinito preferita preferiti prefisso prem
 presa presente presenti prima primo principale problemi processi processo profilo
 profondita programma programmi promessa promesse pronome pronta pronti pronto proporzionato
 proporzione proposti propri proprio protegge protetta protette protetti protetto prova
-prove pulisci pulito pulizia pulsanti punto quadrato quadro quale quali
+pulisci pulito pulizia pulsanti punto quadrato quadro quale quali
 quando quella quelle quelli quello questa queste questi questo quindi
 raccogli radicato radice radici raggio raggiungibile raggiungibili ragiona rapido rapporto
 reale recente recenti regione registra registrati registro regola regolazioni regole
 remoti remoto rendi reso restano resto rete reti retroilluminazione rett
 rettangoli rettangolo riallinea riavvia riavvii riavvio ricarica ricerca ricerche ricevi
 ricevuto richiedi richiesta richieste riconosce riconosciuti ricontrolla ricontrollo ricorda ridisegna
-ridotta ridotte ridotto riduci riempi rifare rifiuta rifiutata riga righe
+ridotta ridotte ridotto riduci riempi rifare rifiuta rifiutata righe
 rilascio rileggi rimaste rimasti rimetti rimuovi rinomina ripara riparati ripiega
 riposo riprendi ripristina ripristino riprova riquadro rischio riserva risolta risolto
 risoluzione risoluzioni risorsa risorse rispondono risposta risposte risultati risultato ritardo
 riuscita riuscito robusti rosso rotazione rotazioni rotella rotte rotti ruoli
-ruolo salta saltati salva salvate salvato sapere sbagliata sbagliate sbagliati
+ruolo saltati salva salvate salvato sapere sbagliata sbagliate sbagliati
 scaduto scambiata scarica scaricabili scaricamenti scaricamento scaricato scarto scegli scelta
 scelte scelti scelto schermata schermi schermo scompattati scorrevole scorri scritta
 scritti scritto scrittura scrivania scrivi scuro secondi segna segnala segnale
@@ -91,7 +107,7 @@ sicurezza sicuri sicuro silenzio simbolo simula sinistro sinonimi sintassi siste
 sito smontato soglia sola somme sono sopra sorgente sorgenti sorveglia
 sorveglianti sosp sospetti sostituisci sotto sottofondo sovrappone sparite sparito spazi
 spaziatura spazio specchio speciale spegni spegnimento spiega sposta spostando spostati
-stampa stampante stampanti stata stati stato stessa stesso stile stimata
+stampa stampante stampanti stati stato stessa stesso stile stimata
 storia strati strato stretta strumenti strumento subito suggerimento sugli sulla
 sulle sullo superficie supportati svuota tabella tabelle taglia tagliati tast
 tasti tastiera tastiere tasto tavolozza tema temi temporaneo tentativo tenute
@@ -104,3 +120,169 @@ vaghi vago valide validi valido valore valori varianti vecchi vecchia
 vecchie vecchio veloci vengono verifica vero versione versioni vicina vicino
 viene vietate visibile visibili viste visti visto vivi vocabolario voce
 voci voglio volta voluta voluto vuota vuote vuoti vuoto zona
+# Added in 2.1: the words of the Italian translations (po/it.po, *.it.md) and
+# of the language data that was in the code until 2.0, minus the English words
+# (English messages of po/it.po, English documents, English dictionary), only
+# words ending in a vowel. Removed by hand: Italian words that are also common
+# in English code or data (a bird, a verb, an abbreviation, place and software
+# names).
+abbassa abbassato abbasso abbastanza abbia abbondanza abeba abilita abitudini accedere
+accelerazione accendere accenderla accenderlo accendilo accendo accesa accessibile
+accetta accettata accettate accettati accettato accetti adattamento adattatore
+adattatori adatto addestramento affiancato aggiornalo aggiornano aggiornare aggiornate
+aggiornati aggiornato aggiornerà aggiunge aggiungere aggiungerla aggiunta aggiunti
+aggiuntiva aggiunto agito agosto alcune alcuni algeri allarga allargato
+allenatore allineato almeno alternativa altissima altrimenti altrui alzato alzo ambra
+amministratori analizzano analizzatore analogico andando andata andati andato andranno
+andrà angoli angolo anni annullamento annullare annullata annullato annunciano
+anomalo antartide aperti apertura apparire appartiene appena applicare applicati
+applicato applicazione applico aprila aprile aprimela aprimelo aprimi aprirla aprirlo
+apro arabi arabo arancione archimede archivio arresta arriva arrivando arrivano arrivato
+arrivo arrotondamento arrotondati artella artico ascoltando ascolto aspetta aspettando
+aspettare aspettato assegnalo assegnata assegnate assegnato assente assenza assicurati
+associa associato associazione atene atlantico attacchi attendibile attendo attimo
+attivare attivata attivato attivazione attivita attività attributi attributo
+attribuzioni attualmente aumenta auricolari autenticazione automatica automatici
+autorita autorità autorizza autorizzazione autorizzi avana avanzata avere avuto avvialo
+avviami avviando avviare avviarlo avviata avviati avviato avviatore avvicinati avviene
+azera azona azzorre azzurro barre batteria belgrado berbera berlino bielorussa binari
+birmana bisogno bloccano bloccare bloccarlo bloccata bloccate bloccherebbero bordi brani
+brasile bretone bulgaro butta cabila caduta calcolatore calcolo calore cambi
+cambiala cambiami cambiano cambiarne cambiati cambio campeggio canadese canarie cancella
+cancellando cancellandoli cancellata cancellato cancelliere canzone canzoni capacità
+capendo capita caricamento caricare cariche caso causa causare cavo ceca cechia ceco
+centimetri centimetro centrato cercami cercare cercati cerchi cerco certificato cestina
+cestinare chiamare chiamate chiamato chiami chiamo chiara chiavetta chiedendo chiedimelo
+chiedo chiesto chilo chilometri chilometro chiocciola chiudendo chiudere chiudersi
+chiuderà chiudimi chiudo chiudono chiunque chiuse chiuso chiusure ciao ciascuna cifrate
+cifrati cifrato cile cinese cinquanta cipro circuiti cirillico cita città classica
+classifica clausola cliccando collega collegala collegarmi collegata collegate collegato
+colleghi cominci comincia commerciabilità comore compaiono comparire comparsa
+compatibile completamento completare completata completato comporta composto comprese
+compreso compressa compressi comune comunica comunque concessa condivida condividi
+condivisa condivisione condivisioni configura configurare configurata configurato
+configurazioni confronta connessa connessione connesso connettiti conosce conosco
+consente consentire consentita consentono consequenziali conserva conservato considera
+consigliami consigliata consigliati consiglio consultare consultate consuma consumano
+consumo contano contatori contattare contenere continua continuare continuo contrasto
+contro controllala controllare controlli convertito coperti coperto copi copialo copiare
+copre coreano correggi correttamente corrispondono corti cosmica coso costano cosè
+creami creare creata creato creazione credenziali creo croato cuffie cursori
+damasco danese danneggiati danni danno dea debole decimo decisioni definitivamente
+delegato derivanti determinabile determinato devi devo dicembre diciannove diciassette
+diciotto dieci difesa differenza digita digitale digitali dimensioni dimenticata
+diminuisci dimmela dimmi dipendenze dipendono diretta direttore dirla dirmi dirà
+disabilita disattiva disattivalo disattivare disattivata disattivate disattivati
+disattivato disattivazione disattivo disconnesso disconnetti disconnettimi disconnettiti
+disegnano disinstallare disinstallarla disinstallata disinstallato disinstallo disponi
+distanza distinti distinto disturbare diventato dividi dollari dollaro domani domenica
+dopodiche dormi dottoressa dovrai dublino duplicato durante ebraica ebraico
+eccetera ecco egitto ehi elaborando elemento elencati eletto elettronica elezioni
+eliminarlo eliminata eliminati eliminato eliminazione elimino emme energetico entrambi
+entrano entrare entrata enumerazione equipaggiamento equipaggio esadecimale esaurita
+esce esclude escludere escono eseguire eseguirlo eseguiti eseguito eseguo esiste esperti
+esplicitamente esplora esposto espressamente esterna estesa estrazione età evento
+eventualmente evitare faccia faccio facoltativa facoltativo fallite fallito fammi fanno
+farlo fatti fattura favore febbraio fermano fermare fermarla fermarli fermata fermato
+fidarti figi fili filmati finanziarie finche finendo finiranno finisca finiscono finita
+finlandese fino firme fisica fisso fonetica forma formato formatta formattarla
+formattati formulato fornisce fornito fornitore forse forzando forzare forzatamente
+fotografie fotogramma fotosintesi francese francia frattempo frecce freccia frequenza
+funzionano funzionato funzioni funzionino gaelico gagauza garantirne garanzia garanzie
+generato generico gennaio gerusalemme gestiti gestito giacarta giallo giamaica
+giapponese giavanese gibilterra gibuti giornaliero giorno giovedì giu giugno giuste
+giusto giù globo governa governatore governo gradi grado grafiche grafici grammi grammo
+grandezza grandi gratuita gratuito grazie greco guadalupa guarda guardiano guasto guida
+hanno idoneità ieri ignorare ignorato illegale illeggibile impallato impatto impiegato
+implicita implicitamente importa importata importazione impossibile impossibilità
+impostali impostare impostata impostato imposto improvviso inatteso inattività inattivo
+inchiostro incidentali includi incollalo incollare incompleta incompleto incorporati
+indiano indica indicandolo indicata indicato indicatore indipendente indiretti
+indonesiana inesistente inflazione informativa informato informazione ingegneristica
+ingrandire ingrandisce ingrandisco ingrandito ininterrompibile iniziato inoltrare
+inoltro inserimento inserirla inserisci inseriscila inseriscono inserita insiemi
+installala installami installando installarlo installata installazioni installi installo
+instradamento integrale integrato interamente intercetta interfacce interpretabile
+interprete interroga interrogazione interrotta interrotto interruzione intervallo
+intorno inventano inviare inviata inviate inviati invii inviolabile irraggiungibile
+isola isole istantanee italia lancio larga larghissima lascerebbe lascia lasciale
+lasciati latenza lavorare leggendo leggerla leggibile leggo lenta lentezza lettere
+lettone liberata limitata limiti linguistici lisbona lituana londra lubiana luglio
+luminosita lunedì lunghe lussemburgo maggio maldive mancante mancanza manda mandato
+mantenere mantiene manuale manuali marchesi martedì martinica marzo mascate mascherano
+massimizza matita mediche medie meglio meno mercoledì mescolarli messa messaggi messico
+messo metadati meteo metri mette mettere metterla mettile mettilo metto metà mie miei
+migliorare millimetri millimetro millisecondi millisecondo minimi minimizza minimizzate
+ministro minuti mio misurabile misure modalita modalità moderni moderno modificarle
+modificate modificati modifiche moduli mogadiscio moldavia mondiali mondo
+monitoraggio montaggi montaggio montata montate mosca mostrami mostrare movimenti musica
+muti nasconde natale naviga navigare navigatore necessari negata negato nemmeno nevica
+nitida nono normalmente norvegese notizie notte novanta nove novembre novità oblio
+occupa occupano occupata oceano ognuno olandese ombre ondate opacità operatore opzione
+orari orientamento ortolineare ottanta ottavo ottobre ovviamente pacifico paese paesi
+pagamento parigi parlami parlare particolare partire partirebbe partito partizionamento
+partizione partizioni parziali pasqua passaggio passano passare pausa pena percento
+percentuale perdita perdono periodici permanente permanenza permessi permesso permette
+permetti persi persiana persiano perso personali personalizzata pesante piacere
+pianificata piantato piatti picco piccola piccole piccolissima piove pioverà poesia
+polacco portachiavi portale portami portano portarlo portata portato portoghese possa
+possibile possibilità posso poterci potrai potranno potrebbe potrebbero potresti potrà
+potuto praga precisa preciso predefiniti preferenze preferito premi prendendola
+preparare prepararlo preparazione presenta presentano pressione previsioni prevista
+prezzi prezzo primi principio priorità privato probabilmente procede procedo processore
+processori prodotta prodotti produttore produttori professoressa profitti progetti
+promemoria proporne proporre proprietà prossima prossimo protezione protezioni provare
+provata provato provenienza provo pubblicano pubbliche pubblici pubblico pulite pulsante
+puntatore puntino puo puòi qualche qualità qualsiasi qualunque quante quanti quanto
+quaranta quattordici quattro questioni quindici quotazione raccomandazioni raggruppati
+ragione rallentamenti rallentato rapporti reali realizzato reattivita recupera
+recuperabile recuperare recuperarne redistribuzione registrarsi registrato registri
+regno regolabile regolare regolate regolo reinstalla relativi relazione remota rende
+rendere requisiti residente responsabilità restituito riaccenderlo riaccendilo riaperto
+riapplica riapri riaprire riattiva riattivato riavviando riavviato ricaricalo ricaricare
+ricava riceve ricevuti richiede richiedono ricognizione ricomparirà riconnetterti
+riconosciuta riconosciute riconosciuto ricopre ricordare ricordati ricorrenti
+ridimensiona ridimensionamento ridistribuirle riduce riduco ridurre riduzione rientra
+rientrare rientrati riepilogo riesci riesco rifiutati rifiutato rifiuto rigenera
+rigenerato rigido riguardano rilancia rilevata rilevato rimasta rimasto rimedia rimessa
+rimesso rimette rimettila rimettile rimetto rimossa rimossi rimosso rimozione rimozioni
+rimuove rimuovere rimuovo rinominare rinominato rinomino riordina riparare riparato
+riparazione riparazioni riparte ripartire ripartirà ripartito ripetere ripeti ripetibili
+ripieghi ripiego riporta riprende riprendendolo riprendere ripreso ripristinare
+ripristinarla ripristinata ripristinate ripristinato riproducendo riproduttore
+riproposta riprovare ripuliti risalire riscaricare riscritta risolvi risparmio rispetto
+rispondevano risposto risulta risveglio ritagliata ritrovata riunione riuscire roba roma
+rompe rossi rovesciata rumeno russa russo sabato saltata salvare salvarla salvata
+salvati sano sarà sbagliare sbagliato sbloccalo sbloccato sblocco scambio scaricalo
+scaricane scaricare scaricati scarta scartate scartati scartato scatta scattante sceglie
+scegliere sceglierne scegline scheda schede schermate scollega scollegare scollegarmi
+scollegato scomodare sconosciuta sconosciuto sconsigliato scopo scorciatoia scorre
+scozzese scritte scrivere scriverlo scrivilo scrivimi scrivo scrivono scura scusa
+seconda sedici segnalato segnare segnato segretario seguito seleziona selezionarne
+selezionato sembra sembrano sembrare semplificato sensore sensori sentito separato serbo
+serie sessantacinque sesto settanta sette settembre settimana settimanale settimo
+settore sfarfallio sfocatura sicura significativo signora silenzia silenziato
+simulazione sincronizzazione sindaco sinferopoli singola singoli sinistra sistemi
+slovacca slovacco sloveno smesso smetti soddisfa soddisfatte solito soltanto sondaggi
+sopravvive sorprendere sospende sospendi sospendo sospensione sospeso sostituisce
+sottoprocessi sottoprocesso sovraccarico sovrascrivo spagnolo sparisca sparisce spegne
+spegnendo spegnerli spegnerlo spegnilo spengo spenta spenti spesso spiegami spiegare
+spiegazione spostamento spostare spostata spostato sposto stabilita stabilmente staccati
+stampando stampe stava sterlina sterline stessi stili sto stoccolma storica studiarle
+sua suo supera superato supportano supporto surriscaldamento svedese svegliare svuotare
+svuotato svuoto tachimetro tanto tardi targa tasso tecnica tecnologie tedesco telefono
+temperatura tenerli tenuto terminare terminarlo terminato terminazione tieni tipica
+tirana toccate toglici toglie togliere toglierebbe toglierla tolta tolte tolti tolto
+tondo tornano tornare tornate tornato tracciamento tradizionale tradotte traduzioni
+tranne trascinandola trascinata trascritto trasferimento trasferisci tratto tredici
+trenta troppe troppi trovami trovare trovarne trovi trovo tunisi turca turchese uccidi
+uccisa ucraina ucraino ufficio uguale ultime ultimi undici ungherese unito unità
+universale uno urgente usala usali usare usarla usarle usarli usata usate usato usciti
+useranno userà utili utilizzabile valgono valida valutazione vanno variabile variabili
+variante variazione varsavia vaticano vedere vederle vedo velocità venerdì venti
+ventotto ventuno verdi verificarla verificata verificati verificato verra verranno
+verrebbe viaggi viaggia viceversa vicini vietata vietnamita vinto violazioni virgola
+virtualizzazione visualizza visualizzatore vogliono volte volumi vorrei vuoi vuòi vòi
+wattora zagabria zelanda zittisci zurigo
+# Added by hand: words the lists above missed.
+secondo suono intelligenza assistente onde blu archivi vocale alza lettore risponde compositore grafico riconoscimento sintesi documento esecuzione sessanta artificiale rosse verde multimediale calcolatrice scaricata impostazione

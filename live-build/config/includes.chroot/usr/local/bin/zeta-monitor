@@ -20,6 +20,7 @@ import time
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import ntr, tr  # noqa: E402
+from i18n_data import load  # noqa: E402
 from ui import theme  # noqa: E402
 
 import gi  # noqa: E402
@@ -30,6 +31,7 @@ from gi.repository import Adw, GLib, Gio, Gtk  # noqa: E402
 
 from monitor import collectors as C  # noqa: E402
 from monitor import geo  # noqa: E402
+from monitor import unitstate  # noqa: E402
 from monitor.collectors import Collectors, fmt_rate, ping, _fmt_bytes, NA  # noqa: E402
 from monitor.widgets import Bar, Sparkline, Table, TrafficChart  # noqa: E402
 from monitor.worldmap import WorldMap, country_names  # noqa: E402
@@ -46,6 +48,9 @@ def accent_rgb():
     except (OSError, ValueError):
         return (0.23, 0.55, 1.0)
 
+
+# colour of each service level: red only for a confirmed problem
+PROBLEM_STYLE = {"error": "alert", "warning": "warn", "info": "dim", "normal": "ok"}
 
 ACC = accent_rgb()
 ACC_HEX = "#%02X%02X%02X" % tuple(int(v * 255) for v in ACC)
@@ -80,6 +85,12 @@ window {{ background: @surface; }}
 .chip.ok {{ background: rgba(61,220,151,0.10); }}
 .chip.warn {{ background: rgba(255,181,71,0.10); }}
 .chip.alert {{ background: rgba(255,107,107,0.12); }}
+button.status-btn {{ padding: 2px 8px; border-radius: 8px; background: none; box-shadow: none; border: none; }}
+button.status-btn:hover {{ background: @hover; }}
+.problem {{ background: @hover; border-radius: 10px; padding: 10px 12px; }}
+.problem-title {{ font-size: 13px; color: @ink; font-weight: 600; }}
+.problem-text {{ font-size: 12px; color: @ink_2; }}
+.problem-details {{ font-size: 11px; color: @ink_dim; }}
 .kv-key {{ color: @ink_dim; font-size: 12px; }}
 .kv-val {{ color: @ink; font-size: 12px; }}
 .legend-down {{ color: {acc}; font-size: 12px; }}
@@ -98,14 +109,9 @@ SECTIONS = [
     ("users", tr("Users")), ("security", tr("Security")), ("processes", tr("Processes")),
     ("services", tr("Services")), ("system", tr("System")),
 ]
-# Italian section names, still accepted on the command line (the assistant may pass them)
-# i18n-data-begin
-SECTION_ALIASES = {
-    "panoramica": "overview", "traffico": "traffic", "mappa": "map", "rete": "network",
-    "vpn e proxy": "vpn", "connessioni": "connections", "utenti": "users", "sicurezza": "security",
-    "processi": "processes", "servizi": "services", "sistema": "system",
-}
-# i18n-data-end
+# Italian section names, still accepted on the command line (the assistant may
+# pass them): language data in i18n-data/zeta-monitor.json
+SECTION_ALIASES = load("zeta-monitor")["section_aliases"]
 
 
 def panel(title, expand=False):
@@ -315,7 +321,11 @@ class Monitor(Adw.ApplicationWindow):
         title.append(Gtk.Label(label=tr("REAL-TIME MONITORING"), xalign=0, css_classes=["panel-title"]))
         bar.append(title)
         self.top_status = Gtk.Label(label=tr("● STARTING…"), xalign=0, css_classes=["dim", "status-dot", "mono"])
-        bar.append(self.top_status)
+        # the status is also the way to its details (Services page)
+        status_btn = Gtk.Button(child=self.top_status, css_classes=["status-btn"], valign=Gtk.Align.CENTER,
+                                tooltip_text=tr("Show the state of the services"))
+        status_btn.connect("clicked", lambda _b: self._go("services"))
+        bar.append(status_btn)
         self.top_info = Gtk.Label(label="", xalign=1, hexpand=True, css_classes=["mono", "dim"])
         bar.append(self.top_info)
         return bar
@@ -366,7 +376,7 @@ class Monitor(Adw.ApplicationWindow):
                     with self.data_lock:
                         self.last[key] = data
                     GLib.idle_add(self._apply, key, data)
-                if tick % 5 == 0:
+                if tick % 5 == 0 or key in ("services", "security"):
                     st = self._collect_status()
                     GLib.idle_add(self._apply_status, st)
             except Exception as e:  # noqa: BLE001
@@ -383,16 +393,30 @@ class Monitor(Adw.ApplicationWindow):
                 print("monitor: error showing %s: %s" % (key, e), file=sys.stderr)
         return False
 
-    def _collect_status(self):
-        fw = C.firewall_info()
-        failed, warnings = C.failed_services()
-        return {"fw": fw, "failed": failed, "warnings": warnings, "sys": self.col.system()}
+    def _collect_status(self, fresh=False):
+        """Recomputed on every refresh: a service that recovered, or whose
+        error was dismissed, disappears at the next one. The firewall (one
+        sudo call, logged in the journal) is read at most every 10 seconds."""
+        cached = getattr(self, "_fw_cache", None)
+        if fresh or not cached or time.monotonic() - cached[0] > 10:
+            cached = self._fw_cache = (time.monotonic(), C.firewall_info())
+        fw = cached[1]
+        try:
+            verdicts = unitstate.failed_verdicts(include_normal=True)
+        except Exception as e:  # noqa: BLE001 - never break the header
+            print("monitor: service states not readable: %s" % e, file=sys.stderr)
+            verdicts = []
+        by = {lvl: [v for v in verdicts if v["level"] == lvl] for lvl in unitstate.LEVELS}
+        return {"fw": fw, "verdicts": verdicts, "failed": [v["unit"][:-8] for v in by["error"]],
+                "warnings": [v["unit"][:-8] for v in by["warning"]],
+                "info": [v["unit"][:-8] for v in by["info"]], "sys": self.col.system()}
 
     def _apply_status(self, st):
+        """Four levels, red only for a confirmed problem:
+        error (a service is not working) > warning (firewall off, a scheduled
+        job failed once) > information (nothing to do) > normal."""
         self.status = st
         fw_ok = st["fw"]["active"]
-        # a service that is down is an error; a periodic job that failed
-        # (it runs again later) is only worth attention
         if st["failed"]:
             n = len(st["failed"])
             text, style = ntr("● {n} FAILED SERVICE", "● {n} FAILED SERVICES", n).format(n=n), "alert"
@@ -401,11 +425,22 @@ class Monitor(Adw.ApplicationWindow):
         elif st.get("warnings"):
             n = len(st["warnings"])
             text, style = ntr("● {n} JOB NEEDS ATTENTION", "● {n} JOBS NEED ATTENTION", n).format(n=n), "warn"
+        elif st.get("info"):
+            n = len(st["info"])
+            text, style = ntr("● SYSTEM OK · {n} NOTE", "● SYSTEM OK · {n} NOTES", n).format(n=n), "dim"
         else:
-            text, style = tr("● SYSTEM PROTECTED"), "ok"
+            text, style = tr("● SYSTEM OK"), "ok"
         self.top_status.set_text(text)
         self.top_status.set_css_classes(["status-dot", "mono", style])
+        self._apply_problems(st.get("verdicts", []))
+        self._apply_sec_failed(st)
         return False
+
+    def _apply_sec_failed(self, st):
+        """Security page: the failed services in plain words, coloured by level."""
+        shown = [v for v in st.get("verdicts", []) if v["level"] != unitstate.NORMAL]
+        self.sec_failed.set_text("\n".join("● " + v["title"] for v in shown) or tr("None"))
+        self.sec_failed.set_css_classes(["mono", PROBLEM_STYLE[unitstate.worst(shown)] if shown else "ok"])
 
     def _tick_net(self):
         """Traffic every second for the charts, even outside their page."""
@@ -948,7 +983,7 @@ class Monitor(Adw.ApplicationWindow):
         def work():
             r = subprocess.run(["pkexec", "/usr/libexec/zeta-monitor-helper",
                                 "firewall-off" if active else "firewall-on"])
-            st = self._collect_status()
+            st = self._collect_status(fresh=True)
             GLib.idle_add(self._apply_status, st)
             self.fw_busy = False
             GLib.idle_add(self.toast, (tr("Firewall turned off") if active else tr("Firewall turned on"))
@@ -1041,7 +1076,7 @@ class Monitor(Adw.ApplicationWindow):
         p.inner.append(self.sec_table)
         box.append(p)
         p = panel(tr("Failed services"))
-        self.sec_failed = Gtk.Label(label="—", xalign=0, css_classes=["mono"])
+        self.sec_failed = Gtk.Label(label="—", xalign=0, css_classes=["mono"], wrap=True)
         p.inner.append(self.sec_failed)
         box.append(p)
 
@@ -1060,8 +1095,7 @@ class Monitor(Adw.ApplicationWindow):
                                       or [("x", ["", tr("No events"), ""], [None, "dim", None])])
             st = getattr(self, "status", None)
             if st:
-                self.sec_failed.set_text(", ".join(st["failed"]) if st["failed"] else tr("None"))
-                self.sec_failed.set_css_classes(["mono", "warn" if st["failed"] else "ok"])
+                self._apply_sec_failed(st)
         self.pages["security"] = (collect, apply)
         return box
 
@@ -1210,6 +1244,17 @@ class Monitor(Adw.ApplicationWindow):
     # --- Services ---
     def _page_services(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # failed services, in plain words, with what can be done about them
+        # (filled by _apply_problems on every status refresh)
+        self.prob_panel = panel(tr("Services that need a look"))
+        self.prob_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # at most about two cards tall: the services table stays in view
+        self.prob_panel.inner.append(Gtk.ScrolledWindow(
+            child=self.prob_box, propagate_natural_height=True, max_content_height=330,
+            hscrollbar_policy=Gtk.PolicyType.NEVER))
+        self.prob_panel.set_visible(False)
+        self.prob_sig = None
+        box.append(self.prob_panel)
         self.svc_search = Gtk.SearchEntry(placeholder_text=tr("filter services"))
         box.append(self.svc_search)
         split = Gtk.Box(spacing=12, vexpand=True)
@@ -1234,6 +1279,8 @@ class Monitor(Adw.ApplicationWindow):
         st_labels = {"RUNNING": tr("active"), "DONE": tr("completed"), "FAILED": tr("error"),
                      "WARNING": tr("attention"), "STOPPED": tr("stopped"),
                      "NOT_APPLICABLE": tr("not applicable")}
+        # failed services take the state of their verdict (unitstate.assess)
+        level_state = {"error": "FAILED", "warning": "WARNING", "info": "NOT_APPLICABLE", "normal": "STOPPED"}
         sub_labels = {"running": tr("running"), "exited": tr("completed"), "dead": tr("not started"),
                       "failed": tr("failed"), "waiting": tr("waiting"), "auto-restart": tr("restarting"),
                       "start": tr("starting")}
@@ -1245,6 +1292,9 @@ class Monitor(Adw.ApplicationWindow):
             q = self.svc_search.get_text().strip().lower()
             if q:
                 rows = [r for r in rows if q in r["name"].lower()]
+            verdicts = {v["unit"][:-8]: v for v in (getattr(self, "status", None) or {}).get("verdicts", [])}
+            rows = [dict(r, state=level_state[verdicts[r["name"]]["level"]])
+                    if r["state"] in ("FAILED", "WARNING") and r["name"] in verdicts else r for r in rows]
             self.svc_table.update([(r["name"], [r["name"], st_labels.get(r["state"], r["state"]),
                                                 sub_labels.get(r["sub"], r["sub"])],
                                     [None, {"RUNNING": "ok", "DONE": "ok", "FAILED": "alert",
@@ -1252,6 +1302,83 @@ class Monitor(Adw.ApplicationWindow):
                                    for r in rows[:150]])
         self.pages["services"] = (collect, apply)
         return box
+
+    def _apply_problems(self, verdicts):
+        """Cards for the failed services. Rebuilt only when something changed,
+        so an open "Details" stays open across refreshes."""
+        shown = [v for v in verdicts if v["level"] != unitstate.NORMAL]
+        sig = tuple((v["unit"], v["level"], v["kind"], v["since"], v["next_run"], v["failures"],
+                     len(v["journal"])) for v in shown)
+        if sig == self.prob_sig:
+            return
+        self.prob_sig = sig
+        child = self.prob_box.get_first_child()
+        while child:
+            self.prob_box.remove(child)
+            child = self.prob_box.get_first_child()
+        self.prob_panel.set_visible(bool(shown))
+        for v in shown:
+            self.prob_box.append(self._problem_card(v))
+
+    def _problem_card(self, v):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, css_classes=["problem"])
+        head = Gtk.Box(spacing=8)
+        head.append(Gtk.Label(label="●", valign=Gtk.Align.START, css_classes=[PROBLEM_STYLE[v["level"]]]))
+        head.append(Gtk.Label(label=v["title"], xalign=0, wrap=True, hexpand=True, css_classes=["problem-title"]))
+        card.append(head)
+        card.append(Gtk.Label(label=v["explanation"], xalign=0, wrap=True, css_classes=["problem-text"]))
+        details = Gtk.Expander(label=tr("Details"))
+        text = Gtk.Label(label=unitstate.details_text(v), xalign=0, wrap=True, selectable=True,
+                         css_classes=["mono", "problem-details"])
+        text.set_wrap_mode(2)           # Pango.WrapMode.WORD_CHAR: long log lines wrap too
+        details.set_child(text)
+        card.append(details)
+        buttons = []
+        row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        for action, label in (("retry", tr("Try again")), ("dismiss", tr("Dismiss"))):
+            if action in v["actions"]:
+                b = Gtk.Button(label=label, css_classes=["rbtn"] + (["primary"] if action == "retry" else []))
+                b.connect("clicked", lambda _b, a=action: self._unit_fix(v, a, buttons))
+                buttons.append(b)
+                row.append(b)
+        if buttons:
+            card.append(row)
+        return card
+
+    def _unit_fix(self, v, action, buttons):
+        """Try again (restart) or Dismiss (reset-failed) one failed service,
+        through the helper and the administrator password. Never automatic."""
+        for b in buttons:
+            b.set_sensitive(False)
+        unit, name = v["unit"], v["name"]
+        arg = {"retry": "restart-unit", "dismiss": "reset-failed"}[action]
+
+        def work():
+            try:
+                rc = subprocess.run(["pkexec", C.HELPER, arg, unit], capture_output=True).returncode
+            except OSError:
+                rc = 127
+            if rc == 0:
+                msg = (tr("{name} is working again.") if action == "retry"
+                       else tr("Dismissed. It will show again only if it fails again.")).format(name=name)
+            elif rc == 1 and action == "retry":
+                msg = tr("{name} failed again. Open Details to see why.").format(name=name)
+            elif rc == 3:
+                msg = tr("{name} is no longer in error.").format(name=name)
+            elif rc == 4:
+                msg = tr("{name} is still starting. Its state will update here.").format(name=name)
+            else:
+                msg = tr("Operation failed or canceled")
+            st = self._collect_status()
+
+            def show():
+                for b in buttons:
+                    b.set_sensitive(True)
+                self._apply_status(st)
+                self.toast(msg)
+                return False
+            GLib.idle_add(show)
+        threading.Thread(target=work, daemon=True).start()
 
     def _on_svc_select(self, name):
         self.sel_svc = name

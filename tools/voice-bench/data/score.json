@@ -1,0 +1,21 @@
+{
+ "_comment": "score.py: spellings merged after normalization, so that both sides compare equal ([from, to] pairs, applied in order).",
+ "merge": [
+  [
+   "per cento",
+   "percento"
+  ],
+  [
+   "wi fi",
+   "wifi"
+  ],
+  [
+   "e mail",
+   "email"
+  ],
+  [
+   "zeta rays",
+   "zetarays"
+  ]
+ ]
+}

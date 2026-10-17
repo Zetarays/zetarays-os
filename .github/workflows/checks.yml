@@ -41,6 +41,8 @@ jobs:
         run: python3 tools/check-italian.py
       - name: Process matches cannot hit another program
         run: python3 tools/check-process-names.py
+      - name: Release version only in VERSION (no stale image names or links)
+        run: python3 tools/check-version.py
       - name: No secrets
         run: |
           ! grep -rIE '(sk-ant-api[0-9A-Za-z_-]{20,}|AIza[0-9A-Za-z_-]{35}|ghp_[0-9A-Za-z]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' .

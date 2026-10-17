@@ -1,5 +1,5 @@
 #!/bin/bash
-# ZETA RAYS 2.0 — updates network, firewall and SSH on a system ALREADY
+# ZETA RAYS — updates network, firewall and SSH on a system ALREADY
 # INSTALLED from an earlier image.
 #
 #   sudo bash update-network-zeta-rays.sh --dry-run    analyze and check, change nothing

@@ -5,6 +5,14 @@ set -e
 
 ARCH="${ZETA_ARCH:-amd64}"
 
+# Release version: from build.sh (ZETA_VERSION, read from the repository's
+# VERSION file) or from the copy build.sh puts in the image.
+VERSION="${ZETA_VERSION:-$(cat config/includes.chroot/usr/share/zeta/version 2>/dev/null || true)}"
+if [ -z "$VERSION" ]; then
+  echo "auto/config: ZETA_VERSION is not set (run ./build.sh)" >&2
+  exit 1
+fi
+
 if [ "$ARCH" = "arm64" ]; then
   EXTRA="--bootloaders grub-efi"
 else
@@ -29,8 +37,8 @@ lb config noauto \
   --iso-application "ZETA RAYS OS" \
   --iso-publisher "ZETA RAYS OS" \
   --iso-preparer "ZETA RAYS OS" \
-  --iso-volume "ZETA RAYS OS 2.0" \
-  --image-name "zetarays-2.0" \
+  --iso-volume "ZETA RAYS OS $VERSION" \
+  --image-name "zetarays-$VERSION" \
   --bootappend-live "boot=live components quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0 locales=en_US.UTF-8 keyboard-layouts=us timezone=Europe/Rome hostname=zetarays username=zeta" \
   --bootappend-live-failsafe "boot=live components nomodeset quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 locales=en_US.UTF-8 keyboard-layouts=us timezone=Europe/Rome hostname=zetarays username=zeta" \
   --chroot-squashfs-compression-type zstd \

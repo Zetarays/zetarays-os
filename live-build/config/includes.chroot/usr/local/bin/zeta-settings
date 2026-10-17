@@ -15,11 +15,13 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import language, tr  # noqa: E402
+from i18n_data import load  # noqa: E402
 from ui.font_page import FontsPage  # noqa: E402
 from ui.account_page import AccountPage  # noqa: E402
 from ui.language_page import LanguagePage  # noqa: E402
 from ui.displays_page import DisplaysPage  # noqa: E402
 from ui.settings_pages import AudioPage, BluetoothPage, NetworkPage, PrintersPage  # noqa: E402
+from ui.update_page import SoftwareUpdatePage  # noqa: E402
 from system import dock as dockmod  # noqa: E402
 from system import wallpapers  # noqa: E402
 from ui import accent, theme  # noqa: E402
@@ -29,7 +31,7 @@ TITLES = {"account": tr("Account"), "appearance": tr("Appearance"), "dock": tr("
           "notifications": tr("Notifications"), "network": tr("Wi-Fi & Network"), "bluetooth": "Bluetooth",
           "audio": tr("Sound"), "printers": tr("Printers"), "ai": "AI", "info": tr("About"),
           "default-apps": tr("Default Apps"), "language": tr("Language & Region"),
-          "font": tr("Fonts")}
+          "font": tr("Fonts"), "software-update": tr("Software Update")}
 
 # the system palette (ui/accent.py), the same one used for the account picture
 SWATCHES = [(color, accent.color_name(k)) for k, color, _n in accent.PALETTE]
@@ -54,7 +56,7 @@ def appimage_folder():
     """~/Applications (created if missing), or the Italian folder of earlier
     installs when that is the one in use."""
     new = os.path.expanduser("~/Applications")
-    old = os.path.expanduser("~/Applicazioni")  # i18n-data: folder name of earlier installs
+    old = os.path.expanduser(load("zeta-settings")["appimage_folder"])
     if os.path.isdir(old) and not os.path.isdir(new):
         return old
     os.makedirs(new, exist_ok=True)
@@ -86,6 +88,7 @@ class Window(Adw.ApplicationWindow):
                       "ai": self.page_ai(), "default-apps": self.page_default_apps(),
                       "language": LanguagePage(),
                       "font": FontsPage(),
+                      "software-update": SoftwareUpdatePage(),
                       "info": self.page_info()}
         self.dock_entries = dockmod.load_dock()
         self._render_dock()
@@ -113,7 +116,10 @@ class Window(Adw.ApplicationWindow):
             ("zeta-language", TITLES["language"], lambda: self.show("language", TITLES["language"]), "language"),
             ("zeta-font", TITLES["font"], lambda: self.show("font", TITLES["font"]), "font"),
             ("zeta-shield", tr("Security"), lambda: launch("zeta-security"), None),
-            ("zeta-packages", tr("Packages"), lambda: launch("synaptic-pkexec"), None),
+            # Software Update replaces the old "Packages" entry (Synaptic):
+            # Synaptic stays reachable from inside the page ("Advanced")
+            ("zeta-update", TITLES["software-update"],
+             lambda: self.show("software-update", TITLES["software-update"]), "software-update"),
             ("zeta-info", TITLES["info"], lambda: self.show("info", TITLES["info"]), "info"),
         ]
         for icon, label, action, _key in items:
@@ -909,12 +915,15 @@ class Window(Adw.ApplicationWindow):
         gb = resources.nominal_memory_gb()
         if resources.preload_allowed():
             below = tr("Automatic on this computer ({gb} GB): keeps the model ready")
-        else:
+        elif gb >= resources.ROOMY_THRESHOLD:
             below = tr("Automatic on this computer ({gb} GB): loads it when you open ZETA")
+        else:
+            below = tr("Automatic on this computer ({gb} GB): loads it at the first question "
+                       "that needs it, and frees the memory soon after")
         preload_row = Adw.ComboRow(
             title=tr("AI model always ready"),
             subtitle=below.format(gb="%.0f" % gb),
-            model=Gtk.StringList.new([tr("Automatic"), tr("Always ready (~1.8 GB in use)"),
+            model=Gtk.StringList.new([tr("Automatic"), tr("Always ready (~3.7 GB in use)"),
                                       tr("Only when needed")]))
         try:
             preload_row.set_selected(self._preload_options.index(self._pref("ai-preload")))
@@ -941,7 +950,7 @@ class Window(Adw.ApplicationWindow):
         group = Adw.PreferencesGroup()
         rows = [
             (tr("System"), info.get("PRETTY_NAME", "ZETA RAYS OS")),
-            (tr("Version"), info.get("VERSION_ID", "2.0")),
+            (tr("Version"), info.get("VERSION_ID") or "?"),
             (tr("Architecture"), platform.machine()),
             ("Kernel", "Linux %s" % platform.release().split("+")[0].split("-")[0]),
             (tr("Environment"), "ZETA RAYS Shell"),
@@ -972,9 +981,9 @@ class Window(Adw.ApplicationWindow):
                 (tr("Full list of components"),
                  tr("All packages with version and license (spreadsheet)"),
                  "COMPONENTS.csv"),
-                (tr("AI model: Llama 3.2"),
-                 tr("Built with Llama — Meta's Llama 3.2 Community License"),
-                 "llama-3.2/LICENSE.txt")):
+                (tr("AI model: Qwen3 4B Instruct"),
+                 tr("Qwen team (Alibaba Cloud), Apache License 2.0"),
+                 "qwen3/LICENSE.txt")):
             r = Adw.ActionRow(title=heading, subtitle=below, activatable=True)
             r.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
             r.connect("activated", lambda _r, f=file: self._open_legal(f))
@@ -1057,14 +1066,27 @@ def mem_total():
 
 class App(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="org.zetarays.Settings", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        # HANDLES_COMMAND_LINE: when Settings is already open, a second
+        # "zeta-settings PAGE" (from the Control Center, the desktop menu,
+        # ZETA...) hands its arguments to the running window, which then opens
+        # that page. With plain activation the running window received no
+        # arguments and stayed on whatever page it showed.
+        super().__init__(application_id="org.zetarays.Settings",
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+
+    def do_command_line(self, command_line):
+        self._open(command_line.get_arguments()[1:])
+        return 0
 
     def do_activate(self):
+        self._open([])
+
+    def _open(self, args):
         theme.apply(CSS)
         win = self.props.active_window or Window(self)
         # "appearance" opens the page; "appearance:wallpaper" opens it already scrolled
         # to the wallpaper section (used by the desktop's right-click menu).
-        args = [a for a in sys.argv[1:] if a not in ("--page", "-p")]
+        args = [a for a in args if a not in ("--page", "-p")]
         start, _, anchor = (args[0] if args else "").partition(":")
         if start in win.pages:
             win.show(start, TITLES.get(start, start), anchor or None)
@@ -1072,4 +1094,4 @@ class App(Adw.Application):
 
 
 if __name__ == "__main__":
-    App().run([sys.argv[0]])  # the arguments are read from sys.argv in do_activate
+    App().run(sys.argv)

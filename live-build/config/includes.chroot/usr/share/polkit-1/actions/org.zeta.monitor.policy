@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- pkexec picks the FIRST action whose exec.path matches and whose exec.argv1
+     (when present) equals the helper's first argument: every action below has
+     its own argv1, so each operation asks with its own message. -->
 <policyconfig>
   <vendor>ZETA RAYS</vendor>
   <action id="org.zetarays.monitor.firewall">
@@ -15,5 +18,48 @@
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-monitor-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">firewall-on</annotate>
+  </action>
+  <action id="org.zetarays.monitor.firewall-off">
+    <description>Turn the firewall on or off</description>
+    <description xml:lang="it">Attivare o disattivare il firewall</description>
+    <message>Enter your password to change the firewall status.</message>
+    <message xml:lang="it">Inserisci la password per cambiare lo stato del firewall.</message>
+    <icon_name>zeta-shield</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-monitor-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">firewall-off</annotate>
+  </action>
+  <action id="org.zetarays.monitor.service-retry">
+    <description>Retry a service that failed</description>
+    <description xml:lang="it">Riprovare un servizio che non ha funzionato</description>
+    <message>Enter your password to try the service again.</message>
+    <message xml:lang="it">Inserisci la password per riprovare il servizio.</message>
+    <icon_name>zeta-monitor</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-monitor-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">restart-unit</annotate>
+  </action>
+  <action id="org.zetarays.monitor.service-dismiss">
+    <description>Dismiss the error of a service</description>
+    <description xml:lang="it">Ignorare l'errore di un servizio</description>
+    <message>Enter your password to dismiss the error of the service.</message>
+    <message xml:lang="it">Inserisci la password per ignorare l'errore del servizio.</message>
+    <icon_name>zeta-monitor</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-monitor-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">reset-failed</annotate>
   </action>
 </policyconfig>

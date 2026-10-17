@@ -1,0 +1,10 @@
+{
+ "promise": "(?i)(?:^\\s*fatto\\b|\\b(?:ho|l'ho|li ho|le ho)\\s+(?:gia'?\\s+|appena\\s+)?(?:aperto|chiuso|eliminato|cancellato|creato|spostato|copiato|installato|disinstallato|spento|acceso|riavviato|avviato|impostato|attivato|disattivato|collegato|scollegato|bloccato|salvato|scaricato|rinominato|alzato|abbassato|cambiato)\\b|^\\s*done\\b|\\bi(?:'ve|\\u2019ve| have)?\\s+(?:already\\s+|just\\s+)?(?:opened|closed|deleted|removed|created|moved|copied|installed|uninstalled|turned\\s+(?:off|on)|switched\\s+(?:off|on)|restarted|rebooted|started|launched|enabled|disabled|connected|disconnected|locked|saved|downloaded|renamed|raised|lowered|changed|muted)\\b)",
+ "negation_before": "(?i)\\bnon\\s+(?:l'|li\\s+|le\\s+|lo\\s+)?$",
+ "model_error_words": [
+  "model",
+  "modello",
+  "not found",
+  "non trovato"
+ ]
+}

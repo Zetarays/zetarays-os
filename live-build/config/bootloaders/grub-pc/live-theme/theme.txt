@@ -28,7 +28,7 @@ message-color: "#8A8A8E"
         align = "center"
         color = "#5A5A60"
         font = "Roboto Medium Regular 13"
-        text = "OS 2.0"
+        text = "OS @VERSION@"
 }
 
 + boot_menu {

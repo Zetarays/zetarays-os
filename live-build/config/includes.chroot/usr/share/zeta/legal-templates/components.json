@@ -1,0 +1,433 @@
+{
+ "families": [
+  {
+   "key": "GPL",
+   "name": {
+    "en": "GNU General Public License",
+    "it": "GNU General Public License"
+   },
+   "text": "/usr/share/common-licenses/GPL-3"
+  },
+  {
+   "key": "LGPL",
+   "name": {
+    "en": "GNU Lesser General Public License",
+    "it": "GNU Lesser General Public License"
+   },
+   "text": "/usr/share/common-licenses/LGPL-3"
+  },
+  {
+   "key": "Apache",
+   "name": {
+    "en": "Apache License 2.0",
+    "it": "Apache License 2.0"
+   },
+   "text": "/usr/share/common-licenses/Apache-2.0"
+  },
+  {
+   "key": "BSD",
+   "name": {
+    "en": "BSD License",
+    "it": "Licenza BSD"
+   },
+   "text": "/usr/share/common-licenses/BSD"
+  },
+  {
+   "key": "MIT",
+   "name": {
+    "en": "MIT License (Expat)",
+    "it": "Licenza MIT (Expat)"
+   },
+   "text": "—"
+  },
+  {
+   "key": "Expat",
+   "name": {
+    "en": "MIT License (Expat)",
+    "it": "Licenza MIT (Expat)"
+   },
+   "text": "—"
+  },
+  {
+   "key": "MPL",
+   "name": {
+    "en": "Mozilla Public License",
+    "it": "Mozilla Public License"
+   },
+   "text": "/usr/share/common-licenses/MPL-2.0"
+  },
+  {
+   "key": "CC0",
+   "name": {
+    "en": "Creative Commons Zero",
+    "it": "Creative Commons Zero"
+   },
+   "text": "—"
+  },
+  {
+   "key": "ISC",
+   "name": {
+    "en": "ISC License",
+    "it": "Licenza ISC"
+   },
+   "text": "—"
+  }
+ ],
+ "main_components": [
+  {
+   "component": "ZETA RAYS",
+   "role": {
+    "en": "ZETA, ZETA Core, Monitor, Settings, desktop, scripts and themes",
+    "it": "ZETA, ZETA Core, Monitor, Impostazioni, scrivania, script e temi"
+   },
+   "license": "GPL-3.0-or-later",
+   "home": "zetarays.org"
+  },
+  {
+   "component": "Linux",
+   "role": {
+    "en": "system kernel",
+    "it": "kernel del sistema"
+   },
+   "license": "GPL-2",
+   "home": "kernel.org"
+  },
+  {
+   "component": "systemd",
+   "role": {
+    "en": "startup and service management",
+    "it": "avvio e gestione dei servizi"
+   },
+   "license": "LGPL-2.1+",
+   "home": "systemd.io"
+  },
+  {
+   "component": "Hyprland",
+   "role": {
+    "en": "graphical compositor (ZETA RAYS Shell)",
+    "it": "compositore grafico (ZETA RAYS Shell)"
+   },
+   "license": "BSD-3-clause",
+   "home": "hypr.land"
+  },
+  {
+   "component": "hyprbars",
+   "role": {
+    "en": "window title bars",
+    "it": "barre del titolo delle finestre"
+   },
+   "license": "BSD-3-clause",
+   "home": "github.com/hyprwm/hyprland-plugins"
+  },
+  {
+   "component": "Waybar",
+   "role": {
+    "en": "bar and dock",
+    "it": "barra e dock"
+   },
+   "license": "MIT",
+   "home": "github.com/Alexays/Waybar"
+  },
+  {
+   "component": "mako",
+   "role": {
+    "en": "notifications",
+    "it": "notifiche"
+   },
+   "license": "MIT",
+   "home": "github.com/emersion/mako"
+  },
+  {
+   "component": "foot",
+   "role": {
+    "en": "terminal",
+    "it": "terminale"
+   },
+   "license": "MIT",
+   "home": "codeberg.org/dnkl/foot"
+  },
+  {
+   "component": "Thunar",
+   "role": {
+    "en": "file manager",
+    "it": "gestore file"
+   },
+   "license": "GPL-2+",
+   "home": "docs.xfce.org/xfce/thunar"
+  },
+  {
+   "component": "GTK / libadwaita",
+   "role": {
+    "en": "application interface",
+    "it": "interfaccia delle applicazioni"
+   },
+   "license": "LGPL-2.1+",
+   "home": "gtk.org"
+  },
+  {
+   "component": "SDDM",
+   "role": {
+    "en": "login screen",
+    "it": "schermata di accesso"
+   },
+   "license": "GPL-2+",
+   "home": "github.com/sddm/sddm"
+  },
+  {
+   "component": "Calamares",
+   "role": {
+    "en": "system installer",
+    "it": "installatore di sistema"
+   },
+   "license": "GPL-3+",
+   "home": "calamares.io"
+  },
+  {
+   "component": "Plymouth",
+   "role": {
+    "en": "boot screen",
+    "it": "schermata di avvio"
+   },
+   "license": "GPL-2+",
+   "home": "freedesktop.org"
+  },
+  {
+   "component": "GRUB",
+   "role": {
+    "en": "boot loader",
+    "it": "avviatore"
+   },
+   "license": "GPL-3+",
+   "home": "gnu.org/software/grub"
+  },
+  {
+   "component": "PipeWire / WirePlumber",
+   "role": {
+    "en": "audio",
+    "it": "audio"
+   },
+   "license": "MIT",
+   "home": "pipewire.org"
+  },
+  {
+   "component": "NetworkManager",
+   "role": {
+    "en": "networking",
+    "it": "rete"
+   },
+   "license": "GPL-2+",
+   "home": "networkmanager.dev"
+  },
+  {
+   "component": "nftables",
+   "role": {
+    "en": "firewall",
+    "it": "firewall"
+   },
+   "license": "GPL-2",
+   "home": "netfilter.org"
+  },
+  {
+   "component": "Firefox ESR",
+   "role": {
+    "en": "web browser",
+    "it": "navigatore web"
+   },
+   "license": "MPL-2.0",
+   "home": "mozilla.org"
+  },
+  {
+   "component": "mpv",
+   "role": {
+    "en": "audio and video player",
+    "it": "riproduttore audio e video"
+   },
+   "license": "GPL-2+ / LGPL-2.1+",
+   "home": "mpv.io"
+  },
+  {
+   "component": "FFmpeg",
+   "role": {
+    "en": "audio and video codecs",
+    "it": "codec audio e video"
+   },
+   "license": "LGPL-2.1+ / GPL-2+",
+   "home": "ffmpeg.org"
+  },
+  {
+   "component": "Evince",
+   "role": {
+    "en": "document viewer",
+    "it": "lettore di documenti"
+   },
+   "license": "GPL-2+",
+   "home": "wiki.gnome.org/Apps/Evince"
+  },
+  {
+   "component": "Eye of GNOME",
+   "role": {
+    "en": "image viewer",
+    "it": "visualizzatore di immagini"
+   },
+   "license": "GPL-2+",
+   "home": "wiki.gnome.org/Apps/EyeOfGnome"
+  },
+  {
+   "component": "File Roller, p7zip, unar",
+   "role": {
+    "en": "archives",
+    "it": "archivi"
+   },
+   "license": "GPL-2+ / LGPL",
+   "home": "—"
+  },
+  {
+   "component": "GNOME Text Editor",
+   "role": {
+    "en": "text editor",
+    "it": "editor di testo"
+   },
+   "license": "GPL-3+",
+   "home": "gitlab.gnome.org/GNOME/gnome-text-editor"
+  },
+  {
+   "component": "fastfetch",
+   "role": {
+    "en": "system summary in the terminal",
+    "it": "riepilogo di sistema nel terminale"
+   },
+   "license": "MIT",
+   "home": "github.com/fastfetch-cli/fastfetch"
+  },
+  {
+   "component": "Ollama",
+   "role": {
+    "en": "runs the AI model locally",
+    "it": "esecuzione del modello AI in locale"
+   },
+   "license": "MIT",
+   "home": "ollama.com"
+  },
+  {
+   "component": "Qwen3 4B Instruct (2507)",
+   "role": {
+    "en": "included language model",
+    "it": "modello linguistico incluso"
+   },
+   "license": "Apache-2.0",
+   "home": "qwenlm.github.io"
+  },
+  {
+   "component": "Vosk",
+   "role": {
+    "en": "offline speech recognition",
+    "it": "riconoscimento vocale offline"
+   },
+   "license": "Apache-2.0",
+   "home": "alphacephei.com/vosk"
+  },
+  {
+   "component": "eSpeak NG",
+   "role": {
+    "en": "speech synthesis",
+    "it": "sintesi vocale"
+   },
+   "license": "GPL-3+",
+   "home": "github.com/espeak-ng/espeak-ng"
+  },
+  {
+   "component": "Piper",
+   "role": {
+    "en": "natural speech synthesis (ZETA's voice)",
+    "it": "sintesi vocale naturale (la voce di ZETA)"
+   },
+   "license": "MIT",
+   "home": "github.com/rhasspy/piper"
+  },
+  {
+   "component": "Piper voices (Serena, Paola, Lessac)",
+   "role": {
+    "en": "voice models; attributions in piper-voices/NOTICE.txt",
+    "it": "modelli delle voci; attribuzioni in piper-voices/NOTICE.txt"
+   },
+   "license": "MIT; data: CC BY 4.0, CC0, see notice",
+   "home": "huggingface.co/rhasspy/piper-voices"
+  },
+  {
+   "component": "Kokoro-82M (voice Sara)",
+   "role": {
+    "en": "natural Italian voice; notice in kokoro/NOTICE.txt",
+    "it": "voce italiana naturale; avviso in kokoro/NOTICE.txt"
+   },
+   "license": "Apache-2.0",
+   "home": "huggingface.co/hexgrad/Kokoro-82M"
+  },
+  {
+   "component": "ONNX Runtime",
+   "role": {
+    "en": "runs the Kokoro voice model",
+    "it": "esecuzione del modello della voce Kokoro"
+   },
+   "license": "MIT",
+   "home": "onnxruntime.ai"
+  },
+  {
+   "component": "Tesseract",
+   "role": {
+    "en": "text recognition in images",
+    "it": "riconoscimento del testo nelle immagini"
+   },
+   "license": "Apache-2.0",
+   "home": "github.com/tesseract-ocr"
+  },
+  {
+   "component": "Roboto",
+   "role": {
+    "en": "interface font",
+    "it": "carattere dell'interfaccia"
+   },
+   "license": "Apache-2.0",
+   "home": "fonts.google.com"
+  }
+ ],
+ "editions": [
+  {
+   "lang": "en",
+   "template": "LICENSES.md",
+   "output": "LICENSES.md",
+   "date": "%Y-%m-%d",
+   "pointer": "*(Versione italiana: `LICENSES.it.md`, in this same folder.)*",
+   "count": "%d of %d",
+   "family_headers": [
+    "License family",
+    "Packages",
+    "Full text"
+   ],
+   "component_headers": [
+    "Component",
+    "What it does",
+    "License",
+    "Home"
+   ]
+  },
+  {
+   "lang": "it",
+   "template": "LICENSES.it.md",
+   "output": "LICENSES.it.md",
+   "date": "%d/%m/%Y",
+   "pointer": "",
+   "count": "%d su %d",
+   "family_headers": [
+    "Famiglia di licenza",
+    "Pacchetti",
+    "Testo integrale"
+   ],
+   "component_headers": [
+    "Componente",
+    "A che serve",
+    "Licenza",
+    "Dove sta di casa"
+   ]
+  }
+ ]
+}

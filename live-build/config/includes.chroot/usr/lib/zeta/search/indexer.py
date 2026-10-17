@@ -23,6 +23,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from i18n_data import load
+
 HOME = Path(os.path.expanduser("~"))
 CACHE = HOME / ".cache" / "zeta"
 DB = CACHE / "index.db"
@@ -35,7 +37,7 @@ _XDG_KEYS = ("XDG_DOCUMENTS_DIR", "XDG_DESKTOP_DIR", "XDG_DOWNLOAD_DIR",
 
 def _xdg_user_dirs() -> list:
     """The user folders declared in user-dirs.dirs (xdg-user-dirs format:
-    XDG_DOCUMENTS_DIR="$HOME/Documenti" on an Italian system)."""
+    XDG_DOCUMENTS_DIR="$HOME/<localized name>")."""
     config = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")
     out = []
     try:
@@ -55,14 +57,12 @@ def _xdg_user_dirs() -> list:
 
 
 # folders to index (content) — user data only: the XDG ones, then the default
-# English names and the Italian ones (if they exist; duplicates are skipped
-# in _iter_files)
+# English names and the Italian ones from i18n-data/indexer.json (if they
+# exist; duplicates are skipped in _iter_files)
 ROOTS = [d for d in _xdg_user_dirs() if d != HOME]
 ROOTS += [HOME / d for d in ("Documents", "Desktop", "Downloads", "Pictures",
                              "Templates", "Public",
-                             # the Italian folder names:
-                             "Documenti", "Scrivania", "Download", "Immagini",  # i18n-data
-                             "Modelli", "Pubblici")]  # i18n-data
+                             *load("indexer")["user_folders"])]
 # also index the top-level files in the home directory
 ROOTS.append(HOME)
 

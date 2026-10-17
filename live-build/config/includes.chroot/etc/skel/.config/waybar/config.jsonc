@@ -66,7 +66,7 @@
   "image#packages": { "path": "/usr/share/icons/zeta/scalable/apps/synaptic.svg",             "size": 42, "tooltip": false, "on-click": "synaptic-pkexec" },
   "image#settings": { "path": "/usr/share/icons/zeta/scalable/apps/zeta-settings.svg",    "size": 42, "tooltip": false, "on-click": "zeta-settings" },
 
-  "image#net": { "exec": "zeta-status net", "interval": 5, "size": 18, "tooltip": false, "on-click": "zeta-panel network" },
+  "image#net": { "exec": "zeta-status net", "interval": 60, "signal": 13, "size": 18, "tooltip": false, "on-click": "zeta-panel network" },
   "image#vol": { "exec": "zeta-status vol", "interval": 30, "signal": 11, "size": 18, "tooltip": false, "on-click": "zeta-panel audio",
                  "on-scroll-up": "zeta-volume up", "on-scroll-down": "zeta-volume down" },
   "image#bat": { "exec": "zeta-status bat", "interval": 30, "size": 20, "tooltip": false, "on-click": "zeta-panel control" },

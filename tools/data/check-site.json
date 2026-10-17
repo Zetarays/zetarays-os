@@ -1,0 +1,5 @@
+{
+ "_comment": "tools/check-site.py: terminology checks (regex patterns, case-insensitive ones in 'italian_click', case-sensitive in 'donate'), see docs/GLOSSARY.md.",
+ "italian_click": "\\b(clic|clicca\\w*|clicchi|cliccando)\\b",
+ "donate": "\\b(Donate|Dona ora|Dona con|Donazion\\w*)\\b"
+}

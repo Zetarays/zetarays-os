@@ -159,6 +159,12 @@ cat > ~/.config/gtk-3.0/gtk.css <<EOF
 @define-color theme_text_color $INKC;
 @define-color insensitive_fg_color $INKDIM;
 @define-color accent_bg_color $ACCENT;
+/* File manager (Thunar) icon view: a little more room between icons, so
+   names on two or three lines stay readable (defaults: 6 and 6 pixels).
+   These are GTK3 style properties of ThunarAbstractIconView; a selector by
+   its type name does not match (tested), its CSS node is "scrolledwindow".
+   Other widgets do not have these properties and ignore them. */
+scrolledwindow { -ThunarAbstractIconView-column-spacing: 12; -ThunarAbstractIconView-row-spacing: 16; }
 EOF
 
 # --- System GTK theme (non-ZETA RAYS apps: file manager, editor, Packages...) ---

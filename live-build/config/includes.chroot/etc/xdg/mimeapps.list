@@ -149,7 +149,9 @@ application/x-cpio=org.gnome.FileRoller.desktop
 application/x-archive=org.gnome.FileRoller.desktop
 application/x-cd-image=org.gnome.FileRoller.desktop
 application/x-iso9660-image=org.gnome.FileRoller.desktop
-application/vnd.debian.binary-package=org.gnome.FileRoller.desktop
+# (.deb packages: see "Programs to install" below. A second line for the same
+# type here made GLib and xdg-open disagree: GLib keeps the last one,
+# xdg-mime the first.)
 
 # --- Fonts -------------------------------------------------------------------
 font/ttf=org.gnome.font-viewer.desktop

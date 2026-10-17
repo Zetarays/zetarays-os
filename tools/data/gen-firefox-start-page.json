@@ -1,0 +1,7 @@
+{
+ "_comment": "tools/gen-firefox-start-page.py: the note shown in the corner of the offline copy, in the page's two languages.",
+ "offline_note": {
+  "it": "Copia offline di zetarays.org · link disattivati",
+  "en": "Offline copy of zetarays.org · links are disabled"
+ }
+}

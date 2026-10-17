@@ -29,7 +29,7 @@ from core.orb import Orb  # noqa: E402
 from ui import accent  # noqa: E402
 from ui import theme  # noqa: E402
 from intelligence import speech  # noqa: E402
-from i18n import tr  # noqa: E402
+from i18n import speaking, speaking_language, tr  # noqa: E402
 
 HYPRBARS = "/usr/lib/zeta/hypr/hyprbars.so"
 
@@ -55,6 +55,8 @@ window.zeta-core { background: @surface; }
 .hint { font-size: 11px; color: @ink_dim; }
 .engine { font-size: 11px; color: @ink_dim; letter-spacing: 0.02em; margin-bottom: 4px; }
 .mic-on { background: #E5484D; }
+.sources { font-size: 11px; color: @ink_dim; margin: 0 6px 6px 8px; }
+.choices { margin: 0 6px 6px 6px; }
 """
 
 
@@ -67,11 +69,6 @@ def _md(text):
     t = re.sub(r"(?<![*\w])\*(?![\s*])(.+?)(?<![\s*])\*(?![*\w])", r"<i>\1</i>", t)
     t = re.sub(r"`([^`\n]+)`", r"<tt>\1</tt>", t)
     return re.sub(r"(?m)^#{1,6}\s+", "", t)
-
-
-def _strip_markdown(text):
-    """For speech: no asterisks or hash signs read aloud."""
-    return re.sub(r"[*`#]+", "", text or "")
 
 
 def _is_report(text):
@@ -91,6 +88,15 @@ def read_color():
     return accent.color_rgb()
 
 
+def _in_language(lang, fn):
+    """fn for GLib.idle_add, building its texts in `lang` (the language of
+    the question being answered by a worker thread)."""
+    def run():
+        with speaking(lang):
+            return fn()
+    return run
+
+
 class Window(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="ZETA")
@@ -108,6 +114,8 @@ class Window(Gtk.ApplicationWindow):
         self._pending = None
         self._pending_timer = 0
         self._request = 0          # to discard replies to canceled requests
+        self._assistant_lock = threading.Lock()
+        self._consent_wait = None  # (event, answer) while «Search the web?» is shown
 
         # Title bar: ZETA RAYS draws it (hyprbars) for every window. Only if
         # the plugin is missing do we add our own, otherwise the title would
@@ -124,8 +132,8 @@ class Window(Gtk.ApplicationWindow):
         self.area = Gtk.DrawingArea(content_height=330, hexpand=True)
         self.area.set_draw_func(self.on_draw)
         root.append(self.area)
-        # which intelligence actually answers (provider, model, where it runs):
-        # if the chosen one is not ready the system uses another, shown here
+        # which intelligence actually answers (provider, model, where it runs);
+        # «not ready» when it can't answer (ZETA never switches by itself)
         self.engine = Gtk.Label(label="", css_classes=["engine"], ellipsize=3,
                                 tooltip_text=tr("Change it in Settings › AI"))
         root.append(self.engine)
@@ -252,23 +260,35 @@ class Window(Gtk.ApplicationWindow):
 
     # ---------- command execution ----------
     def on_send(self, _b=None):
-        if self._busy:
+        if self._busy and not self.entry.get_text().strip():
             self.cancel()
         else:
             self.submit(self.entry.get_text())
 
-    def cancel(self):
-        """Stops waiting for the reply and gives control back.
+    def cancel(self, quiet=False):
+        """Stops the request and gives control back at once.
 
-        The request in progress cannot be interrupted halfway (it is a network
-        call), but its result will be discarded and the interface becomes
-        usable again immediately: you are never stuck waiting."""
+        The connection to the model is really closed (Assistant.cancel shuts
+        the socket down), so a local model stops generating and an online
+        service stops sending; whatever had already arrived stays visible."""
         self._request += 1
         self._busy = False
         self._send_mode(False)
-        self._remove_pending()
+        if self.assistant is not None:
+            self.assistant.cancel()
+        self._answer_consent(None)
+        if self._pending is not None and self._streamed:
+            if getattr(self, "_pending_timer", 0):
+                GLib.source_remove(self._pending_timer)
+                self._pending_timer = 0
+            self._pending.set_markup(_md(self._streamed + "\n\n" + tr("(Stopped.)")))
+            self._pending.remove_css_class("pending")
+            self._pending = None
+        else:
+            self._remove_pending()
+            if not quiet:
+                self._say_zeta(tr("Request canceled."))
         self.set_state("idle")
-        self._say_zeta(tr("Request canceled."))
 
     def _send_mode(self, busy):
         """The send button becomes «stop» while processing."""
@@ -276,10 +296,18 @@ class Window(Gtk.ApplicationWindow):
             "process-stop-symbolic" if busy else "go-up-symbolic")
         self.send.set_tooltip_text(tr("Stop") if busy else tr("Send"))
 
-    def submit(self, text):
+    def submit(self, text, provider_id=None):
+        """Sends a question. A new question while the previous one is still
+        running replaces it (the old one is canceled, never answered twice).
+        `provider_id`: this question only goes to that provider, because the
+        user clicked «Ask …» after a failure."""
         text = (text or "").strip()
-        if not text or self._busy:
+        if not text:
             return
+        if self._busy:
+            if self.state == "listening":
+                return                    # the microphone is in use
+            self.cancel(quiet=True)
         self.entry.set_text("")
         self._say_user(text)
         self._busy = True
@@ -291,7 +319,7 @@ class Window(Gtk.ApplicationWindow):
         self._pending = self._pending_bubble()
         self._elapsed = 0
         self._pending_timer = GLib.timeout_add_seconds(1, self._tick_pending)
-        threading.Thread(target=self._work, args=(text, self._request),
+        threading.Thread(target=self._work, args=(text, self._request, provider_id),
                          daemon=True).start()
 
     @staticmethod
@@ -342,14 +370,17 @@ class Window(Gtk.ApplicationWindow):
             self._pending.set_text(tr("{status} ({seconds}s)").format(status=phase, seconds=self._elapsed))
         return True
 
-    def _work(self, text, request):
+    def _work(self, text, request, provider_id=None):
+        turn = {}
         try:
             from intelligence.registry import Registry
             prov = Registry().resolve_default()
-            if self.assistant is None:
-                from intelligence.assistant import Assistant
-                self.assistant = Assistant(prov)
-            else:
+            with self._assistant_lock:
+                created = self.assistant is None
+                if created:
+                    from intelligence.assistant import Assistant
+                    self.assistant = Assistant(prov)
+            if not created:
                 # a provider changed in Settings applies from the next question,
                 # without closing ZETA (the conversation is kept)
                 old = self.assistant.provider.config
@@ -357,26 +388,82 @@ class Window(Gtk.ApplicationWindow):
                 if (old.name, old.model, old.endpoint) != (new.name, new.model, new.endpoint):
                     self.assistant.provider = prov
             prov = self.assistant.provider
+            if provider_id:
+                prov = Registry().get(provider_id)
             GLib.idle_add(self.engine.set_text, self._describe(prov))
             self._phase_text = ""
             from intelligence.providers.ollama import OllamaProvider
             from intelligence.agent.understanding import understanding
-            if understanding(text):
-                phase = tr("Running…")                     # a command: no model needed
-            elif isinstance(prov, OllamaProvider):
-                phase = (tr("Working on it…") if prov._already_loaded() else
-                        tr("Loading the {model} model into memory, the first reply is slower…").format(
-                            model=prov.config.model))
-            else:
-                phase = tr("Contacting {service}…").format(service=prov.config.label)
+            # in the language of the question, like the answer
+            with speaking(self.assistant._reply_language(text)):
+                if understanding(text):
+                    phase = tr("Running…")                 # a command: no model needed
+                elif isinstance(prov, OllamaProvider):
+                    phase = (tr("Working on it…") if prov._already_loaded() else
+                             tr("Loading the {model} model into memory, the first reply is slower…").format(
+                                 model=prov._model()))
+                else:
+                    phase = tr("Contacting {service}…").format(service=prov.config.label)
             GLib.idle_add(self._phase, phase, request)
             self._streamed = ""
-            answer = self.assistant.respond(
-                text, confirm=self._confirm,
-                on_text=lambda c: GLib.idle_add(self._chunk, c, request))
+            kw = {"confirm": self._confirm,
+                  "on_text": lambda c: GLib.idle_add(self._chunk, c, request),
+                  "consent": lambda services: self._consent(services, request)}
+            if provider_id:
+                answer = self.assistant.respond_with(provider_id, text, **kw)
+            else:
+                answer = self.assistant.respond(text, **kw)
+            turn = dict(self.assistant.last_turn)
         except Exception as e:  # noqa: BLE001
             answer = tr("An error occurred: {error}").format(error=e)
-        GLib.idle_add(self._done, answer, request)
+        GLib.idle_add(self._done, answer, request, turn, text)
+
+    # ---------- «Search the web?» (asked once, in the chat) ----------
+    def _consent(self, services, request):
+        """Worker thread: asks in the chat whether the question may be sent
+        to the search services. Returns "yes", "always", "no" or None."""
+        ev = threading.Event()
+        out = {"answer": None}
+        lang = speaking_language()      # the language of this question
+
+        def show():
+            if request != self._request:
+                ev.set()
+                return False
+            with speaking(lang):
+                self._consent_box(services, ev, out)
+            return False
+
+        GLib.idle_add(show)
+        ev.wait(timeout=120)
+        return out["answer"]
+
+    def _consent_box(self, services, ev, out):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, halign=Gtk.Align.START,
+                      css_classes=["bubble", "zeta"])
+        box.append(Gtk.Label(label=tr("Search the web? This sends your question to {services}.")
+                             .format(services=", ".join(services)),
+                             xalign=0, wrap=True, max_width_chars=52))
+        row = Gtk.Box(spacing=6, css_classes=["choices"])
+        for key, label in (("yes", tr("Yes")), ("always", tr("Always")), ("no", tr("No"))):
+            b = Gtk.Button(label=label)
+            if key == "yes":
+                b.add_css_class("suggested-action")
+            b.connect("clicked", lambda _b, k=key: self._answer_consent(k))
+            row.append(b)
+        box.append(row)
+        self.log.append(box)
+        self._consent_wait = (ev, out, box)
+        GLib.idle_add(self._scroll_end)
+
+    def _answer_consent(self, answer):
+        if self._consent_wait is None:
+            return
+        ev, out, box = self._consent_wait
+        self._consent_wait = None
+        out["answer"] = answer
+        box.set_sensitive(False)
+        ev.set()
 
     def _chunk(self, chunk, request):
         """A chunk of the reply arriving: the bubble fills up while the model
@@ -392,7 +479,7 @@ class Window(Gtk.ApplicationWindow):
         self._scroll_end()
         return False
 
-    def _done(self, answer, request=None):
+    def _done(self, answer, request=None, turn=None, question=""):
         if request is not None and request != self._request:
             return False              # reply to a canceled request
         self._send_mode(False)
@@ -416,10 +503,42 @@ class Window(Gtk.ApplicationWindow):
             GLib.idle_add(self._scroll_end)
         else:
             self._say_zeta(answer)
+        with speaking((turn or {}).get("language")):
+            self._extras(turn or {}, question)
         self.set_state("replying", revert_after=1400)
         self._busy = False
-        self._speak(_strip_markdown(answer))
+        # the raw reply: speech.normalize() needs the Markdown to skip code
+        # blocks and read links, lists and tables properly
+        self._speak(answer)
         return False
+
+    def _extras(self, turn, question):
+        """Under the answer: the web sources it used (links), or the offer to
+        ask another AI after a failure (only if the user clicks)."""
+        sources = turn.get("sources") or []
+        if sources:
+            links = "   ".join('<a href="%s">[%d] %s</a>' % (
+                GLib.markup_escape_text(s.url), i, GLib.markup_escape_text(s.title))
+                for i, s in enumerate(sources, 1) if s.url.startswith("https://"))
+            lbl = Gtk.Label(xalign=0, wrap=True, max_width_chars=60, css_classes=["sources"])
+            lbl.set_markup(GLib.markup_escape_text(tr("Sources (retrieved {date}):").format(
+                date=sources[0].retrieved)) + " " + links)
+            self.log.append(lbl)
+        offer = turn.get("offer")
+        if offer and question:
+            from intelligence.registry import CATALOG
+            name = (tr("the local model") if offer == "ollama"
+                    else CATALOG.get(offer, ("", offer))[1])
+            b = Gtk.Button(label=tr("Ask {name}").format(name=name), halign=Gtk.Align.START,
+                           css_classes=["choices"])
+
+            def ask(btn):
+                btn.set_sensitive(False)
+                self.submit(question, provider_id=offer)
+            b.connect("clicked", ask)
+            self.log.append(b)
+        if sources or offer:
+            GLib.idle_add(self._scroll_end)
 
     def _speak(self, text):
         """Reads the reply aloud if the user has turned speech on."""
@@ -470,22 +589,33 @@ class Window(Gtk.ApplicationWindow):
             cancel.grab_focus()
             return False
 
-        GLib.idle_add(show)
+        GLib.idle_add(_in_language(speaking_language(), show))
         ev.wait(timeout=120)
         return out["ok"]
 
     # ---------- model ----------
     def _prepare_model(self):
-        """With the local model, start loading it as soon as ZETA opens: it
-        takes 1-2 seconds, and meanwhile the question is being typed. It does
-        not do this if the user chose «Only when needed» (Settings › AI)."""
+        """With the local model, start loading it as soon as ZETA opens, so it
+        is ready while the question is being typed. Only on computers with
+        room to spare (12 GB or more): on an 8 GB computer the 3.7 GB model
+        loads at the first question that needs it, not because ZETA was opened
+        to run a command. «Only when needed» (Settings › AI) turns this off,
+        «Always» forces it; the free memory is checked in any case."""
         def job():
+            choice = ""
             try:
                 with open(os.path.expanduser("~/.config/zeta/ai-preload")) as f:
-                    if f.read().strip() == "0":
-                        return
+                    choice = f.read().strip()
             except OSError:
                 pass
+            if choice == "0":
+                return
+            try:
+                from intelligence import resources
+                if choice != "1" and resources.nominal_memory_gb() < resources.ROOMY_THRESHOLD:
+                    return
+            except Exception:  # noqa: BLE001
+                return
             try:
                 from intelligence.registry import Registry
                 from intelligence.providers.ollama import OllamaProvider

@@ -5,16 +5,25 @@ set -e
 
 ACCENT="#3A8DFF"
 
+# --- Release version ---
+# Written by build.sh from the repository's VERSION file (the only place where
+# it is set). From here on the system reads it from /etc/os-release.
+ZETA_VERSION=$(tr -d ' \t\r\n' 2>/dev/null < /usr/share/zeta/version || true)
+case "$ZETA_VERSION" in
+  [0-9]*.[0-9]*) ;;
+  *) echo "ZETA RAYS: ERROR - /usr/share/zeta/version missing or invalid ('$ZETA_VERSION')" >&2; exit 1 ;;
+esac
+
 # --- System name ---
 # The real file is /usr/lib/os-release: we divert it, so system updates do not
 # replace it. live-build has already copied the original to /etc/os-release
 # (a regular file, not a symlink): that one must be rewritten too.
 dpkg-divert --local --rename --divert /usr/lib/os-release.upstream --add /usr/lib/os-release >/dev/null
-cat > /usr/lib/os-release <<'EOF'
-PRETTY_NAME="ZETA RAYS OS 2.0"
+cat > /usr/lib/os-release <<EOF
+PRETTY_NAME="ZETA RAYS OS $ZETA_VERSION"
 NAME="ZETA RAYS OS"
-VERSION_ID="2.0"
-VERSION="2.0"
+VERSION_ID="$ZETA_VERSION"
+VERSION="$ZETA_VERSION"
 VERSION_CODENAME=trixie
 ID=zeta
 ID_LIKE=debian
@@ -23,14 +32,15 @@ ANSI_COLOR="1;34"
 EOF
 { cat /usr/lib/os-release; grep -E '^(IMAGE_ID|BUILD_ID)=' /etc/os-release 2>/dev/null || true; } > /etc/os-release.zeta
 mv /etc/os-release.zeta /etc/os-release
-printf 'ZETA RAYS OS 2.0 \\n \\l\n\n' > /etc/issue
-printf 'ZETA RAYS OS 2.0\n' > /etc/issue.net
+printf 'ZETA RAYS OS %s \\n \\l\n\n' "$ZETA_VERSION" > /etc/issue
+printf 'ZETA RAYS OS %s\n' "$ZETA_VERSION" > /etc/issue.net
+echo "ZETA RAYS: version $ZETA_VERSION written to os-release"
 
 # Console message (replaces the one from the base distribution).
 # In English: the motd is a static file, the same for every language.
-cat > /etc/motd <<'EOF'
+cat > /etc/motd <<EOF
 
-  ZETA RAYS OS 2.0
+  ZETA RAYS OS $ZETA_VERSION
   AI · Security · Control
 
   The software included in ZETA RAYS OS is free software: the license of
@@ -109,6 +119,14 @@ chmod 0644 /etc/udev/rules.d/60-zeta-radio-region.rules
 # package sources of the installed system (Calamares step)
 chown root:root /usr/local/libexec/zeta-apt-sources /etc/calamares/modules/shellprocess-aptsources.conf
 chmod 0755 /usr/local/libexec/zeta-apt-sources
+# automatic security updates (Settings > Software Update, pkexec helper):
+# off in the image and the live session, turned on by zeta-apt-sources
+chown root:root /usr/libexec/zeta-auto-updates /etc/apt/apt.conf.d/52zeta-security-updates \
+  /usr/share/polkit-1/actions/org.zetarays.auto-updates.policy
+chmod 0755 /usr/libexec/zeta-auto-updates
+chmod 0644 /etc/apt/apt.conf.d/52zeta-security-updates /usr/share/polkit-1/actions/org.zetarays.auto-updates.policy
+grep -q 'Unattended-Upgrade "0"' /etc/apt/apt.conf.d/52zeta-security-updates \
+  || { echo "automatic updates must be off in the image" >&2; exit 1; }
 chown root:root /usr/local/libexec/zeta-ssh-installed /etc/calamares/modules/shellprocess-ssh.conf
 chmod 0755 /usr/local/libexec/zeta-ssh-installed
 # SSH: server installed but off by default (turned on with «zeta-ssh on»)
@@ -245,6 +263,17 @@ if [ ! -s "$CAL/logo.png" ]; then
   exit 1
 fi
 echo "ZETA RAYS: installer logo generated ($(wc -c < "$CAL/logo.png") byte)"
+
+# --- Version in the installer and in the boot menu of the installed system ---
+# Both are static files: the source has «@VERSION@», filled in here from the
+# version written above (the same one as /etc/os-release).
+for f in "$CAL/branding.desc" /usr/share/grub/themes/zeta/theme.txt; do
+  [ -f "$f" ] && sed -i "s/@VERSION@/$ZETA_VERSION/g" "$f"
+  if [ -f "$f" ] && grep -q '@VERSION@' "$f"; then
+    echo "ZETA RAYS: ERROR - version not filled in $f" >&2
+    exit 1
+  fi
+done
 
 # --- Default GTK3 settings (GSettings: Roboto, dark theme, ZETA RAYS icons) ---
 for c in /usr/lib/*/glib-2.0/glib-compile-schemas; do

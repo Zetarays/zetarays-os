@@ -1,0 +1,66 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: automatic security updates on or off (Settings > Software Update).
+#
+# Runs as root only through pkexec (action org.zetarays.auto-updates, an
+# administrator's password). One argument, nothing else is accepted:
+#
+#   zeta-auto-updates on     install security updates automatically
+#   zeta-auto-updates off    do not install anything automatically
+#
+# The work is done by Debian's unattended-upgrades (apt-daily-upgrade.timer),
+# limited here to the security archive (label Debian-Security): no point
+# releases, no backports, never Hyprland (held, and blacklisted below), never
+# an automatic restart. The package's own 50unattended-upgrades and
+# 20auto-upgrades are left untouched: this file comes later in the
+# alphabetical order of apt.conf.d, so its values win, and "#clear" drops the
+# package's wider list of origins.
+#
+# In the live session "on" is refused (everything would be lost at restart,
+# and the apt timers do not run there anyway, see apt-daily*.service.d).
+# The installer turns it on for new installs with ZETA_INSTALL_TARGET=1
+# (zeta-apt-sources, inside the installed system); pkexec clears the
+# environment, so a user cannot pass that variable.
+set -eu
+CONF=/etc/apt/apt.conf.d/52zeta-security-updates
+
+[ "$#" -eq 1 ] || { echo "usage: zeta-auto-updates on|off" >&2; exit 2; }
+case "$1" in
+  on) VALUE=1 ;;
+  off) VALUE=0 ;;
+  *) echo "usage: zeta-auto-updates on|off" >&2; exit 2 ;;
+esac
+[ "$(id -u)" -eq 0 ] || { echo "zeta-auto-updates: must run as root (pkexec)" >&2; exit 1; }
+if [ "$VALUE" = 1 ] && [ -d /run/live/medium ] && [ "${ZETA_INSTALL_TARGET:-}" != 1 ]; then
+  echo "zeta-auto-updates: not in the live session" >&2
+  exit 3
+fi
+[ -x /usr/bin/unattended-upgrade ] || { echo "zeta-auto-updates: unattended-upgrades is not installed" >&2; exit 4; }
+
+TMP=$(mktemp "$CONF.XXXXXX")
+trap 'rm -f "$TMP"' EXIT
+cat > "$TMP" <<CONFEOF
+// ZETA RAYS: automatic security updates. Written by /usr/libexec/zeta-auto-updates
+// (Settings > Software Update): change it from there, not by hand.
+APT::Periodic::Update-Package-Lists "$VALUE";
+APT::Periodic::Unattended-Upgrade "$VALUE";
+APT::Periodic::AutocleanInterval "7";
+CONFEOF
+cat >> "$TMP" <<'CONFEOF'
+// Only the security archive of Debian 13 (label Debian-Security).
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+};
+// Hyprland is the patched ZETA RAYS build (held): never replace it.
+Unattended-Upgrade::Package-Blacklist {
+        "hyprland";
+};
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::MinimalSteps "true";
+CONFEOF
+chmod 0644 "$TMP"
+mv -f "$TMP" "$CONF"
+trap - EXIT
+echo "automatic security updates: $1"

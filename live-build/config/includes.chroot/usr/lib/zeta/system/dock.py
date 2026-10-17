@@ -218,8 +218,16 @@ def render_config(dock: list[dict]) -> dict:
         ("margin-bottom" if position() == "bottom" else "margin-top"): 12,
         "modules-left": ["image#launcher", "group/workspaces"],
         "modules-center": ["group/dock", "group/minimized"],
-        "modules-right": ["custom/keyboard", "image#search", "image#net", "image#vol",
-                          "image#bat", "clock", "image#power"],
+        "modules-right": ["custom/windowlist", "custom/keyboard", "image#search", "image#net",
+                          "image#vol", "image#bat", "clock", "image#power"],
+        # Windows list button, only when the windows have no title bars
+        # (hyprbars not loaded): then it is the mouse way to reach, close and
+        # minimize every window. Otherwise zeta-windows prints nothing and
+        # Waybar hides the module.
+        "custom/windowlist": {
+            "exec": "zeta-windows button", "interval": 30, "signal": 9,
+            "on-click": "zeta-windows", "tooltip": False,
+        },
         # Current keyboard (IT, US, GB...), only with more than one layout
         # (with a single one zeta-keyboard prints nothing and Waybar hides
         # it). A click switches to the next one, like Alt+Shift; zeta-workspaces

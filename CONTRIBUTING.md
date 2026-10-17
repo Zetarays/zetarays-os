@@ -12,9 +12,14 @@ Thank you for helping. A few simple rules keep the system consistent.
    secrets).
 4. **English in the source**: code, comments, docstrings, developer messages
    and documentation are written in English (`tools/check-italian.py`).
-   Italian belongs only in the translations (`po/it.po`), in `*.it.md`
-   documents and in data the system must recognize (Italian voice and text
-   commands, marked `i18n-data`).
+   Code files (Python, shell, Lua, QML/JS, systemd units, live-build hooks,
+   tools and tests) contain no Italian at all, not even in strings or
+   comments. Italian belongs only in data files: the translations
+   (`po/it.po`, Calamares `.ts`), `*.it.md` documents, the bilingual HTML
+   pages, plain-text word lists, and the JSON files with the words and
+   phrases the system must recognize or say (`usr/share/zeta/i18n-data/*.json`,
+   loaded with `i18n_data.load()` or `/usr/libexec/zeta-i18n-data`; build
+   tools keep theirs in a `data/` folder next to them).
 5. **User-facing text** is written in English inside `tr()`/`gettext` and
    translated in `po/it.po` (`python3 tools/i18n.py check` must pass). Follow
    the terminology in [`docs/GLOSSARY.md`](docs/GLOSSARY.md) (for example

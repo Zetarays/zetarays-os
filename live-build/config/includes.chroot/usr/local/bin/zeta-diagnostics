@@ -127,6 +127,13 @@ try_cmd "$(gettext "startup time")" systemd-analyze
 try_cmd "$(gettext "what slowed down startup")" systemd-analyze blame
 subsection "$(gettext "failed units")"
 systemctl --failed --no-pager 2>/dev/null || echo "$(gettext "(systemctl not available)")"
+subsection "$(gettext "failed services: what the Monitor says, with the last 20 log lines")"
+python3 -I /usr/lib/zeta/monitor/unitstate.py --report 2>&1 | head -400
+# other failed units (mounts, sockets, devices...): their last log lines
+for u in $(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | grep -v '\.service$'); do
+    echo "### $u"
+    journalctl -u "$u" -n 20 -o cat --no-pager -q 2>/dev/null
+done
 subsection "$(gettext "running system services")"
 systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}' | head -40
 subsection "$(gettext "user services")"
@@ -167,20 +174,106 @@ try_cmd "$(gettext "graphics cards")" lspci
 subsection "$(gettext "drivers in use")"
 if has lspci; then lspci -nnk 2>/dev/null | grep -A 3 -iE "vga|3d|display" | head -20; fi
 subsection "$(gettext "rendering")"
-if has glxinfo; then glxinfo -B 2>/dev/null | head -12
-elif has eglinfo; then eglinfo 2>/dev/null | head -10
+# Debian ships the probes with the architecture in the name
+# (eglinfo.x86_64-linux-gnu): the GBM platform needs no window, so it works
+# from a terminal and under sudo too.
+EGLINFO=$(command -v eglinfo 2>/dev/null || ls /usr/bin/eglinfo.* 2>/dev/null | head -1)
+if [ -n "$EGLINFO" ]; then timeout 10 "$EGLINFO" -B -p gbm 2>/dev/null | grep -iE "version|vendor|renderer|device" | head -12
+elif has glxinfo; then glxinfo -B 2>/dev/null | head -12
 else echo "$(gettext "(glxinfo not installed: sudo apt install mesa-utils)")"; fi
 subsection "$(gettext "video acceleration available?")"
 ls -la /dev/dri/ 2>/dev/null || echo "$(gettext "(no /dev/dri: no acceleration, everything runs on the CPU)")"
 subsection "$(gettext "compositor variables")"
 env | grep -E "^(WLR_|HYPRLAND|GSK_|GDK_|LIBGL|MESA|WAYLAND_DISPLAY|XDG_SESSION_TYPE)" | sort
+# graphics test settings chosen by the user (docs/FLICKER-TESTS.md)
+[ -r "$HOME/.config/zeta/graphics.env" ] && sed 's/^/graphics.env: /' "$HOME/.config/zeta/graphics.env" | head -5
+
+# --- flicker and display diagnostics ---------------------------------------
+# The user's Hyprland, also under sudo: hyprctl talks to the socket of the
+# newest Hyprland instance of the user who launched the report.
+DIAG_USER=${SUDO_USER:-$(id -un)}
+DIAG_RT=/run/user/$(id -u "$DIAG_USER" 2>/dev/null)
+DIAG_SIG=${HYPRLAND_INSTANCE_SIGNATURE:-}
+[ -n "$DIAG_SIG" ] && [ -S "$DIAG_RT/hypr/$DIAG_SIG/.socket.sock" ] || \
+    DIAG_SIG=$(ls -t "$DIAG_RT/hypr" 2>/dev/null | head -1)
+hypr() {
+    [ -n "$DIAG_SIG" ] && has hyprctl || return 1
+    if [ "$(id -u)" -eq 0 ] && [ "$DIAG_USER" != root ]; then
+        runuser -u "$DIAG_USER" -- env XDG_RUNTIME_DIR="$DIAG_RT" \
+            HYPRLAND_INSTANCE_SIGNATURE="$DIAG_SIG" timeout 5 hyprctl "$@" 2>&1
+    else
+        XDG_RUNTIME_DIR="$DIAG_RT" HYPRLAND_INSTANCE_SIGNATURE="$DIAG_SIG" timeout 5 hyprctl "$@" 2>&1
+    fi
+}
+subsection "$(gettext "graphics stack versions")"
+echo "kernel: $(uname -r)"
+dpkg-query -W -f='${Package} ${Version}\n' hyprland 'libaquamarine*' libgl1-mesa-dri \
+    mesa-vulkan-drivers libgtk-4-1 libgtk-3-0t64 xwayland firefox-esr 2>/dev/null \
+    | awk 'NF == 2 && $2 != ""'
+printf 'vulkan drivers: %s\n' "$(ls /usr/share/vulkan/icd.d 2>/dev/null | tr '\n' ' ')"
+echo "$(gettext "(GTK 4 apps draw with Vulkan when a Vulkan driver is listed, otherwise with OpenGL)")"
+subsection "$(gettext "graphics options on the kernel command line")"
+grep -oE "(i915|xe|amdgpu|radeon|nouveau|nvidia[a-z_-]*)\.[^ ]+|nomodeset" /proc/cmdline \
+    || echo "$(gettext "(none: driver defaults)")"
+subsection "$(gettext "graphics driver settings (power saving that can cause flicker)")"
+for m in i915 xe amdgpu nouveau nvidia_drm; do
+    P=/sys/module/$m/parameters
+    [ -d "$P" ] || continue
+    for p in enable_psr enable_psr2_sel_fetch enable_panel_replay enable_fbc enable_dc \
+             psr_safest_params dcdebugmask sg_display abmlevel runpm modeset fbdev; do
+        [ -r "$P/$p" ] && echo "$m.$p = $(cat "$P/$p" 2>/dev/null)"
+    done
+done
+# PSR state of a built-in panel (Intel, readable only with sudo)
+for f in /sys/kernel/debug/dri/*/i915_edp_psr_status; do
+    [ -r "$f" ] && { echo "### $f"; head -6 "$f"; }
+done 2>/dev/null
+subsection "$(gettext "connected displays (kernel)")"
+for c in /sys/class/drm/card*-*; do
+    [ "$(cat "$c/status" 2>/dev/null)" = connected ] || continue
+    printf '%s: enabled=%s dpms=%s mode=%s\n' "${c##*/}" "$(cat "$c/enabled" 2>/dev/null)" \
+        "$(cat "$c/dpms" 2>/dev/null)" "$(head -1 "$c/modes" 2>/dev/null)"
+done
+subsection "$(gettext "displays according to Hyprland (refresh rate, VRR, scale, format)")"
+if hypr version >/dev/null 2>&1; then
+    hypr version | head -3
+    hypr monitors all | grep -E "^Monitor|[0-9]+x[0-9]+@|scale:|vrr:|currentFormat:|dpmsStatus:|transform:|disabled:|mirrorOf:|solitary:|activelyTearing:|directScanoutTo:" | head -40
+    subsection "$(gettext "Hyprland options that can cause flicker")"
+    for o in misc:vrr render:direct_scanout cursor:no_hardware_cursors cursor:use_cpu_buffer \
+             debug:vfr debug:damage_tracking general:allow_tearing render:cm_enabled \
+             render:use_fp16 render:new_render_scheduling render:expand_undersized_textures \
+             opengl:nvidia_anti_flicker decoration:blur:enabled decoration:blur:passes \
+             decoration:blur:xray animations:enabled; do
+        printf '%-36s %s\n' "$o" "$(hypr getoption "$o" | grep -vE '^set:' | tr '\n' ' ')"
+    done
+    subsection "$(gettext "Hyprland configuration errors")"
+    hypr configerrors | head -10
+else
+    echo "$(gettext "(Hyprland is not reachable: run the report from inside the desktop session)")"
+fi
+subsection "$(gettext "Hyprland log: errors and display messages")"
+for L in "$DIAG_RT/hypr/${DIAG_SIG:-none}/hyprland.log" "$HOME/.local/share/zeta/hyprland.log"; do
+    [ -r "$L" ] || continue
+    echo "### $L"
+    grep -iE "\[(err|crit|warn)|error|failed|drm|atomic|commit|pageflip|scanout|egl|gbm|modifier|dmabuf|timeline|syncobj" "$L" \
+        | sed -E 's/[[:space:]]+$//' | sort | uniq -c | sort -rn | head -25
+    break
+done
+subsection "$(gettext "kernel display messages (link, underrun, firmware, PSR)")"
+journalctl -k -b --no-pager -o short 2>/dev/null \
+    | grep -iE "fifo underrun|underrun|flip_done|pageflip|atomic.*(fail|timed)|link training|psr|panel replay|dmc|guc|huc|failed to load.*firmware|firmware.*(fail|missing)|edid" \
+    | grep -iE "i915|xe|amdgpu|radeon|nouveau|nvidia|drm" | tail -20 || true
+echo "$(gettext "(no lines = the kernel saw no display link or firmware problem since this boot)")"
 subsection "$(gettext "graphics card errors since this boot (GPU hang, reset, timeout)")"
 journalctl -k -b --no-pager -o short 2>/dev/null \
     | grep -iE "gpu hang|ring .*timeout|\*ERROR\*|amdgpu.*(timeout|reset|fault)|i915.*(reset|hang|error)|xe .*(reset|timeout)|nouveau.*(fault|timeout)|drm.*(timed out|flip_done)" \
     | tail -15 || true
 subsection "$(gettext "windows that were not responding (according to Hyprland)")"
+# the pattern also matches older Italian log lines (i18n-data/zeta-diagnostics.json)
+NOT_RESPONDING=$(/usr/libexec/zeta-i18n-data zeta-diagnostics not_responding 2>/dev/null)
+[ -n "$NOT_RESPONDING" ] || NOT_RESPONDING="ANR|not responding"
 for L in "$HOME/.local/share/zeta/hyprland.log" /run/user/"$(id -u "${SUDO_USER:-$USER}" 2>/dev/null)"/hypr/*/hyprland.log; do
-    [ -r "$L" ] && grep -iE "ANR|not responding|non risponde" "$L" | tail -8  # i18n-data: older Italian log lines
+    [ -r "$L" ] && grep -iE "$NOT_RESPONDING" "$L" | tail -8
 done
 subsection "$(gettext "Firefox: processes, memory, crash reports")"
 ps -eo pid,stat,rss,etime,comm 2>/dev/null | awk 'NR==1 || /firefox|Web Content|Isolated|WebExtensions|RDD|Socket|Utility|GPU Process/' | head -20

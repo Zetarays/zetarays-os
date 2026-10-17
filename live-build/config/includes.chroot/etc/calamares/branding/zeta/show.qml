@@ -20,9 +20,11 @@ Presentation {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: logo.bottom; anchors.topMargin: 34
             // in the language chosen in the installer (English for the languages
-            // ZETA RAYS is not translated into)
-            text: Qt.locale().name.indexOf("it") === 0 ? "Installazione di ZETA RAYS OS"  // i18n-data
-                                                        : "Installing ZETA RAYS OS"
+            // ZETA RAYS is not translated into): Calamares loads the branding's
+            // Qt translations (lang/calamares-zeta_<language>.qm, sources in
+            // tools/qt-lang) and retranslates the slideshow when the language
+            // changes
+            text: qsTr("Installing ZETA RAYS OS")
             color: "#EDEDEA"; font.pixelSize: 20; font.family: "Roboto"
         }
         Text {

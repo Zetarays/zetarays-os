@@ -30,6 +30,7 @@ import threading
 import time
 
 from i18n import language, tr
+from i18n_data import load
 
 # One model per language. Vosk loads only one and cannot tell by itself which
 # language it is hearing: the system makes the choice (see chosen_language),
@@ -238,47 +239,17 @@ class MicrophoneError(Exception):
 
 # ------------------------------------------------ second pass for commands
 # The small free-vocabulary model often gets precisely the command words
-# wrong ("apri firefox" -> "app di firefox", "alza il volume" -> "al volume":
-# verified). When the first transcription is not a command, the same audio is
-# re-read with a vocabulary restricted to command words and the names of
-# installed apps. It is used only if a valid command comes out of it.
+# wrong (Italian "open firefox" heard as "app of firefox", "raise the volume"
+# heard as "to-the volume": verified). When the first transcription is not a
+# command, the same audio is re-read with a vocabulary restricted to command
+# words and the names of installed apps. It is used only if a valid command comes out of it.
 # One vocabulary per language: the one of the loaded model is used.
-# i18n-data-begin: Italian command vocabulary
-_WORDS_IT = """
-apri aprimi avvia lancia chiudi esci riavvia riapri passa vai torna mostrami mostra fammi vedere
-crea nuova nuovo cerca trova dove elimina cancella sposta copia rinomina metti togli aggiungi
-accendi spegni attiva disattiva alza abbassa aumenta diminuisci blocca sospendi riduci icona
-ingrandisci schermo intero connetti collegati disconnetti installa disinstalla scarica
-il lo la i gli le un una uno di del della dello dei delle nel nella nei sulla sul al alla allo a in
-e poi dopo per con da dal dalla chiamata chiamato nome cartella file finestra
-volume audio suono muto wifi rete internet bluetooth computer sistema
-impostazioni terminale documenti download scaricati immagini foto musica video scrivania cestino
-memoria ram cpu processore processi disco spazio batteria stato che ore sono giorno quanta quanto
-sto usando lento rallenta dock sfondo tema chiaro scuro schermata screenshot più forte piano luminosità
-sito pagina posta email browser editor testo calcolatrice
-zero uno due tre quattro cinque sei sette otto nove dieci venti trenta quaranta cinquanta
-sessanta settanta ottanta novanta cento percento
-""".split()
-# i18n-data-end
-_WORDS_EN = """
-open launch start run close quit exit restart reopen switch go back show me let see
-create new make search find where delete remove move copy rename put take add
-turn on off enable disable raise lower increase decrease up down lock suspend sleep minimize
-maximize full screen fullscreen connect disconnect install uninstall download
-the a an of to in on at for with from into and then after called named name folder file window
-volume audio sound mute unmute wifi network internet bluetooth computer system
-settings terminal documents downloads pictures images photos music videos video desktop trash
-memory ram cpu processor processes disk space storage battery status what time is it day date
-how much many am i using slow dock wallpaper background theme light dark screenshot louder
-quieter brightness site page mail email browser editor text calculator
-zero one two three four five six seven eight nine ten twenty thirty forty fifty
-sixty seventy eighty ninety hundred percent
-""".split()
-_COMMAND_WORDS = {"it": _WORDS_IT, "en": _WORDS_EN}
+# The vocabularies are language data: voice.json (see i18n_data.py).
+_COMMAND_WORDS = load("voice")["command_words"]
 
 
 def _vocabulary() -> list:
-    words = set(_COMMAND_WORDS.get(_model_language or chosen_language(), _WORDS_EN))
+    words = set(_COMMAND_WORDS.get(_model_language or chosen_language(), _COMMAND_WORDS["en"]))
     try:
         from .agent import state
         for a in state.installed_apps():
@@ -295,7 +266,7 @@ def _vocabulary() -> list:
 
 # Only commands with "closed" arguments (an installed app, a known folder, a
 # number): the second pass replaces words it does not know with vocabulary
-# words, and a file name like "viaggi" became "avvia" (verified). Creating,
+# words, and a file name meaning "trips" became the verb "start" (verified). Creating,
 # moving, searching or deleting files: never from here.
 _VOICE_ACTIONS = {"open_application", "close_application", "restart_application", "focus_application",
             "minimize_window", "maximize_window", "fullscreen_window", "open_folder", "open_settings",
@@ -305,7 +276,7 @@ _VOICE_ACTIONS = {"open_application", "close_application", "restart_application"
 
 
 def _valid_command(actions) -> bool:
-    """Every app mentioned actually exists (not "chiudi video fox")."""
+    """Every app mentioned actually exists (not "close video fox")."""
     from .agent import state
     for _name, args in actions:
         app = args.get("app")
@@ -338,7 +309,7 @@ def _reread_command(audio: bytes, rate: int, first: str) -> tuple:
     if not actions or any(n not in _VOICE_ACTIONS for n, _a in actions) or not _valid_command(actions):
         return "", 0.0
     # There must be a link with what was heard first (a word in common),
-    # unless the command is a simple read-only query ("che ore sono").
+    # unless the command is a simple read-only query ("what time is it").
     common_words = {w for w in text.split() if len(w) > 3} & {w for w in first.lower().split() if len(w) > 3}
     read_only = all(capabilities.REGISTRY[n].risk == "read" for n, _a in actions if n in capabilities.REGISTRY)
     if not common_words and not read_only:
@@ -367,8 +338,8 @@ def _choose(result: dict, audio: bytes, rate: int) -> tuple:
     try:
         from .agent.understanding import understanding
         actions = understanding(text) if text else None
-        # a valid command is kept; "al volume" (without "alza") is almost
-        # always a lost verb: re-read it
+        # a valid command is kept; a volume or brightness command without a
+        # value (the verb was not heard) is almost always a lost verb: re-read it
         if actions and _valid_command(actions) and not (
                 len(actions) == 1 and actions[0][0] in ("set_volume", "set_brightness") and not actions[0][1]):
             return text, conf

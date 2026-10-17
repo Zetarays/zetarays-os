@@ -48,7 +48,7 @@ EXCLUDED = {"footclient.desktop", "foot-server.desktop", "zeta-desktop.desktop",
 
 
 # The apps' proper names: here the user chooses between programs, and the
-# dock's short names («File», «Documenti») described the role, not the app.
+# dock's short names (such as "Files" or "Documents") described the role, not the app.
 PROPER_NAMES = {
     "firefox-esr.desktop": "Firefox", "thunderbird.desktop": "Thunderbird", "thunar.desktop": "Thunar",
     "foot.desktop": "Foot", "org.gnome.TextEditor.desktop": tr("GNOME Text Editor"),

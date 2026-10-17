@@ -7,13 +7,27 @@ Reads (allowed without a password for administrators, see
   firewall     nftables rules as JSON and the service state
   sockets      all connections with the owning process (ss)
   auth         sign-in events of the last 24 hours (journal)
+  failed-logs  last log lines of every failed service, as JSON (for the
+               Monitor's "Details", when the user cannot read the journal)
 Changes (only through pkexec, with a password):
   firewall-on / firewall-off
+  restart-unit UNIT   "Try again": restart a service that is in the failed state
+  reset-failed UNIT   "Dismiss": clear the failed state of a service
+UNIT must be a service name (see UNIT_RE) and the service must be failed at
+that moment: the helper cannot start, stop or restart healthy services.
+Exit codes of restart-unit/reset-failed: 0 done, 1 failed again, 2 invalid
+arguments, 3 the service is not in the failed state, 4 still starting.
 No other argument is accepted.
 """
 import json
+import re
 import subprocess
 import sys
+import time
+
+# Same rule as in /usr/lib/zeta/monitor/unitstate.py (keep them in sync): a
+# service name, never an option or a path.
+UNIT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@:._\\-]{0,250}\.service$")
 
 
 def out(cmd, timeout=10):
@@ -53,10 +67,54 @@ def firewall_set(on):
     sys.exit(r.returncode)
 
 
-ACTIONS = {"firewall": firewall, "sockets": sockets, "auth": auth,
-           "firewall-on": lambda: firewall_set(True), "firewall-off": lambda: firewall_set(False)}
+def failed_logs():
+    units = out(["systemctl", "show", "--state=failed", "--type=service", "-p", "Id", "--value",
+                 "--no-pager", "*"]).split()
+    data = {}
+    for unit in units[:30]:
+        if not UNIT_RE.match(unit):
+            continue
+        data[unit] = {
+            "journal": out(["journalctl", "-b", "-u", unit, "-n", "20", "-o", "cat", "--no-pager",
+                            "-q"]).splitlines(),
+            "history": out(["journalctl", "_PID=1", "UNIT=" + unit, "-n", "40", "-o", "cat", "--no-pager",
+                            "-q"]).splitlines()}
+    print(json.dumps(data))
 
-if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
-    sys.stderr.write("usage: zeta-monitor-helper firewall|sockets|auth|firewall-on|firewall-off\n")
+
+def active_state(unit):
+    return out(["systemctl", "show", "-p", "ActiveState", "--value", "--", unit]).strip()
+
+
+def restart_unit(unit):
+    if active_state(unit) != "failed":
+        sys.exit(3)
+    try:
+        r = subprocess.run(["systemctl", "restart", "--", unit], capture_output=True, text=True, timeout=25)
+    except subprocess.TimeoutExpired:
+        sys.exit(4)         # still starting: the Monitor shows the outcome once it is known
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        sys.exit(1)
+    time.sleep(2)           # a service that dies right after starting
+    sys.exit(1 if active_state(unit) == "failed" else 0)
+
+
+def reset_failed(unit):
+    if active_state(unit) != "failed":
+        sys.exit(3)
+    sys.exit(subprocess.run(["systemctl", "reset-failed", "--", unit]).returncode)
+
+
+ACTIONS = {"firewall": firewall, "sockets": sockets, "auth": auth, "failed-logs": failed_logs,
+           "firewall-on": lambda: firewall_set(True), "firewall-off": lambda: firewall_set(False)}
+UNIT_ACTIONS = {"restart-unit": restart_unit, "reset-failed": reset_failed}
+
+if len(sys.argv) == 3 and sys.argv[1] in UNIT_ACTIONS and UNIT_RE.match(sys.argv[2]):
+    UNIT_ACTIONS[sys.argv[1]](sys.argv[2])
+elif len(sys.argv) == 2 and sys.argv[1] in ACTIONS:
+    ACTIONS[sys.argv[1]]()
+else:
+    sys.stderr.write("usage: zeta-monitor-helper firewall|sockets|auth|failed-logs|firewall-on|firewall-off\n"
+                     "       zeta-monitor-helper restart-unit|reset-failed UNIT.service\n")
     sys.exit(2)
-ACTIONS[sys.argv[1]]()

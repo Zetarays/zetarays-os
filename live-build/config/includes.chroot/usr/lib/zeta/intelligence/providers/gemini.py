@@ -14,6 +14,11 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class GeminiProvider(Provider):
+    # This code does not send ZETA's actions to Gemini (no function calling
+    # here): saying so lets the replies arrive as a stream instead of all
+    # at once at the end.
+    uses_tools = False
+
     def _model(self) -> str:
         return self.config.model or DEFAULT_MODEL
 
@@ -76,6 +81,8 @@ class GeminiProvider(Provider):
                     ev = json.loads(text[5:].strip())
                 except ValueError:
                     continue
+                if ev.get("error"):
+                    raise self._stream_failed(ev.get("error"))
                 for cand in ev.get("candidates", []):
                     for part in cand.get("content", {}).get("parts", []):
                         chunk = part.get("text", "")

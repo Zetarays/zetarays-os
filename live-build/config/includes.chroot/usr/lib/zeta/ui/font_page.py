@@ -183,7 +183,7 @@ class FontsPage(Adw.PreferencesPage):
         try:
             files = dialog.open_multiple_finish(outcome)
         except GLib.Error:
-            return                       # annullato
+            return                       # canceled
         self._install([f.get_path() for f in files if f.get_path()])
 
     def _on_drop(self, _t, value, _x, _y):
@@ -223,7 +223,7 @@ class FontsPage(Adw.PreferencesPage):
             for f in entry["files"]:
                 if _is_user_font(f):
                     try:
-                        Gio.File.new_for_path(f).trash(None)     # recuperabile dal Cestino
+                        Gio.File.new_for_path(f).trash(None)     # recoverable from the Trash
                     except GLib.Error:
                         pass
             _update_cache()

@@ -12,6 +12,7 @@ import threading
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import language, tr  # noqa: E402
+from i18n_data import load  # noqa: E402
 from system import applications as reg  # noqa: E402
 
 
@@ -625,7 +626,7 @@ def choose_icon(a):
         # the Italian one from previous installations
         folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES) or ""
         if not os.path.isdir(folder):
-            folder = os.path.expanduser("~/Immagini")  # i18n-data
+            folder = os.path.expanduser(load("zeta-app")["pictures_folder"])
         if os.path.isdir(folder):
             dlg.set_initial_folder(Gio.File.new_for_path(folder))
 

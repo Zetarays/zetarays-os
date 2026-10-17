@@ -1,0 +1,19 @@
+{
+ "keywords": {
+  "settings": "impostazioni settings preferenze preferences",
+  "appearance": "aspetto tema colore sfondo wallpaper appearance theme color colour background",
+  "dock": "dock barra taskbar bar",
+  "network": "rete wifi network internet connection",
+  "server": "server samba smb ssh sftp ftp webdav nfs nas condivisione cartella condivisa rete share shared folder network connect",
+  "sound": "audio suono volume sound speakers microphone",
+  "ai": "ai intelligenza assistente intelligence assistant",
+  "monitor": "monitor sistema cpu processi rete system processes network task manager",
+  "security": "sicurezza firewall security",
+  "terminal": "terminale terminal console shell command",
+  "zeta": "core assistente intelligenza voce zeta assistant intelligence voice",
+  "lock": "blocca lock schermo screen",
+  "power": "energia spegni riavvia sospendi standby esci power shut down shutdown restart reboot suspend sleep log out logout",
+  "windows": "finestre window ridotte minimizzate aperte windows minimized open",
+  "desktop": "scrivania desktop cartella folder"
+ }
+}

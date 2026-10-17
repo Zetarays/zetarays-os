@@ -1,0 +1,131 @@
+{
+ "_comment": "Italian test phrases of tools/tests/zeta-tests.py, keyed by test function name.",
+ "intents_recognized": [
+  [
+   "che ore sono",
+   "current_time"
+  ],
+  [
+   "che giorno e oggi",
+   "current_date"
+  ],
+  [
+   "quanta batteria ho",
+   "battery_status"
+  ],
+  [
+   "volume",
+   "volume_status"
+  ],
+  [
+   "quante finestre ho aperte",
+   "list_windows"
+  ],
+  [
+   "quali finestre sono aperte",
+   "list_windows"
+  ],
+  [
+   "mostrami le finestre",
+   "list_windows"
+  ],
+  [
+   "riduci la finestra",
+   "minimize_window"
+  ],
+  [
+   "ingrandisci la finestra",
+   "maximize_window"
+  ],
+  [
+   "chiudi questa finestra",
+   "close_active_window"
+  ],
+  [
+   "apri le impostazioni",
+   "open_settings"
+  ],
+  [
+   "apri firefox",
+   "open_application"
+  ],
+  [
+   "passa al tema chiaro",
+   "set_theme"
+  ],
+  [
+   "qual e il mio ip",
+   "ip_address"
+  ],
+  [
+   "apri www.google.it",
+   "open_url"
+  ],
+  [
+   "vai su https://debian.org",
+   "open_url"
+  ],
+  [
+   "apri il documento relazione",
+   "open_file"
+  ],
+  [
+   "metti lo sfondo predefinito",
+   "set_wallpaper"
+  ],
+  [
+   "quanta ram sto usando",
+   "memory_usage"
+  ],
+  [
+   "uso della cpu",
+   "cpu_usage"
+  ],
+  [
+   "da quanto e acceso",
+   "uptime"
+  ]
+ ],
+ "intents_without_false_positives": [
+  "come si apre un file zip",
+  "scrivimi una poesia sulle finestre di una casa",
+  "parlami della memoria storica italiana",
+  "chi ha formulato il principio di archimede",
+  "consigliami un equipaggiamento da campeggio"
+ ],
+ "system_commands_recognized": [
+  [
+   "spegni il computer",
+   "power_off"
+  ],
+  [
+   "riavvia",
+   "reboot"
+  ],
+  [
+   "blocca lo schermo",
+   "lock_screen"
+  ],
+  [
+   "spegni il wifi",
+   "wifi_toggle"
+  ],
+  [
+   "metti il volume a 40",
+   "set_volume"
+  ],
+  [
+   "installa gimp",
+   "install_package"
+  ],
+  [
+   "svuota il cestino",
+   "empty_trash"
+  ]
+ ],
+ "immediate_answers": [
+  "che ore sono",
+  "che giorno e oggi",
+  "quanta memoria sto usando"
+ ]
+}

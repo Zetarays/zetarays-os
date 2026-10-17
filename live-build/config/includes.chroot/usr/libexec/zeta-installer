@@ -34,12 +34,15 @@ release_leftovers
 # closing a laptop lid) was worse: stopping disk writes halfway leaves a
 # broken installed system. The inhibitor lasts as long as Calamares is open
 # and goes away on its own when it exits, even if it exits abnormally.
+# No arguments are passed on to Calamares: this runs as root after a single
+# password prompt (auth_admin_keep), and an option such as "-c DIR" would
+# make it load another configuration, whose steps run as root.
 if command -v systemd-inhibit >/dev/null 2>&1; then
     systemd-inhibit --what=idle:sleep:handle-lid-switch \
         --who="ZETA RAYS" --why="Installation in progress" \
-        /usr/bin/calamares "$@"
+        /usr/bin/calamares
 else
-    /usr/bin/calamares "$@"
+    /usr/bin/calamares
 fi
 rc=$?
 [ "$moved" = 1 ] && mv /etc/fstab.zeta-installer /etc/fstab

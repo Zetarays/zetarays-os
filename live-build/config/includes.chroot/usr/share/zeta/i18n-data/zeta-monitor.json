@@ -1,0 +1,15 @@
+{
+ "section_aliases": {
+  "panoramica": "overview",
+  "traffico": "traffic",
+  "mappa": "map",
+  "rete": "network",
+  "vpn e proxy": "vpn",
+  "connessioni": "connections",
+  "utenti": "users",
+  "sicurezza": "security",
+  "processi": "processes",
+  "servizi": "services",
+  "sistema": "system"
+ }
+}

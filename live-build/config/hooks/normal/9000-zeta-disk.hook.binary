@@ -2,10 +2,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # ZETA RAYS OS — boot medium information (.disk/info) carrying the ZETA RAYS name
 set -e
+# Release version: build.sh passes ZETA_VERSION and also writes it into the
+# image (/usr/share/zeta/version); binary hooks run in the build folder (or in
+# binary/, hence the ../ paths).
+VERSION="${ZETA_VERSION:-}"
+for f in chroot/usr/share/zeta/version config/includes.chroot/usr/share/zeta/version \
+         ../chroot/usr/share/zeta/version ../config/includes.chroot/usr/share/zeta/version; do
+  if [ -z "$VERSION" ] && [ -r "$f" ]; then
+    VERSION=$(tr -d ' \t\r\n' < "$f")
+  fi
+done
+if [ -z "$VERSION" ]; then
+  echo "ZETA RAYS: ERROR - release version unknown for .disk/info" >&2
+  exit 1
+fi
 for d in binary/.disk .disk; do
   if [ -d "$d" ]; then
     ARCH=$(sed -n 's/.* \(amd64\|arm64\|i386\) .*/\1/p' "$d/info" 2>/dev/null | head -1)
-    echo "ZETA RAYS OS 2.0 ${ARCH:+$ARCH }Live - $(date -u +%Y%m%d)" > "$d/info"
+    echo "ZETA RAYS OS $VERSION ${ARCH:+$ARCH }Live - $(date -u +%Y%m%d)" > "$d/info"
     [ -f "$d/mkisofs" ] && sed -i 's/Debian GNU\/Linux/ZETA RAYS OS/g; s/Debian/ZETA RAYS/g' "$d/mkisofs" || true
     break
   fi

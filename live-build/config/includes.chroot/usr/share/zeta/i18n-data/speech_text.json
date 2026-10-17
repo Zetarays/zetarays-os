@@ -1,0 +1,654 @@
+{
+ "it_numbers": {
+  "units": [
+   "zero",
+   "uno",
+   "due",
+   "tre",
+   "quattro",
+   "cinque",
+   "sei",
+   "sette",
+   "otto",
+   "nove",
+   "dieci",
+   "undici",
+   "dodici",
+   "tredici",
+   "quattordici",
+   "quindici",
+   "sedici",
+   "diciassette",
+   "diciotto",
+   "diciannove"
+  ],
+  "tens": {
+   "2": "venti",
+   "3": "trenta",
+   "4": "quaranta",
+   "5": "cinquanta",
+   "6": "sessanta",
+   "7": "settanta",
+   "8": "ottanta",
+   "9": "novanta"
+  },
+  "ordinals": [
+   "",
+   "primo",
+   "secondo",
+   "terzo",
+   "quarto",
+   "quinto",
+   "sesto",
+   "settimo",
+   "ottavo",
+   "nono",
+   "decimo"
+  ],
+  "months": [
+   "gennaio",
+   "febbraio",
+   "marzo",
+   "aprile",
+   "maggio",
+   "giugno",
+   "luglio",
+   "agosto",
+   "settembre",
+   "ottobre",
+   "novembre",
+   "dicembre"
+  ],
+  "hundred": "cento",
+  "thousand": "mille",
+  "thousands_suffix": "mila",
+  "million": "un milione",
+  "millions": "milioni",
+  "billion": "un miliardo",
+  "billions": "miliardi",
+  "final_three": [
+   "tre",
+   "tré"
+  ],
+  "ordinal_suffix": "esimo",
+  "ordinal_accent": [
+   "é",
+   "e"
+  ],
+  "ordinal_keep": "sei",
+  "feminine_ending": "a",
+  "midnight": "mezzanotte",
+  "hour_one": [
+   "uno",
+   "una"
+  ],
+  "dot_time": "\\b((?:alle|ore|dalle|delle|entro le|verso le|le)\\s+)([01]?\\d|2[0-3])\\.([0-5]\\d)\\b"
+ },
+ "it_articles": {
+  "masculine": "un",
+  "masculine_strong": "uno",
+  "feminine": "una",
+  "elided": "un'",
+  "feminine_ending": "a",
+  "vowels": "aeiouàèéìòù",
+  "word": "[a-zàèéìòù']+",
+  "strong_start": "(s[^aeiouàèéìòù]|z|gn|ps|x|y)",
+  "elided_space": "\\bun' (?=\\w)"
+ },
+ "units": {
+  "it": {
+   "TB": [
+    "terabyte",
+    "terabyte"
+   ],
+   "GB": [
+    "gigabyte",
+    "gigabyte"
+   ],
+   "MB": [
+    "megabyte",
+    "megabyte"
+   ],
+   "KB": [
+    "kilobyte",
+    "kilobyte"
+   ],
+   "kB": [
+    "kilobyte",
+    "kilobyte"
+   ],
+   "GiB": [
+    "gigabyte",
+    "gigabyte"
+   ],
+   "MiB": [
+    "megabyte",
+    "megabyte"
+   ],
+   "KiB": [
+    "kilobyte",
+    "kilobyte"
+   ],
+   "TiB": [
+    "terabyte",
+    "terabyte"
+   ],
+   "GHz": [
+    "gigahertz",
+    "gigahertz"
+   ],
+   "MHz": [
+    "megahertz",
+    "megahertz"
+   ],
+   "kHz": [
+    "kilohertz",
+    "kilohertz"
+   ],
+   "Hz": [
+    "hertz",
+    "hertz"
+   ],
+   "Mbps": [
+    "megabit al secondo",
+    "megabit al secondo"
+   ],
+   "Mbit/s": [
+    "megabit al secondo",
+    "megabit al secondo"
+   ],
+   "Gbps": [
+    "gigabit al secondo",
+    "gigabit al secondo"
+   ],
+   "MB/s": [
+    "megabyte al secondo",
+    "megabyte al secondo"
+   ],
+   "km/h": [
+    "chilometro orario",
+    "chilometri orari"
+   ],
+   "km": [
+    "chilometro",
+    "chilometri"
+   ],
+   "cm": [
+    "centimetro",
+    "centimetri"
+   ],
+   "mm": [
+    "millimetro",
+    "millimetri"
+   ],
+   "m": [
+    "metro",
+    "metri"
+   ],
+   "kg": [
+    "chilo",
+    "chili"
+   ],
+   "g": [
+    "grammo",
+    "grammi"
+   ],
+   "°C": [
+    "grado",
+    "gradi"
+   ],
+   "°": [
+    "grado",
+    "gradi"
+   ],
+   "W": [
+    "watt",
+    "watt"
+   ],
+   "kW": [
+    "kilowatt",
+    "kilowatt"
+   ],
+   "V": [
+    "volt",
+    "volt"
+   ],
+   "mAh": [
+    "milliampere ora",
+    "milliampere ora"
+   ],
+   "Wh": [
+    "wattora",
+    "wattora"
+   ],
+   "ms": [
+    "millisecondo",
+    "millisecondi"
+   ],
+   "sec": [
+    "secondo",
+    "secondi"
+   ],
+   "min": [
+    "minuto",
+    "minuti"
+   ],
+   "h": [
+    "ora",
+    "ore"
+   ],
+   "px": [
+    "pixel",
+    "pixel"
+   ],
+   "fps": [
+    "fotogramma al secondo",
+    "fotogrammi al secondo"
+   ],
+   "dpi": [
+    "dpi",
+    "dpi"
+   ],
+   "€": [
+    "euro",
+    "euro"
+   ],
+   "$": [
+    "dollaro",
+    "dollari"
+   ],
+   "£": [
+    "sterlina",
+    "sterline"
+   ]
+  },
+  "en": {
+   "TB": [
+    "terabyte",
+    "terabytes"
+   ],
+   "GB": [
+    "gigabyte",
+    "gigabytes"
+   ],
+   "MB": [
+    "megabyte",
+    "megabytes"
+   ],
+   "KB": [
+    "kilobyte",
+    "kilobytes"
+   ],
+   "kB": [
+    "kilobyte",
+    "kilobytes"
+   ],
+   "GiB": [
+    "gigabyte",
+    "gigabytes"
+   ],
+   "MiB": [
+    "megabyte",
+    "megabytes"
+   ],
+   "KiB": [
+    "kilobyte",
+    "kilobytes"
+   ],
+   "TiB": [
+    "terabyte",
+    "terabytes"
+   ],
+   "GHz": [
+    "gigahertz",
+    "gigahertz"
+   ],
+   "MHz": [
+    "megahertz",
+    "megahertz"
+   ],
+   "kHz": [
+    "kilohertz",
+    "kilohertz"
+   ],
+   "Hz": [
+    "hertz",
+    "hertz"
+   ],
+   "Mbps": [
+    "megabit per second",
+    "megabits per second"
+   ],
+   "Mbit/s": [
+    "megabit per second",
+    "megabits per second"
+   ],
+   "Gbps": [
+    "gigabit per second",
+    "gigabits per second"
+   ],
+   "MB/s": [
+    "megabyte per second",
+    "megabytes per second"
+   ],
+   "km/h": [
+    "kilometer per hour",
+    "kilometers per hour"
+   ],
+   "mph": [
+    "mile per hour",
+    "miles per hour"
+   ],
+   "km": [
+    "kilometer",
+    "kilometers"
+   ],
+   "cm": [
+    "centimeter",
+    "centimeters"
+   ],
+   "mm": [
+    "millimeter",
+    "millimeters"
+   ],
+   "m": [
+    "meter",
+    "meters"
+   ],
+   "kg": [
+    "kilogram",
+    "kilograms"
+   ],
+   "g": [
+    "gram",
+    "grams"
+   ],
+   "lb": [
+    "pound",
+    "pounds"
+   ],
+   "lbs": [
+    "pound",
+    "pounds"
+   ],
+   "°C": [
+    "degree Celsius",
+    "degrees Celsius"
+   ],
+   "°F": [
+    "degree Fahrenheit",
+    "degrees Fahrenheit"
+   ],
+   "°": [
+    "degree",
+    "degrees"
+   ],
+   "W": [
+    "watt",
+    "watts"
+   ],
+   "kW": [
+    "kilowatt",
+    "kilowatts"
+   ],
+   "V": [
+    "volt",
+    "volts"
+   ],
+   "mAh": [
+    "milliamp hour",
+    "milliamp hours"
+   ],
+   "Wh": [
+    "watt hour",
+    "watt hours"
+   ],
+   "ms": [
+    "millisecond",
+    "milliseconds"
+   ],
+   "sec": [
+    "second",
+    "seconds"
+   ],
+   "min": [
+    "minute",
+    "minutes"
+   ],
+   "h": [
+    "hour",
+    "hours"
+   ],
+   "px": [
+    "pixel",
+    "pixels"
+   ],
+   "fps": [
+    "frame per second",
+    "frames per second"
+   ],
+   "dpi": [
+    "dpi",
+    "dpi"
+   ],
+   "€": [
+    "euro",
+    "euros"
+   ],
+   "$": [
+    "dollar",
+    "dollars"
+   ],
+   "£": [
+    "pound",
+    "pounds"
+   ]
+  }
+ },
+ "words": {
+  "it": {
+   "percent": "per cento",
+   "point": "punto",
+   "comma": "virgola",
+   "and": "e",
+   "plus": "più",
+   "equals": "uguale",
+   "at": "chiocciola",
+   "number": "numero",
+   "about": "circa",
+   "minus": "meno",
+   "times": "per",
+   "link": "link",
+   "version": "versione"
+  },
+  "en": {
+   "percent": "percent",
+   "point": "point",
+   "comma": "point",
+   "and": "and",
+   "plus": "plus",
+   "equals": "equals",
+   "at": "at",
+   "number": "number",
+   "about": "about",
+   "minus": "minus",
+   "times": "times",
+   "link": "link",
+   "version": "version"
+  }
+ },
+ "abbreviations": {
+  "it": [
+   [
+    "\\bp\\.\\s?es\\.",
+    "per esempio"
+   ],
+   [
+    "\\bad es\\.",
+    "ad esempio"
+   ],
+   [
+    "\\bes\\.(?=\\s)",
+    "ad esempio"
+   ],
+   [
+    "\\becc\\.",
+    "eccetera"
+   ],
+   [
+    "\\betc\\.",
+    "eccetera"
+   ],
+   [
+    "\\bsig\\.ra\\b",
+    "signora"
+   ],
+   [
+    "\\bsig\\.",
+    "signor"
+   ],
+   [
+    "\\bdott\\.ssa\\b",
+    "dottoressa"
+   ],
+   [
+    "\\bdott\\.",
+    "dottor"
+   ],
+   [
+    "\\bprof\\.ssa\\b",
+    "professoressa"
+   ],
+   [
+    "\\bprof\\.",
+    "professor"
+   ],
+   [
+    "\\bing\\.",
+    "ingegner"
+   ],
+   [
+    "\\bpag\\.",
+    "pagina"
+   ],
+   [
+    "\\btel\\.",
+    "telefono"
+   ],
+   [
+    "\\bca\\.(?=\\s*\\d)",
+    "circa"
+   ],
+   [
+    "\\bn\\.(?=\\s*\\d)",
+    "numero"
+   ],
+   [
+    "\\bnr\\.(?=\\s*\\d)",
+    "numero"
+   ],
+   [
+    "\\bvs\\.?(?=\\s)",
+    "contro"
+   ],
+   [
+    "\\bp\\.\\s?f\\.",
+    "per favore"
+   ],
+   [
+    "\\bcfr\\.",
+    "confronta"
+   ],
+   [
+    "\\bmax\\.?(?=\\s*\\d)",
+    "massimo"
+   ],
+   [
+    "\\bmin\\.(?=\\s*\\d)",
+    "minimo"
+   ]
+  ],
+  "en": [
+   [
+    "\\be\\.g\\.",
+    "for example"
+   ],
+   [
+    "\\bi\\.e\\.",
+    "that is"
+   ],
+   [
+    "\\betc\\.",
+    "et cetera"
+   ],
+   [
+    "\\bMrs\\.",
+    "Missus"
+   ],
+   [
+    "\\bMr\\.",
+    "Mister"
+   ],
+   [
+    "\\bMs\\.",
+    "Miz"
+   ],
+   [
+    "\\bDr\\.",
+    "Doctor"
+   ],
+   [
+    "\\bProf\\.",
+    "Professor"
+   ],
+   [
+    "\\bvs\\.?(?=\\s)",
+    "versus"
+   ],
+   [
+    "\\bapprox\\.",
+    "approximately"
+   ],
+   [
+    "\\bNo\\.(?=\\s*\\d)",
+    "number"
+   ],
+   [
+    "\\bmax\\.?(?=\\s*\\d)",
+    "maximum"
+   ],
+   [
+    "\\bmin\\.(?=\\s*\\d)",
+    "minimum"
+   ]
+  ]
+ },
+ "it_lexicon": {
+  "file": "fàil",
+  "firefox": "fàirfox",
+  "google": "gùgol",
+  "chat": "ciàt",
+  "streaming": "strìming",
+  "email": "imèil",
+  "e-mail": "imèil",
+  "windows": "uìndous",
+  "cloud": "clàud",
+  "touchpad": "tàcped",
+  "hyprland": "hàiperland",
+  "thunderbird": "tànderbord",
+  "libreoffice": "lìbre òffis",
+  "chrome": "cròum",
+  "steam": "stìm",
+  "gigabyte": "gigabàit",
+  "megabyte": "megabàit",
+  "kilobyte": "kilobàit",
+  "terabyte": "terabàit",
+  "byte": "bàit",
+  "vuoi": "vuòi",
+  "puoi": "puòi"
+ },
+ "it_acronyms": {
+  "AI": "a i",
+  "HDMI": "acca di emme i"
+ }
+}

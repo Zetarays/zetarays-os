@@ -1,0 +1,3 @@
+{
+ "secret": "(?i)\\b(password|passwd|pass|chiave|psk|pin|token|passphrase|passcode|key)\\b(\\s*[:=]?\\s*)\\S+"
+}

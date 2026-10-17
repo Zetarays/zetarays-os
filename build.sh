@@ -11,6 +11,15 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/out"
 mkdir -p "$OUT"
 
+# Release version: the VERSION file at the top of the repository is the only
+# place where it is written (see docs/BUILD.md, "Version").
+ZETA_VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null || true)"
+if ! [[ "$ZETA_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "ERROR: VERSION is missing or not a version number (e.g. 2.1): '$ZETA_VERSION'" >&2
+  exit 1
+fi
+ISO_NAME="zetarays-$ZETA_VERSION-$ARCH.iso"
+
 python3 "$ROOT/tools/gen-assets.py"
 # ZETA translations: every string shown by ZETA must have its translation,
 # then po/*.po become the .mo files the system reads (never stale ones)
@@ -19,7 +28,7 @@ rm -f "$ROOT"/live-build/config/includes.chroot/usr/share/locale/*/LC_MESSAGES/z
 python3 "$ROOT/tools/i18n.py" compile
 
 
-# --- Local AI model (llama3.2:1b): not stored in the repository (1.3 GB) ---
+# --- Local AI model (qwen3:4b-instruct): not stored in the repository (2.5 GB) ---
 "$ROOT/tools/download-ai-model.sh" || { echo "ERROR: AI model not available" >&2; exit 1; }
 
 # --- Ollama runtime: from the local cache, not from the network ---
@@ -43,22 +52,25 @@ fi
 mkdir -p "$(dirname "$OLLAMA_DEST")"
 cp -f "$OLLAMA_CACHE" "$OLLAMA_DEST"
 
-# --- Voice: Piper (natural synthesis) and Vosk (recognition), from the cache ---
+# --- Voice: Kokoro and Piper (natural synthesis), Vosk (recognition), from the cache ---
 # Same as Ollama: downloaded once into cache/ and from there into the image.
 # On October 7 a transient DNS error during the download had left amd64
 # without a voice: the build must not depend on the network.
 case "$ARCH" in arm64) VOICE_ARCH=aarch64 ;; *) VOICE_ARCH=x86_64 ;; esac
 PIPER_DEST="$ROOT/live-build/config/includes.chroot/usr/share/zeta/piper-cache"
 VOSK_DEST="$ROOT/live-build/config/includes.chroot/usr/share/zeta/vosk-cache"
-for f in "$ROOT/cache/piper/piper_linux_$VOICE_ARCH.tar.gz" "$ROOT/cache/vosk/$VOICE_ARCH" "$ROOT/cache/vosk/models"; do
+for f in "$ROOT/cache/piper/piper_linux_$VOICE_ARCH.tar.gz" "$ROOT/cache/vosk/$VOICE_ARCH" "$ROOT/cache/vosk/models" \
+         "$ROOT/cache/piper/voices/it_IT-serena-high.onnx" \
+         "$ROOT/cache/kokoro/kokoro-v1.0.int8.onnx" "$ROOT/cache/kokoro/voices-v1.0.bin"; do
   [ -e "$f" ] || { echo "ERROR: $f is missing (ZETA's voice): run tools/download-voice.sh" >&2; exit 1; }
 done
 ls "$ROOT"/cache/piper/voices/*.onnx >/dev/null 2>&1 || { echo "ERROR: the Piper voices are missing from cache/piper/voices" >&2; exit 1; }
 rm -rf "$PIPER_DEST" "$VOSK_DEST"
-mkdir -p "$PIPER_DEST/voices" "$VOSK_DEST"
+mkdir -p "$PIPER_DEST/voices" "$PIPER_DEST/kokoro" "$VOSK_DEST"
 # -X: without the Mac's extended attributes (they would end up in the image)
 cp -X "$ROOT/cache/piper/piper_linux_$VOICE_ARCH.tar.gz" "$PIPER_DEST/"
 cp -X "$ROOT"/cache/piper/voices/*.onnx "$ROOT"/cache/piper/voices/*.onnx.json "$PIPER_DEST/voices/"
+cp -X "$ROOT"/cache/kokoro/kokoro-v1.0.int8.onnx "$ROOT"/cache/kokoro/voices-v1.0.bin "$PIPER_DEST/kokoro/"
 cp -RX "$ROOT/cache/vosk/$VOICE_ARCH" "$ROOT/cache/vosk/models" "$VOSK_DEST/"
 
 # --- Hyprland with the fix for the popup menu crash ---
@@ -120,8 +132,10 @@ cp -f "$LS_CACHE" "$LS_DEST/"
 # colima one overrode this one, the 1.3 GB archive stayed in the sources and
 # make-ova.sh copied it into the OVA disk.
 RESTORE_BINFMT=0
+VERSION_DEST="$ROOT/live-build/config/includes.chroot/usr/share/zeta/version"
 cleanup() {
   rm -f "$OLLAMA_DEST"
+  rm -f "$VERSION_DEST"
   rm -rf "$PIPER_DEST" "$VOSK_DEST"
   rm -rf "$HYPR_DEST"
   rm -rf "$LS_DEST"
@@ -164,9 +178,16 @@ if [ "$ARCH" = "amd64" ] && [ "$(uname -m)" = "arm64" ] && command -v colima >/d
   RESTORE_BINFMT=1   # cleanup() restores it on exit
 fi
 
+# The version for the image. Hooks run inside the chroot and cannot see the
+# repository: they read /usr/share/zeta/version (written here, removed again
+# by cleanup()); hook 0100 turns it into /etc/os-release, which is what the
+# running system reads. auto/config and the container get it as ZETA_VERSION.
+printf '%s\n' "$ZETA_VERSION" > "$VERSION_DEST"
+
 docker run --rm --privileged \
   --platform "linux/$ARCH" \
   -e ZETA_ARCH="$ARCH" \
+  -e ZETA_VERSION="$ZETA_VERSION" \
   -v "$ROOT/live-build:/src:ro" \
   -v "$OUT:/out" \
   -v "zetarays-cache-$ARCH:/build/cache" \
@@ -180,6 +201,10 @@ docker run --rm --privileged \
     find config/includes.chroot -name __pycache__ -type d -prune -exec rm -rf {} + || true
     find config/includes.chroot -name "*.pyc" -delete || true
     chmod +x auto/config config/hooks/normal/*.hook.chroot config/includes.chroot/usr/local/bin/* config/includes.chroot/usr/lib/live/config/*
+    # Version in the boot menu of the installation media (the theme of the
+    # installed system is filled in by hook 0100)
+    sed -i "s/@VERSION@/$ZETA_VERSION/g" config/bootloaders/grub-pc/live-theme/theme.txt
+    if grep -q "@VERSION@" config/bootloaders/grub-pc/live-theme/theme.txt; then echo "GRUB theme: version not filled in"; exit 1; fi
     lb config
     # amd64 on an ARM Mac runs emulated (Rosetta or QEMU): sometimes python3.13
     # crashes (SIGSEGV) at random while dpkg configures a package, and the
@@ -205,8 +230,14 @@ docker run --rm --privileged \
         [ "$attempt" = 3 ] && { echo "=== ZETA RAYS: build failed after 3 resumes ==="; exit 1; }
       done
     fi
-    cp -v *.iso /out/zetarays-2.0-$ZETA_ARCH.iso
+    cp -v *.iso /out/zetarays-$ZETA_VERSION-$ZETA_ARCH.iso
   '
+
+# --- Final check: the version from VERSION is the one in the image ---
+if ! grep -q "ZETA RAYS: version $ZETA_VERSION written to os-release" "$OUT/build-$ARCH.log" 2>/dev/null; then
+  echo "ERROR: hook 0100 did not write version $ZETA_VERSION into the $ARCH image." >&2
+  exit 1
+fi
 
 # --- Final check: the installer must be able to start ---
 # Without the branding logo, Calamares exits immediately with an error and the
@@ -241,7 +272,8 @@ if ! grep -q "ZETA RAYS: Ollama runtime installed" "$OUT/build-$ARCH.log" 2>/dev
 fi
 
 # --- Final check: ZETA's voice (natural synthesis and recognition) ---
-for line in "ZETA RAYS: natural voice (Piper) installed" "ZETA RAYS: vosk (python) installed" \
+for line in "ZETA RAYS: natural voice (Piper) installed" "ZETA RAYS: natural voice (Kokoro) installed" \
+            "ZETA RAYS: vosk (python) installed" \
             "ZETA RAYS: speech model model-it installed" "ZETA RAYS: speech model model-en installed"; do
   if ! grep -q "$line" "$OUT/build-$ARCH.log" 2>/dev/null; then
     echo "ERROR: «$line» not found in the $ARCH log: ZETA would not speak or listen." >&2
@@ -255,4 +287,4 @@ if ! grep -q "ZETA RAYS: packages upgraded, still upgradable: 0" "$OUT/build-$AR
   exit 1
 fi
 
-echo "ISO ready: $OUT/zetarays-2.0-$ARCH.iso"
+echo "ISO ready: $OUT/$ISO_NAME"

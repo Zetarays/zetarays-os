@@ -86,16 +86,16 @@ sembrano sicuri. **Non fidarti di una risposta per decisioni che contano**
 senza verificarla — a maggior ragione per questioni mediche, legali o
 finanziarie.
 
-Il modello locale Llama 3.2 è distribuito da Meta con la *Llama 3.2 Community
-License*, che ha condizioni proprie: il testo, la policy d'uso e l'avviso di
-attribuzione sono in `llama-3.2/`, accanto a questo file. Built with Llama.
+Il modello locale, Qwen3 4B Instruct (2507) del team Qwen (Alibaba Cloud), è
+distribuito con la *Apache License 2.0*: il testo della licenza e un avviso
+sono in `qwen3/`, accanto a questo file.
 
 Se colleghi un provider cloud, valgono anche le condizioni di quel provider.
 
 ## Marchi di terzi
 
 Debian è un marchio di SPI Inc. Firefox è un marchio di Mozilla Foundation.
-Llama è un marchio di Meta Platforms. GNOME, Linux e gli altri nomi citati
+Qwen è un marchio di Alibaba Cloud. GNOME, Linux e gli altri nomi citati
 appartengono ai rispettivi titolari. ZETA RAYS OS **non è prodotto, sostenuto
 né approvato** da nessuno di loro.
 

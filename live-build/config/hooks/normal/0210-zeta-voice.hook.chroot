@@ -1,10 +1,11 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ZETA RAYS — ZETA's natural voice: Piper, neural speech synthesis that runs
-# entirely on the computer (no text ever leaves the computer). Voices: Paola
-# for Italian, Lessac (high quality) for English; other languages keep using
-# espeak-ng. The runtime and voices ship with the image (build.sh takes them
-# from cache/piper): the build does not depend on the network.
+# ZETA RAYS — ZETA's natural voice: neural speech synthesis that runs entirely
+# on the computer (no text ever leaves the computer). Italian: Sara (Kokoro,
+# the default), Serena and Paola (Piper); English: Lessac (Piper); other
+# languages keep using espeak-ng. The models ship with the image (build.sh
+# takes them from cache/kokoro and cache/piper): the build does not depend on
+# the network.
 set -e
 BUNDLED=/usr/share/zeta/piper-cache
 case "$(uname -m)" in
@@ -21,8 +22,32 @@ rm -rf /usr/lib/zeta-piper
 mkdir -p /usr/lib/zeta-piper /usr/share/zeta/voices
 tar -xzf "$T" -C /usr/lib/zeta-piper --strip-components=1
 cp -f "$BUNDLED"/voices/*.onnx "$BUNDLED"/voices/*.onnx.json /usr/share/zeta/voices/
-chmod -R a+rX /usr/lib/zeta-piper /usr/share/zeta/voices
+# Kokoro: the model and the voice styles (vocab.json and the description of
+# the voice, it_IT-sara-kokoro.onnx.json, come with the system files)
+mkdir -p /usr/share/zeta/voices/kokoro
+cp -f "$BUNDLED"/kokoro/kokoro-v1.0.int8.onnx "$BUNDLED"/kokoro/voices-v1.0.bin /usr/share/zeta/voices/kokoro/
 rm -rf "$BUNDLED"
+# Voices trained with Piper 1.5 (Serena) list five two-character diphthongs
+# ("aɪ", "aʊ"...) in their phoneme table. The Piper 2023.11.14-2 program
+# accepts only one character per phoneme and aborts on such a table. It also
+# never produces those phonemes (it works one character at a time), so they
+# are removed: the voice itself does not change (tools/voice-bench: same
+# intelligibility and quality as the newer piper1-gpl runtime).
+python3 - /usr/share/zeta/voices/*.onnx.json <<'PY'
+import json
+import sys
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    ids = cfg.get("phoneme_id_map", {})
+    single = {k: v for k, v in ids.items() if len(k) == 1}
+    if len(single) != len(ids):
+        cfg["phoneme_id_map"] = single
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=1)
+        print("ZETA RAYS: %s: %d multi-character phonemes removed" % (path.rsplit("/", 1)[-1], len(ids) - len(single)))
+PY
+chmod -R a+rX /usr/lib/zeta-piper /usr/share/zeta/voices
 # real test: one sentence per voice must turn into audio
 for v in /usr/share/zeta/voices/*.onnx; do
     echo "ZETA RAYS" | /usr/lib/zeta-piper/piper --model "$v" --output_file /tmp/zeta-voice.wav >/dev/null 2>&1 || true
@@ -35,3 +60,12 @@ done
 voices=""
 for v in /usr/share/zeta/voices/*.onnx; do voices="$voices ${v##*/}"; done
 echo "ZETA RAYS: natural voice (Piper) installed:$voices"
+# Kokoro: a real sentence must become audio (onnxruntime, espeak-ng and the
+# model together); more than 1 s of 24 kHz 16-bit audio
+echo "ZETA RAYS OS." | /usr/libexec/zeta-kokoro --voice if_sara --espeak it > /tmp/zeta-kokoro.raw 2>/tmp/zeta-kokoro.err || true
+if [ "$(stat -c %s /tmp/zeta-kokoro.raw 2>/dev/null || echo 0)" -lt 48000 ]; then
+    echo "ZETA RAYS: ERROR - the Kokoro voice produces no audio: $(cat /tmp/zeta-kokoro.err 2>/dev/null)" >&2
+    exit 1
+fi
+rm -f /tmp/zeta-kokoro.raw /tmp/zeta-kokoro.err
+echo "ZETA RAYS: natural voice (Kokoro) installed: if_sara"

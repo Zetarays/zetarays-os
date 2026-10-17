@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # ZETA RAYS — Ollama (local AI model) for ZETA, offline.
-# Installs the Ollama runtime and sets up the llama3.2:1b model.
+# Installs the Ollama runtime and sets up the local model (qwen3:4b-instruct).
 # FATAL on purpose: AI is a core feature of ZETA RAYS, and an image without the
 # engine or the model is a broken product. If anything here fails, the build
 # stops instead of shipping a system in which ZETA stays silent.
@@ -115,7 +115,7 @@ WantedBy=multi-user.target
 UNIT
 systemctl enable ollama.service >/dev/null 2>&1
 
-# The model (llama3.2:1b, ~1.3 GB) is already in the image: it lives in
+# The model (qwen3:4b-instruct, ~2.5 GB) is already in the image: it lives in
 # includes.chroot/usr/share/ollama/.ollama/models and is identical for all
 # architectures (it's just weights). Downloading it here with "ollama pull"
 # depended on the network and on the emulated Ollama server: under x86
@@ -123,9 +123,10 @@ systemctl enable ollama.service >/dev/null 2>&1
 # is downloaded only if, for some reason, it is missing.
 export HOME=/usr/share/ollama
 export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
-MANIFEST=/usr/share/ollama/.ollama/models/manifests/registry.ollama.ai/library/llama3.2/1b
+MODEL=qwen3:4b-instruct
+MANIFEST=/usr/share/ollama/.ollama/models/manifests/registry.ollama.ai/library/${MODEL%%:*}/${MODEL#*:}
 if [ -f "$MANIFEST" ]; then
-    echo "ZETA RAYS: model llama3.2:1b already present in the image"
+    echo "ZETA RAYS: model $MODEL already present in the image"
 else
     echo "ZETA RAYS: model missing, trying to download it…"
     /usr/bin/ollama serve >/tmp/ollama-serve.log 2>&1 &
@@ -135,8 +136,8 @@ else
         curl -fsS http://127.0.0.1:11434/ >/dev/null 2>&1 && break
         i=$((i + 1)); sleep 2
     done
-    if timeout 1500 /usr/bin/ollama pull llama3.2:1b >/tmp/ollama-pull.log 2>&1; then
-        echo "ZETA RAYS: model llama3.2:1b downloaded"
+    if timeout 2400 /usr/bin/ollama pull "$MODEL" >/tmp/ollama-pull.log 2>&1; then
+        echo "ZETA RAYS: model $MODEL downloaded"
     else
         echo "ZETA RAYS: ERROR - no model for the AI." >&2
         kill "$OPID" 2>/dev/null

@@ -1,5 +1,112 @@
 # Changelog
 
+## 2.1 — 2026-10-17
+
+Images: `zetarays-2.1-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
+
+### Highlights of 2.1
+- **A smarter local AI.** ZETA now runs Qwen3 4B Instruct (2507, Apache-2.0)
+  instead of Llama 3.2 1B. In our benchmark (commands, Italian and English
+  answers, use of sources, conversation memory) it understood 10 of 10
+  commands against 3 of 10, remembers what was said earlier in the
+  conversation and answers in correct Italian. It needs about 3.7 GB of
+  memory while loaded: on 8 GB computers it is loaded when you ask and
+  released after a few minutes; with 16 GB it stays ready.
+- **Current facts, honestly.** ZETA knows today's date and time and says when
+  its knowledge may be out of date instead of presenting old facts as current.
+  "Search the web for current information" (Settings › AI, off by default)
+  looks the question up on Wikipedia, asks before the first search, and shows
+  the sources under the answer. Only the question is sent.
+- **ZETA never switches service on its own.** If the local model is not
+  available, nothing is sent to an online service: ZETA says so and offers it.
+  Stop really stops the answer; every request has time limits; one failed
+  request no longer blocks the next; the conversation kept in memory is
+  bounded. Errors from online services say what happened (invalid key, no
+  credit, too many requests with the waiting time, model not available).
+- **Software Update** in Settings: check, see what changes and how much to
+  download, install with progress, cancel, restart when needed, last update.
+  Built on PackageKit with the administrator password asked by PolicyKit;
+  waits when another program is installing, checks disk space, repairs an
+  interrupted installation. Security updates install automatically on new
+  installations (Debian-Security only, switch in the same page).
+- **ZETA RAYS Monitor stays calm when the system is healthy.** Four levels
+  (system OK, note, attention, error), red only for real errors. Each failed
+  service is explained in plain words, with its log, "Try Again" and
+  "Dismiss"; services for hardware the computer does not have, jobs that
+  failed once and will run again, and failures already recovered are no
+  longer reported as errors.
+- **Windows can never get lost.** The window guard now also brings back
+  windows left on an unplugged display, untitled windows and dialogs placed
+  off screen, programs that keep moving themselves out, full-screen windows
+  (SUPER + SHIFT + W) and windows bigger than the screen; it never pulls a
+  window you are dragging. Minimized windows are found again after a crash,
+  and without title bars a "Windows" button in the bar lists every window.
+- **Files like on other systems.** Thunar has view buttons (icons, detailed
+  list, compact list), zoom, thumbnails and a remembered view per folder.
+  "Open With" on the Desktop and in Thunar now lists AppImages and programs in
+  /opt; drag a file onto an app icon on the Desktop to open it with that app,
+  or onto a folder to move it inside.
+- **New wallpaper: Goddess**, in Settings › Appearance and on the website.
+- **A new Italian voice: Sara.** ZETA reads its answers in Italian with
+  Sara (Kokoro-82M, Apache-2.0), clearer and more natural than before;
+  Serena and Paola remain in Settings › AI › Voice, English keeps Lessac.
+  The text is prepared for reading (numbers, times, dates, units, links and
+  formatting), the first word is never cut, and the speed can be chosen.
+  Sara needs about 300 MB while speaking; when memory is short, Serena reads.
+- **Answers in your language.** Quick answers, confirmations and notes now
+  follow the language you write in (Italian or English); Settings › AI ›
+  Reply language can keep every answer in the system language.
+- **Source code fully in English.** The words and phrases ZETA understands
+  in Italian moved from the code to data files; the code, comments and
+  documentation are in English.
+
+### Fixed
+- Windows trembled for a moment when they opened or when ZETA brought them
+  back on screen: the resize was animated and showed the old content
+  stretched. ZETA's own moves and resizes are now instant, and a window one
+  or two pixels off the edge (fractional display scales) is left alone.
+- Blender downloaded from blender.org and started directly drew a smaller
+  interface at fractional display scales (a Blender limitation on Wayland);
+  ZETA now reopens it through X11, as its own launchers already did.
+- Virtual appliance (OVA): the backports package source was missing, so
+  Hyprland and its libraries could not receive updates.
+- The right-click menu of a minimized window in the bar did nothing.
+- A launcher (.desktop file) copied onto the Desktop ran on double-click
+  without asking; now an unknown launcher asks once before running.
+- The text editor flickered after switching its page between white and black
+  from its own menu; the choice now becomes the page color only.
+- Search, launcher and power menu kept the theme of the login.
+- Changing the theme could end the session (introduced while renaming the
+  source in English, fixed before any release).
+- "Open With" missed apps installed by the user; the desktop could not take a
+  folder dragged from the file manager.
+- The weekly health check notified about the same failed service every hour.
+- Settings › AI claimed tool support for Gemini, which prevented streaming.
+
+### Upgrades
+- Ollama 0.40.3; Debian 13 packages updated at build time; new packages:
+  PackageKit 1.3.1, unattended-upgrades, ONNX Runtime 1.21 (for Kokoro).
+
+### Known limitations
+- Dragging a file onto an icon of the Dock (Waybar) is not supported.
+- Configuration files you changed by hand (for example hyprland.lua) are kept
+  and do not get the 2.1 improvements; unchanged ones are updated at login.
+- Web search uses Wikipedia: news, prices and weather often cannot be
+  verified, and ZETA says so.
+- VMware: the OVA is made for VirtualBox and VMware's importer rejects it
+  (OVF 2.0 elements). Extract the disk from the OVA (it is a tar archive),
+  attach it to a new VM (EFI, NVMe) or install from the ISO, which works in
+  VMware Fusion as it is.
+- With 768 MB of memory the system starts but stops at the
+  login screen (the desktop needs more). 8 GB are recommended for the AI.
+- The desktop needs 3D acceleration; without it ZETA RAYS says so and
+  explains how to turn it on (the live USB stick opens the installer).
+- GRUB prints three harmless "syntax error" lines on the serial console at
+  boot (also in 2.0); the boot is not affected.
+- Flicker of the whole screen on some monitors and graphics cards could not
+  be reproduced in virtual machines: docs/FLICKER-TESTS.md explains how to
+  find the cause on the affected computer.
+
 ## 2.0 — 7 October 2026
 
 Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.

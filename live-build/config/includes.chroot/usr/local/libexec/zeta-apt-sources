@@ -33,3 +33,10 @@ cat > /etc/apt/sources.list <<'EOF'
 EOF
 chmod 0644 /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources
 echo "package sources: main contrib non-free non-free-firmware"
+# New installs get the security updates automatically (security archive
+# only, see /usr/libexec/zeta-auto-updates); the user can turn it off in
+# Settings > Software Update. The live session stays off. A failure here
+# must not stop the installation: the switch in Settings still works.
+if [ -x /usr/libexec/zeta-auto-updates ]; then
+  ZETA_INSTALL_TARGET=1 /usr/libexec/zeta-auto-updates on || echo "automatic security updates not turned on" >&2
+fi
