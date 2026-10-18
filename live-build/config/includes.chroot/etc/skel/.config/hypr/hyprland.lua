@@ -97,6 +97,7 @@ hl.config({
             inactive_border = light_theme and "rgba(00000018)" or "rgba(ffffff14)",
         },
         resize_on_border = true,
+        allow_tearing    = false,
         layout = "dwindle",
     },
 
@@ -136,11 +137,35 @@ hl.config({
         enabled = animations,
     },
 
+    -- A calm, stable picture on every graphics card and monitor (the owner's
+    -- Intel N100 mini PC showed windows pulsing and washed-out colors; virtual
+    -- machines never did, because there the apps draw without the GPU).
+    -- ZETA RAYS has no HDR content, so everything is plain sRGB:
+    --   cm_enabled        colour management off: GTK 4.18 apps (text editor,
+    --                     Settings, Files...) no longer switch to colour-managed
+    --                     drawing through Hyprland's colour pipeline
+    --   use_fp16          no experimental 16-bit internal buffer
+    --   send_content_type the monitor is not told the content type, so it does
+    --                     not switch its own picture mode (brightness, colours)
+    --   cm_auto_hdr       never switch to HDR by itself
+    -- Written out even where they match Hyprland's defaults, so that a future
+    -- version cannot change them silently: no adaptive sync (VRR changes the
+    -- brightness of some monitors), no direct scanout (it can show one wrong
+    -- frame when it switches on or off), no tearing.
+    render = {
+        cm_enabled        = false,
+        use_fp16          = 0,
+        send_content_type = false,
+        cm_auto_hdr       = 0,
+        direct_scanout    = 0,
+    },
+
     dwindle = {
         preserve_split = true,
     },
 
     misc = {
+        vrr                     = 0,
         force_default_wallpaper = 0,
         disable_hyprland_logo   = true,
         disable_splash_rendering = true,
@@ -166,12 +191,19 @@ hl.config({
 -- Animations: smooth and quick
 hl.curve("zeta",   { type = "bezier", points = { {0.2, 0.9}, {0.1, 1} } })
 hl.curve("linear", { type = "bezier", points = { {0, 0},     {1, 1}   } })
-hl.curve("soft",   { type = "spring", mass = 1, stiffness = 80, dampening = 16 })
 
 hl.animation({ leaf = "global",     enabled = true, speed = 8,   bezier = "zeta" })
 hl.animation({ leaf = "border",     enabled = true, speed = 5,   bezier = "zeta" })
-hl.animation({ leaf = "windowsIn",  enabled = true, speed = 4,   spring = "soft",   style = "popin 90%" })
-hl.animation({ leaf = "windowsOut", enabled = true, speed = 1.5, bezier = "linear", style = "popin 90%" })
+-- Windows open and close with a fade only (fadeIn/fadeOut, part of "fade"
+-- above), never with a change of size or position: "popin" really resizes
+-- the window at every frame (Hyprland 0.55, DesktopAnimationManager.cpp:
+-- animationPopin animates m_realSize from 90% to 100%), so its content was
+-- stretched and redrawn while it appeared and the window seemed to wobble;
+-- on the owner's Intel computer it looked like flicker, most of all in the
+-- text editor (17 October 2026). Window styles accept only slide, gnomed and
+-- popin, all of them with movement: the movement animations are off.
+hl.animation({ leaf = "windowsIn",  enabled = false })
+hl.animation({ leaf = "windowsOut", enabled = false })
 -- Moves and resizes made by ZETA (the window guard bringing a window back,
 -- small main windows enlarged when they open) are instant: animated, the
 -- old content was shown stretched for a few frames and then redrawn at the

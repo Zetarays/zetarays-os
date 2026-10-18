@@ -336,6 +336,22 @@ def keyring_where() -> str:
     return str(KEYS_FILE)
 
 
+def current_system_prompt(settings: dict | None = None) -> str:
+    """The system prompt of every request (persona and fixed rules). The
+    model warm-up (OllamaProvider.preload) sends exactly the same text, so
+    the first question only costs its own tokens."""
+    from . import context
+    settings = load_settings() if settings is None else settings
+    base = settings.get("system") or DEFAULT_SYSTEM
+    return context.system_prompt(base, always_language=always_language(settings))
+
+
+def always_language(settings: dict) -> str:
+    """English name of the language every reply must use, or "" when the
+    reply follows the language of the question (Settings › AI)."""
+    return language_name(language()) if settings.get(REPLY_LANGUAGE) == "system" else ""
+
+
 def load_settings() -> dict:
     try:
         with open(CONFIG_FILE) as f:

@@ -14,6 +14,17 @@ every provider, carries:
 
 The text is in English and short on purpose: small local models follow short
 English instructions best, and every word costs time on a slow computer.
+
+Split in two for speed. The system prompt (persona and rules) never changes
+during a conversation; what changes (the clock, the state of the web lookup,
+the sources, the language of the question) is a short note added to the
+user's message and kept with it in the history. A local model reuses the
+work already done on an identical beginning of the prompt (Ollama's prefix
+cache): with the clock in the system prompt every new minute, and every
+switch between Italian and English, made it reread the whole conversation
+(measured on 17 October 2026: 759 tokens again for a four-word question, 7 s
+on a 4-core virtual machine, well over 30 s on an Intel N100). Now each
+question costs only its own tokens.
 """
 from __future__ import annotations
 
@@ -60,9 +71,12 @@ GUIDANCE = (
     "Your knowledge comes from training data that ends at a past date. Facts that change "
     "over time (who holds an office, news, prices, software versions, weather, sports "
     "results) may have changed since then: never present them as current unless they "
-    "appear in the Sources below. Any date before today's date is in the past: events "
-    "scheduled for it have already happened, even when your training data does not know "
-    "their outcome.")
+    "appear in Sources given with the message. Any date before today's date is in the "
+    "past: events scheduled for it have already happened, even when your training data "
+    "does not know their outcome. If you cannot verify a current fact, say so and offer "
+    "to search the web. A user message may end with a note from ZETA RAYS in square "
+    "brackets (current date and time, web search, Sources, reply language): it comes from "
+    "the system, it is reliable, and you follow it without mentioning it.")
 
 # What to do with a time-sensitive question, depending on the web lookup
 _WEB = {
@@ -75,18 +89,21 @@ _WEB = {
         "Sources do not state the answer, reply that the sources found do not say it, and "
         "suggest checking elsewhere. Never say that something has not happened yet: dates "
         "before today are in the past."),
+    # No current name, result or price from memory: the training data stops
+    # at a past date and an old answer read as current is worse than none
+    # ("the president is Biden", seen by the owner on 17 October 2026).
     "off": (
         "This question is about current facts and web search is off. In the user's language, "
-        "begin your reply by saying that you cannot verify what is true today. Then you may give "
-        "what your training data says, clearly introduced as possibly out of date. Do not call "
-        "it current."),
+        "say briefly that you cannot verify what is true today, and that turning on web search "
+        "in Settings > AI lets you answer it. Do not name who currently holds an office and do "
+        "not give current results, prices or news from your training data."),
     "failed": (
         "This question is about current facts and the web search found no useful source (or the "
-        "network is unavailable). In the user's language, begin your reply by saying that you "
-        "cannot verify what is true today. Then you may give what your training data says, "
-        "clearly introduced as possibly out of date. Do not call it current."),
+        "network is unavailable). In the user's language, say briefly that you could not verify "
+        "it today and that the user can try again later. Do not name who currently holds an "
+        "office and do not give current results, prices or news from your training data."),
     "provider": "You search the web yourself: say where current facts come from.",
-    "": "If you cannot verify a current fact, say so and offer to search the web.",
+    "": "",
 }
 
 
@@ -106,31 +123,52 @@ def format_sources(sources, retrieved: str = "") -> str:
 _LANGUAGES = {"it": "Italian", "en": "English"}
 
 
-def system_prompt(base: str, *, web: str = "", sources=None, now: datetime | None = None,
-                  reply_language: str = "", always_language: str = "") -> str:
-    """The full system prompt for one request.
+def system_prompt(base: str, *, always_language: str = "") -> str:
+    """The system prompt: the persona plus the fixed rules. Identical for
+    every request of a conversation (see the module notes).
 
     `base` is the persona (the default one or the user's own, from Settings
-    › AI): the date and the rules are added in any case, so a custom prompt
-    cannot leave the model without them.
+    › AI): the rules are added in any case, so a custom prompt cannot leave
+    the model without them. `always_language`: English name of the language
+    every reply must use (Settings › AI › Reply language set to the system
+    language), else "".
+    """
+    parts = [base.strip(), GUIDANCE]
+    if always_language:
+        parts.append("Always reply in %s, whatever language the user writes in." % always_language)
+    return "\n\n".join(p for p in parts if p)
+
+
+def turn_note(*, web: str = "", sources=None, now: datetime | None = None,
+              reply_language: str = "", always_language: str = "") -> str:
+    """What changes from one question to the next, as a short note.
+
     `web`: "" (not a time-sensitive question), "sources", "off", "failed",
     "provider" (the service searches the web by itself).
-    `always_language`: English name of the language every reply must use
-    (Settings › AI › Reply language set to the system language), else "".
     """
-    # Fixed text first, changing text last: Ollama reuses the work already
-    # done on an identical beginning of the prompt (prefix cache), which on a
-    # slow processor saves seconds per question. The clock changes every
-    # minute, so it comes after the fixed rules.
-    parts = [base.strip(), GUIDANCE, _WEB.get(web, _WEB[""]), now_line(now)]
+    # Every token here is read before the first word of the answer (about
+    # 20 tokens a second on an Intel N100): the full clock and the rules only
+    # for questions about current facts, the date alone for everything else.
+    if web:
+        parts = [now_line(now), _WEB.get(web, "")]
+    else:
+        parts = [short_date(now)]
     block = format_sources(sources or [])
     if block:
         parts.append(block)
     # Long English instructions pull small models into English: when the
     # question's language is clear, say it last (observed with a 4B model).
-    if always_language:
-        # Settings › AI › Reply language: always the system language
-        parts.append("Always reply in %s, whatever language the user writes in." % always_language)
-    elif reply_language in _LANGUAGES:
-        parts.append("The user writes in %s: reply in %s." % ((_LANGUAGES[reply_language],) * 2))
-    return "\n\n".join(p for p in parts if p)
+    if not always_language and reply_language in _LANGUAGES:
+        parts.append("Reply in %s." % _LANGUAGES[reply_language])
+    return "\n".join(p for p in parts if p)
+
+
+def short_date(now: datetime | None = None) -> str:
+    """«Today: Saturday 17 October 2026.»"""
+    now = now or datetime.now()
+    return "Today: %s %d %s %d." % (_WEEKDAYS[now.weekday()], now.day, _MONTHS[now.month - 1], now.year)
+
+
+def with_note(text: str, note: str) -> str:
+    """The user's message as sent to the model: the text, then the note."""
+    return "%s\n\n[%s]" % (text, note) if note else text

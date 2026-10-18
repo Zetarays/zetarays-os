@@ -1,10 +1,18 @@
 # Changelog
 
-## 2.1 — 2026-10-17
+## 2.1 — 2026-10-18
 
 Images: `zetarays-2.1-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
 
 ### Highlights of 2.1
+- **Fast local answers on small computers.** The local model now reads only
+  the new text of each question: the fixed part of the prompt never changes,
+  the clock and the sources travel with the question, the conversation is
+  shortened in blocks and sized to the speed of the computer, and the fixed
+  part is prepared when the model is loaded. Measured on a virtual machine
+  slowed to the speed of an Intel N100: first words in 1.2 to 3 seconds
+  (a question with a Wikipedia lookup: about 6 seconds), where a few
+  questions into a conversation it used to take 30 to over 60 seconds.
 - **A smarter local AI.** ZETA now runs Qwen3 4B Instruct (2507, Apache-2.0)
   instead of Llama 3.2 1B. In our benchmark (commands, Italian and English
   answers, use of sources, conversation memory) it understood 10 of 10
@@ -14,9 +22,10 @@ Images: `zetarays-2.1-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   released after a few minutes; with 16 GB it stays ready.
 - **Current facts, honestly.** ZETA knows today's date and time and says when
   its knowledge may be out of date instead of presenting old facts as current.
-  "Search the web for current information" (Settings › AI, off by default)
-  looks the question up on Wikipedia, asks before the first search, and shows
-  the sources under the answer. Only the question is sent.
+  "Search the web for current information" (Settings › AI, on by default)
+  looks questions about current facts up on Wikipedia and shows the sources
+  under the answer. Only the question is sent; with the search off ZETA says
+  it cannot verify instead of giving an old name as current.
 - **ZETA never switches service on its own.** If the local model is not
   available, nothing is sent to an online service: ZETA says so and offers it.
   Stop really stops the answer; every request has time limits; one failed
@@ -61,10 +70,17 @@ Images: `zetarays-2.1-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   documentation are in English.
 
 ### Fixed
-- Windows trembled for a moment when they opened or when ZETA brought them
-  back on screen: the resize was animated and showed the old content
-  stretched. ZETA's own moves and resizes are now instant, and a window one
-  or two pixels off the edge (fractional display scales) is left alone.
+- Windows flickered, pulsed or wobbled on real computers (seen on an Intel
+  N100 mini PC). The causes found and removed: the opening animation really
+  resized each window frame by frame from 90% to 100% (now windows only fade
+  in and out, with no change of size or position); ZETA's own moves and
+  resizes were animated (now instant, and a window one or two pixels off the
+  edge is left alone); Hyprland's colour management, its experimental 16-bit
+  buffer and the content type sent to the monitor were on, which changed how
+  GTK apps draw and could make the monitor switch its picture mode (all off:
+  plain sRGB, nothing is lost without HDR content). A desktop component that
+  crashes right after starting no longer appears and disappears forever, and
+  the bar is restarted only for a certain duplicate.
 - Blender downloaded from blender.org and started directly drew a smaller
   interface at fractional display scales (a Blender limitation on Wayland);
   ZETA now reopens it through X11, as its own launchers already did.

@@ -16,10 +16,10 @@ from i18n_data import load
 from . import context, intents, websearch
 from .providers.ollama import InsufficientMemoryError
 from .actions import ActionEngine, ActionResult
-from .memory import HISTORY_BUDGET, HISTORY_TURNS, MAX_TURNS, Memory, trim_history
+from .memory import HISTORY_TURNS, MAX_TURNS, Memory, approx_tokens, history_budget, trim_history
 from .providers.base import (CancelToken, Canceled, ProviderError, Message, Provider, Reply,
                              ToolCall)
-from .registry import DEFAULT_SYSTEM, REPLY_LANGUAGE, Registry, language_name, load_settings
+from .registry import REPLY_LANGUAGE, Registry, always_language, current_system_prompt, load_settings
 from .agent import agent as _agent
 from .agent.understanding import understanding as _understand
 
@@ -264,17 +264,17 @@ class Assistant:
             self.last_turn["canceled"] = True
             return tr("Request canceled.")
         self.last_turn["web"] = web
-        base = settings.get("system") or DEFAULT_SYSTEM
-        always = ""
-        if settings.get(REPLY_LANGUAGE) == "system":
-            always = language_name(language())
-        prov.config.system = context.system_prompt(base, web=web, sources=sources,
-                                                   reply_language=websearch.clear_language(text),
-                                                   always_language=always)
+        # fixed system prompt + a note with what changes, kept with the
+        # question in the history: the local model rereads nothing it has
+        # already read (context.py explains why)
+        prov.config.system = current_system_prompt(settings)
+        note = context.turn_note(web=web, sources=sources,
+                                 reply_language=websearch.clear_language(text),
+                                 always_language=always_language(settings))
         self._notes = []
 
         start = len(self.history)
-        self.history.append(Message("user", text))
+        self.history.append(Message("user", context.with_note(text, note)))
         streaming = bool(on_text and not getattr(prov, "uses_tools", True)
                          and getattr(prov.config, "stream", True))
         executed = False
@@ -326,9 +326,26 @@ class Assistant:
     # --- context for the model ---------------------------------------------
     def _window(self) -> list[Message]:
         """The history sent with this request: the latest turns that fit the
-        budget of this kind of model (memory.trim_history)."""
+        budget of this kind of model (memory.trim_history).
+
+        The window keeps its first message as long as it fits, and when it
+        no longer does it is cut down to half the budget: dropping the oldest
+        turn at every question would change the beginning of the prompt every
+        time, and a local model would reread the whole conversation for each
+        question instead of only the new one."""
         kind = "local" if self.provider.config.kind == "local" else "cloud"
-        return trim_history(self.history, HISTORY_TURNS[kind], HISTORY_BUDGET[kind])
+        budget = history_budget(kind)
+        turns = HISTORY_TURNS[kind]
+        first = getattr(self, "_window_first", None)
+        start = next((i for i, m in enumerate(self.history) if m is first), None)
+        if start is not None:
+            window = self.history[start:]
+            if (sum(approx_tokens(m.content) for m in window) <= budget
+                    and sum(1 for m in window if m.role == "user") <= turns):
+                return window
+        window = trim_history(self.history, max(1, turns // 2), budget // 2)
+        self._window_first = window[0] if window else None
+        return window
 
     def _web_context(self, text: str, settings: dict, consent, prov) -> tuple[str, list]:
         """("", []) for ordinary questions; for time-sensitive ones the state
@@ -356,7 +373,8 @@ class Assistant:
         elif state == "off":
             return "off", []
         try:
-            sources, _reachable = websearch.lookup(text, settings, lang=language(), token=self._token)
+            sources, _reachable = websearch.lookup(text, settings, lang=language(), token=self._token,
+                                                   compact=prov.config.kind == "local")
         except Canceled:
             return "failed", []
         return ("sources", sources) if sources else ("failed", [])

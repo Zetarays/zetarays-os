@@ -71,6 +71,21 @@ def remove_old_lock():
         pass
 
 
+# Official wallpapers whose edges are pure black (measured on 17 October
+# 2026: Goddess and the four logos). "fill" would cut their sides on a screen
+# that is not 16:9; shown whole on black they look the same, uncut, on any
+# screen. The full-bleed ones (waves, circuits, terminal) keep "fill".
+BLACK_EDGES = {"zeta-goddess.jpg", "zeta-blue.jpg", "zeta-green.jpg", "zeta-red.jpg",
+               "zeta-white.jpg"}
+
+
+def swaybg_options(path, mode):
+    """swaybg arguments for an image and a mode, black around the image."""
+    if mode == "fill" and os.path.basename(path) in BLACK_EDGES:
+        mode = "fit"
+    return ["-m", mode, "-c", "000000", "-i", path]
+
+
 def apply():
     path, mode = current()
     if not os.path.isfile(path):
@@ -79,7 +94,7 @@ def apply():
     if not shutil.which("swaybg"):
         return 1
     subprocess.run(["pkill", "-x", "swaybg"], check=False)
-    subprocess.Popen(["swaybg", "-m", mode, "-i", path],
+    subprocess.Popen(["swaybg"] + swaybg_options(path, mode),
                      start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return 0

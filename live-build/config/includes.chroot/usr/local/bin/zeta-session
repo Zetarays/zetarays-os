@@ -36,6 +36,7 @@ supervise() {
     local name="$1"; shift
     (
         delay=2
+        quick=0          # crashes in a row within 20 s of starting
         while true; do
             # Hyprland is gone: this session's watchdog ends here, the new
             # session's watchdog replaces it (see zeta-recovery).
@@ -43,7 +44,17 @@ supervise() {
                 exit 0
             fi
             started=$SECONDS
-            "$@" >/dev/null 2>&1
+            # A component that keeps crashing right after starting appears and
+            # disappears on screen over and over: on a real computer this was
+            # seen as windows pulsing. After 3 quick crashes it is started
+            # drawing without the GPU (GTK's cairo renderer: a driver problem
+            # can no longer bring it down); after 6 it is left off and the
+            # journal says so (journalctl -t zeta-session).
+            if [ "$quick" -ge 3 ]; then
+                GSK_RENDERER=cairo "$@" >/dev/null 2>&1
+            else
+                "$@" >/dev/null 2>&1
+            fi
             code=$?
             # Only quick, repeated crashes lengthen the delay (a broken program
             # must not burn CPU by restarting continuously). If instead it had
@@ -52,6 +63,15 @@ supervise() {
             # after a few crashes the bar took half a minute to come back.
             if [ $(( SECONDS - started )) -ge 60 ]; then
                 delay=2
+            fi
+            if [ $(( SECONDS - started )) -lt 20 ]; then
+                quick=$(( quick + 1 ))
+            else
+                quick=0
+            fi
+            if [ "$quick" -ge 6 ]; then
+                logger -t zeta-session "$name keeps crashing at start (code $code): left off until the next login" 2>/dev/null || true
+                exit 0
             fi
             logger -t zeta-session "$name exited (code $code), restarting in ${delay}s" 2>/dev/null || true
             sleep "$delay"

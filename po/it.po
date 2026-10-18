@@ -2137,19 +2137,19 @@ msgstr "(Non verificato online: la ricerca sul web è spenta. Puoi accenderla in
 msgid "(Not verified online: the web search found no useful source, or the network is unavailable.)"
 msgstr "(Non verificato online: la ricerca sul web non ha trovato fonti utili, oppure la rete non è disponibile.)"
 
-#: usr/lib/zeta/intelligence/assistant.py:375
+#: usr/lib/zeta/intelligence/assistant.py:393
 msgid "The custom service needs an address, a model and, for an online service, a key: set them in Settings › AI."
 msgstr "Il servizio personalizzato ha bisogno di un indirizzo, di un modello e, se è online, di una chiave: impostali in Impostazioni › AI."
 
-#: usr/lib/zeta/intelligence/assistant.py:378
+#: usr/lib/zeta/intelligence/assistant.py:396
 msgid "{name} has no API key yet. Enter it in Settings › AI, or choose another AI there."
 msgstr "{name} non ha ancora una chiave API. Inseriscila in Impostazioni › AI, oppure scegli lì un'altra AI."
 
-#: usr/lib/zeta/intelligence/assistant.py:398
+#: usr/lib/zeta/intelligence/assistant.py:416
 msgid "You can ask the local model instead: the question stays on this computer."
 msgstr "Puoi chiedere invece al modello locale: la domanda resta su questo computer."
 
-#: usr/lib/zeta/intelligence/assistant.py:401
+#: usr/lib/zeta/intelligence/assistant.py:419
 msgid "You can ask {name} instead, for this question only: it would be sent to that online service."
 msgstr "Puoi chiedere invece a {name}, solo per questa domanda: verrebbe inviata a quel servizio online."
 
@@ -2157,34 +2157,34 @@ msgstr "Puoi chiedere invece a {name}, solo per questa domanda: verrebbe inviata
 msgid "ZETA isn't connected to a model yet.\nTo use it, open Settings › AI and enter a key for a service (Claude, OpenAI, Gemini),\nor install Ollama with a local model, which also works without Internet."
 msgstr "ZETA non ha ancora un modello collegato.\nPer usarlo apri Impostazioni › AI e inserisci la chiave di un servizio (Claude, OpenAI, Gemini),\noppure installa Ollama con un modello locale, che funziona anche senza Internet."
 
-#: usr/lib/zeta/intelligence/assistant.py:431
+#: usr/lib/zeta/intelligence/assistant.py:449
 msgid "(Note: I didn't perform any action on the computer. If you want me to, ask for it as a command, for example “open Firefox”.)"
 msgstr "(Nota: non ho eseguito nessuna azione sul computer. Se vuoi che la faccia, chiedimelo come comando, ad esempio «apri Firefox».)"
 
-#: usr/lib/zeta/intelligence/assistant.py:440
+#: usr/lib/zeta/intelligence/assistant.py:458
 msgid "I couldn't understand the request. Try saying it another way, or with a command: “open the terminal”, “how much RAM am I using”."
 msgstr "Non sono riuscito a capire la richiesta. Prova a dirla in un altro modo, oppure con un comando: «apri il terminale», «quanta RAM sto usando»."
 
-#: usr/lib/zeta/intelligence/assistant.py:481
+#: usr/lib/zeta/intelligence/assistant.py:499
 msgid "(The reply was cut off: {reason})"
 msgstr "(La risposta si è interrotta: {reason})"
 
-#: usr/lib/zeta/intelligence/assistant.py:489
+#: usr/lib/zeta/intelligence/assistant.py:507
 msgid "(The reply was cut off.)"
 msgstr "(La risposta si è interrotta.)"
 
-#: usr/lib/zeta/intelligence/assistant.py:491
-#: usr/lib/zeta/intelligence/assistant.py:490
+#: usr/lib/zeta/intelligence/assistant.py:509
+#: usr/lib/zeta/intelligence/assistant.py:508
 #: usr/lib/zeta/intelligence/providers/base.py:383
-#: usr/lib/zeta/intelligence/registry.py:416
+#: usr/lib/zeta/intelligence/registry.py:432
 msgid "Unexpected error: {error}"
 msgstr "Errore inatteso: {error}"
 
-#: usr/lib/zeta/intelligence/assistant.py:518
+#: usr/lib/zeta/intelligence/assistant.py:536
 msgid "I can't reach {provider} right now. Check your Internet connection or the setup in Settings › AI."
 msgstr "Non riesco a contattare {provider} in questo momento. Controlla la connessione a Internet o la configurazione in Impostazioni › AI."
 
-#: usr/lib/zeta/intelligence/assistant.py:544
+#: usr/lib/zeta/intelligence/assistant.py:562
 msgid "(The default model of {name} is no longer available: from now on ZETA uses {model}.)"
 msgstr "(Il modello predefinito di {name} non è più disponibile: da ora ZETA usa {model}.)"
 
@@ -2706,7 +2706,7 @@ msgstr "{name}: errore del servizio o servizio sovraccarico, riprova più tardi.
 msgid "error {code}"
 msgstr "errore {code}"
 
-#: usr/lib/zeta/intelligence/providers/ollama.py:186
+#: usr/lib/zeta/intelligence/providers/ollama.py:191
 msgid "The local model “{model}” isn't installed. Choose an installed one in Settings › AI."
 msgstr "Il modello locale «{model}» non è installato. Scegline uno installato in Impostazioni › AI."
 
@@ -2750,11 +2750,11 @@ msgstr "portachiavi del sistema"
 msgid "encrypted in {path} (only you, only on this computer)"
 msgstr "cifrate in {path} (solo tu, solo su questo computer)"
 
-#: usr/lib/zeta/intelligence/registry.py:391
+#: usr/lib/zeta/intelligence/registry.py:407
 msgid "unknown provider: {name}"
 msgstr "provider sconosciuto: {name}"
 
-#: usr/lib/zeta/intelligence/registry.py:412
+#: usr/lib/zeta/intelligence/registry.py:428
 msgid "Unknown provider."
 msgstr "Provider sconosciuto."
 
@@ -2762,15 +2762,15 @@ msgstr "Provider sconosciuto."
 msgid "Custom (OpenAI-compatible)"
 msgstr "Personalizzato (compatibile OpenAI)"
 
-#: usr/lib/zeta/intelligence/resources.py:139
+#: usr/lib/zeta/intelligence/resources.py:195
 msgid "This computer has {gb} GB of RAM: the local model would leave little for everything else. Choose a smaller model (for example {model}) or an online service in Settings › AI."
 msgstr "Questo computer ha {gb} GB di RAM: il modello locale lascerebbe poco al resto. Scegli un modello più piccolo (per esempio {model}) o un servizio online in Impostazioni › AI."
 
-#: usr/lib/zeta/intelligence/resources.py:159
+#: usr/lib/zeta/intelligence/resources.py:215
 msgid "There isn't enough free memory for the local model (it needs about {needed} GB, {free} GB free). Close some apps and try again."
 msgstr "Non c'è abbastanza memoria libera per il modello locale (servono circa {needed} GB, liberi {free} GB). Chiudi qualche applicazione e riprova."
 
-#: usr/lib/zeta/intelligence/resources.py:165
+#: usr/lib/zeta/intelligence/resources.py:221
 msgid "Or choose a smaller model (for example {model}, download it in Settings › AI) or an online service."
 msgstr "Oppure scegli un modello più piccolo (per esempio {model}, scaricalo in Impostazioni › AI) o un servizio online."
 
@@ -3217,7 +3217,7 @@ msgid "It was stopped unexpectedly."
 msgstr "È stato fermato in modo inatteso."
 
 #: usr/lib/zeta/monitor/unitstate.py:227
-#: usr/local/bin/zeta-selftest:2397
+#: usr/local/bin/zeta-selftest:2476
 msgid "A program it needs is missing."
 msgstr "Manca un programma di cui ha bisogno."
 
@@ -4896,7 +4896,7 @@ msgstr "In uso adesso"
 #: usr/lib/zeta/ui/ai_page.py:90
 #: usr/lib/zeta/ui/ai_page.py:462
 #: usr/lib/zeta/ui/ai_page.py:500
-#: usr/lib/zeta/ui/voice_settings.py:74
+#: usr/lib/zeta/ui/voice_settings.py:80
 msgid "Choice not saved: {error}"
 msgstr "Scelta non salvata: {error}"
 
@@ -5072,7 +5072,7 @@ msgid "Resolution"
 msgstr "Risoluzione"
 
 #: usr/lib/zeta/ui/displays_page.py:34
-#: usr/lib/zeta/ui/voice_settings.py:64
+#: usr/lib/zeta/ui/voice_settings.py:70
 msgid "Normal"
 msgstr "Normale"
 
@@ -5181,7 +5181,7 @@ msgid "The previous settings come back in {n} seconds unless you keep these."
 msgstr "Tra {n} secondi tornano le impostazioni di prima, se non mantieni queste."
 
 #: usr/lib/zeta/ui/font_page.py:117
-#: usr/local/bin/zeta-selftest:1891
+#: usr/local/bin/zeta-selftest:1970
 msgid "{n} font family"
 msgid_plural "{n} font families"
 msgstr[0] "{n} famiglia di caratteri"
@@ -6304,27 +6304,28 @@ msgstr "Voce"
 msgid "How ZETA reads its replies aloud. Everything stays on this computer."
 msgstr "Come ZETA legge ad alta voce le risposte. Tutto resta su questo computer."
 
-#: usr/lib/zeta/ui/voice_settings.py:45
+#: usr/lib/zeta/ui/voice_settings.py:52
+#: usr/lib/zeta/ui/voice_settings.py:47
 msgid "Voice ({language})"
 msgstr "Voce ({language})"
 
-#: usr/lib/zeta/ui/voice_settings.py:59
+#: usr/lib/zeta/ui/voice_settings.py:65
 msgid "Voice saved"
 msgstr "Voce salvata"
 
-#: usr/lib/zeta/ui/voice_settings.py:64
+#: usr/lib/zeta/ui/voice_settings.py:70
 msgid "Fast"
 msgstr "Veloce"
 
-#: usr/lib/zeta/ui/voice_settings.py:64
+#: usr/lib/zeta/ui/voice_settings.py:70
 msgid "Slow"
 msgstr "Lenta"
 
-#: usr/lib/zeta/ui/voice_settings.py:65
+#: usr/lib/zeta/ui/voice_settings.py:71
 msgid "Speaking Speed"
 msgstr "Velocità della voce"
 
-#: usr/lib/zeta/ui/voice_settings.py:76
+#: usr/lib/zeta/ui/voice_settings.py:82
 msgid "Speed saved"
 msgstr "Velocità salvata"
 
@@ -6514,7 +6515,7 @@ msgid "“{name}”"
 msgstr "«{name}»"
 
 #: usr/local/bin/zeta-admin-paste:91
-#: usr/local/bin/zeta-selftest:512
+#: usr/local/bin/zeta-selftest:539
 msgid "{names} and others"
 msgstr "{names} e altre"
 
@@ -6904,7 +6905,7 @@ msgstr "Chiave sconosciuta: {key}"
 msgid "Invalid value for {key}: {value}"
 msgstr "Valore non valido per {key}: {value}"
 
-#: usr/local/bin/zeta-bar:62
+#: usr/local/bin/zeta-bar:77
 msgid "Usage:\n  zeta-bar reload   reload the bar's colors/dock (one at a time) and check it\n  zeta-bar check    remove duplicate bars, if any"
 msgstr "Uso:\n  zeta-bar reload   ricarica colori/dock della barra (una alla volta) e la controlla\n  zeta-bar check    se ci sono barre doppie le toglie"
 
@@ -7075,7 +7076,7 @@ msgstr "AI non disponibile ({error})"
 
 #: usr/local/bin/zeta-core:368
 #: usr/local/bin/zeta-core:355
-#: usr/local/bin/zeta-core:400
+#: usr/local/bin/zeta-core:402
 msgid "Working on it…"
 msgstr "Sto elaborando…"
 
@@ -7083,76 +7084,76 @@ msgstr "Sto elaborando…"
 msgid "{status} ({seconds}s)"
 msgstr "{status} ({seconds}s)"
 
-#: usr/local/bin/zeta-core:398
+#: usr/local/bin/zeta-core:400
 msgid "Running…"
 msgstr "Eseguo…"
 
-#: usr/local/bin/zeta-core:401
+#: usr/local/bin/zeta-core:403
 msgid "Loading the {model} model into memory, the first reply is slower…"
 msgstr "Carico il modello {model} in memoria, la prima risposta è più lenta…"
 
-#: usr/local/bin/zeta-core:404
+#: usr/local/bin/zeta-core:406
 msgid "Contacting {service}…"
 msgstr "Contatto {service}…"
 
-#: usr/local/bin/zeta-core:416
+#: usr/local/bin/zeta-core:418
 msgid "An error occurred: {error}"
 msgstr "Si è verificato un errore: {error}"
 
-#: usr/local/bin/zeta-core:446
+#: usr/local/bin/zeta-core:448
 msgid "Always"
 msgstr "Sempre"
 
-#: usr/local/bin/zeta-core:446
+#: usr/local/bin/zeta-core:448
 msgid "No"
 msgstr "No"
 
-#: usr/local/bin/zeta-core:446
+#: usr/local/bin/zeta-core:448
 msgid "Yes"
 msgstr "Sì"
 
-#: usr/local/bin/zeta-core:528
+#: usr/local/bin/zeta-core:530
 msgid "the local model"
 msgstr "il modello locale"
 
-#: usr/local/bin/zeta-core:530
+#: usr/local/bin/zeta-core:532
 msgid "Ask {name}"
 msgstr "Chiedi a {name}"
 
-#: usr/local/bin/zeta-core:565
+#: usr/local/bin/zeta-core:567
 msgid "Confirm action"
 msgstr "Conferma azione"
 
-#: usr/local/bin/zeta-core:569
+#: usr/local/bin/zeta-core:571
 msgid "ZETA RAYS wants to perform a system action:"
 msgstr "ZETA RAYS vuole eseguire un'azione di sistema:"
 
-#: usr/local/bin/zeta-core:576
+#: usr/local/bin/zeta-core:578
 msgid "Allow"
 msgstr "Autorizza"
 
-#: usr/local/bin/zeta-core:650
-#: usr/local/bin/zeta-core:671
+#: usr/local/bin/zeta-core:652
+#: usr/local/bin/zeta-core:673
 msgid "Go ahead, I'm listening…"
 msgstr "Parla pure…"
 
-#: usr/local/bin/zeta-core:666
+#: usr/local/bin/zeta-core:668
 msgid "Microphone error: {error}"
 msgstr "Errore del microfono: {error}"
 
-#: usr/local/bin/zeta-core:671
+#: usr/local/bin/zeta-core:673
 msgid "Listening…"
 msgstr "Ti sto ascoltando…"
 
-#: usr/local/bin/zeta-core:672
+#: usr/local/bin/zeta-core:674
 msgid "Understanding…"
 msgstr "Sto capendo…"
 
-#: usr/local/bin/zeta-core:686
+#: usr/local/bin/zeta-core:688
 msgid "I didn't hear anything. Press the microphone and speak, or type the command."
 msgstr "Non ho sentito nulla. Premi il microfono e parla, oppure scrivi il comando."
 
-#: usr/local/bin/zeta-core:690
+#: usr/local/bin/zeta-core:692
 msgid "I'm not sure I understood: “{text}”. Please repeat it, or type it."
 msgstr "Non sono sicuro di aver capito: «{text}». Ripeti pure, oppure scrivilo."
 
@@ -7605,7 +7606,7 @@ msgid "Operation failed"
 msgstr "Operazione non riuscita"
 
 #: usr/local/bin/zeta-desktop:462
-#: usr/local/bin/zeta-selftest:505
+#: usr/local/bin/zeta-selftest:532
 msgid "{name} (missing)"
 msgstr "{name} (mancante)"
 
@@ -8669,7 +8670,7 @@ msgstr "fermo"
 #: usr/local/bin/zeta-monitor:1173
 #: usr/local/bin/zeta-monitor:891
 #: usr/local/bin/zeta-monitor:972
-#: usr/local/bin/zeta-selftest:808
+#: usr/local/bin/zeta-selftest:835
 msgid "none"
 msgstr "nessuno"
 
@@ -9989,221 +9990,201 @@ msgstr "Ricerca di rootkit"
 msgid "Command-line antivirus"
 msgstr "Antivirus a riga di comando"
 
-#: usr/local/bin/zeta-selftest:1124
-msgid "timeout, Stop and time limit work"
-msgstr "attesa massima, Stop e limite di tempo funzionano"
+#: usr/local/bin/zeta-selftest:1043
+msgid "on by default, off when the user chooses"
+msgstr "acceso di serie, spento se l'utente lo sceglie"
+
+#: usr/local/bin/zeta-selftest:1066
+msgid "title, address, date and excerpt"
+msgstr "titolo, indirizzo, data ed estratto"
 
 #: usr/local/bin/zeta-selftest:115
 msgid "{model} to the model, {direct} answered directly, 0 commands run"
 msgstr "{model} al modello, {direct} con risposta diretta, 0 comandi eseguiti"
 
-#: usr/local/bin/zeta-selftest:1182
+#: usr/local/bin/zeta-selftest:1203
+msgid "timeout, Stop and time limit work"
+msgstr "attesa massima, Stop e limite di tempo funzionano"
+
+#: usr/local/bin/zeta-selftest:1261
 msgid "online services only when chosen"
 msgstr "servizi online solo se scelti"
 
-#: usr/local/bin/zeta-selftest:1261
+#: usr/local/bin/zeta-selftest:1340
 msgid "the newer question wins, history clean"
 msgstr "vince la domanda più recente, cronologia pulita"
-
-#: usr/local/bin/zeta-selftest:1301
-msgid "skipped (no Hyprland configuration)"
-msgstr "saltata (nessuna configurazione di Hyprland)"
-
-#: usr/local/bin/zeta-selftest:1304
-msgid "missing shortcuts: {names}"
-msgstr "scorciatoie mancanti: {names}"
-
-#: usr/local/bin/zeta-selftest:1307
-msgid "shortcuts present (Hyprland not running)"
-msgstr "scorciatoie presenti (Hyprland non in esecuzione)"
-
-#: usr/local/bin/zeta-selftest:1311
-msgid "not ready: {names}"
-msgstr "non pronti: {names}"
-
-#: usr/local/bin/zeta-selftest:1312
-msgid "both ready"
-msgstr "entrambi pronti"
-
-#: usr/local/bin/zeta-selftest:1328
-msgid "invalid tmux.conf: {error}"
-msgstr "tmux.conf non valido: {error}"
-
-#: usr/local/bin/zeta-selftest:1332
-msgid "foot does not start zeta-terminal (old configuration)"
-msgstr "foot non avvia zeta-terminal (vecchia configurazione)"
-
-#: usr/local/bin/zeta-selftest:1335
-msgid "tmux, bash/zsh/fish, atuin, starship and tools present"
-msgstr "tmux, bash/zsh/fish, atuin, starship e strumenti presenti"
 
 #: usr/local/bin/zeta-selftest:136
 msgid "{n} required actions, {total} available"
 msgstr "{n} azioni su {total} disponibili"
 
-#: usr/local/bin/zeta-selftest:1365
+#: usr/local/bin/zeta-selftest:1380
+msgid "skipped (no Hyprland configuration)"
+msgstr "saltata (nessuna configurazione di Hyprland)"
+
+#: usr/local/bin/zeta-selftest:1383
+msgid "missing shortcuts: {names}"
+msgstr "scorciatoie mancanti: {names}"
+
+#: usr/local/bin/zeta-selftest:1386
+msgid "shortcuts present (Hyprland not running)"
+msgstr "scorciatoie presenti (Hyprland non in esecuzione)"
+
+#: usr/local/bin/zeta-selftest:1390
+msgid "not ready: {names}"
+msgstr "non pronti: {names}"
+
+#: usr/local/bin/zeta-selftest:1391
+msgid "both ready"
+msgstr "entrambi pronti"
+
+#: usr/local/bin/zeta-selftest:1407
+msgid "invalid tmux.conf: {error}"
+msgstr "tmux.conf non valido: {error}"
+
+#: usr/local/bin/zeta-selftest:1411
+msgid "foot does not start zeta-terminal (old configuration)"
+msgstr "foot non avvia zeta-terminal (vecchia configurazione)"
+
+#: usr/local/bin/zeta-selftest:1414
+msgid "tmux, bash/zsh/fish, atuin, starship and tools present"
+msgstr "tmux, bash/zsh/fish, atuin, starship e strumenti presenti"
+
+#: usr/local/bin/zeta-selftest:1444
 msgid "atuin without the filter"
 msgstr "atuin senza filtro"
 
-#: usr/local/bin/zeta-selftest:1368
+#: usr/local/bin/zeta-selftest:1447
 msgid "secrets in: {names}"
 msgstr "segreti in: {names}"
 
-#: usr/local/bin/zeta-selftest:1369
+#: usr/local/bin/zeta-selftest:1448
 msgid "no secrets in the histories"
 msgstr "pulite"
 
-#: usr/local/bin/zeta-selftest:1376
+#: usr/local/bin/zeta-selftest:1455
 msgid "LocalSend not installed"
 msgstr "LocalSend non installato"
 
-#: usr/local/bin/zeta-selftest:1378
+#: usr/local/bin/zeta-selftest:1457
 msgid "ZETA Share menu entry missing"
 msgstr "manca la voce ZETA Share"
 
-#: usr/local/bin/zeta-selftest:1382
+#: usr/local/bin/zeta-selftest:1461
 msgid "firewall configuration not readable"
 msgstr "firewall non leggibile"
 
-#: usr/local/bin/zeta-selftest:1385
+#: usr/local/bin/zeta-selftest:1464
 msgid "port 53317 not limited to the local network"
 msgstr "porta 53317 non limitata alla rete locale"
 
-#: usr/local/bin/zeta-selftest:1386
+#: usr/local/bin/zeta-selftest:1465
 msgid "LocalSend, menu entry and firewall (local network only)"
 msgstr "LocalSend, voce e firewall (solo rete locale)"
-
-#: usr/local/bin/zeta-selftest:1394
-msgid "Thunderbird not installed"
-msgstr "Thunderbird non installato"
-
-#: usr/local/bin/zeta-selftest:1399
-msgid "zeta-mail status does not respond"
-msgstr "zeta-mail status non risponde"
-
-#: usr/local/bin/zeta-selftest:1401
-msgid "mailto: {handler}"
-msgstr "mailto: {handler}"
-
-#: usr/local/bin/zeta-selftest:1416
-msgid "skipped (no package lists)"
-msgstr "saltata (nessun elenco dei pacchetti)"
-
-#: usr/local/bin/zeta-selftest:1420
-msgid "no explanation: {names}"
-msgstr "senza spiegazione: {names}"
-
-#: usr/local/bin/zeta-selftest:1421
-msgid "{n} tools, {unavailable} unavailable with a reason"
-msgstr "{n} strumenti, {unavailable} non disponibili con motivo"
-
-#: usr/local/bin/zeta-selftest:1442
-msgid "PackageKit responds, {n} update in the current lists"
-msgid_plural "PackageKit responds, {n} updates in the current lists"
-msgstr[0] "PackageKit risponde, {n} aggiornamento negli elenchi attuali"
-msgstr[1] "PackageKit risponde, {n} aggiornamenti negli elenchi attuali"
-
-#: usr/local/bin/zeta-selftest:1459
-msgid "no origin allowed"
-msgstr "nessuna origine consentita"
-
-#: usr/local/bin/zeta-selftest:1461
-msgid "not only security: {names}"
-msgstr "non solo sicurezza: {names}"
-
-#: usr/local/bin/zeta-selftest:1463
-msgid "automatic restart on"
-msgstr "riavvio automatico attivo"
-
-#: usr/local/bin/zeta-selftest:1468
-msgid "on in the live session"
-msgstr "attivi nella sessione live"
 
 #: usr/local/bin/zeta-selftest:147
 msgid "forbidden actions present: {names}"
 msgstr "azioni vietate presenti: {names}"
 
-#: usr/local/bin/zeta-selftest:1472
-msgid "off in the live session"
-msgstr "disattivati nella sessione live"
-
 #: usr/local/bin/zeta-selftest:1473
-msgid "security archive only, off by choice"
-msgstr "solo archivio di sicurezza, disattivati per scelta"
+msgid "Thunderbird not installed"
+msgstr "Thunderbird non installato"
 
-#: usr/local/bin/zeta-selftest:1473
-msgid "security archive only, on"
-msgstr "solo archivio di sicurezza, attivi"
+#: usr/local/bin/zeta-selftest:1478
+msgid "zeta-mail status does not respond"
+msgstr "zeta-mail status non risponde"
 
 #: usr/local/bin/zeta-selftest:148
 msgid "no action runs free-form commands; propose_command only prepares one"
 msgstr "nessuna azione per comandi liberi; propose_command prepara soltanto"
 
-#: usr/local/bin/zeta-selftest:1490
+#: usr/local/bin/zeta-selftest:1480
+msgid "mailto: {handler}"
+msgstr "mailto: {handler}"
+
+#: usr/local/bin/zeta-selftest:1495
+msgid "skipped (no package lists)"
+msgstr "saltata (nessun elenco dei pacchetti)"
+
+#: usr/local/bin/zeta-selftest:1499
+msgid "no explanation: {names}"
+msgstr "senza spiegazione: {names}"
+
+#: usr/local/bin/zeta-selftest:1500
+msgid "{n} tools, {unavailable} unavailable with a reason"
+msgstr "{n} strumenti, {unavailable} non disponibili con motivo"
+
+#: usr/local/bin/zeta-selftest:1521
+msgid "PackageKit responds, {n} update in the current lists"
+msgid_plural "PackageKit responds, {n} updates in the current lists"
+msgstr[0] "PackageKit risponde, {n} aggiornamento negli elenchi attuali"
+msgstr[1] "PackageKit risponde, {n} aggiornamenti negli elenchi attuali"
+
+#: usr/local/bin/zeta-selftest:1538
+msgid "no origin allowed"
+msgstr "nessuna origine consentita"
+
+#: usr/local/bin/zeta-selftest:1540
+msgid "not only security: {names}"
+msgstr "non solo sicurezza: {names}"
+
+#: usr/local/bin/zeta-selftest:1542
+msgid "automatic restart on"
+msgstr "riavvio automatico attivo"
+
+#: usr/local/bin/zeta-selftest:1547
+msgid "on in the live session"
+msgstr "attivi nella sessione live"
+
+#: usr/local/bin/zeta-selftest:1551
+msgid "off in the live session"
+msgstr "disattivati nella sessione live"
+
+#: usr/local/bin/zeta-selftest:1552
+msgid "security archive only, off by choice"
+msgstr "solo archivio di sicurezza, disattivati per scelta"
+
+#: usr/local/bin/zeta-selftest:1552
+msgid "security archive only, on"
+msgstr "solo archivio di sicurezza, attivi"
+
+#: usr/local/bin/zeta-selftest:1569
 msgid "slow: {names}"
 msgstr "lenti: {names}"
 
-#: usr/local/bin/zeta-selftest:1491
+#: usr/local/bin/zeta-selftest:1570
 msgid "5 commands, all fast"
 msgstr "5 comandi, tutti veloci"
 
-#: usr/local/bin/zeta-selftest:1510
+#: usr/local/bin/zeta-selftest:1589
 msgid "compound sentence: {phrase}"
 msgstr "frase composta: {phrase}"
 
-#: usr/local/bin/zeta-selftest:1514
+#: usr/local/bin/zeta-selftest:1593
 msgid "{phrase} is not a command"
 msgstr "{phrase} non è un comando"
 
-#: usr/local/bin/zeta-selftest:1516
+#: usr/local/bin/zeta-selftest:1595
 msgid "{n} correct phrase"
 msgid_plural "{n} correct phrases"
 msgstr[0] "{n} frase giusta"
 msgstr[1] "{n} frasi giuste"
 
-#: usr/local/bin/zeta-selftest:1532
+#: usr/local/bin/zeta-selftest:1611
 msgid "missing {name}"
 msgstr "manca {name}"
 
-#: usr/local/bin/zeta-selftest:1533
+#: usr/local/bin/zeta-selftest:1612
 msgid "forbidden {name}"
 msgstr "vietata {name}"
 
-#: usr/local/bin/zeta-selftest:1534
+#: usr/local/bin/zeta-selftest:1613
 msgid "sudo in the code"
 msgstr "sudo nel codice"
 
-#: usr/local/bin/zeta-selftest:1535
+#: usr/local/bin/zeta-selftest:1614
 msgid "{n} capabilities, {confirm} with confirmation"
 msgstr "{n} capacità, {confirm} con conferma"
-
-#: usr/local/bin/zeta-selftest:1556
-msgid "delete_item acted without confirmation"
-msgstr "delete_item senza conferma ha agito"
-
-#: usr/local/bin/zeta-selftest:1560
-msgid "“delete {what}” accepted"
-msgstr "«elimina {what}» accettato"
-
-#: usr/local/bin/zeta-selftest:1561
-msgid "creation, renaming and refusal to delete verified"
-msgstr "creazione, rinomina e rifiuto dell'eliminazione verificati"
-
-#: usr/local/bin/zeta-selftest:1593
-msgid "password in the action log"
-msgstr "password nel registro delle azioni"
-
-#: usr/local/bin/zeta-selftest:1596
-msgid "password in the chat history"
-msgstr "password nella cronologia"
-
-#: usr/local/bin/zeta-selftest:1597
-msgid "action log and chat history mask passwords"
-msgstr "registro e cronologia mascherano le password"
-
-#: usr/local/bin/zeta-selftest:1613
-msgid "note even after a real action: {text}"
-msgstr "nota anche dopo un'azione vera: {text}"
 
 #: usr/local/bin/zeta-selftest:162
 msgid "{n} command recognized"
@@ -10211,564 +10192,596 @@ msgid_plural "{n} commands recognized"
 msgstr[0] "{n} comando riconosciuto"
 msgstr[1] "{n} comandi riconosciuti"
 
-#: usr/local/bin/zeta-selftest:1623
+#: usr/local/bin/zeta-selftest:1635
+msgid "delete_item acted without confirmation"
+msgstr "delete_item senza conferma ha agito"
+
+#: usr/local/bin/zeta-selftest:1639
+msgid "“delete {what}” accepted"
+msgstr "«elimina {what}» accettato"
+
+#: usr/local/bin/zeta-selftest:1640
+msgid "creation, renaming and refusal to delete verified"
+msgstr "creazione, rinomina e rifiuto dell'eliminazione verificati"
+
+#: usr/local/bin/zeta-selftest:1672
+msgid "password in the action log"
+msgstr "password nel registro delle azioni"
+
+#: usr/local/bin/zeta-selftest:1675
+msgid "password in the chat history"
+msgstr "password nella cronologia"
+
+#: usr/local/bin/zeta-selftest:1676
+msgid "action log and chat history mask passwords"
+msgstr "registro e cronologia mascherano le password"
+
+#: usr/local/bin/zeta-selftest:1692
+msgid "note even after a real action: {text}"
+msgstr "nota anche dopo un'azione vera: {text}"
+
+#: usr/local/bin/zeta-selftest:1702
 msgid "the bar still shows the minimized-windows counter"
 msgstr "la barra mostra ancora il contatore «ridotte»"
 
-#: usr/local/bin/zeta-selftest:1626
+#: usr/local/bin/zeta-selftest:1705
 msgid "thumbnail slots missing"
 msgstr "posti delle miniature mancanti"
 
-#: usr/local/bin/zeta-selftest:1630
+#: usr/local/bin/zeta-selftest:1709
 msgid "zeta-minimize is not ready"
 msgstr "zeta-minimize non è pronto"
 
-#: usr/local/bin/zeta-selftest:1631
+#: usr/local/bin/zeta-selftest:1710
 msgid "8 thumbnail slots, animation ready"
 msgstr "8 posti per le miniature, animazione pronta"
 
-#: usr/local/bin/zeta-selftest:1642
+#: usr/local/bin/zeta-selftest:1721
 msgid "no app for: {roles}"
 msgstr "senza app: {roles}"
 
-#: usr/local/bin/zeta-selftest:1642
+#: usr/local/bin/zeta-selftest:1721
 msgid "{n} role with its app"
 msgid_plural "{n} roles with their app"
 msgstr[0] "{n} ruolo con la sua app"
 msgstr[1] "{n} ruoli con la loro app"
 
-#: usr/local/bin/zeta-selftest:1653
+#: usr/local/bin/zeta-selftest:1732
 msgid "no menu: {names}"
 msgstr "senza menu: {names}"
 
-#: usr/local/bin/zeta-selftest:1653
+#: usr/local/bin/zeta-selftest:1732
 msgid "{n} icon with a menu"
 msgid_plural "{n} icons with a menu"
 msgstr[0] "{n} icona con menu"
 msgstr[1] "{n} icone con menu"
 
-#: usr/local/bin/zeta-selftest:1663
+#: usr/local/bin/zeta-selftest:1742
 msgid "names not cleaned up"
 msgstr "nomi non ripuliti"
 
-#: usr/local/bin/zeta-selftest:1667
+#: usr/local/bin/zeta-selftest:1746
 msgid "non-http address accepted"
 msgstr "indirizzo non http accettato"
 
-#: usr/local/bin/zeta-selftest:1670
+#: usr/local/bin/zeta-selftest:1749
 msgid "embedded data not saved"
 msgstr "dati incorporati non salvati"
 
-#: usr/local/bin/zeta-selftest:1673
+#: usr/local/bin/zeta-selftest:1752
 msgid "image delivered by the browser not saved"
 msgstr "immagine consegnata dal browser non salvata"
 
-#: usr/local/bin/zeta-selftest:1675
+#: usr/local/bin/zeta-selftest:1754
 msgid "wrong file name taken from the address"
 msgstr "nome del file dall'indirizzo sbagliato"
 
-#: usr/local/bin/zeta-selftest:1677
+#: usr/local/bin/zeta-selftest:1756
 msgid "partial files left behind"
 msgstr "file parziali lasciati"
 
-#: usr/local/bin/zeta-selftest:1681
+#: usr/local/bin/zeta-selftest:1760
 msgid "names cleaned up, only http/https/data, no partial files"
 msgstr "nomi ripuliti, solo http/https/data, nessun file parziale"
 
-#: usr/local/bin/zeta-selftest:1692
+#: usr/local/bin/zeta-selftest:1771
 msgid "missing wallpapers: {n} of {total}"
 msgstr "sfondi mancanti: {n} su {total}"
 
-#: usr/local/bin/zeta-selftest:1695
+#: usr/local/bin/zeta-selftest:1774
 msgid "no thumbnail: {names}"
 msgstr "senza miniatura: {names}"
 
-#: usr/local/bin/zeta-selftest:1702
+#: usr/local/bin/zeta-selftest:1781
 msgid "“{text}” -> {found}"
 msgstr "«{text}» -> {found}"
 
-#: usr/local/bin/zeta-selftest:1706
+#: usr/local/bin/zeta-selftest:1785
 msgid "phrase not understood: {result}"
 msgstr "frase non capita: {result}"
 
-#: usr/local/bin/zeta-selftest:1717
+#: usr/local/bin/zeta-selftest:1796
 msgid "zeta-wallpaper set not applied ({detail})"
 msgstr "zeta-wallpaper set non applicato ({detail})"
 
-#: usr/local/bin/zeta-selftest:1719
+#: usr/local/bin/zeta-selftest:1798
 msgid "the lock screen still follows the wallpaper"
 msgstr "la schermata di blocco segue ancora lo sfondo"
-
-#: usr/local/bin/zeta-selftest:1730
-msgid "{n} wallpaper, search by name, applied to the desktop"
-msgid_plural "{n} wallpapers, search by name, applied to the desktop"
-msgstr[0] "{n} sfondo, ricerca per nome, applicato alla scrivania"
-msgstr[1] "{n} sfondi, ricerca per nome, applicati alla scrivania"
-
-#: usr/local/bin/zeta-selftest:1749
-msgid "misread: {cases}"
-msgstr "letti male: {cases}"
-
-#: usr/local/bin/zeta-selftest:1749
-msgid "success, rejection and timeout told apart"
-msgstr "riuscita, rifiuto e tempo scaduto distinti"
-
-#: usr/local/bin/zeta-selftest:1760
-msgid "Europe/Rome -> {country}, udev rule present"
-msgstr "Europe/Rome -> {country}, regola udev presente"
-
-#: usr/local/bin/zeta-selftest:1762
-msgid "Europe/Rome -> {country}, udev rule MISSING"
-msgstr "Europe/Rome -> {country}, regola udev MANCANTE"
-
-#: usr/local/bin/zeta-selftest:1774
-msgid "iptables does not use nftables ({version})"
-msgstr "iptables non usa nftables ({version})"
-
-#: usr/local/bin/zeta-selftest:1776
-msgid "firewalld installed"
-msgstr "firewalld installato"
-
-#: usr/local/bin/zeta-selftest:1777
-msgid "ufw not installed"
-msgstr "ufw assente"
-
-#: usr/local/bin/zeta-selftest:1780
-msgid "ufw installed and off"
-msgstr "ufw installato e spento"
-
-#: usr/local/bin/zeta-selftest:1780
-msgid "ufw on"
-msgstr "ufw acceso"
-
-#: usr/local/bin/zeta-selftest:1784
-msgid "ufw without the ZETA Share rules"
-msgstr "ufw senza le regole di ZETA Share"
-
-#: usr/local/bin/zeta-selftest:1786
-msgid "ufw on without the SSH rule"
-msgstr "ufw acceso senza la regola per SSH"
-
-#: usr/local/bin/zeta-selftest:1790
-msgid "NetworkManager not active"
-msgstr "NetworkManager non attivo"
-
-#: usr/local/bin/zeta-selftest:1793
-msgid "{name} active alongside NetworkManager"
-msgstr "{name} attivo accanto a NetworkManager"
-
-#: usr/local/bin/zeta-selftest:1798
-msgid "ifupdown manages interfaces: {names}"
-msgstr "ifupdown gestisce interfacce: {names}"
 
 #: usr/local/bin/zeta-selftest:180
 msgid "all immediate"
 msgstr "tutte immediate"
 
-#: usr/local/bin/zeta-selftest:1802
+#: usr/local/bin/zeta-selftest:1809
+msgid "{n} wallpaper, search by name, applied to the desktop"
+msgid_plural "{n} wallpapers, search by name, applied to the desktop"
+msgstr[0] "{n} sfondo, ricerca per nome, applicato alla scrivania"
+msgstr[1] "{n} sfondi, ricerca per nome, applicati alla scrivania"
+
+#: usr/local/bin/zeta-selftest:1828
+msgid "misread: {cases}"
+msgstr "letti male: {cases}"
+
+#: usr/local/bin/zeta-selftest:1828
+msgid "success, rejection and timeout told apart"
+msgstr "riuscita, rifiuto e tempo scaduto distinti"
+
+#: usr/local/bin/zeta-selftest:1839
+msgid "Europe/Rome -> {country}, udev rule present"
+msgstr "Europe/Rome -> {country}, regola udev presente"
+
+#: usr/local/bin/zeta-selftest:1841
+msgid "Europe/Rome -> {country}, udev rule MISSING"
+msgstr "Europe/Rome -> {country}, regola udev MANCANTE"
+
+#: usr/local/bin/zeta-selftest:1853
+msgid "iptables does not use nftables ({version})"
+msgstr "iptables non usa nftables ({version})"
+
+#: usr/local/bin/zeta-selftest:1855
+msgid "firewalld installed"
+msgstr "firewalld installato"
+
+#: usr/local/bin/zeta-selftest:1856
+msgid "ufw not installed"
+msgstr "ufw assente"
+
+#: usr/local/bin/zeta-selftest:1859
+msgid "ufw installed and off"
+msgstr "ufw installato e spento"
+
+#: usr/local/bin/zeta-selftest:1859
+msgid "ufw on"
+msgstr "ufw acceso"
+
+#: usr/local/bin/zeta-selftest:1863
+msgid "ufw without the ZETA Share rules"
+msgstr "ufw senza le regole di ZETA Share"
+
+#: usr/local/bin/zeta-selftest:1865
+msgid "ufw on without the SSH rule"
+msgstr "ufw acceso senza la regola per SSH"
+
+#: usr/local/bin/zeta-selftest:1869
+msgid "NetworkManager not active"
+msgstr "NetworkManager non attivo"
+
+#: usr/local/bin/zeta-selftest:1872
+msgid "{name} active alongside NetworkManager"
+msgstr "{name} attivo accanto a NetworkManager"
+
+#: usr/local/bin/zeta-selftest:1877
+msgid "ifupdown manages interfaces: {names}"
+msgstr "ifupdown gestisce interfacce: {names}"
+
+#: usr/local/bin/zeta-selftest:1881
 msgid "nftables not enabled at boot"
 msgstr "nftables non abilitato all'avvio"
 
-#: usr/local/bin/zeta-selftest:1803
+#: usr/local/bin/zeta-selftest:1882
 msgid "nftables firewall (inet zeta), iptables-nft, {ufw}, network and DNS from NetworkManager"
 msgstr "firewall nftables (inet zeta), iptables-nft, {ufw}, rete e DNS da NetworkManager"
 
-#: usr/local/bin/zeta-selftest:1824
+#: usr/local/bin/zeta-selftest:1903
 msgid "sshd or firewall configuration incomplete"
 msgstr "configurazione di sshd o del firewall incompleta"
 
-#: usr/local/bin/zeta-selftest:1826
+#: usr/local/bin/zeta-selftest:1905
 msgid "the firewall does not track connections (conntrack)"
 msgstr "il firewall non segue le connessioni (conntrack)"
 
-#: usr/local/bin/zeta-selftest:1833
+#: usr/local/bin/zeta-selftest:1912
 msgid "zeta-ssh says off but port 22 is listening"
 msgstr "zeta-ssh dice spento ma la porta 22 è in ascolto"
 
-#: usr/local/bin/zeta-selftest:1835
+#: usr/local/bin/zeta-selftest:1914
 msgid "zeta-ssh says on but nothing listens on port 22"
 msgstr "zeta-ssh dice acceso ma niente ascolta sulla porta 22"
 
-#: usr/local/bin/zeta-selftest:1839
+#: usr/local/bin/zeta-selftest:1918
 msgid "client, server, netcat and sshfs present; SSH off"
 msgstr "client, server, netcat e sshfs presenti; SSH spento"
 
-#: usr/local/bin/zeta-selftest:1841
+#: usr/local/bin/zeta-selftest:1920
 msgid "client, server, netcat and sshfs present; SSH on (also from the internet)"
 msgstr "client, server, netcat e sshfs presenti; SSH acceso (anche da internet)"
 
-#: usr/local/bin/zeta-selftest:1842
+#: usr/local/bin/zeta-selftest:1921
 msgid "client, server, netcat and sshfs present; SSH on (local network only)"
 msgstr "client, server, netcat e sshfs presenti; SSH acceso (solo rete locale)"
 
-#: usr/local/bin/zeta-selftest:1853
+#: usr/local/bin/zeta-selftest:1932
 msgid "{n} case recognized"
 msgid_plural "{n} cases recognized"
 msgstr[0] "{n} caso riconosciuto"
 msgstr[1] "{n} casi riconosciuti"
 
-#: usr/local/bin/zeta-selftest:1868
+#: usr/local/bin/zeta-selftest:1947
 msgid "no natural voice for {language}"
 msgstr "nessuna voce naturale per {language}"
 
-#: usr/local/bin/zeta-selftest:1878
+#: usr/local/bin/zeta-selftest:1957
 msgid "{language}: no audio"
 msgstr "{language}: nessun audio"
 
-#: usr/local/bin/zeta-selftest:1880
+#: usr/local/bin/zeta-selftest:1959
 msgid "Natural voice speaks: {languages}"
 msgstr "La voce naturale parla: {languages}"
-
-#: usr/local/bin/zeta-selftest:1954
-#: usr/local/bin/zeta-selftest:2146
-msgid "back inside: {x},{y} {w}x{h}"
-msgstr "di nuovo dentro: {x},{y} {w}x{h}"
-
-#: usr/local/bin/zeta-selftest:1955
-#: usr/local/bin/zeta-selftest:2148
-msgid "the window stayed out of reach"
-msgstr "la finestra è rimasta irraggiungibile"
-
-#: usr/local/bin/zeta-selftest:1956
-#: usr/local/bin/zeta-selftest:2149
-msgid "the test window did not move out (nothing to check)"
-msgstr "la finestra di prova non è uscita dallo schermo (niente da controllare)"
 
 #: usr/local/bin/zeta-selftest:196
 msgid "handled without calling the model"
 msgstr "gestiti senza scomodare il modello"
 
-#: usr/local/bin/zeta-selftest:2075
-msgid "window guard not loaded: {detail}"
-msgstr "guardiano delle finestre non caricato: {detail}"
+#: usr/local/bin/zeta-selftest:2033
+#: usr/local/bin/zeta-selftest:2225
+msgid "back inside: {x},{y} {w}x{h}"
+msgstr "di nuovo dentro: {x},{y} {w}x{h}"
 
-#: usr/local/bin/zeta-selftest:2076
-msgid "{n} keyboard exit bound"
-msgid_plural "{n} keyboard exits bound"
-msgstr[0] "{n} via d'uscita da tastiera assegnata"
-msgstr[1] "{n} vie d'uscita da tastiera assegnate"
+#: usr/local/bin/zeta-selftest:2034
+#: usr/local/bin/zeta-selftest:2227
+msgid "the window stayed out of reach"
+msgstr "la finestra è rimasta irraggiungibile"
 
-#: usr/local/bin/zeta-selftest:2090
-#: usr/local/bin/zeta-selftest:2130
-#: usr/local/bin/zeta-selftest:2207
-msgid "no displays from hyprctl"
-msgstr "nessuno schermo da hyprctl"
+#: usr/local/bin/zeta-selftest:2035
+#: usr/local/bin/zeta-selftest:2228
+msgid "the test window did not move out (nothing to check)"
+msgstr "la finestra di prova non è uscita dallo schermo (niente da controllare)"
 
 #: usr/local/bin/zeta-selftest:210
 msgid "{gb} GB nominal -> preload={preload} keep_alive={keep}"
 msgstr "{gb} GB di targa -> precarico={preload} keep_alive={keep}"
 
-#: usr/local/bin/zeta-selftest:2103
-#: usr/local/bin/zeta-selftest:2172
+#: usr/local/bin/zeta-selftest:2154
+msgid "window guard not loaded: {detail}"
+msgstr "guardiano delle finestre non caricato: {detail}"
+
+#: usr/local/bin/zeta-selftest:2155
+msgid "{n} keyboard exit bound"
+msgid_plural "{n} keyboard exits bound"
+msgstr[0] "{n} via d'uscita da tastiera assegnata"
+msgstr[1] "{n} vie d'uscita da tastiera assegnate"
+
+#: usr/local/bin/zeta-selftest:2169
+#: usr/local/bin/zeta-selftest:2209
+#: usr/local/bin/zeta-selftest:2286
+msgid "no displays from hyprctl"
+msgstr "nessuno schermo da hyprctl"
+
+#: usr/local/bin/zeta-selftest:2182
+#: usr/local/bin/zeta-selftest:2251
 msgid "the test window did not appear"
 msgstr "la finestra di prova non è comparsa"
 
-#: usr/local/bin/zeta-selftest:2105
-#: usr/local/bin/zeta-selftest:2188
+#: usr/local/bin/zeta-selftest:2184
+#: usr/local/bin/zeta-selftest:2267
 msgid "title bar out of reach: {x},{y} {w}x{h}"
 msgstr "barra del titolo irraggiungibile: {x},{y} {w}x{h}"
 
-#: usr/local/bin/zeta-selftest:2112
+#: usr/local/bin/zeta-selftest:2191
 msgid "the window keeps changing: {a} -> {b}"
 msgstr "la finestra continua a cambiare: {a} -> {b}"
 
-#: usr/local/bin/zeta-selftest:2114
+#: usr/local/bin/zeta-selftest:2193
 msgid "reachable at {x},{y}, {w}x{h}"
 msgstr "raggiungibile a {x},{y}, {w}x{h}"
 
-#: usr/local/bin/zeta-selftest:2179
+#: usr/local/bin/zeta-selftest:2258
 msgid "the hidden window is not offered again"
 msgstr "la finestra nascosta non viene riproposta"
 
-#: usr/local/bin/zeta-selftest:2181
+#: usr/local/bin/zeta-selftest:2260
 msgid "restore failed"
 msgstr "ripristino non riuscito"
 
-#: usr/local/bin/zeta-selftest:2185
+#: usr/local/bin/zeta-selftest:2264
 msgid "the window is still hidden"
 msgstr "la finestra è ancora nascosta"
 
-#: usr/local/bin/zeta-selftest:2190
+#: usr/local/bin/zeta-selftest:2269
 msgid "found again and restored"
 msgstr "ritrovata e ripristinata"
 
-#: usr/local/bin/zeta-selftest:2210
+#: usr/local/bin/zeta-selftest:2289
 msgid "{name}: no modes"
 msgstr "{name}: nessuna modalità"
 
-#: usr/local/bin/zeta-selftest:2217
+#: usr/local/bin/zeta-selftest:2296
 msgid "all displays off was accepted"
 msgstr "accettati tutti gli schermi spenti"
 
-#: usr/local/bin/zeta-selftest:2218
+#: usr/local/bin/zeta-selftest:2297
 msgid "{n} display, {modes} modes on the first"
 msgid_plural "{n} displays, {modes} modes on the first"
 msgstr[0] "{n} schermo, {modes} modalità sul primo"
 msgstr[1] "{n} schermi, {modes} modalità sul primo"
 
-#: usr/local/bin/zeta-selftest:2238
+#: usr/local/bin/zeta-selftest:2317
 msgid "a color outside the palette was accepted"
 msgstr "accettato un colore fuori dalla tavolozza"
 
-#: usr/local/bin/zeta-selftest:2240
+#: usr/local/bin/zeta-selftest:2319
 msgid "old symbol pictures still installed"
 msgstr "ci sono ancora le vecchie immagini con il simbolo"
 
-#: usr/local/bin/zeta-selftest:2241
+#: usr/local/bin/zeta-selftest:2320
 msgid "4 colors, one palette, current choice: {c}"
 msgstr "4 colori, una tavolozza, scelta attuale: {c}"
 
-#: usr/local/bin/zeta-selftest:2255
+#: usr/local/bin/zeta-selftest:2334
 msgid "lock background: {lines}"
 msgstr "sfondo del blocco: {lines}"
 
-#: usr/local/bin/zeta-selftest:2260
+#: usr/local/bin/zeta-selftest:2339
 msgid "sleep does not wait for the lock ({file})"
 msgstr "lo standby non aspetta il blocco ({file})"
 
-#: usr/local/bin/zeta-selftest:2261
+#: usr/local/bin/zeta-selftest:2340
 msgid "plain black, sleep waits for the lock"
 msgstr "nero pieno, lo standby aspetta il blocco"
 
-#: usr/local/bin/zeta-selftest:231
-msgid "3 of 3 workspaces"
-msgstr "3 spazi su 3"
+#: usr/local/bin/zeta-selftest:239
+msgid "no configuration errors, steady picture settings"
+msgstr "nessun errore di configurazione, impostazioni dell'immagine stabili"
 
-#: usr/local/bin/zeta-selftest:231
-msgid "switching failed"
-msgstr "passaggio non riuscito"
-
-#: usr/local/bin/zeta-selftest:2406
+#: usr/local/bin/zeta-selftest:2485
 msgid "Usage: zeta-selftest [GROUP…]\n\nRuns the built-in tests of ZETA RAYS (all of them when no group is given).\nGroups: {groups}"
 msgstr "Uso: zeta-selftest [GRUPPO…]\n\nEsegue le prove automatiche di ZETA RAYS (tutte, se non si indica un gruppo).\nGruppi: {groups}"
 
-#: usr/local/bin/zeta-selftest:2420
+#: usr/local/bin/zeta-selftest:2499
 msgid "Unknown group: {name}"
 msgstr "Gruppo sconosciuto: {name}"
 
-#: usr/local/bin/zeta-selftest:2429
+#: usr/local/bin/zeta-selftest:2508
 msgid "exception: {error}"
 msgstr "eccezione: {error}"
 
-#: usr/local/bin/zeta-selftest:2432
+#: usr/local/bin/zeta-selftest:2511
 msgid "FAILED"
 msgstr "FALLITA"
 
-#: usr/local/bin/zeta-selftest:2432
+#: usr/local/bin/zeta-selftest:2511
 msgid "OK"
 msgstr "OK"
 
-#: usr/local/bin/zeta-selftest:2434
+#: usr/local/bin/zeta-selftest:2513
 msgid "{n} test"
 msgid_plural "{n} tests"
 msgstr[0] "{n} prova"
 msgstr[1] "{n} prove"
 
-#: usr/local/bin/zeta-selftest:2435
+#: usr/local/bin/zeta-selftest:2514
 msgid "{n} failed"
 msgid_plural "{n} failed"
 msgstr[0] "{n} fallita"
 msgstr[1] "{n} fallite"
 
-#: usr/local/bin/zeta-selftest:247
+#: usr/local/bin/zeta-selftest:258
+msgid "3 of 3 workspaces"
+msgstr "3 spazi su 3"
+
+#: usr/local/bin/zeta-selftest:258
+msgid "switching failed"
+msgstr "passaggio non riuscito"
+
+#: usr/local/bin/zeta-selftest:274
 msgid "the bar still uses hyprland/workspaces: clicking does nothing"
 msgstr "la barra usa ancora hyprland/workspaces: il click non funziona"
 
-#: usr/local/bin/zeta-selftest:249
+#: usr/local/bin/zeta-selftest:276
 msgid "zeta-workspaces modules missing"
 msgstr "moduli zeta-workspaces mancanti"
 
-#: usr/local/bin/zeta-selftest:250
+#: usr/local/bin/zeta-selftest:277
 msgid "zeta-workspaces modules present"
 msgstr "moduli zeta-workspaces presenti"
 
-#: usr/local/bin/zeta-selftest:259
+#: usr/local/bin/zeta-selftest:286
 msgid "zeta-appearance get does not respond"
 msgstr "zeta-appearance get non risponde"
 
-#: usr/local/bin/zeta-selftest:265
+#: usr/local/bin/zeta-selftest:292
 msgid "font-size=99 accepted (out of range)"
 msgstr "font-size=99 accettato (fuori intervallo)"
 
-#: usr/local/bin/zeta-selftest:268
+#: usr/local/bin/zeta-selftest:295
 msgid "nonexistent key accepted"
 msgstr "chiave inesistente accettata"
 
-#: usr/local/bin/zeta-selftest:272
+#: usr/local/bin/zeta-selftest:299
 msgid "a value changed after a rejected attempt"
 msgstr "un valore è cambiato dopo un tentativo rifiutato"
 
-#: usr/local/bin/zeta-selftest:273
+#: usr/local/bin/zeta-selftest:300
 msgid "{n} key checked"
 msgid_plural "{n} keys checked"
 msgstr[0] "{n} chiave verificata"
 msgstr[1] "{n} chiavi verificate"
 
-#: usr/local/bin/zeta-selftest:290
+#: usr/local/bin/zeta-selftest:317
 msgid "unknown pages: {pages}"
 msgstr "pagine ignote: {pages}"
 
-#: usr/local/bin/zeta-selftest:291
+#: usr/local/bin/zeta-selftest:318
 msgid "{n} valid destination"
 msgid_plural "{n} valid destinations"
 msgstr[0] "{n} destinazione valida"
 msgstr[1] "{n} destinazioni valide"
 
-#: usr/local/bin/zeta-selftest:317
-msgid "no failed units"
-msgstr "nessuna unità fallita"
-
 #: usr/local/bin/zeta-selftest:33
 msgid "Intents"
 msgstr "Intenti"
-
-#: usr/local/bin/zeta-selftest:334
-msgid "unreadable configuration: {error}"
-msgstr "configurazione illeggibile: {error}"
-
-#: usr/local/bin/zeta-selftest:338
-msgid "menu hidden"
-msgstr "menu nascosto"
 
 #: usr/local/bin/zeta-selftest:34
 msgid "Resources"
 msgstr "Risorse"
 
-#: usr/local/bin/zeta-selftest:341
+#: usr/local/bin/zeta-selftest:344
+msgid "no failed units"
+msgstr "nessuna unità fallita"
+
+#: usr/local/bin/zeta-selftest:361
+msgid "unreadable configuration: {error}"
+msgstr "configurazione illeggibile: {error}"
+
+#: usr/local/bin/zeta-selftest:365
+msgid "menu hidden"
+msgstr "menu nascosto"
+
+#: usr/local/bin/zeta-selftest:368
 msgid "timeout of {n} s"
 msgstr "attesa di {n} s"
 
-#: usr/local/bin/zeta-selftest:343
+#: usr/local/bin/zeta-selftest:370
 msgid "invalid timeout: {value}"
 msgstr "attesa non valida: {value}"
 
-#: usr/local/bin/zeta-selftest:345
+#: usr/local/bin/zeta-selftest:372
 msgid "os-prober off"
 msgstr "os-prober spento"
 
-#: usr/local/bin/zeta-selftest:346
+#: usr/local/bin/zeta-selftest:373
 msgid "menu shown for {n} s, other systems searched"
 msgstr "menu per {n} s, altri sistemi cercati"
-
-#: usr/local/bin/zeta-selftest:356
-msgid "skipped (no session)"
-msgstr "saltata (nessuna sessione)"
-
-#: usr/local/bin/zeta-selftest:365
-msgid "disabled: {names}"
-msgstr "disattivati: {names}"
-
-#: usr/local/bin/zeta-selftest:366
-msgid "the portal responds"
-msgstr "il portale risponde"
 
 #: usr/local/bin/zeta-selftest:38
 msgid "Artificial intelligence"
 msgstr "Intelligenza artificiale"
 
-#: usr/local/bin/zeta-selftest:380
-#: usr/local/bin/zeta-selftest:460
-msgid "all present"
-msgstr "tutti presenti"
+#: usr/local/bin/zeta-selftest:383
+msgid "skipped (no session)"
+msgstr "saltata (nessuna sessione)"
+
+#: usr/local/bin/zeta-selftest:392
+msgid "disabled: {names}"
+msgstr "disattivati: {names}"
 
 #: usr/local/bin/zeta-selftest:393
-msgid "Gemini key in the URL"
-msgstr "chiave di Gemini nell'indirizzo"
-
-#: usr/local/bin/zeta-selftest:395
-msgid "Claude fallback"
-msgstr "ripiego Claude"
-
-#: usr/local/bin/zeta-selftest:397
-msgid "OpenAI fallback"
-msgstr "ripiego OpenAI"
+msgid "the portal responds"
+msgstr "il portale risponde"
 
 #: usr/local/bin/zeta-selftest:40
 msgid "Agent (ZETA Core)"
 msgstr "Agente (ZETA Core)"
 
-#: usr/local/bin/zeta-selftest:400
+#: usr/local/bin/zeta-selftest:407
+#: usr/local/bin/zeta-selftest:487
+msgid "all present"
+msgstr "tutti presenti"
+
+#: usr/local/bin/zeta-selftest:420
+msgid "Gemini key in the URL"
+msgstr "chiave di Gemini nell'indirizzo"
+
+#: usr/local/bin/zeta-selftest:422
+msgid "Claude fallback"
+msgstr "ripiego Claude"
+
+#: usr/local/bin/zeta-selftest:424
+msgid "OpenAI fallback"
+msgstr "ripiego OpenAI"
+
+#: usr/local/bin/zeta-selftest:427
 msgid "assistant fallbacks missing"
 msgstr "ripieghi dell'assistente mancanti"
 
-#: usr/local/bin/zeta-selftest:401
+#: usr/local/bin/zeta-selftest:428
 msgid "fast defaults, fallbacks ready, keys only in the headers"
 msgstr "predefiniti veloci, ripieghi pronti, chiavi solo nelle intestazioni"
 
-#: usr/local/bin/zeta-selftest:412
+#: usr/local/bin/zeta-selftest:439
 msgid "{n} provider"
 msgid_plural "{n} providers"
 msgstr[0] "{n} fornitore"
 msgstr[1] "{n} fornitori"
 
-#: usr/local/bin/zeta-selftest:422
+#: usr/local/bin/zeta-selftest:449
 msgid "skipped (Hyprland not running)"
 msgstr "saltata (Hyprland non in esecuzione)"
 
-#: usr/local/bin/zeta-selftest:424
+#: usr/local/bin/zeta-selftest:451
 msgid "Hyprland NOT protected"
 msgstr "Hyprland NON protetto"
 
-#: usr/local/bin/zeta-selftest:424
+#: usr/local/bin/zeta-selftest:451
 msgid "Hyprland and systemd protected"
 msgstr "Hyprland e systemd protetti"
 
-#: usr/local/bin/zeta-selftest:433
+#: usr/local/bin/zeta-selftest:460
 msgid "languages: {langs}"
 msgstr "lingue: {langs}"
 
-#: usr/local/bin/zeta-selftest:434
+#: usr/local/bin/zeta-selftest:461
 msgid "tesseract missing"
 msgstr "tesseract assente"
 
-#: usr/local/bin/zeta-selftest:443
+#: usr/local/bin/zeta-selftest:470
 msgid "skipped (session log not readable)"
 msgstr "saltata (registro della sessione non leggibile)"
 
-#: usr/local/bin/zeta-selftest:447
+#: usr/local/bin/zeta-selftest:474
 msgid "{n} restart since boot"
 msgid_plural "{n} restarts since boot"
 msgstr[0] "{n} riavvio dall'accensione"
 msgstr[1] "{n} riavvii dall'accensione"
 
-#: usr/local/bin/zeta-selftest:481
+#: usr/local/bin/zeta-selftest:508
 msgid "skipped (no icon theme installed)"
 msgstr "saltata (nessun tema di icone installato)"
 
-#: usr/local/bin/zeta-selftest:497
+#: usr/local/bin/zeta-selftest:524
 msgid "no outline-only icons"
 msgstr "nessuna icona a solo tratto"
 
-#: usr/local/bin/zeta-selftest:515
+#: usr/local/bin/zeta-selftest:542
 msgid "{n} icon with the light theme ink"
 msgid_plural "{n} icons with the light theme ink"
 msgstr[0] "{n} icona con l'inchiostro del tema chiaro"
 msgstr[1] "{n} icone con l'inchiostro del tema chiaro"
 
-#: usr/local/bin/zeta-selftest:517
+#: usr/local/bin/zeta-selftest:544
 msgid "{n} icon with the dark theme ink"
 msgid_plural "{n} icons with the dark theme ink"
 msgstr[0] "{n} icona con l'inchiostro del tema scuro"
 msgstr[1] "{n} icone con l'inchiostro del tema scuro"
 
-#: usr/local/bin/zeta-selftest:542
+#: usr/local/bin/zeta-selftest:569
 msgid "{n} visible entry, valid"
 msgid_plural "{n} visible entries, all valid"
 msgstr[0] "{n} voce visibile, valida"
 msgstr[1] "{n} voci visibili, tutte valide"
 
-#: usr/local/bin/zeta-selftest:554
+#: usr/local/bin/zeta-selftest:581
 msgid "no entry names the base system"
 msgstr "nessuna voce nomina la base"
 
-#: usr/local/bin/zeta-selftest:575
+#: usr/local/bin/zeta-selftest:602
 msgid "{n} distinct program"
 msgid_plural "{n} distinct programs"
 msgstr[0] "{n} programma distinto"
 msgstr[1] "{n} programmi distinti"
 
 #: usr/local/bin/zeta-selftest:61
-#: usr/local/bin/zeta-selftest:1890
+#: usr/local/bin/zeta-selftest:1969
 msgid "missing: {names}"
 msgstr "mancano: {names}"
 
@@ -10778,97 +10791,97 @@ msgid_plural "{n} correct cases"
 msgstr[0] "{n} caso giusto"
 msgstr[1] "{n} casi giusti"
 
-#: usr/local/bin/zeta-selftest:651
+#: usr/local/bin/zeta-selftest:678
 msgid "wrong AppImage key: {cases}"
 msgstr "chiave delle AppImage sbagliata: {cases}"
 
-#: usr/local/bin/zeta-selftest:670
+#: usr/local/bin/zeta-selftest:697
 msgid "one AppImage, several entries: {names}"
 msgstr "una AppImage, più voci: {names}"
 
-#: usr/local/bin/zeta-selftest:672
+#: usr/local/bin/zeta-selftest:699
 msgid "entries not named after their key: {names}"
 msgstr "voci che non portano il nome della loro chiave: {names}"
 
-#: usr/local/bin/zeta-selftest:673
+#: usr/local/bin/zeta-selftest:700
 msgid "{n} AppImage in the menu, one entry each"
 msgid_plural "{n} AppImages in the menu, one entry each"
 msgstr[0] "{n} AppImage nel menu, una voce ciascuna"
 msgstr[1] "{n} AppImage nel menu, una voce ciascuna"
 
-#: usr/local/bin/zeta-selftest:701
+#: usr/local/bin/zeta-selftest:728
 msgid "{n} type, handled"
 msgid_plural "{n} types, all handled"
 msgstr[0] "{n} tipo, gestito"
 msgstr[1] "{n} tipi, tutti gestiti"
 
-#: usr/local/bin/zeta-selftest:717
+#: usr/local/bin/zeta-selftest:74
+msgid "skipped (outside the graphical session)"
+msgstr "saltata (fuori dalla sessione grafica)"
+
+#: usr/local/bin/zeta-selftest:744
 msgid "{n} format covered"
 msgid_plural "{n} formats covered"
 msgstr[0] "{n} formato coperto"
 msgstr[1] "{n} formati coperti"
 
-#: usr/local/bin/zeta-selftest:733
+#: usr/local/bin/zeta-selftest:760
 msgid "missing: {missing}; too short: {short}"
 msgstr "mancano: {missing}; troppo corti: {short}"
 
-#: usr/local/bin/zeta-selftest:736
+#: usr/local/bin/zeta-selftest:763
 msgid "4 documents, {n} component listed"
 msgid_plural "4 documents, {n} components listed"
 msgstr[0] "4 documenti, {n} componente elencato"
 msgstr[1] "4 documenti, {n} componenti elencati"
 
-#: usr/local/bin/zeta-selftest:74
-msgid "skipped (outside the graphical session)"
-msgstr "saltata (fuori dalla sessione grafica)"
-
-#: usr/local/bin/zeta-selftest:767
+#: usr/local/bin/zeta-selftest:794
 msgid "no trace"
 msgstr "nessuna traccia"
 
-#: usr/local/bin/zeta-selftest:784
+#: usr/local/bin/zeta-selftest:811
 msgid "the computer is called “{name}” (chosen during installation)"
 msgstr "il computer si chiama «{name}» (scelto all'installazione)"
 
-#: usr/local/bin/zeta-selftest:786
+#: usr/local/bin/zeta-selftest:813
 msgid "the computer is called “{name}”"
 msgstr "il computer si chiama «{name}»"
 
-#: usr/local/bin/zeta-selftest:798
+#: usr/local/bin/zeta-selftest:825
 msgid "{free} GB free, threshold {threshold} GB -> loading allowed"
 msgstr "liberi {free} GB, soglia {threshold} GB -> caricamento permesso"
 
-#: usr/local/bin/zeta-selftest:800
+#: usr/local/bin/zeta-selftest:827
 msgid "{free} GB free, threshold {threshold} GB -> loading denied"
 msgstr "liberi {free} GB, soglia {threshold} GB -> caricamento negato"
 
-#: usr/local/bin/zeta-selftest:817
+#: usr/local/bin/zeta-selftest:844
 msgid "empty log"
 msgstr "registro vuoto"
 
-#: usr/local/bin/zeta-selftest:825
+#: usr/local/bin/zeta-selftest:852
 msgid "{n} open session, real"
 msgid_plural "{n} open sessions, all real"
 msgstr[0] "{n} sessione aperta, reale"
 msgstr[1] "{n} sessioni aperte, tutte reali"
 
-#: usr/local/bin/zeta-selftest:837
+#: usr/local/bin/zeta-selftest:864
 msgid "{path} is still there, in plain text"
 msgstr "c'è ancora {path} in chiaro"
 
-#: usr/local/bin/zeta-selftest:845
+#: usr/local/bin/zeta-selftest:872
 msgid "readable keys in: {names}"
 msgstr "chiavi leggibili in: {names}"
 
-#: usr/local/bin/zeta-selftest:854
+#: usr/local/bin/zeta-selftest:881
 msgid "ollama not installed"
 msgstr "ollama non installato"
 
-#: usr/local/bin/zeta-selftest:856
+#: usr/local/bin/zeta-selftest:883
 msgid "skipped (service stopped)"
 msgstr "saltata (servizio fermo)"
 
-#: usr/local/bin/zeta-selftest:858
+#: usr/local/bin/zeta-selftest:885
 msgid "version {version}, {n} model"
 msgid_plural "version {version}, {n} models"
 msgstr[0] "versione {version}, {n} modello"
@@ -10878,27 +10891,23 @@ msgstr[1] "versione {version}, {n} modelli"
 msgid "{phrase} -> {got} (expected {expected})"
 msgstr "{phrase} -> {got} (atteso {expected})"
 
-#: usr/local/bin/zeta-selftest:895
-msgid "today ({date}) in every request"
-msgstr "oggi ({date}) in ogni richiesta"
-
 #: usr/local/bin/zeta-selftest:91
 msgid "{n} phrase recognized"
 msgid_plural "{n} phrases recognized"
 msgstr[0] "{n} frase riconosciuta"
 msgstr[1] "{n} frasi riconosciute"
 
-#: usr/local/bin/zeta-selftest:920
+#: usr/local/bin/zeta-selftest:927
+msgid "today ({date}) in every request"
+msgstr "oggi ({date}) in ogni richiesta"
+
+#: usr/local/bin/zeta-selftest:968
+msgid "{n} questions: fixed system prompt, history cut {cuts} times"
+msgstr "{n} domande: prompt di sistema fisso, cronologia tagliata {cuts} volte"
+
+#: usr/local/bin/zeta-selftest:994
 msgid "within {local} tokens (local), {cloud} (online)"
 msgstr "entro {local} token (locale), {cloud} (online)"
-
-#: usr/local/bin/zeta-selftest:964
-msgid "off until the user says yes"
-msgstr "spenta finché l'utente non dice sì"
-
-#: usr/local/bin/zeta-selftest:987
-msgid "title, address, date and excerpt"
-msgstr "titolo, indirizzo, data ed estratto"
 
 #: usr/local/bin/zeta-server:102
 msgid "incomplete IPv6 address (missing “]”)"
@@ -12293,7 +12302,7 @@ msgid "Text recognition is not installed (tesseract)."
 msgstr "Il riconoscimento del testo non è installato (tesseract)."
 
 #: usr/local/bin/zeta-text-capture:136
-#: usr/local/bin/zeta-wallpaper:100
+#: usr/local/bin/zeta-wallpaper:115
 msgid "File not found: {path}"
 msgstr "File non trovato: {path}"
 
@@ -12516,15 +12525,15 @@ msgstr "Livello non valido: serve un numero da 0 a 100."
 msgid "Usage: zeta-volume up [step] | down [step] | mute | set <0-100>"
 msgstr "Uso: zeta-volume up [passo] | down [passo] | mute | set <0-100>"
 
-#: usr/local/bin/zeta-wallpaper:113
+#: usr/local/bin/zeta-wallpaper:128
 msgid "Could not copy the image: {error}"
 msgstr "Impossibile copiare l'immagine: {error}"
 
-#: usr/local/bin/zeta-wallpaper:123
+#: usr/local/bin/zeta-wallpaper:138
 msgid "Invalid mode. Use: {modes}"
 msgstr "Modo non valido. Usa: {modes}"
 
-#: usr/local/bin/zeta-wallpaper:133
+#: usr/local/bin/zeta-wallpaper:148
 msgid "zeta-wallpaper — ZETA RAYS desktop wallpaper.\n\n  zeta-wallpaper apply                apply the saved wallpaper (at session start)\n  zeta-wallpaper set <file> [mode]    use an image chosen by the user\n  zeta-wallpaper mode <mode>          change only how the image is fitted\n  zeta-wallpaper reset                go back to the ZETA RAYS wallpaper generated from the accent color\n  zeta-wallpaper get                  print the current choice (path and mode)\n\nModes (as in swaybg): fill, fit, center, tile, stretch.\nThe choice is saved in ~/.config/zeta/wallpaper.json and survives a restart.\n"
 msgstr "zeta-wallpaper — sfondo della scrivania di ZETA RAYS.\n\n  zeta-wallpaper apply                applica lo sfondo salvato (all'avvio sessione)\n  zeta-wallpaper set <file> [modo]    usa un'immagine scelta dall'utente\n  zeta-wallpaper mode <modo>          cambia solo l'adattamento\n  zeta-wallpaper reset                torna allo sfondo ZETA RAYS generato dal colore\n  zeta-wallpaper get                  stampa la scelta attuale (percorso e modo)\n\nModi (come swaybg): fill (riempi), fit (adatta), center (centrato),\ntile (affiancato), stretch (allargato).\nLa scelta è salvata in ~/.config/zeta/wallpaper.json e sopravvive al riavvio.\n"
 
@@ -12893,7 +12902,7 @@ msgid "Allow? [y/N] "
 msgstr "Autorizzi? [s/N] "
 
 #: usr/local/bin/zeta:58
-#: usr/local/bin/zeta-core:442
+#: usr/local/bin/zeta-core:444
 msgid "Search the web? This sends your question to {services}."
 msgstr "Cercare sul web? La tua domanda viene inviata a {services}."
 
@@ -12902,7 +12911,7 @@ msgid "[y]es, [a]lways, [n]o: "
 msgstr "[s]ì, [a] sempre, [n]o: "
 
 #: usr/local/bin/zeta:91
-#: usr/local/bin/zeta-core:522
+#: usr/local/bin/zeta-core:524
 msgid "Sources (retrieved {date}):"
 msgstr "Fonti (consultate il {date}):"
 

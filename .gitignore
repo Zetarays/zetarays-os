@@ -32,3 +32,6 @@ __pycache__/
 # Compiled translations (build.sh generates them from po/)
 live-build/config/includes.chroot/usr/share/locale/*/LC_MESSAGES/zetarays.mo
 po/zetarays.pot
+
+# Written by build.sh from VERSION
+live-build/config/includes.chroot/usr/share/zeta/version

@@ -697,10 +697,11 @@ Anything else
   - Suspend, Bluetooth and the microphone depend on the hardware and were
     tested in virtual machines only.
   - The local model (Qwen3 4B Instruct) runs on the computer's processor:
-    on computers without a fast processor the first answer can take some
-    seconds. Its knowledge stops at its training date: for current facts
-    turn on "Search the web" in Settings > AI (off by default), otherwise ZETA
-    says it cannot verify them.
+    the first words come in a second or two, then the reply is written at
+    the speed of the processor (about six words a second on an Intel N100).
+    Its knowledge stops at its training date: questions about current facts
+    are looked up on Wikipedia (Settings > AI, on by default); with the
+    search off ZETA says it cannot verify them.
   - Online AI services need your own key and a working internet connection.
   - Some images on web pages exist only inside the page ("blob" images):
     Firefox cannot hand them over by dragging. Right-click them and choose

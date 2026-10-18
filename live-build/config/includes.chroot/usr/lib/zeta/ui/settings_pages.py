@@ -809,7 +809,10 @@ class PrintersPage(Adw.PreferencesPage):
         pieces.append(s["connection"])
         if s["jobs"]:
             pieces.append(tr("{n} queued").format(n=s["jobs"]))
-        r = Adw.ActionRow(title=s["description"], subtitle=" · ".join(pieces), use_markup=False)
+        # markup off before the text: printer names may contain "&"
+        r = Adw.ActionRow(use_markup=False)
+        r.set_title(s["description"])
+        r.set_subtitle(" · ".join(pieces))
         r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
         if s["state"] == "stopped":
             b = Gtk.Button(label=tr("Resume"), valign=Gtk.Align.CENTER)
@@ -882,7 +885,9 @@ class PrintersPage(Adw.PreferencesPage):
             below = t["connection"]
             if t["model"] and t["model"].lower() not in t["name"].lower():
                 below += " · " + t["model"]
-            r = Adw.ActionRow(title=t["name"], subtitle=below, use_markup=False)
+            r = Adw.ActionRow(use_markup=False)
+            r.set_title(t["name"])
+            r.set_subtitle(below)
             r.add_prefix(Gtk.Image(icon_name="zeta-printer"))
             b = Gtk.Button(label=tr("Add"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
             b.connect("clicked", lambda btn, t=t: self._add(btn, t))

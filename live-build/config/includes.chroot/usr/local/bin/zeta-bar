@@ -27,12 +27,27 @@ bars_and_screens() {   # prints "bars screens"
         <<<"$j" 2>/dev/null || echo "0 0"
 }
 
+# More bars than screens while a single Waybar runs can be a passing state
+# (a screen just turned on, a reload in progress): restarting the bar then
+# changes the usable area and every window moves, which looked like windows
+# pulsing. That case must be seen twice in a row (the watchdog checks every
+# minute); two Waybar processes are a certain duplicate.
+SUSPECT="${XDG_RUNTIME_DIR:-/tmp}/zeta-bar.suspect"
+
 check() {
     local n bars screens
     n=$(processes)
     [ "$n" -eq 0 ] && return 0          # the watchdog restarts it
     read -r bars screens < <(bars_and_screens)
+    if [ "$n" -le 1 ] && [ "$screens" -gt 0 ] && [ "$bars" -gt "$screens" ] && [ ! -e "$SUSPECT" ]; then
+        : > "$SUSPECT"
+        return 0
+    fi
+    if [ "$n" -le 1 ] && { [ "$screens" -eq 0 ] || [ "$bars" -le "$screens" ]; }; then
+        rm -f "$SUSPECT"
+    fi
     if [ "$n" -gt 1 ] || { [ "$screens" -gt 0 ] && [ "$bars" -gt "$screens" ]; }; then
+        rm -f "$SUSPECT"
         logger -t zeta-bar "duplicate bars (processes $n, bars $bars, screens $screens): restarting" 2>/dev/null
         pkill -u "$(id -u)" -x waybar
         # if some do not exit, keep trying

@@ -107,16 +107,21 @@ class OllamaProvider(Provider):
         """Load the model into memory without generating anything.
 
         This removes the wait on first use: from cold, the model takes tens of
-        seconds to load, then answers in fractions of a second.
+        seconds to load, then answers in fractions of a second. The system
+        prompt is read now too (the same text every question starts with):
+        the model keeps it in its cache, so the first question only costs
+        its own tokens.
         """
         if not resources.memory_for_model(self._model_gb()):
             return False
         try:
             # same options as the questions: a different context size would
             # make Ollama load the model a second time at the first question
-            payload = json.dumps({"model": self._model(), "messages": [],
+            from ..registry import current_system_prompt
+            payload = json.dumps({"model": self._model(), "stream": False,
+                                  "messages": [{"role": "system", "content": current_system_prompt()}],
                                   "keep_alive": self.KEEP_ALIVE,
-                                  "options": self.load_options()}).encode()
+                                  "options": dict(self.load_options(), num_predict=1)}).encode()
             req = urllib.request.Request(self._base() + "/api/chat", data=payload,
                                          headers={"content-type": "application/json"})
             with urllib.request.urlopen(req, timeout=300) as resp:
@@ -145,15 +150,15 @@ class OllamaProvider(Provider):
         out = []
         if self.config.system:
             out.append({"role": "system", "content": self.config.system})
-        # a small local model with a long history loses track and answers
-        # old questions: the last few exchanges are enough
-        recent = messages[-self.MAX_HISTORY:]
+        # The history arrives already limited by the assistant (a few turns,
+        # cut in blocks: memory.history_budget, Assistant._window). A second
+        # sliding limit here (the last 8 messages) moved the start of the
+        # prompt at every question and made the model reread everything.
+        recent = list(messages)
         while recent and recent[0].role != "user":
             recent = recent[1:]
         out.extend({"role": m.role, "content": m.content} for m in recent)
         return out
-
-    MAX_HISTORY = 8
 
     # Short replies: with a small model a long reply almost always rambles
     # and makes the user wait for nothing.
@@ -203,7 +208,20 @@ class OllamaProvider(Provider):
         reply = Reply(text=data.get("message", {}).get("content", ""))
         reply.input_tokens = data.get("prompt_eval_count", 0)
         reply.output_tokens = data.get("eval_count", 0)
+        self._record_speed(data)
         return reply
+
+    @staticmethod
+    def _record_speed(ev: dict) -> None:
+        """Ollama's timings of this request: the reading speed decides how
+        much history the next questions send (memory.history_budget)."""
+        try:
+            resources.record_speed(int(ev.get("prompt_eval_count") or 0),
+                                   (ev.get("prompt_eval_duration") or 0) / 1e9,
+                                   int(ev.get("eval_count") or 0),
+                                   (ev.get("eval_duration") or 0) / 1e9)
+        except (TypeError, ValueError):
+            pass
 
     def stream(self, messages: list[Message],
                on_text: Callable[[str], None]) -> Reply:
@@ -230,4 +248,5 @@ class OllamaProvider(Provider):
             if ev.get("done"):
                 reply.input_tokens = ev.get("prompt_eval_count", reply.input_tokens)
                 reply.output_tokens = ev.get("eval_count", reply.output_tokens)
+                self._record_speed(ev)
         return reply

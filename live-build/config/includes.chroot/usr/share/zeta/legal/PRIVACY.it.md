@@ -59,12 +59,12 @@ Da quel momento valgono le condizioni e l'informativa **di quel provider**,
 non queste. ZETA RAYS non vede e non conserva nulla di quel traffico.
 **Senza chiave API, nessuna di queste connessioni avviene.**
 
-**Cercare informazioni aggiornate (spento di serie).** Un modello conosce il
+**Cercare informazioni aggiornate (acceso di serie).** Un modello conosce il
 mondo solo fino alla data del suo addestramento. Per le domande su fatti
 attuali (chi ricopre una carica, notizie, prezzi, versioni, meteo, risultati)
-ZETA può prima consultare fonti pubbliche, se lo permetti: la prima volta
-chiede ("Cercare sul web?", Sì / Sempre / No), e l'interruttore è in
-*Impostazioni › AI › Informazioni aggiornate*.
+ZETA consulta prima fonti pubbliche, così la risposta è aggiornata. Solo
+quelle domande: tutto il resto resta sul computer. Puoi spegnerlo con
+l'interruttore in *Impostazioni › AI › Informazioni aggiornate*.
 
 | Cosa | Dove va |
 |---|---|

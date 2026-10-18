@@ -8,14 +8,21 @@ or a reboot) or a single file in your home folder that you delete afterwards.
 
 ## What is already set
 
-The defaults were checked against the Hyprland 0.55.2 source code. They are
-the safe ones:
+Checked against the Hyprland 0.55.2 source code and written out in
+hyprland.lua (so a future version cannot change them silently); `zeta-selftest
+windows` checks that they are in force and that Hyprland reports no
+configuration error:
 
 | Setting | Value | Why it matters |
 |---|---|---|
+| `render:cm_enabled` (colour management) | off | GTK 4.18 apps otherwise draw through Hyprland's colour pipeline; no HDR content in ZETA RAYS |
+| `render:use_fp16` | off | experimental 16-bit internal buffer |
+| `render:send_content_type` | off | some monitors switch their own picture mode (brightness, colours) on it |
+| `render:cm_auto_hdr` | off | never switch to HDR by itself |
 | `misc:vrr` (variable refresh rate) | off | VRR makes some monitors flicker in brightness |
 | `render:direct_scanout` | off | direct scanout can show one wrong frame when it switches on or off |
 | `general:allow_tearing` | off | tearing on purpose, for games only |
+| window animations | fade only | `popin` resized the window at every frame while it opened; moves by ZETA are instant |
 | `debug:vfr` (draw only when something changes) | on | Hyprland's default |
 | `cursor:no_hardware_cursors` | auto (hardware cursor, except NVIDIA with VRR or two GPUs) | in virtual machines: software cursor |
 | GTK 4 renderer | OpenGL ("ngl") | GTK 4.18 tries Vulkan first, but the image has no Mesa Vulkan driver, so it falls back to OpenGL. Virtual machines use `cairo` (CPU) |

@@ -240,8 +240,10 @@ class LanguagePage(Adw.PreferencesPage):
                 self.gk.remove(r)
         self._keyboard_rows = []
         for i, code in enumerate(self.chosen):
-            line = Adw.ActionRow(title=self.keyboard_names.get(code, code), use_markup=False,
-                                 subtitle=tr("Default") if i == 0 else "")
+            # markup off before the text: names may contain "&"
+            line = Adw.ActionRow(use_markup=False)
+            line.set_title(self.keyboard_names.get(code, code))
+            line.set_subtitle(tr("Default") if i == 0 else "")
             if i > 0:
                 su = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER,
                                 tooltip_text=tr("Move up"))

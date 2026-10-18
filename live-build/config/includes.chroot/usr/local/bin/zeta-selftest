@@ -206,12 +206,39 @@ def proportional_preload():
     pre = resources.preload_allowed()
     # an 8 GB machine (the kernel sees ~7.7) must count as 8
     expected_preload = gb >= resources.PRELOAD_THRESHOLD
-    ok = (pre == expected_preload) and ka in ("1m", "2m", "5m", "10m", "30m")
+    ok = (pre == expected_preload) and ka in ("1m", "2m", "5m", "10m", "2h")
     return ok, tr("{gb} GB nominal -> preload={preload} keep_alive={keep}").format(
         gb="%.0f" % gb, preload=pre, keep=ka)
 
 
 # ---------------------------------------------------------------- windows
+@test("windows")
+def compositor_config_clean_and_calm():
+    """Hyprland accepts the whole configuration (no error banner) and the
+    picture settings that keep windows from flickering are in force: no
+    colour management, no FP16 buffer, no content type sent to the monitor,
+    no VRR, no direct scanout, no tearing, no window move animations."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    c, out, _ = _sh(["hyprctl", "configerrors"])
+    wrong = []
+    if c != 0 or out.strip():
+        wrong.append("configuration errors")
+    expected = {"render:cm_enabled": 0, "render:use_fp16": 0, "render:send_content_type": 0,
+                "render:cm_auto_hdr": 0, "render:direct_scanout": 0, "misc:vrr": 0,
+                "general:allow_tearing": 0}
+    for option, value in expected.items():
+        c, out, _ = _sh(["hyprctl", "-j", "getoption", option])
+        try:
+            data = json.loads(out)
+            got = data.get("int", data.get("bool", -1))      # boolean options say "bool"
+            if c != 0 or int(got) != value:
+                wrong.append(option)
+        except (ValueError, TypeError):
+            wrong.append(option)
+    return not wrong, _missing(wrong) if wrong else tr("no configuration errors, steady picture settings")
+
+
 @test("windows")
 def workspaces():
     """Workspace switching with the Hyprland 0.55 syntax."""
@@ -864,20 +891,25 @@ def ollama_manageable():
 @test("ai")
 def ai_prompt_has_today():
     """Every request, to every provider, carries today's date and the rule on
-    facts that change over time; a custom prompt cannot remove them."""
+    facts that change over time; a custom prompt cannot remove them. The
+    system prompt stays identical between questions (prefix cache of the
+    local model): the date travels in the note added to the question."""
     from datetime import date
     from intelligence import context
     from intelligence.registry import DEFAULT_SYSTEM, Registry
     from intelligence.providers.base import Message
     today = date.today().isoformat()
     prompt = context.system_prompt(DEFAULT_SYSTEM)
-    custom = context.system_prompt("You are a pirate.", web="off")
+    custom = context.system_prompt("You are a pirate.")
+    note = context.turn_note(web="off")
     wrong = []
-    if today not in prompt or "training" not in prompt:
-        wrong.append("default prompt")
-    if today not in custom or "cannot verify" not in custom:
-        wrong.append("custom prompt")
-    msgs = [Message("user", "hi")]
+    if "training" not in prompt or "training" not in custom:
+        wrong.append("rules")
+    if today in prompt or prompt != context.system_prompt(DEFAULT_SYSTEM):
+        wrong.append("fixed system prompt")
+    if today not in note or "cannot verify" not in note:
+        wrong.append("note")
+    msgs = [Message("user", context.with_note("hi", note))]
     reg = Registry()
     for pid in ("claude", "gemini", "openai", "deepseek", "ollama"):
         p = reg.get(pid)
@@ -893,6 +925,48 @@ def ai_prompt_has_today():
         if today not in json.dumps(payload):
             wrong.append(pid)
     return not wrong, _missing(wrong) if wrong else tr("today ({date}) in every request").format(date=today)
+
+
+@test("ai")
+def ai_prompt_prefix_stable():
+    """Speed of the local model: between questions the system prompt stays
+    identical and the history window does not slide at every question, so
+    the model only reads the new text (17 October 2026: it reread the whole
+    conversation and took over 60 s on an Intel N100)."""
+    from intelligence.assistant import Assistant
+    from intelligence.providers.base import Provider, ProviderConfig, Reply
+    seen = []
+
+    class Recorder(Provider):
+        uses_tools = False
+
+        def stream(self, messages, on_text):
+            seen.append((self.config.system, [m.content for m in messages]))
+            on_text("ok")
+            return Reply(text="ok " + "words " * 40)
+
+    a = Assistant(Recorder(ProviderConfig(name="test", label="Test", kind="local")))
+    a.memory.enabled = False
+    a.history = []
+    questions = _phrases("ai_prompt_prefix_stable")["questions"]
+    for q in questions:
+        a.respond(q, on_text=lambda c: None)
+    wrong = []
+    if len(seen) != len(questions):
+        wrong.append("requests")
+    if len({sysp for sysp, _ in seen}) != 1:
+        wrong.append("system prompt changes")
+    # the first message of the window changes only when the window is cut
+    starts = [msgs[0] for _, msgs in seen]
+    changes = sum(1 for x, y in zip(starts, starts[1:]) if x != y)
+    if changes > len(questions) // 3:
+        wrong.append("window slides (%d changes)" % changes)
+    # each request is the previous one plus the new turn (same beginning)
+    grown = sum(1 for (_, x), (_, y) in zip(seen, seen[1:]) if y[:len(x)] == x)
+    if grown < len(seen) - 1 - changes:
+        wrong.append("beginning rewritten")
+    return not wrong, _missing(wrong) if wrong else tr(
+        "{n} questions: fixed system prompt, history cut {cuts} times").format(n=len(questions), cuts=changes)
 
 
 @test("ai")
@@ -934,34 +1008,39 @@ def ai_time_sensitive_detection():
 
 
 @test("ai")
-def ai_web_lookup_off_by_default():
-    """Without the user's choice nothing is looked up on the web: a
-    time-sensitive question asks first, and with no answer stays offline."""
-    from intelligence import websearch
+def ai_web_lookup_on_by_default():
+    """Questions about current facts are looked up on the web by default
+    (only the shortened question goes out); a user who turned it off, or once
+    answered "No", stays offline, and then no old name is presented as
+    current (the model is told not to give one)."""
+    from intelligence import context, websearch
     from intelligence.assistant import Assistant
     from intelligence.providers.base import Provider, ProviderConfig
     wrong = []
-    if websearch.enabled({}) or websearch.mode({}) != "ask":
+    if not websearch.enabled({}) or websearch.mode({}) != "on":
         wrong.append("default")
     if websearch.mode({websearch.SETTING_DECLINED: True}) != "off":
         wrong.append("declined")
+    if websearch.mode({websearch.SETTING_ENABLED: False}) != "off":
+        wrong.append("turned off")
     calls = []
     real = websearch.lookup
-    websearch.lookup = lambda *a, **k: calls.append(a) or ([], True)
+    websearch.lookup = lambda *a, **k: calls.append(k) or ([], True)
     try:
         a = Assistant(Provider(ProviderConfig(name="test", label="Test", kind="local")))
-        state, _src = a._web_context(_phrases("ai_web_lookup_off_by_default")["question"], {}, None,
-                                     a.provider)
+        question = _phrases("ai_web_lookup_on_by_default")["question"]
+        state, _src = a._web_context(question, {}, None, a.provider)
+        if state != "failed" or len(calls) != 1 or not calls[0].get("compact"):
+            wrong.append("lookup by default")
+        calls.clear()
+        state, _src = a._web_context(question, {websearch.SETTING_ENABLED: False}, None, a.provider)
         if state != "off" or calls:
-            wrong.append("no consent")
-        asked = []
-        state, _src = a._web_context("who is the current pope?", {},
-                                     lambda services: asked.append(services) or "no", a.provider)
-        if not asked or calls or state != "off":
-            wrong.append("consent no")
+            wrong.append("off respected")
     finally:
         websearch.lookup = real
-    return not wrong, _missing(wrong) if wrong else tr("off until the user says yes")
+    if "Do not name who currently holds an office" not in context.turn_note(web="off"):
+        wrong.append("no stale names")
+    return not wrong, _missing(wrong) if wrong else tr("on by default, off when the user chooses")
 
 
 @test("ai")
@@ -972,7 +1051,7 @@ def ai_sources_formatting():
     data = _phrases("ai_sources_formatting")
     src = [websearch.Source(data["title"], data["url"], data["text"], "2026-10-17", "it.wikipedia.org")]
     block = context.format_sources(src)
-    prompt = context.system_prompt("base", web="sources", sources=src)
+    prompt = context.turn_note(web="sources", sources=src)
     article = data["article"]
     excerpt = websearch.best_excerpt(article, data["query"])
     wrong = []
@@ -1194,7 +1273,7 @@ def ai_ram_decisions():
         (8_000_000, 5_800_000, 0.0, False, "5m", True, False),     # 8 GB, normal use
         (8_000_000, 3_100_000, 0.0, False, "5m", False, False),    # 8 GB, busy: say so
         (3_900_000, 3_000_000, 2.0, False, "2m", True, False),     # 4 GB, small model
-        (16_100_000, 12_000_000, 0.0, True, "30m", True, False),   # 16 GB
+        (16_100_000, 12_000_000, 0.0, True, "2h", True, False),    # 16 GB
         (16_100_000, 400_000, 0.0, True, "1m", False, False),      # 16 GB, memory short now
     ]
     old = R.MEMINFO

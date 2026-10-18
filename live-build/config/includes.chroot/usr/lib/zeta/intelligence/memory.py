@@ -28,6 +28,25 @@ MAX_TURNS = 20     # how many user/assistant pairs to keep in context
 HISTORY_BUDGET = {"local": 1500, "cloud": 6000}
 HISTORY_TURNS = {"local": 6, "cloud": MAX_TURNS}
 
+# A local model rereads the whole history only now and then (after loading,
+# or when the window is cut): that reread must stay short on a slow processor.
+# The budget follows the speed measured on this computer (resources.py):
+# about REREAD_SECONDS of reading, between LOCAL_MIN and the maximum above.
+REREAD_SECONDS = 12
+LOCAL_MIN = 400
+LOCAL_UNKNOWN = 900            # before the first measurement
+
+
+def history_budget(kind: str) -> int:
+    """Token budget of the history for "local" or "cloud" models."""
+    if kind != "local":
+        return HISTORY_BUDGET["cloud"]
+    from .resources import prompt_speed
+    rate = prompt_speed()
+    if rate <= 0:
+        return LOCAL_UNKNOWN
+    return int(max(LOCAL_MIN, min(HISTORY_BUDGET["local"], rate * REREAD_SECONDS)))
+
 
 def approx_tokens(text: str) -> int:
     """About 4 characters per token (English and Italian), plus the

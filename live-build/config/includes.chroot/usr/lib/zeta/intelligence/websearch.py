@@ -36,7 +36,7 @@ from .providers.base import CancelToken, Canceled, get_json
 # websearch.json (see i18n_data.py)
 _DATA = load("websearch")
 
-SETTING_ENABLED = "web_lookup"            # bool, default False
+SETTING_ENABLED = "web_lookup"            # bool, default True (since 2.1)
 SETTING_DECLINED = "web_lookup_declined"  # «No» to the one-time question: don't ask again
 SETTING_DDG = "web_lookup_ddg"            # also DuckDuckGo Instant Answer, default False
 
@@ -44,6 +44,9 @@ TIMEOUT = 5.0                 # seconds per service
 MAX_BYTES = 512 * 1024        # a reply larger than this is discarded
 MAX_SOURCES = 3
 SNIPPET_CHARS = 700
+# local model (Ollama): 2 excerpts of 400 characters, about 250 tokens to read
+LOCAL_SOURCES = 2
+LOCAL_SNIPPET_CHARS = 400
 USER_AGENT = "ZETA-RAYS-OS/2.1 (https://zetarays.org; ZETA assistant web lookup)"
 _HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
@@ -59,14 +62,19 @@ class Source:
 
 # --------------------------------------------------------------- settings
 def enabled(settings: dict) -> bool:
-    return bool(settings.get(SETTING_ENABLED, False))
+    """On unless the user turned it off (Settings › AI) or once answered
+    "No" to the question that earlier versions asked."""
+    if settings.get(SETTING_DECLINED):
+        return False
+    return bool(settings.get(SETTING_ENABLED, True))
 
 
 def mode(settings: dict) -> str:
-    """"on", "ask" (never answered: ask once) or "off"."""
-    if enabled(settings):
-        return "on"
-    return "off" if settings.get(SETTING_DECLINED) else "ask"
+    """"on" or "off". ("ask", the one-time question of the first 2.1
+    builds, is kept by the assistant for a setting written by hand.)"""
+    if settings.get(SETTING_ENABLED) == "ask" and not settings.get(SETTING_DECLINED):
+        return "ask"
+    return "on" if enabled(settings) else "off"
 
 
 def services(settings: dict) -> list[str]:
@@ -215,7 +223,8 @@ def best_excerpt(extract: str, query: str, limit: int = SNIPPET_CHARS) -> str:
 _LANG_OK = re.compile(r"^[a-z]{2,3}$")
 
 
-def _wikipedia(query: str, lang: str, token: CancelToken | None, limit: int) -> list[Source]:
+def _wikipedia(query: str, lang: str, token: CancelToken | None, limit: int,
+               snippet: int = SNIPPET_CHARS) -> list[Source]:
     if not _LANG_OK.match(lang):
         lang = "en"
     params = {"action": "query", "format": "json", "formatversion": "2", "generator": "search",
@@ -236,7 +245,7 @@ def _wikipedia(query: str, lang: str, token: CancelToken | None, limit: int) -> 
         text = (title + " " + p.get("extract", "")[:3000]).lower()
         if out and stems and sum(1 for st in stems if st in text) < 0.6 * len(stems):
             continue
-        out.append(Source(title=title, url=link, snippet=best_excerpt(p.get("extract", ""), query),
+        out.append(Source(title=title, url=link, snippet=best_excerpt(p.get("extract", ""), query, snippet),
                           retrieved=today, site="%s.wikipedia.org" % lang))
     return out
 
@@ -258,15 +267,20 @@ def _duckduckgo(query: str, token: CancelToken | None) -> list[Source]:
 
 
 def lookup(text: str, settings: dict, lang: str = "en",
-           token: CancelToken | None = None) -> tuple[list[Source], bool]:
+           token: CancelToken | None = None, compact: bool = False) -> tuple[list[Source], bool]:
     """(sources, reachable). reachable False = every service failed (offline,
-    timeout): the caller says that current facts can't be verified."""
+    timeout): the caller says that current facts can't be verified.
+
+    compact: for a model running on this computer, fewer and shorter
+    excerpts (LOCAL_SOURCES of LOCAL_SNIPPET_CHARS): every character is
+    text the processor must read before the first word of the answer."""
+    max_sources, snippet = (LOCAL_SOURCES, LOCAL_SNIPPET_CHARS) if compact else (MAX_SOURCES, SNIPPET_CHARS)
     query = make_query(text)
     if not query:
         return [], True
     lang = question_language(text, lang)
     use_ddg = bool(settings.get(SETTING_DDG))
-    key = (query.lower(), lang, use_ddg)
+    key = (query.lower(), lang, use_ddg, compact)
     now = time.monotonic()
     with _cache_lock:
         hit = _CACHE.get(key)
@@ -285,7 +299,7 @@ def lookup(text: str, settings: dict, lang: str = "en",
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             failures.append(name)
 
-    jobs = [threading.Thread(target=run, args=("wiki", _wikipedia, query, lang, token, 2), daemon=True)]
+    jobs = [threading.Thread(target=run, args=("wiki", _wikipedia, query, lang, token, 2, snippet), daemon=True)]
     if use_ddg:
         jobs.append(threading.Thread(target=run, args=("ddg", _duckduckgo, query, token), daemon=True))
     for j in jobs:
@@ -297,7 +311,7 @@ def lookup(text: str, settings: dict, lang: str = "en",
     sources = list(results.get("wiki", []))
     # nothing in the question's language: the English Wikipedia
     if not sources and lang != "en" and "wiki" in results:
-        run("wiki_en", _wikipedia, query, "en", token, 2)
+        run("wiki_en", _wikipedia, query, "en", token, 2, snippet)
         sources = list(results.get("wiki_en", []))
     sources += results.get("ddg", [])
     # same page from two services: keep one
@@ -306,7 +320,7 @@ def lookup(text: str, settings: dict, lang: str = "en",
         if s.url not in seen:
             seen.add(s.url)
             unique.append(s)
-    unique = unique[:MAX_SOURCES]
+    unique = unique[:max_sources]
     reachable = bool(results) or not failures
     if reachable:
         with _cache_lock:

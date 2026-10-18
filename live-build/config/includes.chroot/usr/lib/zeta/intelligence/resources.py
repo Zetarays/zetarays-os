@@ -14,7 +14,7 @@ afford. The goal: the whole system runs well on 8 GB.
                                        model or an online service
   6-11 GB  never       5 minutes       check free memory (8 GB machines)
   12-15    never       10 minutes      check free memory
-  16+ GB   yes         30 minutes      check free memory
+  16+ GB   yes         2 hours         check free memory
 
 "Check free memory" = MemAvailable must hold the model plus a margin for the
 rest of the system; otherwise ZETA says so (and suggests qwen3:1.7b or an
@@ -24,7 +24,9 @@ set by the build hook).
 """
 from __future__ import annotations
 
+import json
 import math
+import os
 
 from i18n import tr
 
@@ -37,7 +39,7 @@ MEMINFO = "/proc/meminfo"
 # it loads when ZETA is opened or asked (zeta-core starts it while the user
 # types) and is released after keep_alive().
 PRELOAD_THRESHOLD = 16.0    # below: the model is not loaded at login
-COMFORTABLE_THRESHOLD = 16.0  # from here: kept warm for half an hour
+COMFORTABLE_THRESHOLD = 16.0  # from here: kept warm for two hours
 ROOMY_THRESHOLD = 12.0      # from here: ten minutes
 # Below this much RAM a model like the default one (3.7 GB loaded) leaves too
 # little for the desktop: it is unloaded almost right after use, and Settings
@@ -107,7 +109,61 @@ def keep_alive() -> str:
         return "5m"
     if gb < COMFORTABLE_THRESHOLD:
         return "10m"
-    return "30m"
+    # 16 GB and more: 3.7 GB are a small share, and a reload costs seconds
+    # of disk plus rereading the conversation on a slow processor
+    return "2h"
+
+
+# --- speed of the local model on this computer ------------------------------
+# Measured from Ollama's own timings of real questions (prompt tokens read
+# per second), averaged, kept in the user's cache folder.
+SPEED_FILE = os.path.expanduser("~/.cache/zeta/ai-speed.json")
+
+
+# Reading a prompt on a processor is about this many times faster than
+# writing the reply (llama.cpp on CPU; measured 4-5x on the test machines).
+# Ollama's prompt count includes the tokens it took from its cache, so the
+# reading speed it implies is inflated whenever the cache worked: the writing
+# speed, always measured on real work, is the reliable figure.
+READ_PER_WRITE = 4.0
+
+
+def prompt_speed() -> float:
+    """Prompt tokens per second this computer reads (0.0 = not measured yet)."""
+    try:
+        with open(SPEED_FILE) as f:
+            return float(json.load(f).get("gen_tps", 0.0)) * READ_PER_WRITE
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
+
+
+def record_speed(prompt_tokens: int, prompt_seconds: float,
+                 gen_tokens: int = 0, gen_seconds: float = 0.0) -> None:
+    """Remember the writing speed of a real request (and, for reference,
+    the apparent reading speed). Only replies of some length count: short
+    ones are dominated by overhead."""
+    if gen_tokens < 16 or gen_seconds <= 0:
+        return
+    try:
+        with open(SPEED_FILE) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    for key, rate in (("prompt_tps", prompt_tokens / prompt_seconds if prompt_seconds > 0 else 0),
+                      ("gen_tps", gen_tokens / gen_seconds)):
+        if rate > 0:
+            old = float(data.get(key, 0) or 0)
+            data[key] = round(rate if old <= 0 else old * 0.7 + rate * 0.3, 2)
+    try:
+        os.makedirs(os.path.dirname(SPEED_FILE), exist_ok=True)
+        tmp = SPEED_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, SPEED_FILE)
+    except OSError:
+        pass
 
 
 def preload_allowed() -> bool:

@@ -261,9 +261,6 @@
    "what is the capital of France"
   ]
  },
- "ai_web_lookup_off_by_default": {
-  "question": "chi è l'attuale presidente degli Stati Uniti?"
- },
  "ai_sources_formatting": {
   "title": "Presidente degli Stati Uniti d'America",
   "url": "https://it.wikipedia.org/wiki/Presidente_degli_Stati_Uniti_d%27America",
@@ -589,5 +586,24 @@
    "verde": "green",
    "bianco": "white"
   }
+ },
+ "ai_prompt_prefix_stable": {
+  "questions": [
+   "spiegami in breve cosa e un buco nero",
+   "e quanto e grande il piu grande conosciuto?",
+   "write a short poem about the sea",
+   "traducilo in italiano",
+   "dammi tre idee per una cena veloce",
+   "explain what a firewall does",
+   "e in parole semplici?",
+   "scrivi una frase di auguri per un compleanno",
+   "make it shorter",
+   "consigliami un libro di fantascienza",
+   "why do cats purr?",
+   "riassumi tutto in una riga"
+  ]
+ },
+ "ai_web_lookup_on_by_default": {
+  "question": "chi è l'attuale presidente degli Stati Uniti?"
  }
 }

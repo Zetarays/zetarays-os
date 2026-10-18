@@ -59,12 +59,12 @@ From then on, **that provider's** terms and privacy policy apply, not these.
 ZETA RAYS neither sees nor keeps any of that traffic.
 **Without an API key, none of these connections take place.**
 
-**Looking up current information (off by default).** A model only knows
+**Looking up current information (on by default).** A model only knows
 the world up to its training date. For questions about current facts (who
-holds an office, news, prices, versions, weather, results) ZETA can look up
-public sources first, if you allow it: it asks the first time ("Search the
-web?", Yes / Always / No), and the switch is in *Settings › AI › Current
-Information*.
+holds an office, news, prices, versions, weather, results) ZETA looks up
+public sources first, so that the answer is current. Only those questions
+do: everything else stays on the computer. You can turn it off with the
+switch in *Settings › AI › Current Information*.
 
 | What | Where it goes |
 |---|---|

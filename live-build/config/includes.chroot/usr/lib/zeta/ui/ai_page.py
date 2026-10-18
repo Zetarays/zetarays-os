@@ -483,11 +483,13 @@ class AIPage:
         system_name = language_label(language())
         modes = ["auto", "system"]
         row = Adw.ComboRow(
-            use_markup=False,          # "Language & Region": a plain ampersand
             title=tr("Reply language"),
-            subtitle=tr("The language set in Language & Region: {language}").format(language=system_name),
             model=Gtk.StringList.new([tr("Same as my message"),
                                       tr("Always {language}").format(language=system_name)]))
+        # "Language & Region" has a plain ampersand: markup off before the
+        # text is set (as a constructor argument it was parsed as markup first)
+        row.set_use_markup(False)
+        row.set_subtitle(tr("The language set in Language & Region: {language}").format(language=system_name))
         current = load_settings().get(REPLY_LANGUAGE, "auto")
         row.set_selected(modes.index(current) if current in modes else 0)
 

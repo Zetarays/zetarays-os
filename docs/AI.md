@@ -118,6 +118,20 @@ when memory is short), Serena or Paola (Piper); in English with Lessac
 (Piper); other languages with espeak-ng. Settings › AI › Voice chooses the
 voice and the speed. Nothing leaves the computer.
 
+## Speed of the local model
+
+On a processor every token of the prompt is read before the first word of
+the answer (an Intel N100 reads about 20 a second), so ZETA sends the local
+model as little new text as possible. The system prompt (persona and rules)
+is identical for every question; the date, the state of the web lookup, the
+sources and the reply language are a short note added to the question and
+kept with it in the history, so Ollama reuses everything it has already read
+(prefix cache). The history is shortened in blocks, not one turn at a time,
+and its size follows the speed measured on the computer
+(`~/.cache/zeta/ai-speed.json`). When the model is loaded in advance (at
+login with 16 GB, or when ZETA opens) the fixed prompt is read at the same
+time. Web sources for the local model are two excerpts of 400 characters.
+
 ## Memory
 
 Local, in `~/.local/share/zeta/history.jsonl`; passwords typed in a request
