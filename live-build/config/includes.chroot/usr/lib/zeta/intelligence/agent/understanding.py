@@ -233,6 +233,10 @@ def _adjustments(t):
             re.search(r"\bwhat time is it\b|\bwhat(?:'s| is) the (?:time|date)\b|\bwhat day is (?:it|today)\b|"
                       r"\bwhat(?:'s| is) today(?:'s date)?\b|\bwhat date is it\b|\bthe time\b$", t):
         return "current_time", {}
+    if is_definition_question(t):
+        # «what is a CPU?»: knowledge, for the model, not a reading of the
+        # current usage (seen in 2.1: «CPU at 0%»)
+        return None
     if re.search(_W["system_status.1"], t) or \
             re.search(r"\bhow much (?:ram|memory)\b|\b(?:ram|memory) usage\b|\bfree (?:ram|memory)\b", t):
         return "system_status", {"what": "ram"}
@@ -577,6 +581,14 @@ def _is_program(name):
     if not name or "." in name.rstrip(".") and not name.endswith((".app",)):
         return False
     return bool(S.find_app(name) or shutil.which(name) or shutil.which(name.lower()))
+
+
+def is_definition_question(text: str) -> bool:
+    """«what is a CPU?», «what is RAM for?» (and the same in Italian, see
+    understanding.json): a question about what something is, not about how
+    it is being used right now."""
+    t = S.norm(text or "")
+    return bool(re.search(_W["definition_question"], t)) and not re.search(_W["usage_words"], t)
 
 
 def understanding(text: str):

@@ -55,6 +55,10 @@ ALLOWED = {
         "history: the release in which these tests were added",
     ("tools/check-version.py", ""):
         "this file names old versions on purpose",
+    ("docs/MIGRATION-2.5.md", ""):
+        "the migration guide names the previous release on purpose",
+    ("live-build/config/includes.chroot/usr/share/zeta/docs/MIGRATION-2.5.md", ""):
+        "the migration guide names the previous release on purpose",
     ("tools/data/check-version.json", ""):
         "the data of this check names old versions on purpose",
 }

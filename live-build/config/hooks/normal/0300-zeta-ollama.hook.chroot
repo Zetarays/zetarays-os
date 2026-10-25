@@ -93,6 +93,13 @@ CPUWeight=30
 MemoryHigh=45%
 MemoryMax=60%
 OOMPolicy=stop
+# Only this computer can reach the model (Ollama's default, written out so
+# that no other setting can widen it), and Ollama's own cloud features (the
+# "-cloud" models that run on ollama.com, its web search) are switched off:
+# ZETA RAYS answers with local models only. The log says
+# "Ollama cloud disabled: true" (checked by zeta-selftest).
+Environment="OLLAMA_HOST=127.0.0.1:11434"
+Environment="OLLAMA_NO_CLOUD=1"
 # unload the model from RAM after 5 minutes of inactivity
 Environment="OLLAMA_KEEP_ALIVE=5m"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
@@ -115,36 +122,33 @@ WantedBy=multi-user.target
 UNIT
 systemctl enable ollama.service >/dev/null 2>&1
 
-# The model (qwen3:4b-instruct, ~2.5 GB) is already in the image: it lives in
-# includes.chroot/usr/share/ollama/.ollama/models and is identical for all
-# architectures (it's just weights). Downloading it here with "ollama pull"
-# depended on the network and on the emulated Ollama server: under x86
-# emulation it timed out and the amd64 image shipped without the model. Now it
-# is downloaded only if, for some reason, it is missing.
-export HOME=/usr/share/ollama
-export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
-MODEL=qwen3:4b-instruct
-MANIFEST=/usr/share/ollama/.ollama/models/manifests/registry.ollama.ai/library/${MODEL%%:*}/${MODEL#*:}
-if [ -f "$MANIFEST" ]; then
-    echo "ZETA RAYS: model $MODEL already present in the image"
-else
-    echo "ZETA RAYS: model missing, trying to download it…"
-    /usr/bin/ollama serve >/tmp/ollama-serve.log 2>&1 &
-    OPID=$!
-    i=0
-    while [ $i -lt 40 ]; do
-        curl -fsS http://127.0.0.1:11434/ >/dev/null 2>&1 && break
-        i=$((i + 1)); sleep 2
+# The models are already in the image: they live in
+# includes.chroot/usr/share/ollama/.ollama/models (put there by
+# tools/download-ai-model.sh, digests verified) and are identical for all
+# architectures (only weights). Nothing is downloaded here: under x86
+# emulation a download timed out and an image shipped without its model.
+# Every manifest must have all its files, or the build stops.
+M=/usr/share/ollama/.ollama/models
+found=0
+for manifest in "$M"/manifests/registry.ollama.ai/library/*/*; do
+    [ -f "$manifest" ] || continue
+    model="$(basename "$(dirname "$manifest")"):$(basename "$manifest")"
+    for d in $(python3 -c "
+import json, sys
+m = json.load(open(sys.argv[1]))
+print(m['config']['digest'])
+for layer in m['layers']: print(layer['digest'])" "$manifest"); do
+        if [ ! -s "$M/blobs/$(echo "$d" | tr ':' '-')" ]; then
+            echo "ZETA RAYS: ERROR - model $model is missing $d" >&2
+            exit 1
+        fi
     done
-    if timeout 2400 /usr/bin/ollama pull "$MODEL" >/tmp/ollama-pull.log 2>&1; then
-        echo "ZETA RAYS: model $MODEL downloaded"
-    else
-        echo "ZETA RAYS: ERROR - no model for the AI." >&2
-        kill "$OPID" 2>/dev/null
-        exit 1
-    fi
-    kill "$OPID" 2>/dev/null
-    wait "$OPID" 2>/dev/null
+    echo "ZETA RAYS: model $model present in the image"
+    found=$((found + 1))
+done
+if [ "$found" -eq 0 ]; then
+    echo "ZETA RAYS: ERROR - no AI model in the image (run tools/download-ai-model.sh)" >&2
+    exit 1
 fi
 chown -R ollama:ollama /usr/share/ollama
 

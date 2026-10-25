@@ -28,7 +28,12 @@ echo "ZETA RAYS: building hyprbars for Hyprland $HYPR_VER…"
 
 # Build-only packages: at the end exactly what was added here is removed
 # (no blind autoremove on the rest of the system).
-dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-before.txt
+# The list is kept outside /tmp and survives a failed run: when the build
+# resumes after a crash here (the emulated amd64 compiler can segfault), the
+# packages that run installed still count as added and are removed at the end.
+BEFORE=/var/lib/zeta-build/hyprbars-pkgs-before.txt
+mkdir -p /var/lib/zeta-build
+[ -s "$BEFORE" ] || dpkg-query -W -f='${Package}\n' | sort > "$BEFORE"
 BUILD_PKGS="build-essential pkg-config git hyprland-dev"
 # Patched Hyprland (hook 0350): headers of the same version and with the same
 # aquamarine 0.11 as the binary, not the newer ones from backports.
@@ -39,6 +44,7 @@ fi
 if ! apt-get install -y --no-install-recommends $BUILD_PKGS >/tmp/hyprbars-apt.log 2>&1; then
     echo "ZETA RAYS: build dependencies cannot be installed, skipping hyprbars"
     tail -5 /tmp/hyprbars-apt.log
+    rm -rf /var/lib/zeta-build
     exit 0
 fi
 
@@ -65,12 +71,18 @@ rm -rf /tmp/hyprland-plugins
 # Cleanup: the build tools would weigh hundreds of MB.
 # ONLY the packages that appeared during this hook are removed, nothing else.
 dpkg-query -W -f='${Package}\n' | sort > /tmp/hyprbars-pkgs-after.txt
-NEW_PKGS=$(comm -13 /tmp/hyprbars-pkgs-before.txt /tmp/hyprbars-pkgs-after.txt | tr '\n' ' ')
+NEW_PKGS=$(comm -13 "$BEFORE" /tmp/hyprbars-pkgs-after.txt | tr '\n' ' ')
 if [ -n "$NEW_PKGS" ]; then
     echo "ZETA RAYS: removing the build tools"
     apt-get purge -y $NEW_PKGS >/dev/null 2>&1
 fi
-rm -f /tmp/hyprbars-pkgs-before.txt /tmp/hyprbars-pkgs-after.txt
+rm -f /tmp/hyprbars-pkgs-after.txt
+rm -rf /var/lib/zeta-build
+# the build headers must be gone (they were left behind once, after a resume)
+if dpkg-query -W -f='${Status}' hyprland-dev 2>/dev/null | grep -q "install ok installed"; then
+    echo "ZETA RAYS: ERROR, the hyprbars build tools are still installed" >&2
+    exit 1
+fi
 apt-get clean
 
 # safety net: if the cleanup touched Hyprland, reinstall it

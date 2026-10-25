@@ -37,6 +37,20 @@ def build_group(toast):
     g = Adw.PreferencesGroup(
         title=tr("Voice"),
         description=tr("How ZETA reads its replies aloud. Everything stays on this computer."))
+    on = Adw.SwitchRow(title=tr("Read replies aloud"),
+                       subtitle=tr("Text and voice together; the voice starts with the first sentence"))
+    on.set_active(speech.enabled())
+
+    def toggled(w, _p):
+        try:
+            speech.set_enabled(w.get_active())
+        except OSError as e:
+            toast(tr("Choice not saved: {error}").format(error=e))
+            return
+        if not w.get_active():
+            speech.stop()
+    on.connect("notify::active", toggled)
+    g.add(on)
     for lang, name in LANGUAGES:
         voices = speech.installed_voices(lang)
         if not voices:
@@ -82,4 +96,22 @@ def build_group(toast):
             toast(tr("Speed saved"))
     speed_row.connect("notify::selected", set_speed)
     g.add(speed_row)
+
+    volumes = list(speech.VOLUMES)
+    vol_row = Adw.ComboRow(title=tr("Voice Volume"),
+                           subtitle=tr("Relative to the system volume"),
+                           model=Gtk.StringList.new(["%d%%" % v for v in volumes]))
+    vol_row.set_selected(volumes.index(speech.volume()))
+
+    def set_volume(r, _p):
+        i = r.get_selected()
+        if 0 <= i < len(volumes):
+            try:
+                speech.set_volume(volumes[i])
+            except (OSError, ValueError) as e:
+                toast(tr("Choice not saved: {error}").format(error=e))
+                return
+            toast(tr("Volume saved"))
+    vol_row.connect("notify::selected", set_volume)
+    g.add(vol_row)
     return g

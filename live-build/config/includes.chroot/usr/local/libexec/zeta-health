@@ -167,7 +167,7 @@ if systemctl is-enabled --quiet ollama 2>/dev/null && ! systemctl is-active --qu
         record "Ollama" "was stopped ($OLLAMA_RESULT): restarted"
     else
         notify ollama "$(gettext "The local AI won't start")" \
-            "$(printf "$(gettext 'The Ollama service is stopped (%s) and will not restart. ZETA can use an online service (Settings > AI).')" "$OLLAMA_RESULT")"
+            "$(printf "$(gettext 'The Ollama service is stopped (%s) and will not restart: ZETA cannot answer questions until it is started again (Settings > AI).')" "$OLLAMA_RESULT")"
     fi
 fi
 

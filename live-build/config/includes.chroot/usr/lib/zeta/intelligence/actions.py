@@ -30,7 +30,6 @@ from typing import Callable
 from i18n import tr, ntr
 from i18n_data import load
 
-from .providers.base import ToolSpec
 
 # The Italian and English names the user (or the model) may use for apps,
 # folders and Settings pages are language data: i18n-data/actions.json
@@ -84,10 +83,6 @@ class ActionEngine:
     # --- registration ---
     def register(self, action: Action) -> None:
         self.actions[action.name] = action
-
-    def tool_specs(self) -> list[ToolSpec]:
-        return [ToolSpec(name=a.name, description=a.description, schema=a.schema)
-                for a in self.actions.values()]
 
     # --- execution ---
     def run(self, name: str, args: dict, *, authorized: bool = False) -> ActionResult:

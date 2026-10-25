@@ -11,8 +11,8 @@
 # modifies files, services or packages, so it can be run on a machine that is
 # already struggling without making things worse.
 #
-# API keys never end up in the report: for each one we only say whether it is
-# there and how long it is.
+# Private data never ends up in the report: of the AI memory only sizes are
+# printed, never the conversation or the memories.
 set -u
 export TEXTDOMAIN=zetarays TEXTDOMAINDIR=/usr/share/locale
 command -v gettext >/dev/null 2>&1 || gettext() { printf '%s' "$1"; }
@@ -332,42 +332,20 @@ if [ -r "$CFG" ]; then
 else
     printf "$(gettext '(no saved configuration: %s does not exist)')\n" "$CFG"
 fi
-subsection "$(gettext "API keys: are they there? (only the length is printed, never the key)")"
-if has secret-tool; then
-    for p in claude gemini openai deepseek qwen perplexity mistral groq xai openrouter custom; do
-        V=$(timeout 6 secret-tool lookup zeta-provider "$p" 2>/dev/null)
-        RC=$?
-        if [ $RC -eq 124 ]; then printf "  %s: $(gettext 'secret-tool NOT RESPONDING (timed out)')\n" "$p"
-        elif [ -n "$V" ]; then printf "  %s: $(gettext 'present (%s characters)')\n" "$p" "${#V}"
-        else printf "  %s: $(gettext 'missing')\n" "$p"; fi
-    done
+subsection "$(gettext "local memory store (sizes only, never the content)")"
+DB="$HOME/.local/share/zeta/memory.db"
+if [ -e "$DB" ]; then
+    printf "$(gettext 'file: %s  (%s bytes, permissions %s)')\n" "$DB" "$(stat -c '%s' "$DB")" "$(stat -c '%a' "$DB")"
+    python3 -c "import sys; sys.path.insert(0, '/usr/lib/zeta')
+from intelligence import store; print(store.stats())" 2>&1 | tail -1
 else
-    echo "$(gettext "(secret-tool not installed)")"
+    echo "$(gettext "(no memory store yet)")"
 fi
-subsection "$(gettext "ZETA keys: encrypted (~/.config/zeta/keys/*.cred), names and sizes only")"
-C="$HOME/.config/zeta/keys"
-if [ -d "$C" ]; then
-    printf "$(gettext 'folder: %s (must be 700)')\n" "$(stat -c '%a' "$C")"
-    for f in "$C"/*.cred; do
-        [ -e "$f" ] || { echo "  $(gettext "(no saved keys)")"; break; }
-        printf "  %s: $(gettext '%s bytes, permissions %s')\n" "$(basename "$f" .cred)" "$(stat -c '%s' "$f")" "$(stat -c '%a' "$f")"
-    done
-else
-    echo "$(gettext "(no saved keys)")"
-fi
-[ -e "$HOME/.config/zeta/keys.json" ] && echo "$(gettext "WARNING: the old plain-text keys.json file is still there (it is converted the first time ZETA is used)")"
+subsection "$(gettext "who can reach the AI model (must be 127.0.0.1 only)")"
+ss -ltnH 2>/dev/null | awk '$4 ~ /:11434$/ {print "  " $4}' || true
 subsection "$(gettext "automatic health check (zeta-health)")"
 cat /run/zeta-health.txt 2>/dev/null || echo "$(gettext "(no check yet: it starts 3 minutes after power-on)")"
 journalctl -t zeta-health -b --no-pager -o short 2>/dev/null | tail -15
-subsection "$(gettext "is there a keyring that responds?")"
-if has busctl; then
-    busctl --user list 2>/dev/null | grep -i secret || echo "  $(gettext "no keyring (normal: the keys are encrypted with systemd-creds)")"
-else
-    echo "$(gettext "(busctl not available)")"
-fi
-subsection "$(gettext "ZETA key files (if used)")"
-f="$HOME/.config/zeta/keys.json"
-[ -r "$f" ] && printf "$(gettext '%s  permissions: %s')\n" "$f" "$(stat -c '%a %U:%G' "$f" 2>/dev/null)"
 subsection "$(gettext "ZETA action log (last 15)")"
 tail -15 "$HOME/.local/share/zeta/actions.log" 2>/dev/null || echo "$(gettext "(no log)")"
 
@@ -485,5 +463,5 @@ else
     printf "$(gettext 'Report: %s')\n" "$DEST"
     printf "$(gettext 'Lines: %s')\n" "$(wc -l < "$DEST")"
     echo
-    echo "$(gettext "Nothing was changed. The report contains no API keys.")"
+    echo "$(gettext "Nothing was changed. The report contains no conversation, memory or password.")"
 fi

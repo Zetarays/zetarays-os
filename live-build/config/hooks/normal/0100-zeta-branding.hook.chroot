@@ -116,6 +116,23 @@ chmod 0755 /etc/NetworkManager/dispatcher.d/90-zeta-bar
 chown root:root /usr/local/libexec/zeta-radio-region /etc/udev/rules.d/60-zeta-radio-region.rules
 chmod 0755 /usr/local/libexec/zeta-radio-region
 chmod 0644 /etc/udev/rules.d/60-zeta-radio-region.rules
+# The installer's boot loader step without the network: Debian's helper
+# installed GRUB with every package source enabled, and with the network up
+# (installer opened from the live desktop) apt fetched a GRUB from the
+# internet that did not fit the image: "could not install a package" near the
+# end of the installation. ZETA's version uses only the installation medium
+# (/usr/local/libexec/zeta-bootloader-config explains it).
+H=/usr/share/calamares/helpers/calamares-bootloader-config
+if [ -f "$H" ] && [ ! -L "$H" ]; then
+  dpkg-divert --local --rename --divert "$H.debian" --add "$H" >/dev/null
+fi
+ln -sf /usr/local/libexec/zeta-bootloader-config "$H"
+chown root:root /usr/local/libexec/zeta-bootloader-config
+chmod 755 /usr/local/libexec/zeta-bootloader-config
+[ "$(readlink -f "$H")" = /usr/local/libexec/zeta-bootloader-config ] || {
+  echo "ZETA RAYS: ERROR - installer boot loader step not replaced" >&2; exit 1; }
+echo "ZETA RAYS: installer boot loader step uses the installation medium only"
+
 # package sources of the installed system (Calamares step)
 chown root:root /usr/local/libexec/zeta-apt-sources /etc/calamares/modules/shellprocess-aptsources.conf
 chmod 0755 /usr/local/libexec/zeta-apt-sources

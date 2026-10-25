@@ -17,13 +17,13 @@ from i18n import ntr, tr
 APT_LISTS_DIR = "/var/lib/apt/lists"
 STALE_AGE = 7 * 24 * 3600          # indexes older than a week: need updating
 
-# Well-known packages that Debian 13 does not have. The Kali repositories are
-# not added to get them: mixing Kali and Debian breaks both at the first
-# upgrade (Kali says so itself), and the system stops updating.
+# Well-known packages that Debian 13 does not have. Another distribution's
+# repositories are not added to get them: mixing two distributions' sources
+# breaks both at the first upgrade, and the system stops updating.
 REASONS = {
     "radare2": tr("Not in the system's software sources: its authors release new versions so "
                   "often that a stable release couldn't guarantee its security fixes."),
-    "theharvester": tr("Only available in the Kali Linux repositories. Mixing them with the system's "
+    "theharvester": tr("Only available in the repositories of another Linux distribution. Mixing them with the system's "
                        "software sources breaks updates, so ZETA RAYS doesn't do it."),
 }
 

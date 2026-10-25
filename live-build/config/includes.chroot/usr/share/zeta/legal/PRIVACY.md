@@ -30,34 +30,23 @@ recommended: updates bring security fixes.
 
 ## 2. The ZETA assistant
 
-ZETA works in two ways, and the difference matters.
+**ZETA uses only AI models that run on your computer.** Since ZETA RAYS 2.5
+there are no online AI services in the system: no remote model of any
+company, no API keys, and no fallback to the
+cloud when the local model is busy or short of memory (ZETA then uses a
+smaller local model, or tells you). Questions, answers, the conversation,
+the things you ask ZETA to remember, your voice and your files never leave
+the computer. It works offline.
 
-**Local model (default).** The local model runs **on your computer**.
-Questions, answers and history never leave it. It also works offline.
+The model runs in Ollama, which listens only on `127.0.0.1` (this computer)
+and has its own cloud features switched off (`OLLAMA_NO_CLOUD=1`): Ollama's
+"cloud" models, which would run on ollama.com, cannot be used, and ZETA
+refuses them.
 
-**Cloud providers (only if you choose one).** If you enter an API key in
-*Settings › AI* and choose that provider, your questions are sent to it.
-ZETA never switches to an online service by itself: when the local model
-can't answer, it can only offer one in the chat, and the question is sent
-only if you click to accept, for that question. Where the data goes:
-
-| Provider | Where the data goes |
-|---|---|
-| Claude (Anthropic) | `api.anthropic.com` |
-| Gemini (Google) | `generativelanguage.googleapis.com` |
-| OpenAI | `api.openai.com` |
-| DeepSeek | `api.deepseek.com` |
-| Qwen (Alibaba) | `dashscope-intl.aliyuncs.com` |
-| Perplexity | `api.perplexity.ai` |
-| Mistral | `api.mistral.ai` |
-| Groq | `api.groq.com` |
-| xAI Grok | `api.x.ai` |
-| OpenRouter | `openrouter.ai` (which in turn forwards to the chosen model) |
-| Custom | the address you enter (if it is `localhost`, it stays on the computer) |
-
-From then on, **that provider's** terms and privacy policy apply, not these.
-ZETA RAYS neither sees nor keeps any of that traffic.
-**Without an API key, none of these connections take place.**
+**Downloading another model (only if you ask).** *Settings › AI › Download a
+model* fetches the model files from `registry.ollama.ai` (the Ollama
+library). Only the name of the model is sent, as with any download. The
+models included in the image need no download.
 
 **Looking up current information (on by default).** A model only knows
 the world up to its training date. For questions about current facts (who
@@ -77,10 +66,16 @@ ZETA RAYS (User-Agent), and they stop after 5 seconds. The sources used are
 shown under the answer with their address and date. With the switch off, or
 without a network, ZETA says that current facts can't be verified.
 
-API keys are stored in the system keyring, if one is running; otherwise in
-encrypted files only you can read, in `~/.config/zeta/keys/` (permissions
-600, folder 700), as ssh and the command-line tools of cloud services do. They
-never appear in logs, in diagnostic reports or in process arguments.
+What ZETA remembers is kept in one file, `~/.local/share/zeta/memory.db`,
+readable by you only (permissions 600, folder 700): the latest conversation
+(kept for 30 days unless you choose otherwise), the long-term memories you
+asked for, and the web sources of earlier answers. *Settings › AI › Memory*
+lists them, exports them and deletes them; `zeta --forget-all` deletes them
+from the terminal. Nothing is remembered for the long term unless you ask.
+
+Older versions could store API keys for online services in
+`~/.config/zeta/keys/`. ZETA RAYS 2.5 no longer reads them; you can delete
+that folder.
 
 ## 3. Speech recognition
 
@@ -127,9 +122,8 @@ Mozilla's privacy policy applies.
 | What | Where |
 |---|---|
 | Desktop settings | `~/.config/zeta/` |
-| Conversations with ZETA | `~/.local/share/zeta/` |
+| Conversations and memories of ZETA | `~/.local/share/zeta/memory.db` |
 | Search index, cache | `~/.cache/zeta/` |
-| Cloud provider API keys | system keyring |
 | Login records | `/var/lib/wtmpdb/` |
 
 They are your files, on your disk. Deleting them deletes the data.
@@ -142,4 +136,4 @@ when you shut down.
 
 ---
 
-*Last updated: with ZETA RAYS OS 2.0.*
+*Last updated: with ZETA RAYS OS 2.5.*

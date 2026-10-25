@@ -271,5 +271,7 @@
   "cento",
   "hundred"
  ],
- "percent_word": "per"
+ "percent_word": "per",
+ "definition_question": "^(?:(?:and|e|ma) )?(?:what (?:is|are)\\b|(?:che )?cos(?:a|')? ?e\\b|che cosa e\\b|cosa sono\\b|a cosa serve|a che serve|come funziona|spiegami|explain\\b|how does\\b)",
+ "usage_words": "\\b(?:usage|using|used|load|free|left|percent|uso|usando|usata|usato|occupat\\w*|liber\\w*|quant\\w*|carico)\\b|%"
 }

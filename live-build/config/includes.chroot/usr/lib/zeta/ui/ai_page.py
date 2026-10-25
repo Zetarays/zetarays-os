@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS — Settings › AI: which intelligence ZETA uses, keys, models.
+"""ZETA RAYS — Settings › AI: the local model, memory, current information,
+language, behavior, voice.
 
-Anything that may take more than a moment (network, Ollama, key encryption)
-runs in a thread: the window never stops to wait.
+ZETA uses only models that run on this computer (Ollama): there is no online
+AI service to choose and no key to enter. Anything that may take more than a
+moment (Ollama, downloads, the memory store) runs in a thread: the window
+never stops to wait.
 """
+import os
 import threading
+import time
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -12,10 +17,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from i18n import tr  # noqa: E402
-from intelligence import ollama_manager as og  # noqa: E402
-from intelligence import resources, websearch  # noqa: E402
-from intelligence.registry import (CATALOG, DEFAULT_SYSTEM, Registry,  # noqa: E402
-                                   capabilities, keyring_set, keyring_where, default_model,
+from intelligence import models, ollama_manager as og  # noqa: E402
+from intelligence import resources, store, websearch  # noqa: E402
+from intelligence.memory import Memory  # noqa: E402
+from intelligence.registry import (DEFAULT_SYSTEM, LOCAL, Registry,  # noqa: E402
                                    load_settings, save_settings)
 
 
@@ -34,6 +39,11 @@ def _gb(x):
     return ("%.1f GB" % x) if x >= 0.1 else ("%.0f MB" % (x * 1000))
 
 
+def _size(n_bytes):
+    """A file size: KB below a megabyte (a new memory store is ~70 KB)."""
+    return "%.0f KB" % (n_bytes / 1e3) if n_bytes < 1e6 else _gb(n_bytes / 1e9)
+
+
 class AIPage:
     def __init__(self, window):
         self.w = window
@@ -41,7 +51,7 @@ class AIPage:
         self.page = Adw.PreferencesPage()
         self._choice_group()
         self._ollama_group()
-        self._cloud_group()
+        self._memory_group()
         self._web_group()
         self._language_group()
         self._behavior_group()
@@ -68,53 +78,60 @@ class AIPage:
     # --- which intelligence -------------------------------------------------
     def _choice_group(self):
         g = Adw.PreferencesGroup(
-            title=tr("Active Intelligence"),
-            description=tr("Automatic uses Ollama, the model on this computer, which works even "
-                           "without internet. Questions go to an online service only if you choose "
-                           "it here, or accept it in the chat for one question."))
-        self.ids = ["auto"] + list(CATALOG)
-        names = [tr("Automatic")] + [
-            (tr("{name} (on this computer)") if CATALOG[p][2] == "local"
-             else tr("{name} (online)")).format(name=CATALOG[p][1])
-            for p in CATALOG]
-        line = Adw.ComboRow(title=tr("ZETA uses"), model=Gtk.StringList.new(names))
-        current = self.reg.settings.get("default", "auto") or "auto"
-        line.set_selected(self.ids.index(current) if current in self.ids else 0)
+            title=tr("Intelligence"),
+            description=tr("ZETA answers only with models that run on this computer. Your questions, "
+                           "memories and voice never go to an online AI service."))
         self.effective_row = Adw.ActionRow(title=tr("In use now"), subtitle="…")
-
-        def choose(c, _p):
-            pid = self.ids[c.get_selected()]
-            try:
-                self.reg.choose(pid)
-            except (ValueError, OSError) as e:
-                self.toast(tr("Choice not saved: {error}").format(error=e))
-                return
-            if pid == "auto":
-                self.toast(tr("ZETA will choose automatically"))
-            else:
-                self.toast(tr("ZETA will use {name}").format(name=CATALOG[pid][1]))
-            self._update_effective()
-        line.connect("notify::selected", choose)
-        g.add(line)
         g.add(self.effective_row)
+        m = models.machine()
+        profile = (tr("low-power processor ({cpu})").format(cpu=m.cpu or "?") if m.profile == "low-power"
+                   else tr("{gb} GB of RAM").format(gb="%.0f" % m.ram_gb))
+        row = Adw.ActionRow(title=tr("Chosen for this computer"),
+                            subtitle=tr("{profile}: {models}").format(
+                                profile=profile, models=", ".join(models.preferred())))
+        row.set_subtitle_lines(0)
+        g.add(row)
+        # the first choice for this computer, when it is not installed yet:
+        # downloaded only if the user asks (size, disk and memory are checked)
+        self.recommend_row = Adw.ActionRow(title=tr("Recommended for this computer"), visible=False)
+        self.recommend_row.set_subtitle_lines(0)
+        get = Gtk.Button(label=tr("Download"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        get.connect("clicked", lambda _b: self._download_recommended())
+        self.recommend_row.add_suffix(get)
+        g.add(self.recommend_row)
         self.page.add(g)
         self._update_effective()
+        _in_thread(og.models, self._show_recommendation)
+
+    def _show_recommendation(self, installed):
+        if isinstance(installed, Exception):
+            return
+        best = models.preferred()[0]
+        names = [m["name"] for m in installed]
+        if not og.installed() or any(n == best or n.startswith(best + "-") for n in names):
+            return
+        self._recommended = best
+        self.recommend_row.set_subtitle(tr("{model}: {why}").format(
+            model=best, why=models.reason(models.machine().profile)))
+        self.recommend_row.set_visible(True)
+
+    def _download_recommended(self):
+        name = getattr(self, "_recommended", "")
+        if name:
+            self.o_download.set_text(name)
+            self._o_download(self.o_download)
 
     def _update_effective(self):
         def job():
             p = Registry().resolve_default()
-            if p.config.kind == "local" and hasattr(p, "_model"):
-                model = p._model()          # Ollama: the default one, or the first installed
-            else:
-                model = p.config.model or default_model(p.config.name)
             return tr("{name} · model {model}").format(name=p.config.label,
-                                                       model=model or tr("default"))
+                                                       model=p._model() or tr("default"))
         _in_thread(job, lambda r: self.effective_row.set_subtitle(
             r if isinstance(r, str) else tr("can't be determined")))
 
     # --- Ollama -------------------------------------------------------------
     def _ollama_group(self):
-        g = Adw.PreferencesGroup(title=tr("Ollama · On This Computer"),
+        g = Adw.PreferencesGroup(title=tr("Local Model · Ollama"),
                                  description=tr("Free and private: your questions stay on this "
                                                 "computer, and it works without internet."))
         self.o_ram = Adw.ActionRow(title=tr("Memory"), subtitle="…")
@@ -136,7 +153,8 @@ class AIPage:
         g.add(self.ollama_models)
         self._model_rows = []
 
-        self.o_download = Adw.EntryRow(title=tr("Download a model (e.g. qwen3:1.7b, qwen3:4b-instruct, gemma3:4b)"),
+        self.o_download = Adw.EntryRow(title=tr("Download a model (e.g. {models})").format(
+                                          models=", ".join(models.preferred())),
                                       show_apply_button=True)
         self.o_download.connect("apply", self._o_download)
         g.add(self.o_download)
@@ -148,9 +166,9 @@ class AIPage:
         self.o_progress_row.add_suffix(self.o_stop_dl)
         g.add(self.o_progress_row)
 
-        g.add(self._options("ollama", locale=True))
-        test = Adw.ActionRow(title=tr("Test Connection"), subtitle=tr("A short question to the model"))
-        self._test_button(test, "ollama")
+        g.add(self._options(LOCAL))
+        test = Adw.ActionRow(title=tr("Test"), subtitle=tr("Checks the service, the model and the memory"))
+        self._test_button(test, LOCAL)
         g.add(test)
         self.page.add(g)
         self._o_refresh()
@@ -181,21 +199,19 @@ class AIPage:
                                 else tr("no model in memory")),
                         ram=_gb(d["res"]["ram_gb"])))
             else:
-                self.o_state.set_subtitle(tr("Stopped: start it, or choose an online service above"))
+                self.o_state.set_subtitle(tr("Stopped: start it to use ZETA"))
             self.o_free_memory.set_sensitive(bool(d["loaded"]))
             self._o_models(d["models"])
         _in_thread(job, done)
 
-    def _o_models(self, models):
+    def _o_models(self, models_):
         for r in self._model_rows:
             self.ollama_models.remove(r)
         self._model_rows = []
-        names = [m["name"] for m in models]
-        in_use = self._option("ollama", "model", "") or (
-            default_model("ollama") if default_model("ollama") in names or not names else names[0])
-        self.ollama_models.set_subtitle(tr("{n} · in use: {model}").format(n=len(models), model=in_use)
-                                    if models else tr("none: download one below"))
-        for m in models:
+        in_use = self._option(LOCAL, "model", "") or models.choose({m["name"]: m["gb"] for m in models_})
+        self.ollama_models.set_subtitle(tr("{n} · in use: {model}").format(n=len(models_), model=in_use)
+                                        if models_ else tr("none: download one below"))
+        for m in models_:
             r = Adw.ActionRow(title=m["name"], subtitle="%s · %s %s" % (
                 _gb(m["gb"]), m["parameters"] or "", m["quantization"] or ""))
             if m["name"] == in_use:
@@ -212,7 +228,7 @@ class AIPage:
             self._model_rows.append(r)
 
     def _o_use(self, name):
-        self._save_option("ollama", "model", name)
+        self._save_option(LOCAL, "model", name)
         self.toast(tr("ZETA will use the model {name}").format(name=name))
         self._o_refresh()
         self._update_effective()
@@ -230,8 +246,8 @@ class AIPage:
             def done(res):
                 ok, msg = res if isinstance(res, tuple) else (False, str(res))
                 self.toast(msg)
-                if ok and self._option("ollama", "model", "") == name:
-                    self._save_option("ollama", "model", "")
+                if ok and self._option(LOCAL, "model", "") == name:
+                    self._save_option(LOCAL, "model", "")
                 self._o_refresh()
             _in_thread(lambda: og.remove(name), done)
         d.connect("response", answer)
@@ -285,12 +301,10 @@ class AIPage:
                                                  self._o_refresh()))
 
     # --- common options (temperature, length, timeout, streaming) -----------
-    def _options(self, pid, locale=False, inside=None):
-        """Option rows. With «inside» (a service's card) they go directly in
-        there: libadwaita doesn't show the content of an expander row nested
-        inside another one (tested: it stayed empty)."""
-        e = inside or Adw.ExpanderRow(title=tr("Advanced Options"),
-                                      subtitle=tr("Temperature, length, timeout, streaming"))
+    def _options(self, pid):
+        """Option rows of the local model."""
+        e = Adw.ExpanderRow(title=tr("Advanced Options"),
+                            subtitle=tr("Temperature, length, timeout, context, streaming"))
 
         def spin(title, below, key, default, minimum, maximum, step, digits=0):
             r = Adw.SpinRow.new_with_range(minimum, maximum, step)
@@ -305,13 +319,12 @@ class AIPage:
         spin(tr("Temperature"), tr("0 = precise, repeatable answers; 1 and above = more creative"),
              "temperature", 0.7, 0.0, 2.0, 0.1, 1)
         spin(tr("Maximum Reply Length"), tr("in tokens (about 3/4 of a word each)"),
-             "max_tokens", 220 if locale else 4096, 16, 32768, 16)
-        spin(tr("Maximum Wait Time"), tr("seconds for the whole reply; 0 = default (5 minutes "
-                                         "on this computer, 3 online)"),
+             "max_tokens", 220, 16, 32768, 16)
+        spin(tr("Maximum Wait Time"), tr("seconds for the whole reply; 0 = default (5 minutes)"),
              "timeout", 0, 0, 900, 5)
-        if locale:
-            spin(tr("Context"), tr("conversation tokens the model remembers; 0 = the model's "
-                 "default. Larger = more memory used"), "context", 0, 0, 131072, 512)
+        spin(tr("Context"), tr("conversation tokens the model remembers; 0 = chosen for this "
+             "computer ({n}). Larger = more memory used").format(n=models.context_size()),
+             "context", 0, 0, 131072, 512)
         s = Adw.SwitchRow(title=tr("Streaming"), subtitle=tr("The reply appears as it's written"))
         s.set_active(bool(self._option(pid, "stream", True)))
         s.connect("notify::active", lambda w, _p: self._save_option(pid, "stream", w.get_active()))
@@ -332,80 +345,6 @@ class AIPage:
             _in_thread(lambda: Registry().test(pid), done)
         b.connect("clicked", test)
         line.add_suffix(b)
-
-    # --- online services ----------------------------------------------------
-    def _cloud_group(self):
-        g = Adw.PreferencesGroup(
-            title=tr("Online Services"),
-            description=tr("Keys are encrypted: only your user can read them, only on this "
-                           "computer. Questions go only to the chosen service."))
-        self._expanders = {}
-        for pid, (_cls, name, kind) in CATALOG.items():
-            if kind != "cloud":
-                continue
-            e = Adw.ExpanderRow(title=name, subtitle="…")
-            self._expanders[pid] = e
-            e.add_row(self._about_row(pid))
-
-            key = Adw.PasswordEntryRow(title=tr("API Key") if pid != "custom"
-                                          else tr("API Key (optional for services on this computer)"),
-                                          show_apply_button=True)
-            key.connect("apply", lambda r, p=pid: self._save_key(p, r))
-            e.add_row(key)
-            remove = Adw.ActionRow(title=tr("Remove the saved key"))
-            bt = Gtk.Button(label=tr("Remove"), valign=Gtk.Align.CENTER, css_classes=["destructive-action"])
-            bt.connect("clicked", lambda _b, p=pid: self._remove_key(p))
-            remove.add_suffix(bt)
-            e.add_row(remove)
-
-            default = default_model(pid)
-            fields = [("model", tr("Model (default: {model})").format(model=default) if default
-                      else tr("Model"))]
-            fields.append(("endpoint",
-                          tr("Service address, e.g. http://localhost:1234/v1/chat/completions")
-                          if pid == "custom"
-                          else tr("Service address (empty = the official one)")))
-            for k, title in fields:
-                r = Adw.EntryRow(title=title, show_apply_button=True)
-                r.set_text(str(self._option(pid, k, "") or ""))
-                r.connect("apply", lambda w, p=pid, k=k: (
-                    self._save_option(p, k, w.get_text().strip()),
-                    self.toast(tr("Saved: press “Test” to check")), self._cloud_state(p)))
-                e.add_row(r)
-            self._options(pid, inside=e)
-            test = Adw.ActionRow(title=tr("Test Connection"),
-                                  subtitle=tr("A real, very small request"))
-            self._test_button(test, pid)
-            e.add_row(test)
-            g.add(e)
-            self._cloud_state(pid)
-        self.page.add(g)
-
-    @staticmethod
-    def _about_row(pid):
-        """What this service costs (where verified) and what ZETA really does
-        with it: only the capabilities the code supports are listed."""
-        notes = {
-            # checked at api-docs.deepseek.com on 17 October 2026
-            "deepseek": tr("Pay as you go: the API has no permanent free tier. The DeepSeek web "
-                           "chat is free, but ZETA can't use it. Default model: deepseek-flash "
-                           "(DeepSeek V4.1 Flash)."),
-            # checked at ai.google.dev/gemini-api/docs/pricing on 17 October 2026
-            "gemini": tr("Has a free tier with rate limits; on the free tier Google may use what "
-                         "you send to improve its products (not on the paid tier)."),
-            "perplexity": tr("Searches the web by itself and cites its sources."),
-            "custom": tr("Any OpenAI-compatible service. At a localhost address nothing leaves "
-                         "this computer."),
-        }
-        caps = capabilities(pid)
-        parts = [tr("Can run ZETA's actions (with your confirmation)") if caps["tools"] else
-                 tr("Replies appear as they are written")]
-        text = " · ".join(parts)
-        if pid in notes:
-            text = notes[pid] + "\n" + text
-        row = Adw.ActionRow(title=tr("About This Service"), subtitle=text)
-        row.set_subtitle_lines(0)
-        return row
 
     def _o_ram_refresh(self):
         def job():
@@ -430,6 +369,131 @@ class AIPage:
             self.o_ram.set_subtitle(text)
             self.o_ram.set_subtitle_lines(0)
         _in_thread(job, done)
+
+    # --- memory -------------------------------------------------------------
+    def _memory_group(self):
+        """What ZETA remembers: the conversation (for how long), the long-term
+        memories the user asked for (listed, deletable), export and clear."""
+        mem = Memory()
+        g = Adw.PreferencesGroup(
+            title=tr("Memory"),
+            description=tr("What ZETA remembers stays on this computer, in a file only you can read. "
+                           "Nothing is remembered for the long term unless you ask: “remember that…”."))
+        conv = Adw.SwitchRow(title=tr("Remember the conversation"),
+                             subtitle=tr("The latest messages help ZETA follow what you are saying"))
+        conv.set_active(mem.enabled)
+        conv.connect("notify::active", lambda w, _p: Memory().set_enabled(w.get_active()))
+        g.add(conv)
+
+        days = list(store.RETENTION_CHOICES)
+        labels = [tr("1 day"), tr("7 days"), tr("30 days"), tr("90 days"), tr("1 year")]
+        keep = Adw.ComboRow(title=tr("Keep the conversation for"), model=Gtk.StringList.new(labels))
+        keep.set_selected(days.index(mem.retention_days))
+
+        def set_days(r, _p):
+            i = r.get_selected()
+            if 0 <= i < len(days):
+                _in_thread(lambda: Memory().set_retention(days[i]),
+                           lambda res: (self.toast(tr("Saved")), self._memory_refresh()))
+        keep.connect("notify::selected", set_days)
+        g.add(keep)
+
+        lt = Adw.SwitchRow(title=tr("Long-term memory"),
+                           subtitle=tr("Each question gets only the memories that match it"))
+        lt.set_active(mem.long_term)
+        lt.connect("notify::active", lambda w, _p: Memory().set_long_term(w.get_active()))
+        g.add(lt)
+
+        self.facts_row = Adw.ExpanderRow(title=tr("Memories"), subtitle="…")
+        self._fact_rows = []
+        g.add(self.facts_row)
+        add = Adw.EntryRow(title=tr("Add a memory (e.g. I prefer short answers)"), show_apply_button=True)
+
+        def add_fact(line):
+            text = line.get_text().strip()
+            if not text:
+                return
+
+            def done(res):
+                outcome = res[1] if isinstance(res, tuple) else "error"
+                if outcome in ("added", "updated"):
+                    line.set_text("")
+                    self.toast(tr("Memory saved"))
+                elif outcome == "duplicate":
+                    self.toast(tr("Already remembered"))
+                elif outcome == "full":
+                    self.toast(tr("The memory is full: remove something first"))
+                else:
+                    self.toast(tr("Not saved"))
+                self._memory_refresh()
+            _in_thread(lambda: store.add_fact(text), done)
+        add.connect("apply", add_fact)
+        g.add(add)
+
+        self.memory_size = Adw.ActionRow(title=tr("Stored"), subtitle="…")
+        export = Gtk.Button(label=tr("Export"), valign=Gtk.Align.CENTER,
+                            tooltip_text=tr("Saves everything ZETA remembers in Documents, as a JSON file"))
+        export.connect("clicked", self._memory_export)
+        clear = Gtk.Button(label=tr("Clear…"), valign=Gtk.Align.CENTER, css_classes=["destructive-action"])
+        clear.connect("clicked", self._memory_clear)
+        self.memory_size.add_suffix(export)
+        self.memory_size.add_suffix(clear)
+        g.add(self.memory_size)
+        self.page.add(g)
+        self._memory_refresh()
+
+    def _memory_refresh(self):
+        def job():
+            return store.list_facts(), store.stats()
+
+        def done(r):
+            if isinstance(r, Exception):
+                self.memory_size.set_subtitle(tr("Error: {error}").format(error=r))
+                return
+            facts, st = r
+            for row in self._fact_rows:
+                self.facts_row.remove(row)
+            self._fact_rows = []
+            self.facts_row.set_subtitle(tr("{n} saved").format(n=len(facts)) if facts
+                                        else tr("none yet"))
+            for f in facts:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(f.text),
+                                    subtitle=time.strftime("%Y-%m-%d", time.localtime(f.created)))
+                row.set_title_lines(0)
+                rm = Gtk.Button(icon_name="edit-delete-symbolic", valign=Gtk.Align.CENTER,
+                                css_classes=["flat"], tooltip_text=tr("Forget this"))
+                rm.connect("clicked", lambda _b, fid=f.id: _in_thread(
+                    lambda: store.delete_fact(fid), lambda _r: self._memory_refresh()))
+                row.add_suffix(rm)
+                self.facts_row.add_row(row)
+                self._fact_rows.append(row)
+            self.memory_size.set_subtitle(
+                tr("{turns} messages, {facts} memories, {sources} saved sources · {size}").format(
+                    turns=st["turns"], facts=st["facts"], sources=st["knowledge"],
+                    size=_size(st["bytes"])))
+        _in_thread(job, done)
+
+    def _memory_export(self, _b):
+        folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS) or os.path.expanduser("~")
+        dest = os.path.join(folder, "zeta-memory-%s.json" % time.strftime("%Y-%m-%d-%H%M"))
+        _in_thread(lambda: store.export(dest), lambda ok: self.toast(
+            tr("Saved in {path}").format(path=dest) if ok is True else tr("Not saved")))
+
+    def _memory_clear(self, _b):
+        d = Adw.AlertDialog(heading=tr("Clear ZETA's memory?"),
+                            body=tr("The conversation is always cleared. “Everything” also removes "
+                                    "the memories you asked ZETA to keep and the saved web sources."))
+        d.add_response("no", tr("Cancel"))
+        d.add_response("conversation", tr("Conversation"))
+        d.add_response("everything", tr("Everything"))
+        d.set_response_appearance("everything", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def answer(_d, r):
+            if r in ("conversation", "everything"):
+                _in_thread(lambda: store.clear(r), lambda _x: (self.toast(tr("Memory cleared")),
+                                                                self._memory_refresh()))
+        d.connect("response", answer)
+        d.present(self.w)
 
     # --- current information from the web ----------------------------------
     def _web_group(self):
@@ -506,47 +570,11 @@ class AIPage:
         g.add(row)
         self.page.add(g)
 
-    def _cloud_state(self, pid):
-        def job():
-            p = Registry().get(pid)
-            return bool(p.config.api_key), p.config.model or default_model(pid)
-
-        def done(r):
-            if isinstance(r, Exception):
-                return
-            has_key, model = r
-            self._expanders[pid].set_subtitle(
-                tr("key saved · {model}").format(model=model) if has_key else
-                (tr("no key") if pid == "custom" else tr("key missing")))
-        _in_thread(job, done)
-
-    def _save_key(self, pid, line):
-        val = line.get_text().strip()
-        if not val:
-            self.toast(tr("Enter the key before saving it"))
-            return
-        line.set_sensitive(False)
-
-        def done(ok):
-            line.set_sensitive(True)
-            if ok is True:
-                line.set_text("")
-                self.toast(tr("Key saved ({where})").format(where=keyring_where().split(" (")[0]))
-            else:
-                self.toast(tr("Key NOT saved: try again, or see “zeta diagnose”"))
-            self._cloud_state(pid)
-        _in_thread(lambda: keyring_set(pid, val), done)
-
-    def _remove_key(self, pid):
-        _in_thread(lambda: keyring_set(pid, ""),
-                   lambda ok: (self.toast(tr("Key removed") if ok is True else tr("Not removed")),
-                               self._cloud_state(pid), self._update_effective()))
-
     # --- behavior -----------------------------------------------------------
     def _behavior_group(self):
         g = Adw.PreferencesGroup(title=tr("ZETA Behavior"))
         e = Adw.ExpanderRow(title=tr("System Instructions"),
-                            subtitle=tr("How ZETA introduces itself and behaves, with every service"))
+                            subtitle=tr("How ZETA introduces itself and behaves"))
         tv = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=8, bottom_margin=8,
                           left_margin=8, right_margin=8)
         tv.get_buffer().set_text(self.reg.settings.get("system", DEFAULT_SYSTEM))
@@ -578,8 +606,6 @@ class AIPage:
         buttons.add_suffix(save_btn)
         e.add_row(buttons)
         g.add(e)
-        g.add(Adw.ActionRow(title=tr("Conversation Memory"),
-                            subtitle=tr("Stays on this computer (clear it with “zeta --forget”)")))
         self.behavior_group = g
         self.page.add(g)
 

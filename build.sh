@@ -28,7 +28,7 @@ rm -f "$ROOT"/live-build/config/includes.chroot/usr/share/locale/*/LC_MESSAGES/z
 python3 "$ROOT/tools/i18n.py" compile
 
 
-# --- Local AI model (qwen3:4b-instruct): not stored in the repository (2.5 GB) ---
+# --- Local AI models (tools/download-ai-model.sh): not stored in the repository ---
 "$ROOT/tools/download-ai-model.sh" || { echo "ERROR: AI model not available" >&2; exit 1; }
 
 # --- Ollama runtime: from the local cache, not from the network ---
@@ -193,7 +193,7 @@ docker run --rm --privileged \
   -v "zetarays-cache-$ARCH:/build/cache" \
   debian:trixie bash -euxo pipefail -c '
     apt-get update
-    apt-get install -y --no-install-recommends live-build debootstrap ca-certificates xorriso squashfs-tools dosfstools mtools
+    apt-get install -y --no-install-recommends live-build debootstrap ca-certificates xorriso squashfs-tools dosfstools mtools grub-common
     cp -a /src/. /build/ && cd /build
     # Bytecode left over from tests on the development computer: it must not
     # end up in the image. It is compiled for a different Python version, is
@@ -206,6 +206,11 @@ docker run --rm --privileged \
     sed -i "s/@VERSION@/$ZETA_VERSION/g" config/bootloaders/grub-pc/live-theme/theme.txt
     if grep -q "@VERSION@" config/bootloaders/grub-pc/live-theme/theme.txt; then echo "GRUB theme: version not filled in"; exit 1; fi
     lb config
+    # The boot menu files must be valid GRUB script: a shell-only "||" once
+    # made GRUB skip the font line on every boot without anyone noticing.
+    for f in $(find config/bootloaders -name "*.cfg"); do
+      grub-script-check "$f" || { echo "GRUB syntax error in $f"; exit 1; }
+    done
     # amd64 on an ARM Mac runs emulated (Rosetta or QEMU): sometimes python3.13
     # crashes (SIGSEGV) at random while dpkg configures a package, and the
     # whole build failed. If that happens: only the package configuration is
@@ -226,6 +231,20 @@ docker run --rm --privileged \
           echo "=== dpkg --configure -a: round $round failed, retrying ===" | tee -a /out/build-$ZETA_ARCH.log
         done
         umount chroot/dev/pts chroot/dev chroot/sys chroot/proc 2>/dev/null || true
+        # The hooks delete what they install from (speech and voice caches,
+        # Ollama runtime, LocalSend and Hyprland packages). When a hook
+        # crashed, live-build runs all the hooks again: put their files back,
+        # or the resume fails on a missing cache (amd64, 24 October: a SIGSEGV
+        # in hook 0210, then "Vosk is not in the image" three times). Only
+        # while the hooks stage is unfinished, so nothing stays in the image.
+        if [ ! -e .build/chroot_hooks ] && [ -d chroot/usr/share/zeta ]; then
+          for p in vosk-cache piper-cache ollama-runtime.tar.zst localsend hyprland-patched; do
+            [ -e "config/includes.chroot/usr/share/zeta/$p" ] || continue
+            rm -rf "chroot/usr/share/zeta/$p"
+            cp -a "config/includes.chroot/usr/share/zeta/$p" "chroot/usr/share/zeta/$p"
+            echo "=== hook input restored: $p ===" | tee -a /out/build-$ZETA_ARCH.log
+          done
+        fi
         if lb build 2>&1 | tee -a /out/build-$ZETA_ARCH.log; then break; fi
         [ "$attempt" = 3 ] && { echo "=== ZETA RAYS: build failed after 3 resumes ==="; exit 1; }
       done
@@ -268,6 +287,18 @@ echo "Secure boot: enabled (signed shim as boot loader)"
 if ! grep -q "ZETA RAYS: Ollama runtime installed" "$OUT/build-$ARCH.log" 2>/dev/null; then
   echo "ERROR: the Ollama runtime does not appear to be installed in the $ARCH image." >&2
   echo "       The AI would not work. Build considered failed." >&2
+  exit 1
+fi
+for model in $(sed -n 's/^MODELS="\(.*\)"$/\1/p' "$ROOT/tools/download-ai-model.sh"); do
+  if ! grep -q "ZETA RAYS: model $model present in the image" "$OUT/build-$ARCH.log" 2>/dev/null; then
+    echo "ERROR: the AI model $model is not in the $ARCH image." >&2
+    exit 1
+  fi
+done
+
+# --- Final check: the installer installs GRUB from the medium only ---
+if ! grep -q "ZETA RAYS: installer boot loader step uses the installation medium only" "$OUT/build-$ARCH.log" 2>/dev/null; then
+  echo "ERROR: the installer's boot loader step was not replaced in $ARCH (installs would fail with the network up)." >&2
   exit 1
 fi
 

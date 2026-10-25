@@ -47,7 +47,17 @@ SNIPPET_CHARS = 700
 # local model (Ollama): 2 excerpts of 400 characters, about 250 tokens to read
 LOCAL_SOURCES = 2
 LOCAL_SNIPPET_CHARS = 400
-USER_AGENT = "ZETA-RAYS-OS/2.1 (https://zetarays.org; ZETA assistant web lookup)"
+def _user_agent() -> str:
+    """"ZETA-RAYS/2.5 (…)": the version comes from /etc/os-release."""
+    try:
+        from system.release import product_token
+        token = product_token()
+    except Exception:  # noqa: BLE001 - the lookup works without it
+        token = "ZETA-RAYS"
+    return "%s (https://zetarays.org; ZETA assistant web lookup)" % token
+
+
+USER_AGENT = _user_agent()
 _HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
 

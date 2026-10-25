@@ -256,7 +256,7 @@ if [ -f "$OLD_CFG" ] && grep -qE '^GRUB_TIMEOUT_STYLE=hidden|^GRUB_TIMEOUT=[0-2]
     ok "$(printf "$(gettext 'boot menu made visible (copy: %s)')" "${OLD_CFG#"$MNT"}.before-repair")"
 fi
 # The menu theme of the earlier images was narrow and cut off long entries
-# ("Advanced options for Kali GNU/Linux (on /dev/...)").
+# ("Advanced options for <name> GNU/Linux (on /dev/...)").
 THEME=/usr/share/grub/themes/zeta/theme.txt
 if [ -f "$MNT$THEME" ] && [ -f "$THEME" ] && ! cmp -s "$THEME" "$MNT$THEME"; then
     cp -p "$MNT$THEME" "$MNT$THEME.before-repair"

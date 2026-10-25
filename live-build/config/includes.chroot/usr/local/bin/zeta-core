@@ -57,6 +57,8 @@ window.zeta-core { background: @surface; }
 .mic-on { background: #E5484D; }
 .sources { font-size: 11px; color: @ink_dim; margin: 0 6px 6px 8px; }
 .choices { margin: 0 6px 6px 6px; }
+.voice-control { min-width: 30px; min-height: 30px; border-radius: 15px; color: @ink_dim; }
+.voice-control:hover { background: @hover; color: @ink; }
 """
 
 
@@ -116,6 +118,8 @@ class Window(Gtk.ApplicationWindow):
         self._request = 0          # to discard replies to canceled requests
         self._assistant_lock = threading.Lock()
         self._consent_wait = None  # (event, answer) while «Search the web?» is shown
+        self._voice = None         # speech.Stream reading the current reply
+        self._last_spoken = ("", None)   # (text, language) for «Read again»
 
         # Title bar: ZETA RAYS draws it (hyprbars) for every window. Only if
         # the plugin is missing do we add our own, otherwise the title would
@@ -132,8 +136,7 @@ class Window(Gtk.ApplicationWindow):
         self.area = Gtk.DrawingArea(content_height=330, hexpand=True)
         self.area.set_draw_func(self.on_draw)
         root.append(self.area)
-        # which intelligence actually answers (provider, model, where it runs);
-        # «not ready» when it can't answer (ZETA never switches by itself)
+        # which local model answers; «not ready» when it can't answer
         self.engine = Gtk.Label(label="", css_classes=["engine"], ellipsize=3,
                                 tooltip_text=tr("Change it in Settings › AI"))
         root.append(self.engine)
@@ -150,6 +153,26 @@ class Window(Gtk.ApplicationWindow):
         # arrives after the pane has been drawn, so we scroll when the content
         # height changes, not right away.
         self.scroller.get_vadjustment().connect("changed", self._keep_at_end)
+
+        # --- voice controls: shown while ZETA speaks, and after, to read again ---
+        self.voice_bar = Gtk.Box(spacing=6, margin_start=12, margin_end=12, margin_top=4,
+                                 halign=Gtk.Align.START, visible=False)
+        self.pause_button = Gtk.Button(css_classes=["flat", "voice-control"],
+                                       tooltip_text=tr("Pause the voice"))
+        self.pause_icon = Gtk.Image.new_from_icon_name("media-playback-pause-symbolic")
+        self.pause_button.set_child(self.pause_icon)
+        self.pause_button.connect("clicked", self.on_pause)
+        self.stop_button = Gtk.Button(icon_name="media-playback-stop-symbolic",
+                                      css_classes=["flat", "voice-control"],
+                                      tooltip_text=tr("Stop the voice"))
+        self.stop_button.connect("clicked", lambda *_: self.stop_voice())
+        self.again_button = Gtk.Button(icon_name="view-refresh-symbolic",
+                                       css_classes=["flat", "voice-control"],
+                                       tooltip_text=tr("Read the reply again"))
+        self.again_button.connect("clicked", self.on_read_again)
+        for b in (self.pause_button, self.stop_button, self.again_button):
+            self.voice_bar.append(b)
+        root.append(self.voice_bar)
 
         # --- input row ---
         row = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=6, margin_bottom=14)
@@ -269,8 +292,8 @@ class Window(Gtk.ApplicationWindow):
         """Stops the request and gives control back at once.
 
         The connection to the model is really closed (Assistant.cancel shuts
-        the socket down), so a local model stops generating and an online
-        service stops sending; whatever had already arrived stays visible."""
+        the socket down), so the local model stops generating; whatever had
+        already arrived stays visible, and the voice stops."""
         self._request += 1
         self._busy = False
         self._send_mode(False)
@@ -288,6 +311,7 @@ class Window(Gtk.ApplicationWindow):
             self._remove_pending()
             if not quiet:
                 self._say_zeta(tr("Request canceled."))
+        self.stop_voice()
         self.set_state("idle")
 
     def _send_mode(self, busy):
@@ -296,11 +320,9 @@ class Window(Gtk.ApplicationWindow):
             "process-stop-symbolic" if busy else "go-up-symbolic")
         self.send.set_tooltip_text(tr("Stop") if busy else tr("Send"))
 
-    def submit(self, text, provider_id=None):
+    def submit(self, text):
         """Sends a question. A new question while the previous one is still
-        running replaces it (the old one is canceled, never answered twice).
-        `provider_id`: this question only goes to that provider, because the
-        user clicked «Ask …» after a failure."""
+        running replaces it (the old one is canceled, never answered twice)."""
         text = (text or "").strip()
         if not text:
             return
@@ -319,13 +341,14 @@ class Window(Gtk.ApplicationWindow):
         self._pending = self._pending_bubble()
         self._elapsed = 0
         self._pending_timer = GLib.timeout_add_seconds(1, self._tick_pending)
-        threading.Thread(target=self._work, args=(text, self._request, provider_id),
+        self._start_voice(text)
+        threading.Thread(target=self._work, args=(text, self._request),
                          daemon=True).start()
 
     @staticmethod
     def _describe(prov):
         c = prov.config
-        where = tr("local") if c.kind == "local" else tr("online")
+        where = tr("local")
         model = c.model
         if not model and hasattr(prov, "_model"):
             try:
@@ -361,7 +384,7 @@ class Window(Gtk.ApplicationWindow):
     def _tick_pending(self):
         """Shows that it is working, with the real phase (see _phase) and the
         seconds: it used to say «loading the local model» after 4 s even with
-        an online service or with the model already in memory."""
+        the model already in memory."""
         if not self._busy or self._pending is None or self._streamed:
             return bool(self._busy and self._pending is not None)
         self._elapsed += 1
@@ -370,7 +393,7 @@ class Window(Gtk.ApplicationWindow):
             self._pending.set_text(tr("{status} ({seconds}s)").format(status=phase, seconds=self._elapsed))
         return True
 
-    def _work(self, text, request, provider_id=None):
+    def _work(self, text, request):
         turn = {}
         try:
             from intelligence.registry import Registry
@@ -388,8 +411,6 @@ class Window(Gtk.ApplicationWindow):
                 if (old.name, old.model, old.endpoint) != (new.name, new.model, new.endpoint):
                     self.assistant.provider = prov
             prov = self.assistant.provider
-            if provider_id:
-                prov = Registry().get(provider_id)
             GLib.idle_add(self.engine.set_text, self._describe(prov))
             self._phase_text = ""
             from intelligence.providers.ollama import OllamaProvider
@@ -398,21 +419,17 @@ class Window(Gtk.ApplicationWindow):
             with speaking(self.assistant._reply_language(text)):
                 if understanding(text):
                     phase = tr("Running…")                 # a command: no model needed
-                elif isinstance(prov, OllamaProvider):
-                    phase = (tr("Working on it…") if prov._already_loaded() else
-                             tr("Loading the {model} model into memory, the first reply is slower…").format(
-                                 model=prov._model()))
+                elif isinstance(prov, OllamaProvider) and not prov._already_loaded():
+                    phase = tr("Loading the {model} model into memory, the first reply is slower…").format(
+                        model=prov._model())
                 else:
-                    phase = tr("Contacting {service}…").format(service=prov.config.label)
+                    phase = tr("Working on it…")
             GLib.idle_add(self._phase, phase, request)
             self._streamed = ""
             kw = {"confirm": self._confirm,
                   "on_text": lambda c: GLib.idle_add(self._chunk, c, request),
                   "consent": lambda services: self._consent(services, request)}
-            if provider_id:
-                answer = self.assistant.respond_with(provider_id, text, **kw)
-            else:
-                answer = self.assistant.respond(text, **kw)
+            answer = self.assistant.respond(text, **kw)
             turn = dict(self.assistant.last_turn)
         except Exception as e:  # noqa: BLE001
             answer = tr("An error occurred: {error}").format(error=e)
@@ -475,6 +492,10 @@ class Window(Gtk.ApplicationWindow):
             self._pending_timer = 0
             self._pending.remove_css_class("pending")
         self._streamed += chunk
+        if self._voice is not None:
+            if not self.stop_button.get_visible():
+                self._voice_controls(True)   # pause and stop while it is read
+            self._voice.feed(chunk)
         self._pending.set_markup(_md(self._streamed))
         self._scroll_end()
         return False
@@ -509,12 +530,12 @@ class Window(Gtk.ApplicationWindow):
         self._busy = False
         # the raw reply: speech.normalize() needs the Markdown to skip code
         # blocks and read links, lists and tables properly
-        self._speak(answer)
+        self._finish_voice(answer, (turn or {}).get("canceled"))
         return False
 
     def _extras(self, turn, question):
-        """Under the answer: the web sources it used (links), or the offer to
-        ask another AI after a failure (only if the user clicks)."""
+        """Under the answer: the web sources it used (links) or the local
+        reference with the date it was verified."""
         sources = turn.get("sources") or []
         if sources:
             links = "   ".join('<a href="%s">[%d] %s</a>' % (
@@ -524,38 +545,106 @@ class Window(Gtk.ApplicationWindow):
             lbl.set_markup(GLib.markup_escape_text(tr("Sources (retrieved {date}):").format(
                 date=sources[0].retrieved)) + " " + links)
             self.log.append(lbl)
-        offer = turn.get("offer")
-        if offer and question:
-            from intelligence.registry import CATALOG
-            name = (tr("the local model") if offer == "ollama"
-                    else CATALOG.get(offer, ("", offer))[1])
-            b = Gtk.Button(label=tr("Ask {name}").format(name=name), halign=Gtk.Align.START,
-                           css_classes=["choices"])
-
-            def ask(btn):
-                btn.set_sensitive(False)
-                self.submit(question, provider_id=offer)
-            b.connect("clicked", ask)
-            self.log.append(b)
-        if sources or offer:
+        reference = turn.get("reference") or []
+        if reference:
+            parts = []
+            for e in reference:
+                title = GLib.markup_escape_text(e.title.split(" | ")[0])
+                if e.url.startswith("https://"):
+                    title = '<a href="%s">%s</a>' % (GLib.markup_escape_text(e.url), title)
+                parts.append(title)
+            lbl = Gtk.Label(xalign=0, wrap=True, max_width_chars=60, css_classes=["sources"])
+            lbl.set_markup(GLib.markup_escape_text(tr("Local reference (verified {date}):").format(
+                date=reference[0].retrieved)) + " " + "   ".join(parts))
+            self.log.append(lbl)
+        if sources or reference:
             GLib.idle_add(self._scroll_end)
 
-    def _speak(self, text):
-        """Reads the reply aloud if the user has turned speech on."""
-        if self.voice_button is None or not self.voice_button.get_active():
-            return
-        if speech.say(text, on_done=lambda: GLib.idle_add(self._spoken)):
-            self.set_state("replying")
+    # ---------- voice: text and audio together ----------
+    def _voice_on(self):
+        return self.voice_button is not None and self.voice_button.get_active()
 
-    def _spoken(self):
+    def _start_voice(self, question):
+        """Prepare the voice for the reply to this question (in the language
+        of the question): its model loads while the answer is computed."""
+        self._last_spoken = ("", None)        # «read again» belongs to the old answer
+        self.stop_voice()
+        if not self._voice_on():
+            return
+        lang = None
+        try:
+            from intelligence import websearch
+            from intelligence.registry import REPLY_LANGUAGE, load_settings
+            if load_settings().get(REPLY_LANGUAGE) != "system":
+                lang = websearch.clear_language(question) or None
+        except Exception:  # noqa: BLE001 - the voice's own language is used
+            lang = None
+        request = self._request
+        stream = speech.Stream(lang, on_done=lambda: GLib.idle_add(self._spoken, request))
+        if stream.prepare():
+            self._voice = stream
+
+    def _finish_voice(self, answer, canceled=False):
+        stream, self._voice = self._voice, None
+        if stream is None:
+            return
+        if canceled:
+            stream.cancel()
+            return
+        if not self._streamed:
+            # a reply that arrived whole (a command's report, an error)
+            stream.feed(answer)
+        stream.finish()
+        self._last_spoken = (answer, stream.lang)
+        if stream.spoken:
+            self.set_state("replying")
+            self._voice_controls(True)
+
+    def stop_voice(self):
+        stream, self._voice = self._voice, None
+        if stream is not None:
+            stream.cancel()
+        speech.stop()
+        self._voice_controls(False)
+
+    def _voice_controls(self, speaking):
+        """Pause and Stop while ZETA speaks; «Read again» once it is done."""
+        self.pause_icon.set_from_icon_name("media-playback-pause-symbolic")
+        self.pause_button.set_visible(speaking)
+        self.stop_button.set_visible(speaking)
+        self.again_button.set_visible(not speaking and bool(self._last_spoken[0]))
+        self.voice_bar.set_visible(speaking or bool(self._last_spoken[0]) and self._voice_on())
+
+    def on_pause(self, _b):
+        if speech.paused():
+            speech.resume()
+            self.pause_icon.set_from_icon_name("media-playback-pause-symbolic")
+            self.pause_button.set_tooltip_text(tr("Pause the voice"))
+        elif speech.pause():
+            self.pause_icon.set_from_icon_name("media-playback-start-symbolic")
+            self.pause_button.set_tooltip_text(tr("Resume the voice"))
+
+    def on_read_again(self, _b):
+        text, lang = self._last_spoken
+        if not text:
+            return
+        request = self._request
+        if speech.say(text, on_done=lambda: GLib.idle_add(self._spoken, request), lang=lang):
+            self.set_state("replying")
+            self._voice_controls(True)
+
+    def _spoken(self, request=None):
+        if speech.speaking():
+            return False                   # another reading already started
         if self.state == "replying":
             self.set_state("idle")
+        self._voice_controls(False)
         return False
 
     def on_voice_toggled(self, btn):
         speech.set_enabled(btn.get_active())
         if not btn.get_active():
-            speech.stop()
+            self.stop_voice()
             self._spoken()
 
     def _confirm(self, res):
@@ -642,6 +731,7 @@ class Window(Gtk.ApplicationWindow):
     def on_mic(self):
         if self._busy:
             return
+        self.stop_voice()                 # the microphone must not hear ZETA
         from intelligence import voice
         if not voice.available():
             self._say_zeta(voice.why_unavailable())
@@ -712,7 +802,9 @@ class Window(Gtk.ApplicationWindow):
     # ---------- keys / color ----------
     def on_key(self, _c, keyval, _kc, _mod):
         if keyval == Gdk.KEY_Escape:
-            speech.stop()
+            if speech.speaking():          # first Escape: silence; the second closes
+                self.stop_voice()
+                return True
             self.close()
             return True
         return False

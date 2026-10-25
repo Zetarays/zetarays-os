@@ -53,11 +53,12 @@ ZETA RAYS.
 software**: they remain the property of the project owner. Free software
 licenses cover the code, not trademarks (GPL-3 §7e, Apache-2.0 §6).
 
-## Included language model
+## Included language models
 
 The image includes **Qwen3 4B Instruct (2507)** by the Qwen team (Alibaba
-Cloud), released under the *Apache License 2.0*. The license text travels
-with the model and is copied to `qwen3/LICENSE.txt` next to this document.
+Cloud) and **Granite 4.0 Micro (hybrid)** by IBM, both released under the
+*Apache License 2.0*. Each license text travels with its model and is copied
+to `qwen3/LICENSE.txt` and `granite4/LICENSE.txt` next to this document.
 
 ZETA's Italian voice, **Sara**, comes from **Kokoro-82M** by hexgrad, also
 under the *Apache License 2.0*: license and attribution in `kokoro/`.

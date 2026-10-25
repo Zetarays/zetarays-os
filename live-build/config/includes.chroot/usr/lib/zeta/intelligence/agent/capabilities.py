@@ -10,7 +10,7 @@ Every capability has:
 The result tells the truth: ok=True only if the verification confirmed it.
 
 Adding a capability = writing a function and registering it below: the local
-understanding, the model and the online services see it right away.
+understanding and the local model see it right away.
 """
 from __future__ import annotations
 

@@ -5,17 +5,21 @@
 Usage:
   zeta                      start an interactive conversation
   zeta <question>           a single question
-  zeta --provider claude    force a provider for this session
-  zeta --status             show the configured providers
+  zeta --status             the local model and its state
+  zeta --memories           what you asked ZETA to remember
+  zeta --remember TEXT      add a long-term memory
   zeta --forget             clear the conversation memory
+  zeta --forget-all         clear the conversation and the long-term memories
+  zeta --learn FILE         give ZETA a text file as reference (local)
   zeta -- <question>        a question that starts like a command below
 
 System commands (read only):
   zeta system · memory · processes · repositories · diagnose
-  zeta ai status · ai test [service] · shell status
+  zeta ai status · ai test · shell status
 
-ZETA can perform system actions through a closed list of tools; actions
-that modify the system ask for confirmation.
+ZETA answers only with the model on this computer. It performs system
+actions through a closed list of capabilities; actions that modify the
+system ask for confirmation.
 """
 import sys
 
@@ -26,7 +30,7 @@ from i18n_data import load  # noqa: E402
 from intelligence.actions import ActionResult  # noqa: E402
 from intelligence.assistant import Assistant  # noqa: E402
 from intelligence.memory import Memory  # noqa: E402
-from intelligence.registry import CATALOG, Registry  # noqa: E402
+from intelligence.registry import Registry  # noqa: E402
 
 ACCENT = "\033[38;2;58;141;255m"
 DIM = "\033[38;2;140;140;145m"
@@ -85,33 +89,57 @@ def _ask(assistant: Assistant, text: str) -> str:
 
 
 def _with_notes(answer: str, turn: dict) -> str:
-    """The answer followed by its sources and the offer of another service."""
+    """The answer followed by its sources (web, or the local reference)."""
     extra = []
     if turn.get("sources"):
         extra.append(tr("Sources (retrieved {date}):").format(date=turn["sources"][0].retrieved))
         extra += ["  [%d] %s  %s" % (i, s.title, s.url) for i, s in enumerate(turn["sources"], 1)]
-    if turn.get("offer"):
-        extra.append(tr("To ask {name} this question: zeta --provider {id} QUESTION").format(
-            name=CATALOG.get(turn["offer"], ("", turn["offer"]))[1], id=turn["offer"]))
+    if turn.get("reference"):
+        ref = turn["reference"]
+        extra.append(tr("Local reference (verified {date}):").format(date=ref[0].retrieved))
+        extra += ["  %s  %s" % (e.title.split(" | ")[0], e.url) for e in ref]
     if extra:
         answer += "\n%s%s%s" % (DIM, "\n".join(extra), R)
     return answer
 
 
 def cmd_status() -> int:
-    reg = Registry()
-    print("%s%s%s\n" % (BOLD, tr("ZETA RAYS Intelligence AI providers"), R))
-    lines = reg.status()
-    wide = max((len(r["label"]) for r in lines), default=9)
-    for row in lines:
+    print("%s%s%s\n" % (BOLD, tr("ZETA RAYS Intelligence: the local model"), R))
+    for row in Registry().status():
         mark = "%s●%s" % (ACCENT, R) if row["ready"] else "%s○%s" % (DIM, R)
-        extra = ""
-        if row["id"] == "ollama" and row.get("local_models"):
-            extra = "  " + tr("models: {models}").format(models=", ".join(row["local_models"]))
-        state = tr("ready") if row["ready"] else tr("not set up")
-        print("  %s %s %s%s%s%s" % (mark, row["label"].ljust(wide), DIM, state, R, extra))
-    print("\n%s%s%s" % (DIM, tr("Enter keys in Settings › AI (they are encrypted)."), R))
-    print("%s%s%s" % (DIM, tr("For details: zeta ai status · zeta ai test"), R))
+        state = tr("ready") if row["ready"] else tr("not ready")
+        print("  %s %s %s%s%s  %s" % (mark, row["label"], DIM, state, R,
+                                     tr("model: {model}").format(model=row["model"])))
+        if row.get("local_models"):
+            print("    %s" % tr("installed: {models}").format(models=", ".join(row["local_models"])))
+        print("    %s" % tr("profile: {profile} · address: {address}").format(
+            profile=row["profile"], address=row["endpoint"]))
+    print("\n%s%s%s" % (DIM, tr("Nothing is sent to online AI services. For details: zeta ai status · zeta ai test"), R))
+    return 0
+
+
+def cmd_memories() -> int:
+    facts = Memory().facts()
+    if not facts:
+        print(tr("No long-term memories. Add one with: zeta --remember TEXT"))
+        return 0
+    for f in facts:
+        print("  • %s" % f.text)
+    return 0
+
+
+def cmd_learn(path: str) -> int:
+    """A text file the user chose, indexed in the local store as reference."""
+    import os
+    from intelligence import store
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read(4 * 1024 * 1024)
+    except OSError as e:
+        print(tr("Can't read {path}: {error}").format(path=path, error=e.strerror or e))
+        return 1
+    n = store.import_document(os.path.basename(path), text, os.path.abspath(path))
+    print(tr("Learned {path}: {n} passages, kept on this computer.").format(path=path, n=n))
     return 0
 
 
@@ -167,18 +195,21 @@ def cmd_help() -> int:
     print(tr("""Usage:
   zeta                      start a conversation
   zeta QUESTION             ask one question
-  zeta --provider NAME      use one AI service for this session
-                            (claude, gemini, openai, ollama...)
-  zeta --status             the AI services and their state
+  zeta --status             the local model and its state
+  zeta --memories           what you asked ZETA to remember
+  zeta --remember TEXT      add a long-term memory
   zeta --forget             clear the conversation memory
+  zeta --forget-all         also clear the long-term memories
+  zeta --learn FILE         give ZETA a text file as reference
   zeta -- QUESTION          a question that starts like a command below
 
 System commands (read only):
   zeta system | memory | processes | repositories | diagnose
-  zeta ai status | ai test [service] | shell status
+  zeta ai status | ai test | shell status
 
-ZETA performs system actions through a closed list of tools; actions that
-change the system ask for confirmation first."""))
+ZETA answers only with the model on this computer. It performs system
+actions through a closed list of capabilities; actions that change the
+system ask for confirmation first."""))
     return 0
 
 
@@ -194,20 +225,25 @@ def main(argv: list[str]) -> int:
     if args and args[0] == "--status":
         return cmd_status()
     if args and args[0] == "--forget":
-        Memory().clear()
+        Memory().clear("conversation")
         print(tr("Conversation memory cleared."))
         return 0
+    if args and args[0] == "--forget-all":
+        Memory().clear("everything")
+        print(tr("Conversation and long-term memories cleared."))
+        return 0
+    if args and args[0] == "--memories":
+        return cmd_memories()
+    if args and args[0] == "--remember" and len(args) >= 2:
+        outcome, text = Memory().remember(" ".join(args[1:]))
+        print(tr("I'll remember it: {text}").format(text=text) if outcome in ("added", "updated")
+              else tr("I already remember it: {text}").format(text=text) if outcome == "duplicate"
+              else tr("Not saved."))
+        return 0
+    if args and args[0] == "--learn" and len(args) == 2:
+        return cmd_learn(args[1])
 
-    provider = None
-    if args and args[0] in ("--provider", "-p") and len(args) >= 2:
-        pid = args[1]
-        if pid not in CATALOG:
-            print(tr("Unknown provider: {name}").format(name=pid))
-            return 1
-        provider = Registry().get(pid)
-        args = args[2:]
-
-    assistant = Assistant(provider)
+    assistant = Assistant()
     if args:
         print(_ask(assistant, " ".join(args)))
         return 0

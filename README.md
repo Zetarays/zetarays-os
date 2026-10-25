@@ -42,9 +42,11 @@ no internet connection required.
   and per-display memory.
 - **Folder colors**: right-click a folder › Folder Color (red, white, green,
   blue, purple, default), on the desktop and in the file manager.
-- **ZETA**, a local AI (Ollama with Qwen3 4B Instruct) that acts on the system, with
-  confirmations for destructive actions and no unrestricted root access;
-  optional online providers with your own key.
+- **ZETA**, an AI that runs only on your computer (Ollama, model chosen for
+  the hardware) and acts on the system, with confirmations for destructive
+  actions and no unrestricted root access; no online AI service, no API keys;
+  local long-term memory under your control; answers written and spoken
+  (natural Italian and English female voices) at the same time.
 - Security center, real-time Monitor, nftables firewall on by default, SSH
   with root login disabled.
 - English interface with a complete Italian translation (gettext, `po/`) and
@@ -54,7 +56,7 @@ no internet connection required.
 
 | Area | Where |
 |---|---|
-| ZETA (local AI, agent, online providers) | `live-build/config/includes.chroot/usr/lib/zeta/intelligence/` |
+| ZETA (local AI, memory, voice, agent) | `live-build/config/includes.chroot/usr/lib/zeta/intelligence/` |
 | Desktop apps: bar, launcher, Control Center, Settings, search, Monitor | `includes.chroot/usr/local/bin/zeta-*`, `usr/lib/zeta/ui/`, `usr/lib/zeta/monitor/` |
 | System logic (displays, folder colors, network, power, apps) | `includes.chroot/usr/lib/zeta/system/` |
 | Hyprland configuration (window guard, rules, shortcuts) | `includes.chroot/etc/skel/.config/hypr/` |

@@ -10,7 +10,10 @@ every provider, carries:
   1. the current local date, time and time zone;
   2. a short rule: facts that change over time are not presented as current
      unless they come from the sources in the prompt;
-  3. the sources found on the web, when the user allowed the lookup.
+  3. the sources found on the web, when the user allowed the lookup, or the
+     verified local reference (with the date it was checked) when there is
+     no web;
+  4. the few long-term memories that match the question (memory.py).
 
 The text is in English and short on purpose: small local models follow short
 English instructions best, and every word costs time on a slow computer.
@@ -29,6 +32,7 @@ question costs only its own tokens.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -75,8 +79,9 @@ GUIDANCE = (
     "past: events scheduled for it have already happened, even when your training data "
     "does not know their outcome. If you cannot verify a current fact, say so and offer "
     "to search the web. A user message may end with a note from ZETA RAYS in square "
-    "brackets (current date and time, web search, Sources, reply language): it comes from "
-    "the system, it is reliable, and you follow it without mentioning it.")
+    "brackets (current date and time, web search, Sources, local reference, things the "
+    "user asked you to remember, reply language): it comes from the system, it is "
+    "reliable, and you follow it without mentioning it.")
 
 # What to do with a time-sensitive question, depending on the web lookup
 _WEB = {
@@ -102,9 +107,33 @@ _WEB = {
         "network is unavailable). In the user's language, say briefly that you could not verify "
         "it today and that the user can try again later. Do not name who currently holds an "
         "office and do not give current results, prices or news from your training data."),
-    "provider": "You search the web yourself: say where current facts come from.",
+    # No web, but the local reference shipped with the system (or saved from
+    # an earlier lookup) covers the question: answer from it, with its date.
+    "reference": (
+        "Answer from the Local reference below and say the date it was verified: it may have "
+        "changed since. Do not add current facts that are not in it."),
     "": "",
 }
+
+
+def format_reference(entries) -> str:
+    """The «Local reference» block: verified facts with their date and source."""
+    if not entries:
+        return ""
+    lines = ["Local reference:"]
+    for e in entries:
+        title = e.title.split(" | ")[0]
+        when = "verified %s" % e.retrieved if e.origin == "reference" else "retrieved %s" % e.retrieved
+        lines.append("- %s (%s; %s): %s" % (title, when, e.url or e.origin, e.body.strip()))
+    return "\n".join(lines)
+
+
+def format_memories(memories) -> str:
+    """What the user asked ZETA to remember, the part that matches the question."""
+    if not memories:
+        return ""
+    return "\n".join(["The user asked you to remember (use only if relevant):"] +
+                     ["- " + m for m in memories])
 
 
 def format_sources(sources, retrieved: str = "") -> str:
@@ -140,11 +169,12 @@ def system_prompt(base: str, *, always_language: str = "") -> str:
 
 
 def turn_note(*, web: str = "", sources=None, now: datetime | None = None,
-              reply_language: str = "", always_language: str = "") -> str:
+              reply_language: str = "", always_language: str = "",
+              reference=None, memories=None) -> str:
     """What changes from one question to the next, as a short note.
 
-    `web`: "" (not a time-sensitive question), "sources", "off", "failed",
-    "provider" (the service searches the web by itself).
+    `web`: "" (not a time-sensitive question), "sources", "reference", "off",
+    "failed". `reference`: store.Knowledge entries; `memories`: texts.
     """
     # Every token here is read before the first word of the answer (about
     # 20 tokens a second on an Intel N100): the full clock and the rules only
@@ -153,9 +183,10 @@ def turn_note(*, web: str = "", sources=None, now: datetime | None = None,
         parts = [now_line(now), _WEB.get(web, "")]
     else:
         parts = [short_date(now)]
-    block = format_sources(sources or [])
-    if block:
-        parts.append(block)
+    for block in (format_sources(sources or []), format_reference(reference or []),
+                  format_memories(memories or [])):
+        if block:
+            parts.append(block)
     # Long English instructions pull small models into English: when the
     # question's language is clear, say it last (observed with a 4B model).
     if not always_language and reply_language in _LANGUAGES:
@@ -167,6 +198,21 @@ def short_date(now: datetime | None = None) -> str:
     """«Today: Saturday 17 October 2026.»"""
     now = now or datetime.now()
     return "Today: %s %d %s %d." % (_WEEKDAYS[now.weekday()], now.day, _MONTHS[now.month - 1], now.year)
+
+
+# Some small models copy the note back at the end of their answer ("[Today:
+# Saturday 24 October 2026.]", seen with Gemma 4 E2B and Qwen3.5 2B): it is
+# ZETA's own text, so it is removed from the answer and never read aloud.
+NOTE_ECHO = re.compile(r"\s*\[(?:Today:|Current local date|Reply in |Sources|Local reference|"
+                       r"The user asked you to remember)[^\]]*\]\s*$")
+
+
+def strip_note_echo(text: str) -> str:
+    """The answer without a copy of the note at its end."""
+    prev = None
+    while prev != text:
+        prev, text = text, NOTE_ECHO.sub("", text)
+    return text
 
 
 def with_note(text: str, note: str) -> str:

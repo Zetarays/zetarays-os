@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ZETA RAYS Intelligence — ZETA.
 
-Ties together the provider, the action engine and memory. Handles the
-conversation turn with tools (allowlist) and confirmation for level 3/4 actions.
+Ties together the local model, the action engine and memory. A turn: local
+commands first (actions, memory commands), then the action chooser of the
+local model, then the conversation, streamed. Everything runs on this
+computer: there is no online AI service to fall back to.
 """
 from __future__ import annotations
 
@@ -13,15 +15,14 @@ from typing import Callable
 from i18n import language, speaking, tr
 from i18n_data import load
 
-from . import context, intents, websearch
+from . import context, intents, store, websearch
 from .providers.ollama import InsufficientMemoryError
 from .actions import ActionEngine, ActionResult
 from .memory import HISTORY_TURNS, MAX_TURNS, Memory, approx_tokens, history_budget, trim_history
-from .providers.base import (CancelToken, Canceled, ProviderError, Message, Provider, Reply,
-                             ToolCall)
+from .providers.base import CancelToken, Canceled, ProviderError, Message, Provider, Reply
 from .registry import REPLY_LANGUAGE, Registry, always_language, current_system_prompt, load_settings
 from .agent import agent as _agent
-from .agent.understanding import understanding as _understand
+from .agent.understanding import is_definition_question, understanding as _understand
 
 # Actions from the old recognizer that are still useful and safe (the new
 # agent handles the rest, with verification): web and file search, accent
@@ -40,17 +41,23 @@ _INFO_ACTIONS = {"cpu_usage", "memory_usage", "disk_usage", "ip_address",
 
 
 NOT_CONFIGURED = tr(
-    "ZETA isn't connected to a model yet.\n"
-    "To use it, open Settings › AI and enter a key for a service (Claude, OpenAI, Gemini),\n"
-    "or install Ollama with a local model, which also works without Internet.")
+    "ZETA has no local model to answer with yet.\n"
+    "Open Settings › AI to start Ollama or download a model: it runs on this computer, "
+    "also without Internet.")
+
+# How long a verified fact of the local reference is used without looking
+# the question up on the web (the reference is renewed with every release)
+REFERENCE_FRESH_DAYS = 180
+
+# «remember that…», «forget…», «what do you know about me?» (language data)
+_MEMORY_COMMANDS = {kind: [re.compile(p, re.I) for p in patterns]
+                    for kind, patterns in load("memory")["commands"].items()}
 
 
 class Assistant:
     def __init__(self, provider: Provider | None = None):
         self.registry = Registry()
         self.provider = provider or self.registry.resolve_default()
-        # tools for the models that can call them: the agent's capabilities
-        self.engine = _agent.AgentEngine()
         self.old = ActionEngine()
         self.memory = Memory()
         self.history: list[Message] = self._clean(self.memory.load_history())
@@ -87,6 +94,8 @@ class Assistant:
         actions = _understand(text)
         if actions:
             return _agent.run_all(actions, confirm, origin="local")
+        if is_definition_question(text):
+            return None                       # «what is a CPU?» is for the model
         intent = intents.parse(text)
         if intent is None or (intent.action is not None and intent.action not in _LEGACY_OK):
             return None
@@ -139,8 +148,8 @@ class Assistant:
         (no duplicate replies, no two requests fighting over the history).
         `consent(services)` asks «Search the web?» and returns "yes",
         "always", "no" or None. After the call, `last_turn` tells the
-        interface what else to show (sources, an offer to use the local
-        model, whether the turn was canceled).
+        interface what else to show (sources, the model that answered,
+        whether the turn was canceled).
         """
         with self._state_lock:
             self._issued += 1
@@ -163,6 +172,10 @@ class Assistant:
             with self._state_lock:
                 self._token = None
             self.provider.cancel_token = None
+            restore = getattr(self, "_restore_model", None)
+            if restore is not None:                  # back to the usual model
+                restore[0].config.model = restore[1]
+                self._restore_model = None
             self._lock.release()
 
     @staticmethod
@@ -178,29 +191,21 @@ class Assistant:
 
     @staticmethod
     def _fresh_turn() -> dict:
-        # offer: id of a provider ZETA proposes for this question after a
-        # failure ("ollama", or an online service with a key): only proposed,
-        # used only if the user accepts (respond_with). language: the one of
-        # ZETA's texts for this turn (None = system), for the notes shown
-        # with the answer
-        return {"sources": [], "offer": "", "canceled": False, "error": "", "web": "",
-                "language": None}
-
-    def respond_with(self, provider_id: str, text: str, **kw) -> str:
-        """Ask ONE question to another provider, because the user chose it
-        (the «Ask …» button after a failure); then back to the usual one."""
-        previous = self.provider
-        self.provider = self.registry.get(provider_id)
-        try:
-            return self.respond(text, **kw)
-        finally:
-            self.provider = previous
+        # language: the one of ZETA's texts for this turn (None = system),
+        # for the notes shown with the answer. model: the local model that
+        # answered, when it is not the usual one (a smaller fallback).
+        # reference: local reference entries used for a current fact.
+        return {"sources": [], "reference": [], "canceled": False, "error": "", "web": "",
+                "language": None, "model": ""}
 
     def _respond(self, text, confirm, allow_ai, on_text, consent) -> str:
         empty = self._says_nothing(text)
         if empty is not None:
             return empty
         self.provider.cancel_token = self._token
+        remembered = self.memory_command(text)
+        if remembered is not None:
+            return remembered
         local = self.local_command(text, confirm)
         if local is not None:
             self.memory.save_turn(text, local, operation=True)
@@ -208,18 +213,60 @@ class Assistant:
         if not allow_ai:
             return tr("I didn't understand the command. Try, for example: “open documents”, "
                       "“how much RAM am I using”, “open the terminal”, “close the window”.")
-        # local model: it picks an action from the catalog (if the sentence asks
-        # for one), otherwise we just chat. Online services use the tools.
-        if not getattr(self.provider, "uses_tools", True):
-            actions = _agent.choose_with_model(text, self.provider)
-            if self._canceled():
-                self.last_turn["canceled"] = True
-                return tr("Request canceled.")
-            if actions:
-                answer = _agent.run_all(actions, confirm, origin="model")
-                self.memory.save_turn(text, answer, operation=True)
-                return answer
+        # the model picks an action from the catalog (only if the sentence
+        # talks about one), otherwise we just chat; «what is a CPU?» is a
+        # question about the thing, never an action on it
+        actions = None if is_definition_question(text) else _agent.choose_with_model(text, self.provider)
+        if self._canceled():
+            self.last_turn["canceled"] = True
+            return tr("Request canceled.")
+        if actions:
+            answer = _agent.run_all(actions, confirm, origin="model")
+            self.memory.save_turn(text, answer, operation=True)
+            return answer
         return self.ask(text, on_text=on_text, confirm=confirm, consent=consent)
+
+    def memory_command(self, text: str) -> str | None:
+        """«remember that…», «forget…», «what do you know about me?»: answered
+        from the local store, without the model. None = not one of them."""
+        t = " ".join((text or "").split()).rstrip(" .!")
+        for kind in ("list", "forget", "remember"):
+            for pattern in _MEMORY_COMMANDS.get(kind, []):
+                m = pattern.match(t)
+                if m:
+                    return self._run_memory_command(kind, (m.groupdict().get("text") or "").strip())
+        return None
+
+    def _run_memory_command(self, kind: str, what: str) -> str:
+        if not self.memory.enabled or not self.memory.long_term:
+            return tr("Long-term memory is off. You can turn it on in Settings › AI › Memory.")
+        try:
+            if kind == "list":
+                facts = self.memory.facts()
+                if not facts:
+                    return tr("You haven't asked me to remember anything yet. Say, for example: "
+                              "“remember that I prefer short answers”.")
+                return tr("This is what you asked me to remember:") + "\n" + "\n".join(
+                    "• " + f.text for f in facts[:30])
+            if kind == "forget":
+                gone = self.memory.forget(what)
+                if not gone:
+                    return tr("I found nothing like that among the things you asked me to remember.")
+                return tr("Forgotten:") + "\n" + "\n".join("• " + g for g in gone)
+            if not store.terms(what):            # «remember that» with nothing after it
+                return tr("Tell me what to remember, for example: “remember that I live in Bologna”.")
+            outcome, stored = self.memory.remember(what)
+        except Exception as e:  # noqa: BLE001 - the store is a file: it can fail
+            return tr("I couldn't use the memory: {error}").format(error=e)
+        if outcome == "added":
+            return tr("I'll remember it: {text}").format(text=stored)
+        if outcome == "updated":
+            return tr("Updated: {text}").format(text=stored)
+        if outcome == "duplicate":
+            return tr("I already remember it: {text}").format(text=stored)
+        if outcome == "full":
+            return tr("The memory is full. Remove something in Settings › AI › Memory.")
+        return tr("Tell me what to remember, for example: “remember that I live in Bologna”.")
 
     @staticmethod
     def _says_nothing(text: str) -> str | None:
@@ -238,28 +285,28 @@ class Assistant:
         return None
 
     def provider_label(self) -> str:
-        p = self.provider
-        if p.config.kind == "local":
-            return tr("{name} (local)").format(name=p.config.label)
-        return p.config.label
+        return tr("{name} (local)").format(name=self.provider.config.label)
 
     def ask(self, text: str, on_text: Callable[[str], None] | None = None,
             confirm: Callable[[ActionResult], bool] | None = None,
             consent: Callable[[list], str | None] | None = None) -> str:
-        """A full turn: send, any tool calls, final reply.
+        """A conversation turn with the local model.
 
-        `on_text` receives the pieces of the reply as they arrive, when the
-        provider supports it (streaming); otherwise it is called once, at the
-        end.
+        `on_text` receives the pieces of the reply as they arrive (streaming);
+        without it, or with streaming off in Settings, it is called once, at
+        the end.
         """
         prov = self.provider
         if self._token is None:                  # called directly, not through respond()
             self._token = CancelToken()
         prov.cancel_token = self._token
+        self._notes = []
         if not prov.available():
-            return self._not_ready(prov)
+            fallback = self._smaller_model(prov)
+            if not fallback:
+                return self._not_ready(prov)
         settings = load_settings()
-        web, sources = self._web_context(text, settings, consent, prov)
+        web, sources, reference = self._web_context(text, settings, consent)
         if self._canceled():
             self.last_turn["canceled"] = True
             return tr("Request canceled.")
@@ -268,31 +315,20 @@ class Assistant:
         # question in the history: the local model rereads nothing it has
         # already read (context.py explains why)
         prov.config.system = current_system_prompt(settings)
-        note = context.turn_note(web=web, sources=sources,
+        note = context.turn_note(web=web, sources=sources, reference=reference,
+                                 memories=self.memory.recall(text),
                                  reply_language=websearch.clear_language(text),
                                  always_language=always_language(settings))
-        self._notes = []
 
         start = len(self.history)
         self.history.append(Message("user", context.with_note(text, note)))
-        streaming = bool(on_text and not getattr(prov, "uses_tools", True)
-                         and getattr(prov.config, "stream", True))
-        executed = False
-        if streaming:
-            reply = self._stream_turn(on_text)
-        else:
-            tools = self.engine.tool_specs()
-            # first round (with tools; no streaming because a tool may be needed)
-            reply = self._turn(tools)
-            # any requested actions
-            guard = 0
-            executed = bool(reply.tool_calls)
-            while reply.tool_calls and guard < 6 and not self._canceled():
-                guard += 1
-                results = self._execute_tools(reply.tool_calls, confirm)
-                self.history.append(Message("assistant", self._describe_calls(reply)))
-                self.history.append(Message("user", self._format_results(results)))
-                reply = self._turn(tools)
+        streaming = bool(on_text and getattr(prov.config, "stream", True))
+        reply = self._stream_turn(on_text) if streaming else self._turn()
+        if reply.error == "memory" and not self._canceled():
+            # not enough free memory for the usual model: a smaller installed
+            # local model answers this question, if one fits
+            if self._smaller_model(prov):
+                reply = self._stream_turn(on_text) if streaming else self._turn()
 
         if reply.error == "canceled" or self._canceled():
             del self.history[start:]
@@ -300,21 +336,26 @@ class Assistant:
             return tr("Request canceled.")
         if reply.error:
             # an error is not an answer: it stays out of the history (the
-            # model would read it back next time) and the user is told what
-            # can be done
+            # model would read it back next time)
             del self.history[start:]
             self.last_turn["error"] = reply.error
-            return self._with_offer(reply.text)
-        final = reply.text.strip()
-        if not final and not executed:
+            return reply.text
+        final = context.strip_note_echo(reply.text).strip()
+        if not final:
             del self.history[start:]
             self.last_turn["error"] = "empty"
             return tr("The model sent an empty reply. Try again, or ask in another way.")
-        if on_text and not streaming and final and not self._is_raw_tool_call(final):
+        if on_text and not streaming and not self._is_raw_tool_call(final):
             on_text(final)
-        answer = self._close_turn(text, final, start, executed)
+        answer = self._close_turn(text, final, start)
         if web == "sources":
             self.last_turn["sources"] = sources
+            try:
+                store.remember_sources(sources)
+            except Exception:  # noqa: BLE001 - keeping sources is a bonus, not a duty
+                pass
+        elif web == "reference":
+            self.last_turn["reference"] = reference
         elif web == "off":
             self._notes.append(tr("(Not verified online: web search is off. You can turn it on "
                                   "in Settings › AI.)"))
@@ -323,19 +364,36 @@ class Assistant:
                                   "or the network is unavailable.)"))
         return "\n\n".join([answer] + self._notes) if answer else answer
 
+    def _smaller_model(self, prov) -> str:
+        """Switch this turn to a smaller installed model that fits the free
+        memory now; "" when there is none. The usual model comes back with
+        the next question (respond() restores it)."""
+        try:
+            smaller = prov.fallback_model()
+        except Exception:  # noqa: BLE001
+            smaller = ""
+        if not smaller:
+            return ""
+        usual = prov._model()
+        self._restore_model = (prov, prov.config.model)
+        prov.config.model = smaller
+        self.last_turn["model"] = smaller
+        self._notes.append(tr("(Answered by the smaller model {small}: there isn't enough free "
+                              "memory for {usual} right now.)").format(small=smaller, usual=usual))
+        return smaller
+
     # --- context for the model ---------------------------------------------
     def _window(self) -> list[Message]:
         """The history sent with this request: the latest turns that fit the
-        budget of this kind of model (memory.trim_history).
+        budget (memory.trim_history).
 
         The window keeps its first message as long as it fits, and when it
         no longer does it is cut down to half the budget: dropping the oldest
         turn at every question would change the beginning of the prompt every
         time, and a local model would reread the whole conversation for each
         question instead of only the new one."""
-        kind = "local" if self.provider.config.kind == "local" else "cloud"
-        budget = history_budget(kind)
-        turns = HISTORY_TURNS[kind]
+        budget = history_budget()
+        turns = HISTORY_TURNS
         first = getattr(self, "_window_first", None)
         start = next((i for i, m in enumerate(self.history) if m is first), None)
         if start is not None:
@@ -347,14 +405,24 @@ class Assistant:
         self._window_first = window[0] if window else None
         return window
 
-    def _web_context(self, text: str, settings: dict, consent, prov) -> tuple[str, list]:
-        """("", []) for ordinary questions; for time-sensitive ones the state
-        of the web lookup ("sources", "off", "failed", "provider") and the
-        sources found. Only the question goes to the search service."""
+    def _web_context(self, text: str, settings: dict, consent) -> tuple[str, list, list]:
+        """("", [], []) for ordinary questions; for time-sensitive ones the
+        state of the lookup ("sources", "reference", "off", "failed"), the web
+        sources found and the local reference entries. Only the question goes
+        to the search service; the local reference never leaves the computer."""
         if not websearch.is_time_sensitive(text):
-            return "", []
-        if prov.config.name == "perplexity":
-            return "provider", []                    # it searches the web by itself
+            return "", [], []
+        # A recent verified entry of the local reference answers at once and
+        # offline: nothing is sent, and the model reads a few lines instead
+        # of two web excerpts (on an N100 every token is read before the first
+        # word). Older entries give way to the web, when it is on.
+        try:
+            fresh = [k for k in store.search_knowledge(text, limit=2, origins=("reference",))
+                     if store.fresh(k.retrieved, REFERENCE_FRESH_DAYS)]
+        except Exception:  # noqa: BLE001
+            fresh = []
+        if fresh:
+            return "reference", [], fresh
         state = websearch.mode(settings)
         if state == "ask":
             choice = None
@@ -368,56 +436,31 @@ class Assistant:
                     websearch.save_choice(choice)
                 except OSError:
                     pass
-            if choice not in ("yes", "always"):
-                return "off", []
-        elif state == "off":
-            return "off", []
+            state = "on" if choice in ("yes", "always") else "off"
+        web, sources = "off", []
+        if state != "off":
+            try:
+                sources, _reachable = websearch.lookup(text, settings, lang=language(),
+                                                       token=self._token, compact=True)
+            except Canceled:
+                sources = []
+            web = "sources" if sources else "failed"
+        if web == "sources":
+            return web, sources, []
         try:
-            sources, _reachable = websearch.lookup(text, settings, lang=language(), token=self._token,
-                                                   compact=prov.config.kind == "local")
-        except Canceled:
-            return "failed", []
-        return ("sources", sources) if sources else ("failed", [])
+            reference = store.search_knowledge(text, limit=2, origins=("reference", "web"))
+        except Exception:  # noqa: BLE001 - no reference: say it can't be verified
+            reference = []
+        return ("reference", [], reference) if reference else (web, [], [])
 
     def _not_ready(self, prov: Provider) -> str:
-        """The chosen AI can't answer at all: say why, without sending the
-        question anywhere else."""
+        """The local model can't answer at all: say why."""
         self.last_turn["error"] = "setup"
-        if prov.config.kind == "local":
-            if getattr(prov, "list_models", lambda: [])():
-                from . import resources
-                need = prov._model_gb() if hasattr(prov, "_model_gb") else 0.0
-                return self._with_offer(resources.memory_reason(need))
-            return self._with_offer(NOT_CONFIGURED)
-        if prov.config.name == "custom":
-            msg = tr("The custom service needs an address, a model and, for an online "
-                     "service, a key: set them in Settings › AI.")
-        else:
-            msg = tr("{name} has no API key yet. Enter it in Settings › AI, or choose another "
-                     "AI there.").format(name=prov.config.label)
-        return self._with_offer(msg)
-
-    def _with_offer(self, message: str) -> str:
-        """After a failure, OFFER the other kind of AI; never switch by
-        ourselves. Online service failed: the local model, if installed.
-        Local model failed: an online service with a key, if any; the
-        question goes there only if the user accepts, for that question."""
-        try:
-            if self.provider.config.kind == "cloud":
-                other = "ollama" if self.registry.get("ollama").list_models() else ""
-            else:
-                other = self.registry.cloud_offer()
-        except Exception:  # noqa: BLE001
-            other = ""
-        if not other:
-            return message
-        self.last_turn["offer"] = other
-        if other == "ollama":
-            return message + "\n" + tr("You can ask the local model instead: the question stays on "
-                                        "this computer.")
-        from .registry import CATALOG
-        return message + "\n" + tr("You can ask {name} instead, for this question only: it would "
-                                    "be sent to that online service.").format(name=CATALOG[other][1])
+        if getattr(prov, "list_models", lambda: [])():
+            from . import resources
+            need = prov._model_gb() if hasattr(prov, "_model_gb") else 0.0
+            return resources.memory_reason(need)
+        return NOT_CONFIGURED
 
     # A small model sometimes writes a function call as text instead of
     # answering: {"type":"function","name":...}. Showing it helps nobody, and
@@ -450,8 +493,8 @@ class Assistant:
                                       "If you want me to, ask for it as a command, for example "
                                       "“open Firefox”.)"))
 
-    def _close_turn(self, text: str, final: str, start: int, executed: bool = False) -> str:
-        final = self._honest(final, executed)
+    def _close_turn(self, text: str, final: str, start: int) -> str:
+        final = self._honest(final, False)
         if self._is_raw_tool_call(final):
             # the whole turn stays out of the history: it got no answer
             del self.history[start:]
@@ -478,39 +521,32 @@ class Assistant:
     def _stream_turn(self, on_text: Callable[[str], None]) -> Reply:
         """A streaming round. Errors become a readable reply, as in `_turn`;
         if streaming breaks off halfway, keep what has already arrived and
-        say the rest is missing. No hidden second request: a failed stream
-        is not sent again without streaming."""
+        say the rest is missing. No hidden second request."""
         received: list[str] = []
 
         def chunk(c: str) -> None:
             received.append(c)
             on_text(c)
 
-        for attempt in range(2):
-            try:
-                return self.provider.stream(self._window(), chunk)
-            except InsufficientMemoryError as e:
-                return Reply(text=str(e), error="memory")
-            except Canceled:
-                return Reply(text="".join(received), error="canceled")
-            except ProviderError as e:
-                if received:
-                    return Reply(text="".join(received) + "\n\n" +
-                                 tr("(The reply was cut off: {reason})").format(reason=e))
-                # the default model no longer exists: one more try with a
-                # model the service really offers (a different request)
-                if attempt == 0 and self._fall_back_to_other_model(e):
-                    continue
-                return self._error_reply(e)
-            except Exception as e:  # noqa: BLE001 - a bug must not freeze the turn
-                if received:
-                    return Reply(text="".join(received) + "\n\n" + tr("(The reply was cut off.)"))
-                return Reply(text=tr("Unexpected error: {error}").format(error=e), error="error")
-        return Reply(text=tr("Unexpected error: {error}").format(error="stream"), error="error")
-
-    def _turn(self, tools) -> Reply:
         try:
-            return self.provider.chat(self._window(), tools)
+            return self.provider.stream(self._window(), chunk)
+        except InsufficientMemoryError as e:
+            return Reply(text=str(e), error="memory")
+        except Canceled:
+            return Reply(text="".join(received), error="canceled")
+        except ProviderError as e:
+            if received:
+                return Reply(text="".join(received) + "\n\n" +
+                             tr("(The reply was cut off: {reason})").format(reason=e))
+            return self._error_reply(e)
+        except Exception as e:  # noqa: BLE001 - a bug must not freeze the turn
+            if received:
+                return Reply(text="".join(received) + "\n\n" + tr("(The reply was cut off.)"))
+            return Reply(text=tr("Unexpected error: {error}").format(error=e), error="error")
+
+    def _turn(self) -> Reply:
+        try:
+            return self.provider.chat(self._window())
         except InsufficientMemoryError as e:
             # Typical on the live system: little memory and no swap on disk.
             # Say so plainly, instead of making the computer crawl.
@@ -518,71 +554,9 @@ class Assistant:
         except Canceled:
             return Reply(error="canceled")
         except ProviderError as e:
-            # default model that no longer exists: pick one of those the
-            # service really offers and retry (once, with the other model)
-            if self._fall_back_to_other_model(e):
-                try:
-                    return self.provider.chat(self._window(), tools)
-                except Canceled:
-                    return Reply(error="canceled")
-                except ProviderError as e2:
-                    e = e2
-            # the REAL reason (invalid key, model not found, too many
-            # requests...), never a silent switch to another service
             return self._error_reply(e)
         except Exception:  # noqa: BLE001
             if not self.provider.available():
                 return Reply(text=NOT_CONFIGURED, error="setup")
-            return Reply(text=tr("I can't reach {provider} right now. Check your Internet connection "
-                                 "or the setup in Settings › AI.").format(provider=self.provider_label()),
+            return Reply(text=tr("The local model isn't responding. Check it in Settings › AI."),
                          error="network")
-
-    def _fall_back_to_other_model(self, e: "ProviderError") -> bool:
-        """Only if the user hasn't picked a model (the default is in use) and
-        the service says the model doesn't exist. The model found is saved,
-        and the reply says so."""
-        msg = str(e).lower()
-        if self.provider.config.model or e.status not in (400, 404):
-            return False
-        if getattr(e, "kind", "") != "model" and not any(
-                k in msg for k in load("assistant")["model_error_words"]):
-            return False
-        from .providers.base import choose_model
-        name = self.provider.config.name
-        chosen = choose_model(name, self.provider.offered_models())
-        if not chosen:
-            return False
-        self.provider.config.model = chosen
-        try:
-            self.registry.set_option(name, "model", chosen)
-        except Exception:  # noqa: BLE001 - it still applies to this session
-            pass
-        notes = getattr(self, "_notes", None)
-        if notes is not None:
-            notes.append(tr("(The default model of {name} is no longer available: from now on "
-                            "ZETA uses {model}.)").format(name=self.provider.config.label, model=chosen))
-        return True
-
-    def _execute_tools(self, calls: list[ToolCall],
-                       confirm: Callable[[ActionResult], bool] | None) -> list[tuple[str, ActionResult]]:
-        out = []
-        for call in calls:
-            res = self.engine.run(call.name, call.arguments)
-            if res.needs_confirmation:
-                approved = confirm(res) if confirm else False
-                if approved:
-                    res = self.engine.run(call.name, call.arguments, authorized=True)
-                else:
-                    res = ActionResult(False, "Action canceled by the user.")
-            out.append((call.name, res))
-        return out
-
-    def _describe_calls(self, reply: Reply) -> str:
-        return reply.text or "Running the requested actions."
-
-    def _format_results(self, results: list[tuple[str, ActionResult]]) -> str:
-        parts = []
-        for name, res in results:
-            head = "OK" if res.ok else "ERROR"
-            parts.append("[%s] %s: %s" % (head, name, res.output))
-        return "\n".join(parts)

@@ -164,29 +164,37 @@ open(DEST + "/piper-voices/NOTICE.txt", "w").write(
 print("ZETA RAYS: voice attributions in %s/piper-voices/NOTICE.txt (%d voices)"
       % (DEST, len(voices_installed)))
 
-# --- Included model: its license, taken from the model package itself ---
-# Qwen3 4B Instruct (2507) is Apache-2.0 (section 4: whoever redistributes it
-# gives recipients a copy of the license). The official text travels inside
-# the model (the "license" layer of the Ollama package): it is copied from
-# there, so it always matches the included version.
-import json, os
+# --- Included models: their license, taken from each model package itself ---
+# Every model in the image is redistributed under its own license (Apache-2.0
+# for the ones ZETA RAYS ships: whoever redistributes it gives recipients a
+# copy, section 4). The official text travels inside the model (the
+# "license" layer of the Ollama package): it is copied from there, so it
+# always matches the included version. Folder: <family>/ (qwen3/, granite4/).
+import glob, json, os
 MODELS_DIR = "/usr/share/ollama/.ollama/models"
-MODEL_NAME, MODEL_TAG = "qwen3", "4b-instruct"
-MANIFEST = MODELS_DIR + "/manifests/registry.ollama.ai/library/%s/%s" % (MODEL_NAME, MODEL_TAG)
-MODEL_DOCS = DEST + "/qwen3"
-os.makedirs(MODEL_DOCS, exist_ok=True)
-texts = []
-for layer in json.load(open(MANIFEST))["layers"]:
-    if layer["mediaType"] == "application/vnd.ollama.image.license":
-        blob = MODELS_DIR + "/blobs/" + layer["digest"].replace(":", "-")
-        texts.append(open(blob, encoding="utf-8").read())
-license_text = next(t for t in texts if "Apache License" in t)
-open(MODEL_DOCS + "/LICENSE.txt", "w").write(license_text)
-open(MODEL_DOCS + "/NOTICE.txt", "w").write(
-    "ZETA RAYS OS includes the Qwen3 4B Instruct (2507) model by the Qwen team\n"
-    "(Alibaba Cloud) for ZETA's local AI, unmodified, as packaged by Ollama\n"
-    "(qwen3:4b-instruct). License: Apache License 2.0 (LICENSE.txt).\n")
-print("ZETA RAYS: model license and notice in %s" % MODEL_DOCS)
+NOTICES = {
+    "qwen3:4b-instruct": "the Qwen3 4B Instruct (2507) model by the Qwen team (Alibaba Cloud)",
+}
+for manifest in sorted(glob.glob(MODELS_DIR + "/manifests/registry.ollama.ai/library/*/*")):
+    family, tag = manifest.split("/")[-2], manifest.split("/")[-1]
+    model = "%s:%s" % (family, tag)
+    texts = []
+    for layer in json.load(open(manifest))["layers"]:
+        if layer["mediaType"] == "application/vnd.ollama.image.license":
+            blob = MODELS_DIR + "/blobs/" + layer["digest"].replace(":", "-")
+            texts.append(open(blob, encoding="utf-8").read())
+    if not texts:
+        raise SystemExit("ZETA RAYS: ERROR - model %s has no license in its package" % model)
+    license_text = next((t for t in texts if "Apache License" in t), texts[0])
+    docs = DEST + "/" + family
+    os.makedirs(docs, exist_ok=True)
+    open(docs + "/LICENSE.txt", "w").write(license_text)
+    what = NOTICES.get(model, "the %s model" % model)
+    kind = "Apache License 2.0" if "Apache License" in license_text else "see LICENSE.txt"
+    open(docs + "/NOTICE.txt", "w").write(
+        "ZETA RAYS OS includes %s for ZETA's local AI, unmodified, as packaged by Ollama\n"
+        "(%s). License: %s (LICENSE.txt).\n" % (what, model, kind))
+    print("ZETA RAYS: model license and notice in %s (%s)" % (docs, model))
 
 # Kokoro-82M (Apache-2.0): ZETA's Italian voice, installed by hook 0210
 KOKORO_DIR = "/usr/share/zeta/voices/kokoro"

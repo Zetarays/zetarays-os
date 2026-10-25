@@ -24,7 +24,7 @@ def os_release(path: str = OS_RELEASE) -> dict:
 
 
 def version() -> str:
-    """The release version (e.g. "2.1"), "" when unknown."""
+    """The release version (e.g. "2.5"), "" when unknown."""
     return os_release().get("VERSION_ID", "")
 
 

@@ -9,7 +9,7 @@ documentation.
 ## Pillars
 
 **AI, Security, Control.** Three native subsystems: ZETA RAYS Intelligence
-(ZETA, the multi-provider assistant), ZETA RAYS Security (the security center)
+(ZETA, the local AI assistant), ZETA RAYS Security (the security center)
 and a consent layer that keeps the user in charge of every sensitive action.
 
 ## Project layout
@@ -21,7 +21,7 @@ ZETA RAYS/
 │       ├── usr/lib/zeta/           ZETA RAYS subsystems
 │       │   ├── intelligence/       ZETA RAYS Intelligence (AI)
 │       │   │   ├── agent/         understanding, actions, verification
-│       │   │   └── providers/      Claude, Gemini, OpenAI-compatible, Ollama
+│       │   │   └── providers/      Ollama (the local model, 127.0.0.1 only)
 │       │   ├── system/             apps registry, network, audio, printers...
 │       │   ├── ui/                 shared GTK4 pages and menus
 │       │   ├── security/           ZETA RAYS Security (audit)

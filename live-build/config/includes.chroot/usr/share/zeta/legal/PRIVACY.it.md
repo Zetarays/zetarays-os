@@ -28,36 +28,24 @@ sconsigliato: gli aggiornamenti portano le correzioni di sicurezza.
 
 ## 2. Assistente ZETA
 
-ZETA funziona in due modi, e la differenza conta.
-
-**Modello locale (predefinito).** Il modello locale gira **sul tuo
-computer**. Le domande, le risposte e la cronologia non escono mai. Funziona
+**ZETA usa solo modelli di AI che funzionano sul tuo computer.** Da ZETA
+RAYS 2.5 nel sistema non ci sono servizi di AI online: nessun modello remoto
+di nessuna azienda, nessuna chiave API e
+nessun ripiego sul cloud quando il modello locale è occupato o ha poca
+memoria (in quel caso ZETA usa un modello locale più piccolo, oppure te lo
+dice). Domande, risposte, conversazione, le cose che chiedi a ZETA di
+ricordare, la tua voce e i tuoi file non escono mai dal computer. Funziona
 anche senza rete.
 
-**Provider cloud (solo se ne scegli uno).** Se in *Impostazioni › AI*
-inserisci una chiave API e scegli quel provider, le tue domande vengono
-inviate a lui. ZETA non passa mai da solo a un servizio online: quando il
-modello locale non può rispondere, può solo proporne uno nella chat, e la
-domanda parte solo se accetti con un click, per quella domanda. Dove vanno i
-dati:
+Il modello gira in Ollama, che ascolta solo su `127.0.0.1` (questo computer)
+e ha le sue funzioni cloud spente (`OLLAMA_NO_CLOUD=1`): i modelli "cloud" di
+Ollama, che girerebbero su ollama.com, non si possono usare, e ZETA li
+rifiuta.
 
-| Provider | Dove vanno i dati |
-|---|---|
-| Claude (Anthropic) | `api.anthropic.com` |
-| Gemini (Google) | `generativelanguage.googleapis.com` |
-| OpenAI | `api.openai.com` |
-| DeepSeek | `api.deepseek.com` |
-| Qwen (Alibaba) | `dashscope-intl.aliyuncs.com` |
-| Perplexity | `api.perplexity.ai` |
-| Mistral | `api.mistral.ai` |
-| Groq | `api.groq.com` |
-| xAI Grok | `api.x.ai` |
-| OpenRouter | `openrouter.ai` (che a sua volta inoltra al modello scelto) |
-| Personalizzato | l'indirizzo che scrivi tu (se è `localhost`, resta sul computer) |
-
-Da quel momento valgono le condizioni e l'informativa **di quel provider**,
-non queste. ZETA RAYS non vede e non conserva nulla di quel traffico.
-**Senza chiave API, nessuna di queste connessioni avviene.**
+**Scaricare un altro modello (solo se lo chiedi tu).** *Impostazioni › AI ›
+Scarica un modello* prende i file del modello da `registry.ollama.ai` (la
+libreria di Ollama). Parte solo il nome del modello, come in ogni download. I
+modelli inclusi nell'immagine non richiedono download.
 
 **Cercare informazioni aggiornate (acceso di serie).** Un modello conosce il
 mondo solo fino alla data del suo addestramento. Per le domande su fatti
@@ -77,11 +65,16 @@ Nessun cookie viene conservato, le richieste si presentano come ZETA RAYS
 risposta, con indirizzo e data. Con l'interruttore spento, o senza rete, ZETA
 dice che i fatti attuali non si possono verificare.
 
-Le chiavi API sono conservate nel portachiavi del sistema, se ce n'è uno
-attivo; altrimenti in file cifrati leggibili solo da te, in
-`~/.config/zeta/keys/` (permessi 600, cartella 700), come fanno ssh e
-gli strumenti a riga di comando dei servizi cloud. Non compaiono nei registri,
-nei rapporti di diagnosi né negli argomenti dei processi.
+Quello che ZETA ricorda sta in un solo file, `~/.local/share/zeta/memory.db`,
+leggibile solo da te (permessi 600, cartella 700): l'ultima conversazione
+(conservata 30 giorni, se non scegli diversamente), i ricordi a lungo termine
+che hai chiesto e le fonti web di risposte precedenti. *Impostazioni › AI ›
+Memoria* li elenca, li esporta e li cancella; `zeta --forget-all` li cancella
+dal terminale. Niente viene ricordato a lungo termine se non lo chiedi tu.
+
+Le versioni precedenti potevano conservare chiavi API di servizi online in
+`~/.config/zeta/keys/`. ZETA RAYS 2.5 non le legge più; puoi cancellare quella
+cartella.
 
 ## 3. Riconoscimento vocale
 
@@ -128,9 +121,8 @@ li intercetta: vale l'informativa di Mozilla.
 | Che cosa | Dove |
 |---|---|
 | Impostazioni della scrivania | `~/.config/zeta/` |
-| Conversazioni con ZETA | `~/.local/share/zeta/` |
+| Conversazioni e ricordi di ZETA | `~/.local/share/zeta/memory.db` |
 | Indice della ricerca, cache | `~/.cache/zeta/` |
-| Chiavi API dei provider cloud | portachiavi del sistema |
 | Registro degli accessi | `/var/lib/wtmpdb/` |
 
 Sono file tuoi, sul tuo disco. Si cancellano cancellandoli.
@@ -142,4 +134,4 @@ sul disco del computer**: tutto sta in memoria e sparisce allo spegnimento.
 
 ---
 
-*Ultimo aggiornamento: con ZETA RAYS OS 2.0.*
+*Ultimo aggiornamento: con ZETA RAYS OS 2.5.*

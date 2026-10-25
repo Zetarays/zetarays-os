@@ -156,13 +156,19 @@
    "scrivimi una poesia sulle finestre di una casa",
    "parlami della memoria storica italiana",
    "chi ha formulato il principio di archimede",
-   "consigliami un equipaggiamento da campeggio"
+   "consigliami un equipaggiamento da campeggio",
+   "cos'è la CPU?",
+   "a cosa serve la RAM?",
+   "che cos'è un disco SSD"
   ],
   "en": [
    "how do i open a zip file",
    "write me a poem about the windows of a house",
    "who formulated archimedes principle",
-   "recommend some camping equipment"
+   "recommend some camping equipment",
+   "what is a CPU?",
+   "and what is RAM?",
+   "explain what a GPU is"
   ]
  },
  "system_commands_recognized": {
@@ -604,6 +610,34 @@
   ]
  },
  "ai_web_lookup_on_by_default": {
-  "question": "chi è l'attuale presidente degli Stati Uniti?"
+  "question": "Chi ha vinto l'ultima partita della Juventus?"
+ },
+ "ai_memory_store": {
+  "fact": "Il mio cane si chiama Fido",
+  "fact_more": "Il mio cane si chiama Fido ed è un labrador",
+  "other": "Lavoro come grafico a Bologna",
+  "question": "Come si chiama il mio cane?",
+  "expect": "Fido",
+  "unrelated": "Scrivi una poesia sul mare d'inverno",
+  "forget": "il cane"
+ },
+ "ai_memory_commands": {
+  "remember_it": "Ricordati che preferisco risposte brevi",
+  "remember_en": "Remember that my favourite editor is vim",
+  "empty": "ricordati che",
+  "list_it": "Cosa sai di me?",
+  "remembered_word": "brevi",
+  "forget_it": "dimentica le risposte brevi",
+  "not_a_command": "Mi ricordi come si apre il terminale?"
+ },
+ "ai_current_facts_from_local_reference": {
+  "question": "Chi è l'attuale presidente degli Stati Uniti?"
+ },
+ "ai_definition_questions_go_to_the_model": {
+  "questions": [
+   "What is a CPU? One sentence.",
+   "Cos'è la RAM? Rispondi in breve.",
+   "A cosa serve il disco SSD?"
+  ]
  }
 }

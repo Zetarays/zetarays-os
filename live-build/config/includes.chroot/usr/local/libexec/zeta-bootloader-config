@@ -1,0 +1,78 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: the installer's "bootloader-config" step. It replaces Debian's
+# /usr/share/calamares/helpers/calamares-bootloader-config (diverted by the
+# 0100 hook) and does the same work, without the network.
+#
+# Debian's step runs "apt-get install grub-efi" (or grub-pc) in the new system
+# with every package source of the live system enabled. With the network up,
+# the usual case when the installer is opened from the live desktop after a
+# few minutes ("Try ZETA RAYS OS", then "Install"), apt read the online
+# indexes and tried to install the newest GRUB from the internet, which did
+# not match the packages of the image or could not be downloaded: the
+# installation stopped near the end with a package that could not be
+# installed. Started from the boot menu ("Install ZETA RAYS OS") the network
+# was not up yet and the same step used the installation medium, so it
+# worked. Here apt only ever sees the installation medium (the list the
+# sources-media step writes), so the result is the same with or without a
+# network; nothing is installed when the boot loader packages are already in
+# the image.
+set -u
+
+CHROOT=$(mount | grep proc | grep calamares | awk '{print $3}' | sed -e "s#/proc##g")
+[ -n "$CHROOT" ] && [ -d "$CHROOT" ] || { echo "bootloader-config: target system not found" >&2; exit 1; }
+MEDIA_ONLY=/etc/apt/zeta-media-only.d
+
+mkdir -p "$CHROOT$MEDIA_ONLY"
+if [ -f "$CHROOT/etc/apt/sources.list.d/debian-live-media.list" ]; then
+    cp "$CHROOT/etc/apt/sources.list.d/debian-live-media.list" "$CHROOT$MEDIA_ONLY/"
+fi
+
+# apt with the installation medium as the only source: no download, ever
+apt_medium() {
+    DEBIAN_FRONTEND=noninteractive chroot "$CHROOT" apt-get -y -q \
+        -o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts="$MEDIA_ONLY" \
+        -o APT::Get::List-Cleanup=false "$@"
+}
+
+installed() {
+    chroot "$CHROOT" dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+install_packages() {
+    local missing=()
+    for p in "$@"; do
+        installed "$p" || missing+=("$p")
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+        echo " * already installed: $*"
+        return 0
+    fi
+    apt_medium update >/dev/null 2>&1 || true
+    apt_medium install "${missing[@]}"
+}
+
+status=0
+# Full-disk encryption: its utilities, and a private initramfs (it is
+# generated again later in the installation)
+if [ "$(mount | grep "$CHROOT " | cut -c -16)" = "/dev/mapper/luks" ]; then
+    echo "UMASK=0077" > "$CHROOT/etc/initramfs-tools/conf.d/initramfs-permissions"
+    install_packages cryptsetup-initramfs cryptsetup keyutils || status=1
+fi
+
+echo "Running bootloader-config (ZETA RAYS, installation medium only)..."
+if [ -d /sys/firmware/efi/efivars ]; then
+    ARCH=$(chroot "$CHROOT" dpkg --print-architecture)
+    echo " * grub-efi (UEFI, $ARCH)"
+    install_packages "grub-efi-$ARCH" || status=1
+else
+    echo " * grub-pc (BIOS)"
+    install_packages grub-pc || status=1
+fi
+rm -rf "${CHROOT:?}$MEDIA_ONLY"
+
+# os-prober on, as Debian's step does (the other systems in the boot menu)
+sed -i "s/#GRUB_DISABLE_OS_PROBER=false/# OS_PROBER re-enabled by the ZETA RAYS installation:\nGRUB_DISABLE_OS_PROBER=false/g" \
+    "$CHROOT/etc/default/grub"
+chroot "$CHROOT" /usr/sbin/update-grub || status=1
+exit $status

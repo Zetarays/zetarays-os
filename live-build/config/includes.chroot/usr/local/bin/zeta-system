@@ -287,34 +287,22 @@ def cmd_repository():
 
 
 def cmd_ai(arg):
-    from intelligence.registry import CATALOG, Registry, keyring_where
+    from intelligence import models
+    from intelligence.registry import Registry
     from intelligence import ollama_manager as og
     reg = Registry()
     if arg and arg[0] == "test":
-        ids = arg[1:] or [reg.resolve_default().config.name]
-        outcome = 0
-        for pid in ids:
-            if pid not in CATALOG:
-                print(tr("Unknown service: {name} (see “zeta ai status”)").format(name=pid))
-                outcome = 1
-                continue
-            print("%s…" % CATALOG[pid][1], end=" ", flush=True)
-            ok, msg = reg.test(pid)
-            print("%s%s%s %s" % (V if ok else R, "✓" if ok else "✗", X, msg))
-            outcome |= 0 if ok else 1
-        return outcome
+        print("Ollama…", end=" ", flush=True)
+        ok, msg = reg.test()
+        print("%s%s%s %s" % (V if ok else R, "✓" if ok else "✗", X, msg))
+        return 0 if ok else 1
     title(tr("ZETA Intelligence"))
-    choice = reg.settings.get("default") or "auto"
     activate = reg.resolve_default()
-    line(tr("choice"), tr("automatic (Ollama first)") if choice == "auto" else CATALOG[choice][1])
-    model = activate.config.model or (activate._model() if hasattr(activate, "_model") else "")
-    line(tr("in use now"), "%s · %s" % (activate.config.label, model or tr("default model")))
-    line(tr("keys"), keyring_where())
-    title(tr("Services"))
-    for r in reg.status():
-        state = tr("ready") if r["ready"] else tr("needs setup")
-        print("  %s%s%s %-38s %s%s%s" % (V if r["ready"] else D, "●" if r["ready"] else "○", X,
-                                          r["label"][:38], D, state, X))
+    m = models.machine()
+    line(tr("in use now"), "%s · %s" % (activate.config.label, activate._model() or tr("default model")))
+    line(tr("profile"), "%s (%s GB, %s)" % (m.profile, "%.0f" % m.ram_gb, m.cpu or "?"))
+    line(tr("preferred models"), ", ".join(models.preferred()))
+    line(tr("online AI services"), tr("none: everything runs on this computer"))
     title(tr("Ollama (on this computer)"))
     if not og.installed():
         line(tr("status"), tr("not installed"), "warning")

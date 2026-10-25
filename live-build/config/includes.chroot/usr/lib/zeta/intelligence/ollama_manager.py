@@ -17,20 +17,27 @@ import urllib.request
 
 from i18n import tr
 
+from .providers.base import local_urlopen
+from .providers.ollama import DEFAULT_ENDPOINT, is_loopback
+
+# OLLAMA_HOST may name another port on this computer; another machine is
+# never used (the model, and what is asked of it, stay here)
 BASE = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 if not BASE.startswith("http"):
     BASE = "http://" + BASE
+if not is_loopback(BASE):
+    BASE = DEFAULT_ENDPOINT
 
 
 def _get(path: str, timeout: float = 3.0):
-    with urllib.request.urlopen(BASE + path, timeout=timeout) as r:
+    with local_urlopen(BASE + path, timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
 def _request(method: str, path: str, data: dict, timeout: float = 30.0):
     req = urllib.request.Request(BASE + path, data=json.dumps(data).encode(),
                                  headers={"Content-Type": "application/json"}, method=method)
-    return urllib.request.urlopen(req, timeout=timeout)
+    return local_urlopen(req, timeout)
 
 
 def installed() -> bool:
@@ -123,9 +130,13 @@ def download(name: str, progress=None, should_stop=None) -> tuple[bool, str]:
     should_stop() -> True stops the download (the rest is resumed next time:
     Ollama keeps the parts already downloaded).
     """
+    from . import models, resources
     name = name.strip()
     if not name or any(c.isspace() for c in name):
         return False, tr("Invalid model name (example: qwen3:1.7b).")
+    if models.is_cloud(name):
+        return False, tr("“{name}” is a cloud model: it would run on ollama.com, not on this "
+                         "computer. ZETA RAYS uses local models only.").format(name=name)
     try:
         resp = _request("POST", "/api/pull", {"model": name, "stream": True}, 3600)
     except urllib.error.HTTPError as e:
@@ -133,6 +144,7 @@ def download(name: str, progress=None, should_stop=None) -> tuple[bool, str]:
             reason=e.read().decode("utf-8", "replace")[:200])
     except OSError as e:
         return False, tr("Ollama isn't responding ({error}).").format(error=e)
+    checked = False
     try:
         for line in resp:
             if should_stop and should_stop():
@@ -145,6 +157,13 @@ def download(name: str, progress=None, should_stop=None) -> tuple[bool, str]:
             if d.get("error"):
                 return False, tr("Error: {error}").format(error=d["error"])
             tot, done = d.get("total"), d.get("completed")
+            if tot and tot > 200e6 and not checked:
+                # the weights: check disk and memory before downloading them
+                checked = True
+                problem = _fit_problem(tot / 1e9, resources, MODELS_DIR)
+                if problem:
+                    resp.close()
+                    return False, problem
             fraction = (done / tot) if tot and done is not None else None
             if progress:
                 text = d.get("status", "")
@@ -159,6 +178,26 @@ def download(name: str, progress=None, should_stop=None) -> tuple[bool, str]:
     finally:
         resp.close()
     return False, tr("Download not completed.")
+
+
+MODELS_DIR = "/usr/share/ollama/.ollama/models"
+
+
+def _fit_problem(gb: float, resources, folder: str) -> str:
+    """Why a model of this size should not be downloaded here, or ""."""
+    try:
+        free = shutil.disk_usage(folder if os.path.isdir(folder) else "/").free / 1e9
+    except OSError:
+        free = 0.0
+    if free and free < gb + 2.0:
+        return tr("Not enough disk space for this model: it needs {need} GB, {free} GB are "
+                  "free.").format(need="%.1f" % (gb + 2.0), free="%.1f" % free)
+    ram = resources.nominal_memory_gb()
+    if ram and resources.model_memory_gb(gb) > ram - 2.5:
+        return tr("This model is too large for this computer: it needs about {need} GB of "
+                  "memory, the computer has {ram} GB.").format(
+            need="%.1f" % resources.model_memory_gb(gb), ram="%.0f" % ram)
+    return ""
 
 
 def service(operation: str) -> tuple[bool, str]:

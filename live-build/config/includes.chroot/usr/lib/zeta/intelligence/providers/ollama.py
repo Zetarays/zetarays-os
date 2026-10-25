@@ -1,29 +1,45 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Ollama provider (local models) for ZETA RAYS Intelligence.
+"""Ollama provider: the local model of ZETA RAYS Intelligence.
 
-ZETA RAYS works even without Internet: if Ollama is running with a compatible
-model, ZETA uses it. Detects the installed models.
+The only AI ZETA uses: Ollama (llama.cpp) runs the model on this computer and
+listens on 127.0.0.1 only. ZETA refuses any other address, so a changed
+setting can never send a conversation to another machine. Works without
+Internet. Which model: models.py (by machine profile) unless the user picked
+one in Settings › AI.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Callable
 
 from i18n import tr
 
-from .base import Message, Provider, ProviderError, Reply, ToolSpec
-from .. import resources
+from .base import Message, Provider, ProviderError, Reply, local_urlopen
+from .. import models, resources
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
+DEFAULT_MODEL = models.DEFAULT_MODEL
 
-# The local model ZETA uses when the user has not picked one in Settings › AI.
-# This is the ONLY place to change it (the model shipped in the image is set
-# up by the build hooks, separately). If it is not installed, the first
-# installed model is used. Chosen for 2.1 after a benchmark: Qwen3-4B-Instruct-2507
-# (Apache-2.0, 2.5 GB file, about 3.7 GB loaded, no "thinking" mode).
-DEFAULT_MODEL = "qwen3:4b-instruct"
+
+def is_loopback(url: str) -> bool:
+    """True only for an address on this computer (127.0.0.0/8, ::1, localhost)."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "http" or not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class InsufficientMemoryError(RuntimeError):
@@ -31,12 +47,14 @@ class InsufficientMemoryError(RuntimeError):
 
 
 class OllamaProvider(Provider):
-    # The local model doesn't get the actions (ZETA recognizes commands by
-    # itself, in intents.py): its replies are always streamed.
-    uses_tools = False
+    # ZETA recognizes commands by itself (agent/understanding.py, then
+    # agent.choose_with_model): replies are always plain, streamed text.
 
     def _base(self) -> str:
-        return (self.config.endpoint or DEFAULT_ENDPOINT).rstrip("/")
+        """The server address: Settings may name another port on this
+        computer, never another machine (then the default one is used)."""
+        url = (self.config.endpoint or DEFAULT_ENDPOINT).rstrip("/")
+        return url if is_loopback(url) else DEFAULT_ENDPOINT
 
     def available(self) -> bool:
         """Usable only if Ollama responds AND there is memory for the model.
@@ -81,7 +99,7 @@ class OllamaProvider(Provider):
         """Our model is already in memory: using it costs no extra memory.
         (Another model in memory does not count: ours would need room too.)"""
         try:
-            with urllib.request.urlopen(self._base() + "/api/ps", timeout=2.0) as resp:
+            with local_urlopen(self._base() + "/api/ps", 2.0) as resp:
                 data = json.loads(resp.read(256 * 1024).decode("utf-8"))
             names = {m.get("name") or m.get("model") for m in data.get("models") or []}
             return bool(names) and self._model() in names
@@ -91,10 +109,12 @@ class OllamaProvider(Provider):
     def _tags(self) -> dict:
         """Installed models: {name: file size in GB} (empty if Ollama isn't running)."""
         try:
-            with urllib.request.urlopen(self._base() + "/api/tags", timeout=2.0) as resp:
+            with local_urlopen(self._base() + "/api/tags", 2.0) as resp:
                 data = json.loads(resp.read(1024 * 1024).decode("utf-8"))
-            return {m["name"]: (m.get("size") or 0) / 1e9 for m in data.get("models", [])
+            tags = {m["name"]: (m.get("size") or 0) / 1e9 for m in data.get("models", [])
                     if m.get("name")}
+            self._last_tags = tags
+            return tags
         except (urllib.error.URLError, ValueError, OSError, KeyError, TypeError, AttributeError):
             return {}
 
@@ -118,13 +138,13 @@ class OllamaProvider(Provider):
             # same options as the questions: a different context size would
             # make Ollama load the model a second time at the first question
             from ..registry import current_system_prompt
-            payload = json.dumps({"model": self._model(), "stream": False,
-                                  "messages": [{"role": "system", "content": current_system_prompt()}],
-                                  "keep_alive": self.KEEP_ALIVE,
-                                  "options": dict(self.load_options(), num_predict=1)}).encode()
+            payload = json.dumps(dict(self._think(), model=self._model(), stream=False,
+                                      messages=[{"role": "system", "content": current_system_prompt()}],
+                                      keep_alive=self.KEEP_ALIVE,
+                                      options=dict(self.load_options(), num_predict=1))).encode()
             req = urllib.request.Request(self._base() + "/api/chat", data=payload,
                                          headers={"content-type": "application/json"})
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with local_urlopen(req, 300) as resp:
                 resp.read()
             return True
         except (urllib.error.URLError, OSError, ValueError):
@@ -135,16 +155,19 @@ class OllamaProvider(Provider):
         return list(self._tags())
 
     def _model(self) -> str:
-        if self.config.model:
+        if self.config.model and not models.is_cloud(self.config.model):
             return self.config.model
         return self._model_from(self.list_models())
 
-    def _model_from(self, models: list[str]) -> str:
-        if self.config.model:
+    def _model_from(self, names: list[str]) -> str:
+        if self.config.model and not models.is_cloud(self.config.model):
             return self.config.model
-        if not models or DEFAULT_MODEL in models:
-            return DEFAULT_MODEL
-        return models[0]
+        tags = getattr(self, "_last_tags", None) or {}
+        return models.choose({n: tags.get(n, 0.0) for n in names})
+
+    def fallback_model(self) -> str:
+        """A smaller installed model that fits in the free memory now, or ""."""
+        return models.fallback(self._model(), self._tags())
 
     def _messages(self, messages: list[Message]) -> list[dict]:
         out = []
@@ -179,6 +202,11 @@ class OllamaProvider(Provider):
         model when they change): every request must send the same ones."""
         return {"num_ctx": self.config.context} if self.config.context else {}
 
+    def _think(self) -> dict:
+        """Models that reason before answering are asked not to: the trace
+        costs seconds before the first useful word (models.thinks)."""
+        return {"think": False} if models.thinks(self._model()) else {}
+
     def _options(self) -> dict:
         opts = {"temperature": self.config.temperature,
                "num_predict": self.config.max_tokens or self.MAX_TOKEN}
@@ -199,11 +227,11 @@ class OllamaProvider(Provider):
             if not resources.memory_for_model(need):
                 raise InsufficientMemoryError(resources.memory_reason(need))
 
-    def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None) -> Reply:
+    def chat(self, messages: list[Message]) -> Reply:
         self._check_memory()
         payload = {"model": self._model(), "messages": self._messages(messages),
                    "stream": False, "keep_alive": self.KEEP_ALIVE,
-                   "options": self._options()}
+                   "options": self._options(), **self._think()}
         data = self._post(self._base() + "/api/chat", payload, {"content-type": "application/json"})
         reply = Reply(text=data.get("message", {}).get("content", ""))
         reply.input_tokens = data.get("prompt_eval_count", 0)
@@ -228,7 +256,7 @@ class OllamaProvider(Provider):
         self._check_memory()
         payload = {"model": self._model(), "messages": self._messages(messages),
                    "stream": True, "keep_alive": self.KEEP_ALIVE,
-                   "options": self._options()}
+                   "options": self._options(), **self._think()}
         reply = Reply()
         for raw in self._post_stream(self._base() + "/api/chat", payload,
                                      {"content-type": "application/json"}):

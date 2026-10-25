@@ -1,24 +1,23 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence — common interface for AI providers.
+"""ZETA RAYS Intelligence — the interface of the local model, and the
+HTTP plumbing it shares with the web lookup.
 
-Every provider (Claude, Gemini, OpenAI, DeepSeek, Qwen, Ollama) exposes the
-same interface, so ZETA does not need to know the details of each one.
+The model runs on this computer (Ollama on 127.0.0.1); the web lookup
+(websearch.py) uses get_json() to fetch public sources. Every request has a
+time limit and can be canceled from another thread.
 No external dependencies: only urllib from the standard library.
 """
 from __future__ import annotations
 
-import email.utils
 import errno
 import functools
 import http.client
 import json
-import re
 import socket
 import threading
-import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Iterator
 
 from i18n import tr
@@ -28,17 +27,16 @@ class ProviderError(Exception):
     """A provider error, carrying a message that is already user-readable.
 
     `kind` is a stable key (never shown, never translated) that the assistant
-    and the tests use: auth, quota, rate_limit, model, too_long, server,
-    bad_request, network, timeout, canceled, empty, error.
+    and the tests use: model, too_long, server, bad_request, network,
+    timeout, canceled, empty, memory, error.
     """
 
     def __init__(self, message: str, *, retryable: bool = False, status: int | None = None,
-                 kind: str = "error", retry_after: int | None = None):
+                 kind: str = "error"):
         super().__init__(message)
         self.retryable = retryable
         self.status = status
         self.kind = kind
-        self.retry_after = retry_after
 
 
 class Canceled(ProviderError):
@@ -51,13 +49,12 @@ class Canceled(ProviderError):
 # --- time limits -----------------------------------------------------------
 # Every request has three limits, so that nothing can leave ZETA waiting
 # forever: reaching the server, the first piece of the reply, the whole reply.
-# A local model on a modest computer needs longer to start (it may have to be
-# loaded into memory) than an online service.
+# A local model on a modest computer may first have to be loaded into memory.
 CONNECT_TIMEOUT = 10.0
-FIRST_TOKEN_TIMEOUT = {"local": 60.0, "cloud": 30.0}
+FIRST_TOKEN_TIMEOUT = 60.0
 # without streaming the server answers only when the whole reply is ready
-WHOLE_REPLY_TIMEOUT = {"local": 120.0, "cloud": 90.0}
-TOTAL_TIMEOUT = {"local": 300.0, "cloud": 180.0}
+WHOLE_REPLY_TIMEOUT = 120.0
+TOTAL_TIMEOUT = 300.0
 MAX_REPLY_BYTES = 8 * 1024 * 1024        # a non-streamed reply larger than this is not read
 
 
@@ -186,39 +183,21 @@ class _TimedHTTPSHandler(urllib.request.HTTPSHandler):
 
 
 def open_url(req: urllib.request.Request, *, read_timeout: float,
-             token: CancelToken | None = None):
+             token: CancelToken | None = None, local: bool = False):
     """urlopen with a connect timeout, a read timeout and cancellation.
-    No cookie handler: nothing is stored between requests."""
-    opener = urllib.request.build_opener(_TimedHTTPHandler(read_timeout, token),
-                                         _TimedHTTPSHandler(read_timeout, token))
-    return opener.open(req, timeout=CONNECT_TIMEOUT)
+    No cookie handler: nothing is stored between requests. `local`: a
+    request to the model on this computer never goes through a proxy set in
+    the environment (http_proxy would otherwise receive the conversation)."""
+    handlers = [_TimedHTTPHandler(read_timeout, token), _TimedHTTPSHandler(read_timeout, token)]
+    if local:
+        handlers.insert(0, urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(*handlers).open(req, timeout=CONNECT_TIMEOUT)
 
 
-def _retry_after(headers) -> int | None:
-    """Seconds from a Retry-After header (a number or an HTTP date)."""
-    value = (headers.get("Retry-After") if headers is not None else None) or ""
-    value = value.strip()
-    if not value:
-        return None
-    if value.isdigit():
-        return int(value)
-    try:
-        when = email.utils.parsedate_to_datetime(value).timestamp()
-        return max(0, int(when - time.time()))
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-
-# API keys look like this; an error text that repeats one is masked before
-# it reaches the screen
-_KEY_LIKE = re.compile(r"\b(sk-[A-Za-z0-9_\-*]{6,}|gsk_[A-Za-z0-9]{6,}|AIza[0-9A-Za-z_\-]{10,}|"
-                       r"xai-[A-Za-z0-9]{6,}|pplx-[A-Za-z0-9]{6,}|sk-ant-[A-Za-z0-9_\-]{6,})")
-
-
-def redact(text: str, key: str = "") -> str:
-    if key and len(key) >= 6:
-        text = text.replace(key, "***")
-    return _KEY_LIKE.sub("***", text)
+def local_urlopen(req, timeout: float):
+    """urlopen for the model's server on this computer: no proxy, ever."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return opener.open(req, timeout=timeout)
 
 
 def get_json(url: str, headers: dict, *, timeout: float, max_bytes: int,
@@ -277,54 +256,32 @@ class Message:
 
 
 @dataclass
-class ToolSpec:
-    """Description of a tool (action) the AI can request."""
-    name: str
-    description: str
-    schema: dict         # JSON schema of the parameters
-
-
-@dataclass
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict
-
-
-@dataclass
 class Reply:
     """A provider's reply to one conversation turn."""
     text: str = ""
-    tool_calls: list[ToolCall] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
-    stop_reason: str = "end_turn"    # end_turn | tool_use | refusal | max_tokens
     error: str = ""                  # ProviderError.kind when the text is an error message
 
 
 @dataclass
 class ProviderConfig:
-    name: str                        # internal id (claude, gemini, ...)
+    name: str                        # internal id ("ollama")
     label: str                       # name shown to the user
-    kind: str                        # "cloud" | "local"
+    kind: str = "local"              # always "local" since 2.5
     model: str = ""
     endpoint: str = ""
-    api_key: str = ""
     temperature: float = 0.7
     max_tokens: int = 4096
     system: str = ""
     timeout: float = 0.0             # seconds, whole reply; 0 = default (TOTAL_TIMEOUT)
     stream: bool = True              # reply appears while it is being written
-    context: int = 0                 # context window (local models only); 0 = model default
+    context: int = 0                 # context window; 0 = model default
 
 
 class Provider:
-    """Base of every provider. `chat` runs one turn; `stream` runs one streamed."""
-
-    # Can the provider use ZETA's actions (tool calling)? Those that do not
-    # can answer straight away in streaming mode: the reply appears while it
-    # is being written, instead of all at once at the end.
-    uses_tools = True
+    """Base of the local model provider (and of the tests' stand-ins).
+    `chat` runs one turn; `stream` runs one streamed."""
 
     def __init__(self, config: ProviderConfig):
         self.config = config
@@ -337,7 +294,7 @@ class Provider:
         self.cancel_token: CancelToken | None = None
 
     # --- Public API ---
-    def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None) -> Reply:
+    def chat(self, messages: list[Message]) -> Reply:
         raise NotImplementedError
 
     def stream(self, messages: list[Message],
@@ -348,27 +305,16 @@ class Provider:
             on_text(reply.text)
         return reply
 
-    def offered_models(self) -> list[str]:
-        """The models the service actually offers (for automatic fallback).
-        Every provider able to tell overrides this; [] = unknown."""
-        return []
-
     def available(self) -> bool:
-        """True if the provider is configured and usable."""
-        if self.config.kind == "cloud":
-            return bool(self.config.api_key)
+        """True if the provider is usable."""
         return True
 
     def test(self, timeout: float = 25.0) -> tuple[bool, str]:
         """Actually test the connection and report the outcome, in the user's language.
 
-        Checking for a key is not enough: an expired key, a model that no
-        longer exists or a network with no outbound access all look the same
-        ("configured") until you try. Here the smallest possible request is
-        made and the real outcome is reported.
+        Here the smallest possible request is made and the real outcome is
+        reported.
         """
-        if self.config.kind == "cloud" and not self.config.api_key:
-            return False, tr("The API key is missing.")
         prev_tokens, prev_timeout = self.config.max_tokens, self.timeout
         self.config.max_tokens, self.timeout = 16, timeout
         try:
@@ -399,9 +345,8 @@ class Provider:
         reply. «Maximum Wait Time» in Settings › AI (config.timeout) sets the
         cap; the connection test sets everything shorter (self.timeout).
         """
-        kind = "local" if self.config.kind == "local" else "cloud"
-        read = (FIRST_TOKEN_TIMEOUT if streaming else WHOLE_REPLY_TIMEOUT)[kind]
-        total = self.config.timeout if self.config.timeout and self.config.timeout > 0 else TOTAL_TIMEOUT[kind]
+        read = FIRST_TOKEN_TIMEOUT if streaming else WHOLE_REPLY_TIMEOUT
+        total = self.config.timeout if self.config.timeout and self.config.timeout > 0 else TOTAL_TIMEOUT
         if self.timeout:
             read, total = min(read, self.timeout), min(total, self.timeout)
         return min(read, total), total
@@ -423,7 +368,7 @@ class Provider:
         elif num in (errno.ENETUNREACH, errno.EHOSTUNREACH) or "unreachable" in m:
             explanation = tr("network unreachable")
         else:
-            explanation = redact(str(reason), self.config.api_key)
+            explanation = str(reason)
         return ProviderError(tr("Can't reach {name}: {reason}.").format(
             name=self.config.label, reason=explanation), retryable=True, kind="network")
 
@@ -440,13 +385,10 @@ class Provider:
         if isinstance(error, (TimeoutError, socket.timeout)):
             if started:
                 msg = tr("{name} stopped sending the reply (nothing for {seconds} seconds).")
-            elif self.config.kind == "local":
+            else:
                 msg = tr("The local model didn't start replying within {seconds} seconds. "
                          "The computer may be busy or short of memory: try again, or "
                          "choose a smaller model in Settings › AI.")
-            else:
-                msg = tr("{name} didn't start replying within {seconds} seconds. "
-                         "Try again in a moment.")
             return ProviderError(msg.format(name=self.config.label, seconds=int(read)),
                                  retryable=True, kind="timeout")
         return self._unreachable(error)
@@ -464,7 +406,7 @@ class Provider:
         try:
             if token.canceled:
                 raise Canceled()
-            resp = open_url(req, read_timeout=read, token=token)
+            resp = open_url(req, read_timeout=read, token=token, local=True)
         except urllib.error.HTTPError as e:
             timer.cancel()
             token.close()
@@ -531,50 +473,26 @@ class Provider:
             token.close()
 
     def _http_error(self, code: int, body: str, headers=None) -> ProviderError:
-        """An HTTP error status as a clear message plus a stable kind."""
+        """An HTTP error status of the local server as a clear message plus a
+        stable kind."""
         detail = ""
         try:
             j = json.loads(body)
             err = j.get("error") if isinstance(j, dict) else None
             if isinstance(err, dict):
                 detail = str(err.get("message", "") or err.get("type", ""))
-            elif isinstance(err, list) and err and isinstance(err[0], dict):   # Gemini, sometimes
-                detail = str((err[0].get("error") or {}).get("message", ""))
             elif err:
                 detail = str(err)
             elif isinstance(j, dict):
                 detail = str(j.get("message", "") or j.get("detail", ""))
         except (ValueError, AttributeError):
             detail = body[:200]
-        detail = redact(detail.strip(), self.config.api_key)[:300]
+        detail = detail.strip()[:300]
         low = detail.lower()
         name, model = self.config.label, self.config.model or tr("default")
-        retry_after = _retry_after(headers)
-        if code == 401 or (code == 400 and ("api key" in low or "api_key" in low)):
-            # Gemini replies 400 "API key not valid" instead of 401
-            return ProviderError(tr("{name}: invalid or missing API key. Check it in Settings › AI.")
-                                 .format(name=name), status=code, kind="auth")
-        if code == 402 or "insufficient balance" in low or "insufficient_quota" in low or "credit" in low:
-            return ProviderError(tr("{name}: the account has no credit left (the API is paid "
-                                    "separately from the web chat). Top it up on the service's "
-                                    "site.").format(name=name), status=code, kind="quota")
-        if code == 403:
-            return ProviderError(tr("{name}: access denied for this API key.").format(name=name),
-                                 status=code, kind="auth")
-        if code == 429:
-            if retry_after:
-                msg = tr("{name}: too many requests (rate limit). Try again in {seconds} seconds.").format(
-                    name=name, seconds=retry_after)
-            else:
-                msg = tr("{name}: too many requests (rate limit) or the free quota is used up. "
-                         "Try again later.").format(name=name)
-            return ProviderError(msg, retryable=True, status=code, kind="rate_limit",
-                                 retry_after=retry_after)
         if code == 404 or (code in (400, 422) and "model" in low and
                            any(w in low for w in ("not found", "not exist", "does not exist",
                                                   "unknown", "invalid model", "not supported"))):
-            # "model" / "not found" are what assistant.py looks for to
-            # recognize a model that no longer exists
             return ProviderError(tr("{name}: model or endpoint not found ({model}).").format(
                 name=name, model=model), status=code, kind="model")
         if code == 413 or "context length" in low or "too long" in low or "maximum context" in low:
@@ -587,54 +505,16 @@ class Provider:
         return ProviderError("%s: %s" % (name, detail or tr("error {code}").format(code=code)),
                              status=code, kind="bad_request")
 
-    def _error_message(self, code: int, body: str) -> str:
-        """Kept for callers that only need the text."""
-        return str(self._http_error(code, body))
-
     def _stream_failed(self, detail) -> ProviderError:
-        """An error the service reports in the middle of a streamed reply."""
+        """An error the server reports in the middle of a streamed reply."""
         if isinstance(detail, dict):
             text = str(detail.get("message", "") or detail.get("type", ""))
             code = detail.get("code")
         else:
             text, code = str(detail or ""), None
         low = text.lower()
-        if "overloaded" in low or code in (500, 502, 503, 529):
+        if "overloaded" in low or code in (500, 502, 503):
             return self._http_error(503, json.dumps({"error": {"message": text}}))
-        if "rate" in low and "limit" in low:
-            return self._http_error(429, json.dumps({"error": {"message": text}}))
         if "not found" in low and "model" in low:
             return self._http_error(404, json.dumps({"error": {"message": text}}))
-        return ProviderError("%s: %s" % (self.config.label,
-                                         redact(text, self.config.api_key)[:300] or tr("error")),
-                             kind="error")
-
-
-# Preferred models when the default one no longer exists (names change over
-# time): fast ones first. They are matched as substrings of the name.
-FAVORITES = {
-    "claude": ["claude-haiku-5", "claude-sonnet-5", "haiku", "sonnet"],
-    "gemini": ["gemini-3.8-flash", "gemini-3.5-flash", "flash", "gemini"],
-    "openai": ["gpt-6-luna", "gpt-5.6-terra", "gpt-6", "gpt-5", "gpt-4.1-mini"],
-    "deepseek": ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"],
-    "qwen": ["qwen3.8-flash", "flash", "qwen-plus", "plus", "qwen-turbo", "qwen-max"],
-    "perplexity": ["sonar"],
-    "mistral": ["mistral-small-latest", "mistral-medium-latest", "mistral-large-latest", "mistral"],
-    "groq": ["gpt-oss-20b", "gpt-oss", "llama", "qwen"],
-    "xai": ["grok-4", "grok"],
-    "openrouter": ["openrouter/auto"],
-}
-_NON_CHAT = ("embed", "image", "tts", "audio", "whisper", "moderation", "guard", "realtime",
-             "transcribe", "vision-preview", "search-preview", "dall-e", "veo", "imagen", "live")
-
-
-def choose_model(provider_id: str, offered: list[str]) -> str:
-    """The chat model to use among those offered, according to FAVORITES."""
-    chat = [m for m in offered if m and not any(x in m.lower() for x in _NON_CHAT)]
-    for part in FAVORITES.get(provider_id, []):
-        found = sorted((m for m in chat if part in m.lower()), reverse=True)
-        # on a tie, prefer the undated name (an alias that tracks updates)
-        found.sort(key=lambda m: (not m.lower().startswith(part), len(m)))
-        if found:
-            return found[0]
-    return chat[0] if chat else ""
+        return ProviderError("%s: %s" % (self.config.label, text[:300] or tr("error")), kind="error")

@@ -86,16 +86,16 @@ sembrano sicuri. **Non fidarti di una risposta per decisioni che contano**
 senza verificarla — a maggior ragione per questioni mediche, legali o
 finanziarie.
 
-Il modello locale, Qwen3 4B Instruct (2507) del team Qwen (Alibaba Cloud), è
-distribuito con la *Apache License 2.0*: il testo della licenza e un avviso
-sono in `qwen3/`, accanto a questo file.
+I modelli locali, Qwen3 4B Instruct (2507) del team Qwen (Alibaba Cloud) e
+Granite 4.0 Micro (ibrido) di IBM, sono distribuiti con la *Apache License
+2.0*: i testi delle licenze e gli avvisi sono in `qwen3/` e `granite4/`,
+accanto a questo file. Funzionano solo sul tuo computer.
 
-Se colleghi un provider cloud, valgono anche le condizioni di quel provider.
 
 ## Marchi di terzi
 
 Debian è un marchio di SPI Inc. Firefox è un marchio di Mozilla Foundation.
-Qwen è un marchio di Alibaba Cloud. GNOME, Linux e gli altri nomi citati
+Qwen è un marchio di Alibaba Cloud. Granite è un marchio di IBM. GNOME, Linux e gli altri nomi citati
 appartengono ai rispettivi titolari. ZETA RAYS OS **non è prodotto, sostenuto
 né approvato** da nessuno di loro.
 

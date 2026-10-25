@@ -88,16 +88,16 @@ ZETA can be wrong: language models make things up, even when they sound
 confident. **Do not rely on an answer for decisions that matter** without
 checking it — all the more so for medical, legal or financial matters.
 
-The local model, Qwen3 4B Instruct (2507) by the Qwen team (Alibaba Cloud),
-is distributed under the *Apache License 2.0*: the license text and a notice
-are in `qwen3/`, next to this file.
+The local models, Qwen3 4B Instruct (2507) by the Qwen team (Alibaba Cloud)
+and Granite 4.0 Micro (hybrid) by IBM, are distributed under the *Apache
+License 2.0*: the license texts and notices are in `qwen3/` and `granite4/`,
+next to this file. They run only on your computer.
 
-If you connect a cloud provider, that provider's terms also apply.
 
 ## Third-party trademarks
 
 Debian is a trademark of SPI Inc. Firefox is a trademark of the Mozilla
-Foundation. Qwen is a trademark of Alibaba Cloud. GNOME, Linux and the other
+Foundation. Qwen is a trademark of Alibaba Cloud. Granite is a trademark of IBM. GNOME, Linux and the other
 names mentioned belong to their respective owners. ZETA RAYS OS **is not
 produced, endorsed or approved** by any of them.
 

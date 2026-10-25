@@ -8,8 +8,10 @@
 Reads the text on standard input and writes raw audio (24 kHz, mono,
 signed 16-bit little endian) on standard output, one sentence at a time, so
 the player (pw-play, started by the speech module) begins with the first
-sentence while the next ones are computed. Ending this process stops the
-reading at once. Errors go to standard error and the exit status is 1:
+sentence while the next ones are computed. The model is loaded first and
+each line is read as soon as it arrives: the speech module writes a reply
+line by line while the language model is still writing it. Ending this
+process stops the reading at once. Errors go to standard error and the exit status is 1:
 the speech module then reads the text with the next available voice.
 """
 import argparse
@@ -29,8 +31,8 @@ def main() -> int:
     ap.add_argument("--pause", type=float, default=0.25, help="seconds after each sentence")
     ap.add_argument("--phonemes", action="store_true", help="print the phonemes, no audio")
     a = ap.parse_args()
-    text = sys.stdin.read()
     if a.phonemes:
+        text = sys.stdin.read()
         import json
         with open(kokoro.VOCAB, encoding="utf-8") as f:
             vocab = json.load(f)
@@ -44,12 +46,13 @@ def main() -> int:
     silence = kokoro.to_pcm16(np, np.zeros(int(kokoro.SAMPLE_RATE * max(0.0, a.pause)),
                                             dtype=np.float32))
     out = sys.stdout.buffer
-    for sentence in kokoro.sentences(text):
-        for piece in kokoro.split_phonemes(synth.phonemes(sentence)):
-            out.write(kokoro.to_pcm16(np, synth.audio(piece, speed)))
+    for line in sys.stdin:                 # one line at a time, as it arrives
+        for sentence in kokoro.sentences(line):
+            for piece in kokoro.split_phonemes(synth.phonemes(sentence)):
+                out.write(kokoro.to_pcm16(np, synth.audio(piece, speed)))
+                out.flush()
+            out.write(silence)
             out.flush()
-        out.write(silence)
-        out.flush()
     return 0
 
 

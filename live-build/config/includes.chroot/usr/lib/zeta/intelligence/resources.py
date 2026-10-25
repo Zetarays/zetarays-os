@@ -11,14 +11,15 @@ afford. The goal: the whole system runs well on 8 GB.
 
   RAM      at login    after a reply   before loading
   < 6 GB   never       2 minutes       check free memory; suggest a smaller
-                                       model or an online service
+                                       model
   6-11 GB  never       5 minutes       check free memory (8 GB machines)
   12-15    never       10 minutes      check free memory
   16+ GB   yes         2 hours         check free memory
 
 "Check free memory" = MemAvailable must hold the model plus a margin for the
-rest of the system; otherwise ZETA says so (and suggests qwen3:1.7b or an
-online service) instead of loading it and pushing the computer into swap.
+rest of the system; otherwise ZETA answers with a smaller installed model
+(models.fallback) or says so, instead of loading it and pushing the computer
+into swap.
 The Ollama service keeps at most one model loaded (OLLAMA_MAX_LOADED_MODELS=1,
 set by the build hook).
 """
@@ -43,12 +44,15 @@ COMFORTABLE_THRESHOLD = 16.0  # from here: kept warm for two hours
 ROOMY_THRESHOLD = 12.0      # from here: ten minutes
 # Below this much RAM a model like the default one (3.7 GB loaded) leaves too
 # little for the desktop: it is unloaded almost right after use, and Settings
-# suggests a smaller model or an online service.
+# suggests a smaller model.
 LOW_RAM_THRESHOLD = 6.0
 SHORT_NOW_GB = 0.6          # free memory below this: unload soon, on any machine
 
-# A smaller model that still answers well (the download field in Settings › AI)
-SMALLER_MODEL = "qwen3:1.7b"
+
+def smaller_model() -> str:
+    """A smaller model that still answers well (shipped in the image)."""
+    from .models import SMALL_MODEL
+    return SMALL_MODEL
 
 
 def _meminfo(field: str) -> float:
@@ -193,8 +197,8 @@ def low_ram_advice(model_gb: float = 0.0) -> str:
     if gb <= 0 or gb >= LOW_RAM_THRESHOLD or (model_gb or MODEL_GB) < 2.5:
         return ""
     return tr("This computer has {gb} GB of RAM: the local model would leave little for "
-              "everything else. Choose a smaller model (for example {model}) or an "
-              "online service in Settings › AI.").format(gb="%.0f" % gb, model=SMALLER_MODEL)
+              "everything else. Choose a smaller model (for example {model}) in "
+              "Settings › AI.").format(gb="%.0f" % gb, model=smaller_model())
 
 
 def memory_for_model(model_gb: float = 0.0) -> bool:
@@ -218,8 +222,8 @@ def memory_reason(model_gb: float = 0.0) -> str:
                                             free="%.1f" % available_memory_gb())
     advice = low_ram_advice(model_gb)
     if not advice and (model_gb or MODEL_GB) >= 2.5:
-        advice = tr("Or choose a smaller model (for example {model}, download it in Settings › AI) "
-                    "or an online service.").format(model=SMALLER_MODEL)
+        advice = tr("Or choose a smaller model in Settings › AI (for example {model}).").format(
+            model=smaller_model())
     return text + (" " + advice if advice else "")
 
 

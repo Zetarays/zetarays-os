@@ -1,5 +1,72 @@
 # Changelog
 
+## 2.5 — 2026-10-25
+
+Images: `zetarays-2.5-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
+
+### Highlights of 2.5
+- **Local AI only.** ZETA answers only with models that run on the computer.
+  The connections to online AI services, their API keys and the "ask an
+  online service instead" offer are gone. The model
+  server only answers on 127.0.0.1, requests to it never go through a proxy,
+  and Ollama's own cloud features are switched off (`OLLAMA_NO_CLOUD=1`):
+  its "-cloud" models are refused.
+- **The model that suits the computer.** A profile per machine (8 GB, 16 GB,
+  Intel N100/N150 low-power) with its list of models; Settings › AI shows the
+  choice and offers the recommended model when it is missing (download only
+  on click, after checking disk space and memory). When memory is short a
+  smaller installed model answers that question, and ZETA says so.
+  The image now includes two models: **Granite 4.0 Micro** (IBM, hybrid,
+  2.4 GB in memory, the fastest writer of the two: used on N100 mini PCs and
+  8 GB computers) and **Qwen3 4B Instruct** (the most natural Italian: used
+  with 16 GB). **Granite 4.1 8B** is recommended on computers with 24 GB and
+  8 threads. Chosen from 11 models compared on the same prompts (docs/AI.md).
+- **A real memory.** Conversation, long-term memories ("remember that…",
+  "forget…", "what do you know about me?") and reference material in one
+  private SQLite file with full-text search (under a millisecond). Only the
+  memories that match a question are sent with it. Settings › AI › Memory
+  lists, deletes, exports and clears them, and sets how long the
+  conversation is kept (30 days by default). `zeta --learn FILE` adds your
+  own documents. The 2.1 history is moved in automatically.
+- **Current facts without guessing.** A verified local reference (who is the
+  President of the United States, Italy's President and Prime Minister, the
+  Pope, each with the date it was checked) answers at once and offline;
+  other current questions are looked up on Wikipedia when the search is on;
+  otherwise ZETA says it cannot verify.
+- **Text and voice together, by default.** The answer is read aloud while it
+  is written, starting with the first sentence, in a female voice that
+  matches the language of the question (Sara for Italian, Lessac for
+  English). Pause, stop and "read again" under the input field; volume in
+  Settings › AI › Voice. A voice turned off in 2.1 stays off.
+- **Ollama 0.40.11** and every Debian package updated to the latest version.
+
+### Fixed
+- Installing from the live desktop ("Try ZETA RAYS OS", then "Install") could
+  fail near the end with a package that could not be installed: with the
+  network up, Debian's boot loader step installed GRUB from the internet,
+  which did not fit the image. The step now uses only the installation
+  medium, so the installation is the same with or without a network.
+- "What is a CPU?" was answered with the current CPU usage instead of an
+  explanation.
+- The boot menu of the USB stick loaded no terminal font: one line of its
+  configuration was not valid GRUB syntax. The build now checks every boot
+  menu file with `grub-script-check`.
+
+### Also in 2.5
+- Copies of ZETA's own note that some models write back ("[Today: …]") are
+  removed from answers and never read aloud.
+- `zeta-diagnostics` reports the memory store (sizes only) and who can reach
+  the model, instead of API keys.
+- The image build checks every shipped model and its license; models are no
+  longer downloaded during the build.
+- The image build resumes correctly after a crash inside one of its steps
+  (seen with the emulated amd64 build): the files a step installs from are
+  put back before it runs again.
+- The web lookup identifies itself with the release from `/etc/os-release`.
+- New tests in `zeta-selftest ai`: local-only rules, memory store, memory
+  commands, model profiles, smaller-model fallback, local reference, voice
+  streaming.
+
 ## 2.1 — 2026-10-18
 
 Images: `zetarays-2.1-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
@@ -97,7 +164,7 @@ Images: `zetarays-2.1-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
 - "Open With" missed apps installed by the user; the desktop could not take a
   folder dragged from the file manager.
 - The weekly health check notified about the same failed service every hour.
-- Settings › AI claimed tool support for Gemini, which prevented streaming.
+- Settings › AI claimed tool support for one online service that it did not use, which prevented streaming.
 
 ### Upgrades
 - Ollama 0.40.3; Debian 13 packages updated at build time; new packages:
@@ -235,11 +302,10 @@ Images: `zetarays-2.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
   logins, leftovers of Debian's installer and the generic file manager
   sidebar icons are replaced by ZETA RAYS ones; Debian's artwork packages
   can no longer be installed by accident.
-- **AI up to date**: Ollama 0.40.3; Claude Haiku 5.5, Gemini 3.8 Flash,
-  GPT-6 Luna, DeepSeek Flash, Qwen 3.8 Flash and gpt-oss on Groq as fast
-  defaults (verified on 7 October 2026). Requests adapt by themselves to
-  each model (OpenAI's reasoning models used to refuse every request), and
-  a model that disappears is replaced automatically. The local model uses
+- **AI up to date**: Ollama 0.40.3; current fast default models for the
+  online services of that release (verified on 7 October 2026). Requests
+  adapted by themselves to each model, and a model that disappeared was
+  replaced automatically. The local model uses
   less memory (8-bit context cache) and no longer waits for the network at
   boot.
 - **Faster and lighter**: Python precompiled (every ZETA app starts sooner),
@@ -349,8 +415,8 @@ files with the new set names. Nothing has to be done by hand.
 - AppArmor profiles are loaded, as on a standard Debian installation
   (Security now shows app isolation as active).
 - **ZETA**, local AI assistant (Ollama, llama3.2:1b) with optional online
-  providers (Claude, Gemini, OpenAI, Mistral, Perplexity, Qwen…), fast
-  defaults and automatic fallback to the local model without internet.
+  services of the user's choice and automatic fallback to the local model
+  without internet.
 - Bar menus (logo, search, network, sound, power) open instantly.
 - Remote access (SSH): on by default once installed, from the local network
   and from the internet (rate-limited, root never allowed); off in the live

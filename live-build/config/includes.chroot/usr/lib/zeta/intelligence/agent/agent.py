@@ -165,7 +165,7 @@ def choose_with_model(text: str, provider) -> list | None:
                                      headers={"content-type": "application/json"})
         # cancelable (Stop in the ZETA window closes this connection too)
         from ..providers.base import open_url
-        with open_url(req, read_timeout=45, token=provider.cancel_token) as r:
+        with open_url(req, read_timeout=45, token=provider.cancel_token, local=True) as r:
             answer = json.loads(r.read(256 * 1024).decode()).get("message", {}).get("content", "")
         choice = json.loads(answer)
     except Exception:  # noqa: BLE001 - if the model does not answer, fall back to chatting
@@ -182,35 +182,3 @@ def choose_with_model(text: str, provider) -> list | None:
     if any(not args.get(p) for p in cap.required):
         return None
     return [(name, args)]
-
-
-# ------------------------------------------------------------ for online services (tool calling)
-class AgentEngine:
-    """The capabilities as "tools" for models that can call them (Claude,
-    OpenAI, Gemini...). Same interface as the old engine."""
-
-    def tool_specs(self):
-        from ..providers.base import ToolSpec
-        out = []
-        for c in C.REGISTRY.values():
-            props = {k: {"type": "string", "description": d} for k, d in c.parameters.items()}
-            out.append(ToolSpec(name=c.name, description=c.description,
-                                schema={"type": "object", "properties": props, "required": c.required}))
-        return out
-
-    def run(self, name, args, *, authorized=False):
-        from ..actions import ActionResult
-        cap = C.REGISTRY.get(name)
-        if cap is None:
-            return ActionResult(False, tr("Unknown action: {name}").format(name=name))
-        args = {k: v for k, v in (args or {}).items() if v is not None and v != ""}
-        if cap.check and not authorized:
-            es = cap.check(args)
-            if es is not None:
-                return ActionResult(es.ok, es.message)
-        if cap.risk == "confirm" and not authorized:
-            text = cap.preview(args) if cap.preview else cap.description
-            return ActionResult(True, "", needs_confirmation=True, preview=text,
-                                impact=tr("Your confirmation is needed."))
-        es = execute(name, args, None, origin="tools", authorized=True)
-        return ActionResult(es.ok, es.message)

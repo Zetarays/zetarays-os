@@ -40,7 +40,7 @@ THEMES_DIR = "/usr/share/zeta/shell/themes"
 # shown by "zeta shell themes" (the .ini files keep the original description)
 THEME_DESCRIPTIONS = {"zeta": tr("ZETA black, system accent color"),
                       "amber": tr("Black with an amber accent"), "contrast": tr("High-contrast black"),
-                      "red": tr("Black with a red accent"), "green": tr("Black with a green accent (Kali style)"),
+                      "red": tr("Black with a red accent"), "green": tr("Black with a green accent (classic terminal)"),
                       "purple": tr("Black with a purple accent")}
 STARSHIP_T = "/usr/share/zeta/shell/starship.toml"
 CACHE = os.path.join(HOME, ".cache", "zeta")

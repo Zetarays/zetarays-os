@@ -51,11 +51,12 @@ loro traduzioni.
 libero**: restano di proprietà del titolare del progetto. Le licenze del
 software libero riguardano il codice, non i marchi (GPL-3 §7e, Apache-2.0 §6).
 
-## Modello linguistico incluso
+## Modelli linguistici inclusi
 
 L'immagine include **Qwen3 4B Instruct (2507)** del team Qwen (Alibaba
-Cloud), distribuito con la *Apache License 2.0*. Il testo della licenza
-viaggia con il modello ed è copiato in `qwen3/LICENSE.txt` accanto a questo
+Cloud) e **Granite 4.0 Micro (ibrido)** di IBM, entrambi distribuiti con la
+*Apache License 2.0*. Il testo di ogni licenza viaggia con il suo modello ed
+è copiato in `qwen3/LICENSE.txt` e `granite4/LICENSE.txt` accanto a questo
 documento.
 
 La voce italiana di ZETA, **Sara**, viene da **Kokoro-82M** di hexgrad, anche

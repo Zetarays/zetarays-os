@@ -94,8 +94,10 @@ def intents_recognized():
 
 @test("intents")
 def intents_without_false_positives():
-    """Ordinary phrases must NOT trigger a system command."""
+    """Ordinary phrases must NOT trigger a system command (questions about
+    what something is, «what is a CPU?», go to the model)."""
     from intelligence import intents
+    from intelligence.agent.understanding import is_definition_question, understanding
     data = _phrases("intents_without_false_positives")
     harmless = data["it"] + data["en"]
     # What must not happen is that a harmless phrase RUNS something.
@@ -105,7 +107,11 @@ def intents_without_false_positives():
     hits = []
     answers = 0
     for phrase in harmless:
-        i = intents.parse(phrase)
+        acts = understanding(phrase)
+        if acts:
+            hits.append("%r -> %s" % (phrase, acts[0][0]))
+            continue
+        i = None if is_definition_question(phrase) else intents.parse(phrase)
         if i is None:
             continue
         if i.action is None:
@@ -408,36 +414,53 @@ def network_commands_findable():
 
 
 @test("ai")
-def ai_providers_fast_and_robust():
-    """Fast models by default, fallback to a model the service really offers,
-    Gemini key never in the URL, real errors shown."""
-    from intelligence.registry import Registry
-    from intelligence.providers.base import choose_model
-    from intelligence import assistant
-    prob = []
-    g = Registry().get("gemini"); g.config.api_key = "TEST-KEY"
-    if "TEST-KEY" in g._url("generateContent") or "TEST-KEY" not in str(g._headers()):
-        prob.append(tr("Gemini key in the URL"))
-    if choose_model("claude", ["claude-opus-5-5", "claude-haiku-4-5"]) != "claude-haiku-4-5":
-        prob.append(tr("Claude fallback"))
-    if choose_model("openai", ["text-embedding-3-large", "gpt-5-mini"]) != "gpt-5-mini":
-        prob.append(tr("OpenAI fallback"))
-    src = open(assistant.__file__).read()
-    if "_fall_back_to_other_model" not in src or "_with_offer" not in src:
-        prob.append(tr("assistant fallbacks missing"))
-    return not prob, "; ".join(prob) if prob else tr(
-        "fast defaults, fallbacks ready, keys only in the headers")
-
-
-@test("ai")
-def ai_providers_registered():
-    """Online services, OpenAI-compatible and local, all in the registry."""
-    from intelligence.registry import CATALOG
-    expected_cases = {"claude", "gemini", "openai", "deepseek", "perplexity", "mistral", "groq",
-              "xai", "openrouter", "custom", "ollama"}
-    missing = expected_cases - set(CATALOG)
-    return not missing, _missing(sorted(missing)) if missing else ntr(
-        "{n} provider", "{n} providers", len(CATALOG)).format(n=len(CATALOG))
+def ai_local_only():
+    """ZETA answers only with the local model: one provider (Ollama), no
+    online AI client in the code, no address other than this computer even
+    if a setting or OLLAMA_HOST names one, and no proxy for the model."""
+    import glob
+    from intelligence import ollama_manager as om
+    from intelligence.providers.base import ProviderConfig
+    from intelligence.providers.ollama import OllamaProvider, is_loopback
+    from intelligence.registry import CATALOG, Registry
+    wrong = []
+    if set(CATALOG) != {"ollama"}:
+        wrong.append("providers: %s" % ", ".join(sorted(CATALOG)))
+    hosts = ("api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com",
+             "api.mistral.ai", "api.x.ai", "api.deepseek.com", "openrouter.ai", "api.groq.com",
+             "api.perplexity.ai", "dashscope")
+    for f in glob.glob("/usr/lib/zeta/**/*.py", recursive=True):
+        text = open(f, encoding="utf-8", errors="replace").read()
+        found = [h for h in hosts if h in text]
+        if found:
+            wrong.append("%s: %s" % (os.path.basename(f), ", ".join(found)))
+    for gone in ("claude", "gemini", "openai_compat"):
+        if os.path.exists("/usr/lib/zeta/intelligence/providers/%s.py" % gone):
+            wrong.append("%s.py still there" % gone)
+    reg = Registry()
+    reg.settings = {"default": "claude", "providers": {"ollama": {"endpoint": "http://203.0.113.9:11434"}}}
+    p = reg.resolve_default()
+    if p.config.name != "ollama" or p._base() != "http://127.0.0.1:11434":
+        wrong.append("resolved to %s %s" % (p.config.name, p._base()))
+    if OllamaProvider(ProviderConfig(name="ollama", label="Ollama",
+                                     endpoint="http://localhost:11500"))._base() != "http://localhost:11500":
+        wrong.append("local port refused")
+    if not is_loopback(om.BASE):
+        wrong.append("ollama_manager: %s" % om.BASE)
+    cases = {"http://127.0.0.1:11434": True, "http://[::1]:1": True, "http://localhost": True,
+             "http://10.1.2.3:11434": False, "https://127.0.0.1": False, "http://evil.example": False,
+             "http://127.0.0.1.evil.example": False}
+    bad = [u for u, want in cases.items() if is_loopback(u) != want]
+    if bad:
+        wrong.append("loopback: %s" % ", ".join(bad))
+    from intelligence import models
+    if not models.is_cloud("gpt-oss:120b-cloud") or models.is_cloud("qwen3:4b-instruct"):
+        wrong.append("cloud model names")
+    rc, env, _ = _sh(["systemctl", "show", "ollama", "-p", "Environment", "--value"])
+    if rc == 0 and env.strip() and ("OLLAMA_NO_CLOUD=1" not in env
+                                    or "OLLAMA_HOST=127.0.0.1:11434" not in env):
+        wrong.append("ollama.service: cloud features or address")
+    return not wrong, "; ".join(wrong) if wrong else tr("only the model on this computer")
 
 
 @test("system")
@@ -795,6 +818,23 @@ def no_trace_of_previous_name():
 
 
 @test("system")
+def installer_boot_loader_offline():
+    """The installer installs GRUB from the installation medium only: with
+    the network up, Debian's step fetched a GRUB from the internet that did
+    not fit the image and the installation failed near the end."""
+    helper = "/usr/share/calamares/helpers/calamares-bootloader-config"
+    if not os.path.exists("/usr/bin/calamares"):
+        return True, tr("skipped (no installer on this system)")
+    target = os.path.realpath(helper)
+    if target != "/usr/local/libexec/zeta-bootloader-config":
+        return False, tr("the installer still uses {path}").format(path=target)
+    text = open(target).read()
+    if "SourceParts" not in text or "installed" not in text:
+        return False, tr("the boot loader step can still use online sources")
+    return True, tr("installation medium only")
+
+
+@test("system")
 def computer_name():
     """Live and OVA are named zetarays; after installation the chosen name applies."""
     name = os.uname().nodename
@@ -855,22 +895,222 @@ def honest_access_log():
 
 # ------------------------------------------------ ZETA RAYS 1.7, late September
 @test("ai")
-def ai_keys_never_in_plaintext():
-    """AI service keys are encrypted: no plain-text file, no readable key."""
-    from intelligence import registry as r
-    if r.KEYS_FILE.exists():
-        r._keyring_get("claude")           # the conversion of the old file starts here
-    if r.KEYS_FILE.exists():
-        return False, tr("{path} is still there, in plain text").format(path=r.KEYS_FILE)
-    suspects = []
-    if r.CREDS_DIR.exists():
-        for f in r.CREDS_DIR.iterdir():
-            data = f.read_bytes()
-            if any(t in data for t in (b"sk-", b"gsk_", b"AIza", b"xai-", b"pplx-")):
-                suspects.append(f.name)
-    if suspects:
-        return False, tr("readable keys in: {names}").format(names=", ".join(suspects))
-    return True, r.keyring_where().split(" (")[0]
+def ai_memory_store():
+    """The local memory store: private file, long-term memories without
+    duplicates, search by meaning of the words, forget, export, clear,
+    and a damaged file set aside instead of stopping ZETA."""
+    import tempfile
+    from pathlib import Path
+    from intelligence import store
+    phrases = _phrases("ai_memory_store")
+    wrong = []
+    with tempfile.TemporaryDirectory() as d:
+        db = Path(d) / "sub" / "memory.db"
+        fact, outcome = store.add_fact(phrases["fact"], path=db)
+        if outcome != "added":
+            wrong.append("add")
+        if store.add_fact(phrases["fact"] + ".", path=db)[1] != "duplicate":
+            wrong.append("duplicate")
+        if store.add_fact(phrases["fact_more"], path=db)[1] != "updated":
+            wrong.append("near duplicate")
+        store.add_fact(phrases["other"], path=db)
+        if os.stat(db).st_mode & 0o077 or os.stat(db.parent).st_mode & 0o077:
+            wrong.append("permissions")
+        t0 = time.monotonic()
+        found = [f.text for f in store.search_facts(phrases["question"], path=db)]
+        elapsed = (time.monotonic() - t0) * 1000
+        if not found or phrases["expect"] not in found[0]:
+            wrong.append("search: %s" % found)
+        if store.search_facts(phrases["unrelated"], path=db):
+            wrong.append("unrelated question matched")
+        if not store.forget_matching(phrases["forget"], path=db):
+            wrong.append("forget")
+        store.save_turn("q", "a", path=db)
+        out = Path(d) / "export.json"
+        if not store.export(str(out), path=db) or os.stat(out).st_mode & 0o077:
+            wrong.append("export")
+        store.clear("everything", path=db)
+        st = store.stats(db)
+        if st["turns"] or st["facts"]:
+            wrong.append("clear")
+        bad = Path(d) / "bad.db"
+        bad.write_bytes(b"this is not a database" * 100)
+        store.add_fact(phrases["fact"], path=bad)
+        if not list(Path(d).glob("bad.db.damaged-*")):
+            wrong.append("damaged file")
+    return not wrong, "; ".join(wrong) if wrong else tr("private, no duplicates, search {ms} ms").format(
+        ms="%.1f" % elapsed)
+
+
+@test("ai")
+def ai_memory_commands():
+    """«remember that…», «forget…», «what do you know about me?» are answered
+    from the local store, without the model; an empty request is refused."""
+    import tempfile
+    from pathlib import Path
+    from intelligence import assistant as A, store
+    from intelligence.providers.base import Provider, ProviderConfig
+    phrases = _phrases("ai_memory_commands")
+
+    class NoModel(Provider):
+        def stream(self, messages, on_text):
+            raise AssertionError("the model was asked")
+    wrong = []
+    with tempfile.TemporaryDirectory() as d:
+        old = store.DB_FILE
+        store.DB_FILE = Path(d) / "memory.db"
+        try:
+            a = A.Assistant(NoModel(ProviderConfig(name="test", label="Test")))
+            a.memory.enabled = a.memory.long_term = True
+            for key in ("remember_it", "remember_en"):
+                if a.memory_command(phrases[key]) is None or not store.list_facts():
+                    wrong.append(key)
+            if a.memory_command(phrases["empty"]) is None or len(store.list_facts()) != 2:
+                wrong.append("empty")
+            listing = a.memory_command(phrases["list_it"]) or ""
+            if phrases["remembered_word"] not in listing:
+                wrong.append("list")
+            a.memory_command(phrases["forget_it"])
+            if len(store.list_facts()) != 1:
+                wrong.append("forget")
+            if a.memory_command(phrases["not_a_command"]) is not None:
+                wrong.append("false positive")
+        finally:
+            store.DB_FILE = old
+    return not wrong, _missing(wrong) if wrong else _cases_passed(6)
+
+
+@test("ai")
+def ai_model_profiles():
+    """The model fits the computer: Intel N-series processors get the
+    low-power profile, 8 GB and 16 GB computers their own list; an installed
+    preferred model wins; thinking models are asked not to think."""
+    from intelligence import models
+    wrong = []
+    for ram, cpu, want in ((16, "Intel(R) N100", "low-power"), (8, "Intel(R) N150", "low-power"),
+                           (8, "Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz", "8gb"),
+                           (16, "AMD Ryzen 5 5600U with Radeon Graphics", "16gb"),
+                           (32, "Apple M2 (virtual)", "16gb")):
+        if models.profile_for(ram, cpu) != want:
+            wrong.append("%s/%d" % (cpu, ram))
+    for profile in models.PROFILES:
+        prefs = models.preferred(profile)
+        installed = {prefs[-1]: 2.0, "embeddinggemma-2:270m": 0.3}
+        if models.choose(installed, profile) != prefs[-1]:
+            wrong.append("choose %s" % profile)
+        installed[prefs[0]] = 2.5
+        if models.choose(installed, profile) != prefs[0]:
+            wrong.append("prefer %s" % profile)
+    if not models.thinks("qwen3.5:4b") or models.thinks("qwen3:4b-instruct"):
+        wrong.append("thinking")
+    return not wrong, _missing(wrong) if wrong else tr("profile here: {p}, models: {m}").format(
+        p=models.machine().profile, m=", ".join(models.preferred()))
+
+
+@test("ai")
+def ai_smaller_local_fallback():
+    """Not enough memory for the usual model: a smaller installed LOCAL model
+    answers that question, the reply says so, and the next question goes
+    back to the usual model. Never an online service."""
+    from intelligence import assistant as A
+    from intelligence.providers.base import Provider, ProviderConfig, Reply
+    from intelligence.providers.ollama import InsufficientMemoryError
+    used = []
+
+    class Tight(Provider):
+        def available(self):
+            return True
+
+        def _model(self):
+            return self.config.model or "big:4b"
+
+        def fallback_model(self):
+            return "small:1b"
+
+        def stream(self, messages, on_text):
+            used.append(self._model())
+            if self._model() == "big:4b":
+                raise InsufficientMemoryError("not enough memory")
+            on_text("ok")
+            return Reply(text="ok from " + self._model())
+    a = A.Assistant(Tight(ProviderConfig(name="ollama", label="Ollama")))
+    a.memory.enabled = False
+    a.history = []
+    first = a.respond("tell me a story about a lighthouse", on_text=lambda c: None)
+    wrong = []
+    if used != ["big:4b", "small:1b"] or "small:1b" not in first:
+        wrong.append("fallback: %s" % used)
+    if a.provider.config.model:
+        wrong.append("usual model not restored")
+    return not wrong, "; ".join(wrong) if wrong else tr("smaller local model, then back to the usual one")
+
+
+@test("ai")
+def ai_current_facts_from_local_reference():
+    """A question about a current fact with the web off is answered from the
+    verified local reference (with its date), not from the training data."""
+    import tempfile
+    from pathlib import Path
+    from intelligence import assistant as A, store
+    from intelligence.providers.base import Provider, ProviderConfig, Reply
+    seen = []
+
+    class Recorder(Provider):
+        def stream(self, messages, on_text):
+            seen.append(messages[-1].content)
+            return Reply(text="ok")
+    wrong = []
+    with tempfile.TemporaryDirectory() as d:
+        old = store.DB_FILE
+        store.DB_FILE = Path(d) / "memory.db"
+        try:
+            a = A.Assistant(Recorder(ProviderConfig(name="ollama", label="Ollama")))
+            a.memory.enabled = False
+            a.history = []
+            web, sources, ref = a._web_context(_phrases("ai_current_facts_from_local_reference")["question"],
+                                               {"web_lookup": False}, None)
+            if web != "reference" or not ref:
+                wrong.append("reference not used (%s)" % web)
+            elif "Trump" not in ref[0].body or not ref[0].retrieved:
+                wrong.append("entry")
+        finally:
+            store.DB_FILE = old
+    if not os.path.exists(store.REFERENCE_FILE):
+        wrong.append("reference.json missing")
+    return not wrong, "; ".join(wrong) if wrong else tr("verified reference with its date")
+
+
+@test("ai")
+def ai_definition_questions_go_to_the_model():
+    """«What is a CPU? One sentence.» is answered by the model: no system
+    reading, no action chosen (2.1 answered with the CPU usage)."""
+    from intelligence import assistant as A
+    from intelligence.agent import agent as G
+    from intelligence.providers.base import Provider, ProviderConfig, Reply
+    asked, chosen = [], []
+
+    class Recorder(Provider):
+        def stream(self, messages, on_text):
+            asked.append(messages[-1].content)
+            on_text("ok")
+            return Reply(text="ok")
+    real = G.choose_with_model
+    G.choose_with_model = lambda *a, **k: chosen.append(a[0]) or None
+    wrong = []
+    try:
+        a = A.Assistant(Recorder(ProviderConfig(name="ollama", label="Ollama")))
+        a.memory.enabled = False
+        a.history = []
+        for q in _phrases("ai_definition_questions_go_to_the_model")["questions"]:
+            n = len(asked)
+            a.respond(q, on_text=lambda c: None)
+            if len(asked) != n + 1:
+                wrong.append(q)
+        if chosen:
+            wrong.append("action chooser asked")
+    finally:
+        G.choose_with_model = real
+    return not wrong, _missing(wrong) if wrong else tr("all to the model")
 
 
 @test("ai")
@@ -886,12 +1126,12 @@ def ollama_manageable():
                               len(m)).format(version=v or "?", n=len(m))
 
 
-# ------------------------------------------------ ZETA RAYS 2.1: AI honesty and robustness
+# ------------------------------------------------ AI honesty and robustness (added in release 2.1)
 # All offline: no request leaves the computer (the slow servers are local sockets).
 @test("ai")
 def ai_prompt_has_today():
-    """Every request, to every provider, carries today's date and the rule on
-    facts that change over time; a custom prompt cannot remove them. The
+    """Every request carries today's date and the rule on facts that change
+    over time; a custom prompt cannot remove them. The
     system prompt stays identical between questions (prefix cache of the
     local model): the date travels in the note added to the question."""
     from datetime import date
@@ -910,20 +1150,10 @@ def ai_prompt_has_today():
     if today not in note or "cannot verify" not in note:
         wrong.append("note")
     msgs = [Message("user", context.with_note("hi", note))]
-    reg = Registry()
-    for pid in ("claude", "gemini", "openai", "deepseek", "ollama"):
-        p = reg.get(pid)
-        p.config.system = prompt
-        if pid == "claude":
-            payload = p._payload(msgs, None, False)
-        elif pid == "gemini":
-            payload = p._contents(msgs)
-        elif pid == "ollama":
-            payload = p._messages(msgs)
-        else:
-            payload = p._base(msgs)
-        if today not in json.dumps(payload):
-            wrong.append(pid)
+    p = Registry().get("ollama")
+    p.config.system = prompt
+    if today not in json.dumps(p._messages(msgs)):
+        wrong.append("request")
     return not wrong, _missing(wrong) if wrong else tr("today ({date}) in every request").format(date=today)
 
 
@@ -938,8 +1168,6 @@ def ai_prompt_prefix_stable():
     seen = []
 
     class Recorder(Provider):
-        uses_tools = False
-
         def stream(self, messages, on_text):
             seen.append((self.config.system, [m.content for m in messages]))
             on_text("ok")
@@ -981,18 +1209,16 @@ def ai_history_budget():
         msgs.append(Message("assistant", "answer %d " % i + "y" * 600))
     msgs.append(Message("user", "the new question"))
     wrong = []
-    for kind in ("local", "cloud"):
-        kept = trim_history(msgs, HISTORY_TURNS[kind], HISTORY_BUDGET[kind])
-        cost = sum(approx_tokens(m.content) for m in kept)
-        users = sum(1 for m in kept if m.role == "user")
-        if (not kept or kept[-1] is not msgs[-1] or kept[0].role != "user"
-                or cost > HISTORY_BUDGET[kind] or users > HISTORY_TURNS[kind]):
-            wrong.append(kind)
+    kept = trim_history(msgs, HISTORY_TURNS, HISTORY_BUDGET)
+    cost = sum(approx_tokens(m.content) for m in kept)
+    users = sum(1 for m in kept if m.role == "user")
+    if (not kept or kept[-1] is not msgs[-1] or kept[0].role != "user"
+            or cost > HISTORY_BUDGET or users > HISTORY_TURNS):
+        wrong.append("window")
     huge = [Message("user", "z" * 40000)]
     if trim_history(huge, 6, 1500) != huge:
         wrong.append("long question")
-    return not wrong, _missing(wrong) if wrong else tr("within {local} tokens (local), {cloud} (online)").format(
-        local=HISTORY_BUDGET["local"], cloud=HISTORY_BUDGET["cloud"])
+    return not wrong, _missing(wrong) if wrong else tr("within {local} tokens").format(local=HISTORY_BUDGET)
 
 
 @test("ai")
@@ -1029,12 +1255,14 @@ def ai_web_lookup_on_by_default():
     try:
         a = Assistant(Provider(ProviderConfig(name="test", label="Test", kind="local")))
         question = _phrases("ai_web_lookup_on_by_default")["question"]
-        state, _src = a._web_context(question, {}, None, a.provider)
-        if state != "failed" or len(calls) != 1 or not calls[0].get("compact"):
+        state, _src, _ref = a._web_context(question, {}, None)
+        # no source found: "failed", or "reference" when the verified local
+        # reference covers the question
+        if state not in ("failed", "reference") or len(calls) != 1 or not calls[0].get("compact"):
             wrong.append("lookup by default")
         calls.clear()
-        state, _src = a._web_context(question, {websearch.SETTING_ENABLED: False}, None, a.provider)
-        if state != "off" or calls:
+        state, _src, _ref = a._web_context(question, {websearch.SETTING_ENABLED: False}, None)
+        if state not in ("off", "reference") or calls:
             wrong.append("off respected")
     finally:
         websearch.lookup = real
@@ -1204,64 +1432,6 @@ def ai_timeout_and_cancel():
 
 
 @test("ai")
-def ai_no_silent_cloud_fallback():
-    """No question goes to an online service the user did not choose: with
-    keys saved and the local model down, «Automatic» stays local; a failing
-    local model only OFFERS an online service (offline: nothing is sent)."""
-    from intelligence import assistant as A, registry as R
-    from intelligence.providers.base import Provider, ProviderConfig, ProviderError
-    from intelligence.providers.claude import ClaudeProvider
-    from intelligence.providers.gemini import GeminiProvider
-    from intelligence.providers.openai_compat import OpenAICompatProvider
-    sent = []
-
-    def spy(self, *a, **k):
-        sent.append(self.config.name)
-        raise ProviderError("blocked by the test", kind="network")
-    patched = [(c, m, getattr(c, m)) for c in (ClaudeProvider, GeminiProvider, OpenAICompatProvider)
-               for m in ("chat", "stream")]
-    real_key = R._keyring_get
-    wrong = []
-    try:
-        for c, m, _f in patched:
-            setattr(c, m, spy)
-        R._keyring_get = lambda name: "test-key-not-real"        # every service "has a key"
-        reg = R.Registry()
-        reg.settings = {"providers": {"ollama": {"endpoint": "http://127.0.0.1:9"}}}  # local model down
-        if reg.resolve_default().config.kind != "local":
-            wrong.append("automatic chose an online service")
-        if not reg.cloud_offer():
-            wrong.append("no offer")
-
-        class DownLocal(Provider):
-            uses_tools = False
-
-            def available(self):
-                return True
-
-            def stream(self, messages, on_text):
-                raise ProviderError("local model down", kind="network")
-        a = A.Assistant(DownLocal(ProviderConfig(name="ollama", label="Ollama", kind="local")))
-        a.registry = reg
-        a.memory.enabled = False
-        a.history = []
-        a.respond("tell me a story about a lighthouse", on_text=lambda c: None)
-        if sent:
-            wrong.append("sent to %s" % ", ".join(sent))
-        if not a.last_turn.get("offer") or a.last_turn["offer"] == "ollama":
-            wrong.append("online service not offered")
-        # accepting the offer is an explicit choice: only then is it used
-        a.respond_with(a.last_turn["offer"] or "claude", "tell me a story", on_text=lambda c: None)
-        if len(sent) != 1:
-            wrong.append("accepted offer not used")
-    finally:
-        for c, m, f in patched:
-            setattr(c, m, f)
-        R._keyring_get = real_key
-    return not wrong, "; ".join(wrong) if wrong else tr("online services only when chosen")
-
-
-@test("ai")
 def ai_ram_decisions():
     """Local model and RAM, with synthetic /proc/meminfo values: never loaded
     at login below 16 GB, released soon on small machines, never loaded when
@@ -1289,7 +1459,7 @@ def ai_ram_decisions():
             got = (p["preload_at_login"], p["keep_alive"], p["can_load"], bool(p["advice"]))
             if got != (preload, keep, can, advice):
                 wrong.append("%.0f GB/%.1f free: %s" % (p["nominal_gb"], p["available_gb"], got))
-            if not can and R.SMALLER_MODEL not in R.memory_reason(model) and model == 0.0:
+            if not can and R.smaller_model() not in R.memory_reason(model) and model == 0.0:
                 wrong.append("no smaller model suggested")
     finally:
         R.MEMINFO = old
@@ -1309,8 +1479,6 @@ def ai_one_request_at_a_time():
     from intelligence.providers.base import Canceled, Provider, ProviderConfig, Reply
 
     class Slow(Provider):
-        uses_tools = False
-
         def stream(self, messages, on_text):
             on_text("...")
             if messages[-1].content.startswith("first"):
@@ -1342,32 +1510,63 @@ def ai_one_request_at_a_time():
 
 @test("ai")
 def ai_provider_errors_are_clear():
-    """HTTP errors become clear messages with a stable kind; keys never
-    appear in them; a chosen provider is never replaced silently."""
+    """Errors of the local server become clear messages with a stable kind."""
     from intelligence.providers.base import ProviderConfig
-    from intelligence.providers.openai_compat import OpenAICompatProvider
-    from intelligence.registry import Registry
-    secret = "sk-test-NOTREAL0123456789"
-    p = OpenAICompatProvider(ProviderConfig(name="deepseek", label="DeepSeek", kind="cloud", api_key=secret))
-    cases = [(401, "{}", None, "auth"), (402, '{"error": {"message": "Insufficient Balance"}}', None, "quota"),
-             (429, "{}", {"Retry-After": "17"}, "rate_limit"), (404, "{}", None, "model"),
-             (400, '{"error": {"message": "Model deepseek-x does not exist"}}', None, "model"),
-             (413, "{}", None, "too_long"), (503, "{}", None, "server"),
-             (400, '{"error": {"message": "bad key %s"}}' % secret, None, "bad_request")]
-    wrong = []
-    for code, body, headers, kind in cases:
-        e = p._http_error(code, body, headers)
-        if e.kind != kind or secret in str(e) or "NOTREAL" in str(e):
-            wrong.append("%d->%s" % (code, e.kind))
-    if p._http_error(429, "{}", {"Retry-After": "17"}).retry_after != 17:
-        wrong.append("Retry-After")
+    from intelligence.providers.ollama import OllamaProvider
+    p = OllamaProvider(ProviderConfig(name="ollama", label="Ollama", model="test:1b"))
+    cases = [(404, "{}", "model"), (400, '{"error": "model \\"x\\" not found"}', "model"),
+             (413, "{}", "too_long"), (500, "{}", "server"), (400, '{"error": "bad"}', "bad_request")]
+    wrong = ["%d->%s" % (code, p._http_error(code, body).kind) for code, body, kind in cases
+             if p._http_error(code, body).kind != kind]
     if p._unreachable(ConnectionRefusedError(111, "refused")).kind != "network":
         wrong.append("network")
-    reg = Registry()
-    reg.settings = dict(reg.settings, default="deepseek")
-    if reg.resolve_default().config.name != "deepseek":
-        wrong.append("silent switch")
-    return not wrong, ", ".join(wrong) if wrong else _cases_passed(len(cases) + 3)
+    return not wrong, ", ".join(wrong) if wrong else _cases_passed(len(cases) + 1)
+
+
+@test("ai")
+def voice_on_by_default_and_streamed():
+    """Text and voice together by default; the reply is read sentence by
+    sentence while it arrives (code blocks skipped), and an earlier «off»
+    choice of the user is kept."""
+    import tempfile
+    from intelligence import speech
+    wrong = []
+    home = os.environ.get("HOME", "")
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["HOME"] = d
+        try:
+            if not speech.enabled():
+                wrong.append("not on by default")
+            speech.set_enabled(False)
+            if speech.enabled():
+                wrong.append("off not kept")
+        finally:
+            os.environ["HOME"] = home
+    lines = []
+
+    class Pipe:
+        def write(self, b):
+            lines.append(b.decode().strip())
+
+        def flush(self):
+            pass
+
+        def close(self):
+            pass
+    st = speech.Stream("en")
+    st._stdin = Pipe()
+    text = ("Hello! A firewall filters network traffic. Here is the code:\n```bash\nls | wc -l\n```\n"
+            "It counts the files in the folder, and that is all you need to know.\n"
+            "[Today: Saturday 24 October 2026.]")
+    for i in range(0, len(text), 5):
+        st.feed(text[i:i + 5])
+        if i == 45 and not lines:
+            wrong.append("first sentence not sent early")
+    st.finish()
+    if any("wc" in ln or "Today" in ln for ln in lines) or len(lines) < 2:
+        wrong.append("lines: %s" % lines)
+    return not wrong, "; ".join(wrong) if wrong else ntr(
+        "{n} line read while arriving", "{n} lines read while arriving", len(lines)).format(n=len(lines))
 
 
 @test("windows")
