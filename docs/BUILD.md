@@ -46,7 +46,10 @@ How it reaches every place that shows it:
   `zeta-diagnostics` and the HTTP User-Agent (`system/release.py`) read
   `/etc/os-release`.
 - **The website** (`site-zetarays/index.html`) is static: its download links
-  and version text are updated by hand for each release.
+  and version text are updated by hand for each release; the sizes and
+  SHA-256 checksums of the four images and the two upgrade files are written
+  by `tools/sync-site.sh` (through `tools/site-downloads.py`) from the
+  delivery folder at release time.
 
 `python3 tools/check-version.py` (also run by CI) fails if a stale version is
 left anywhere (image names, `releases/X.Y` links, "ZETA RAYS X.Y", "OS X.Y")
@@ -74,8 +77,8 @@ These files are not in the repository because they are too large or generated:
 
 | File | Source | Check |
 |---|---|---|
-| AI model qwen3:4b-instruct (2.5 GB) | official Ollama registry (`tools/download-ai-model.sh`) | SHA-256 from the manifest kept in the repository |
-| Ollama runtime 0.40.0 | GitHub, official Ollama releases | installed and started in the image |
+| AI models qwen3:4b-instruct (2.5 GB) and granite4.2:3b (2.2 GB) | official Ollama registry (`tools/download-ai-model.sh`) | SHA-256 from the manifests kept in the repository |
+| Ollama runtime 0.40.16 (`cache/ollama-linux-<arch>.tar.zst`) | GitHub, official Ollama releases | SHA-256 checked against the release's `sha256sum.txt` when the cache is renewed; installed and started in the image |
 | Natural voice: Piper 2023.11.14-2, voices Paola (it) and Lessac (en) | GitHub and Hugging Face (`tools/download-voice.sh`) | SHA-256 pinned in the script |
 | Speech recognition: Vosk models (it, en) and Python packages | alphacephei.com and PyPI (`tools/download-voice.sh`) | SHA-256 pinned for the models; the build installs without network |
 | LocalSend (ZETA Share) | official LocalSend releases | SHA-256 pinned in `build.sh` |
@@ -112,3 +115,15 @@ times.
 ```bash
 cd out && shasum -a 256 zetarays-$(cat ../VERSION)-*.iso zetarays-$(cat ../VERSION)-*.ova
 ```
+
+## Upgrade file and update packages
+
+```bash
+tools/make-upgrade.sh          # out/zetarays-VERSION-upgrade-{arm64,amd64}.run (2.5 systems, in place)
+python3 tools/make-zeta-debs.py && python3 tools/make-apt-repo.py   # out/debs, out/apt (Software Update)
+```
+
+Both are explained in [UPDATES.md](UPDATES.md), with the steps to test them
+and to publish the repository. `build.sh` puts the `zeta-rays-release`
+package (the source of the ZETA RAYS updates) into the image when the
+repository key exists (`tools/apt/gen-repo-key.py`).

@@ -35,3 +35,4 @@ po/zetarays.pot
 
 # Written by build.sh from VERSION
 live-build/config/includes.chroot/usr/share/zeta/version
+/seo-zetarays/

@@ -3,6 +3,7 @@
 # ZETA RAYS — instantly opens one of the bar's panels.
 #
 #   zeta-panel control | network | audio | power | launcher | search
+#   zeta-panel clipboard | emoji | notifications
 #
 # The panels stay resident in memory, hidden (they start with the session):
 # the click just sends "show" to the already-running panel via gapplication
@@ -20,6 +21,9 @@ case "$1" in
     power)    id=org.zetarays.PowerMenu;   prog=zeta-power-menu ;;
     launcher) id=org.zetarays.Launcher;    prog=zeta-launcher ;;
     search)   id=org.zetarays.Search;      prog=zeta-search ;;
-    *) echo "usage: zeta-panel control|network|audio|power|launcher|search" >&2; exit 2 ;;
+    # clipboard history (Super+V), emoji (Super+period), recent notifications:
+    # views of the same process (zeta-clipboard)
+    clipboard|emoji|notifications) id=org.zetarays.Clipboard; prog=zeta-clipboard; action=$1; view=$1 ;;
+    *) echo "usage: zeta-panel control|network|audio|power|launcher|search|clipboard|emoji|notifications" >&2; exit 2 ;;
 esac
 gapplication action "$id" "$action" 2>/dev/null || exec "$prog" $view

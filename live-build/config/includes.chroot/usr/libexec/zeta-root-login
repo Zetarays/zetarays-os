@@ -1,0 +1,253 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: allow or forbid signing in as root at the login screen.
+
+    zeta-root-login status            (any user, no password needed)
+    zeta-root-login [--lang=CODE] enable    (pkexec only; new password on stdin)
+    zeta-root-login [--lang=CODE] disable   (pkexec only)
+
+Root is locked by default (no password) and the login screen's PAM file
+(/etc/pam.d/sddm, from the sddm package) refuses root with
+"auth required pam_succeed_if.so user != root". Settings > Account turns
+this on and off:
+
+enable   reads the new root password from standard input (one line, never
+         from the command line), checks it (8 to 256 characters, no control
+         characters), sets it with chpasswd, unlocks root, and puts in place
+         a copy of the sddm PAM file without the root block.
+disable  locks root again (passwd -l root) and gives the login screen back
+         the package's own PAM file.
+
+How the PAM file is replaced: dpkg-divert, not an edit in place. The
+package's file is moved aside (dpkg-divert --local to
+/etc/pam.d/sddm.zeta-upstream) and the copy without the root line takes its
+name. An upgrade of sddm then writes its new version to the diverted name
+and never asks about a changed conffile (an edit in place would make every
+upgrade of sddm stop on a conffile question, or be overwritten by it).
+disable puts the package's current file back first (an atomic rename, so
+the login screen never sees a missing PAM file, which would fall back to
+/etc/pam.d/other) and then removes the diversion. Running enable again
+regenerates the copy from the package's current file.
+
+Every step is idempotent and written to the journal (zeta-root-login).
+The result is one JSON line on standard output.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+# the caller's language for the messages (pkexec resets the environment)
+if len(sys.argv) > 1 and sys.argv[1].startswith("--lang="):
+    _code = sys.argv.pop(1)[len("--lang="):]
+    if re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?", _code):
+        os.environ["LANGUAGE"] = _code
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+PAM = "/etc/pam.d/sddm"
+UPSTREAM = "/etc/pam.d/sddm.zeta-upstream"
+MARKER = "# ZETA RAYS: root may sign in (Settings > Account)"
+# the line of Debian's sddm PAM file that refuses root
+ROOT_BLOCK = re.compile(r"^\s*auth\s+\S+\s+pam_succeed_if\.so\b.*\buser\s*!=\s*root\b")
+STATE = "/var/lib/zeta/root-login.json"     # world-readable: Settings reads it
+MIN_LEN, MAX_LEN = 8, 256
+C = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
+USAGE = "usage: zeta-root-login status | enable | disable (the password for enable on stdin)"
+
+
+def out(code, **data):
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+    sys.exit(code)
+
+
+def journal(text):
+    who = os.environ.get("PKEXEC_UID", str(os.getuid()))
+    subprocess.run(["logger", "-t", "zeta-root-login", "-p", "authpriv.notice",
+                    "%s (requested by uid %s)" % (text, who)], check=False)
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, env=C, **kw)
+
+
+def pam_open():
+    """True when the login screen's PAM file is the ZETA RAYS copy."""
+    try:
+        with open(PAM, encoding="utf-8") as f:
+            return MARKER in f.read()
+    except OSError:
+        return False
+
+
+def diverted():
+    r = run(["dpkg-divert", "--listpackage", PAM])
+    return r.returncode == 0 and r.stdout.strip() == "LOCAL"
+
+
+def root_state():
+    """passwd -S of root: "P" (usable password), "L" (locked), "NP" (no
+    password); "" when it cannot be read (not root)."""
+    if os.geteuid() != 0:
+        return ""
+    r = run(["passwd", "-S", "root"])
+    fields = r.stdout.split()
+    return fields[1] if r.returncode == 0 and len(fields) > 1 else ""
+
+
+def root_password_set():
+    """True/False as root; None when it cannot be read."""
+    state = root_state()
+    return None if state == "" else state == "P"
+
+
+def write_state(enabled):
+    os.makedirs(os.path.dirname(STATE), mode=0o755, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"enabled": enabled}, f)
+        f.write("\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, STATE)
+
+
+def atomic_write(path, text):
+    tmp = path + ".zeta-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def status():
+    pam = pam_open()
+    pw = root_password_set()
+    if pw is None:
+        try:
+            with open(STATE, encoding="utf-8") as f:
+                pw = bool(json.load(f).get("enabled"))
+        except (OSError, ValueError, AttributeError):
+            pw = False
+    out(0, enabled=bool(pam and pw), pam=pam, password=pw)
+
+
+def read_password():
+    data = sys.stdin.buffer.read(4 * MAX_LEN + 2)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        out(1, error=tr("The password contains characters that cannot be used."))
+    if text.endswith("\n"):
+        text = text[:-1]
+    if any(ord(c) < 32 or ord(c) == 127 for c in text):
+        out(1, error=tr("The password contains characters that cannot be used."))
+    if len(text) < MIN_LEN:
+        out(1, error=tr("The password must be at least {n} characters long.").format(n=MIN_LEN))
+    if len(text) > MAX_LEN:
+        out(1, error=tr("The password is too long."))
+    return text
+
+
+def open_pam():
+    """Divert the package's PAM file and put the copy without the root block."""
+    if not os.path.exists(UPSTREAM):
+        if not os.path.isfile(PAM):
+            out(1, error=tr("The login screen's settings file is missing."))
+        if pam_open():
+            out(1, error=tr("The login screen's settings file is in an unexpected state."))
+        # copy first, then register the diversion without moving anything:
+        # the login screen keeps a valid file at every moment
+        with open(PAM, encoding="utf-8") as f:
+            atomic_write(UPSTREAM, f.read())
+    if not diverted():
+        r = run(["dpkg-divert", "--local", "--no-rename", "--divert", UPSTREAM, "--add", PAM])
+        if r.returncode != 0:
+            out(1, error=tr("The package manager is busy, try again in a minute."),
+                detail=r.stderr.strip()[-300:])
+    with open(UPSTREAM, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    kept = [MARKER,
+            "# Copy of %s (the sddm package's file, diverted with dpkg-divert)" % UPSTREAM,
+            "# without the line that refuses root. Turning the option off restores it."]
+    removed = 0
+    for line in lines:
+        if ROOT_BLOCK.match(line):
+            kept.append("# removed: " + line.strip())
+            removed += 1
+        else:
+            kept.append(line)
+    atomic_write(PAM, "\n".join(kept) + "\n")
+    return removed
+
+
+def close_pam():
+    """The package's PAM file back in place, then no diversion."""
+    if os.path.isfile(UPSTREAM):
+        with open(UPSTREAM, encoding="utf-8") as f:
+            atomic_write(PAM, f.read())
+    elif pam_open():
+        # the package's copy is lost: put the removed lines back in ours and
+        # drop the header, so the login screen refuses root again anyway
+        with open(PAM, encoding="utf-8") as f:
+            lines = f.read().splitlines()[3:]
+        atomic_write(PAM, "\n".join(l[len("# removed: "):] if l.startswith("# removed: ") else l
+                                    for l in lines) + "\n")
+    if diverted():
+        r = run(["dpkg-divert", "--local", "--no-rename", "--remove", PAM])
+        if r.returncode != 0:
+            out(1, error=tr("The package manager is busy, try again in a minute."),
+                detail=r.stderr.strip()[-300:])
+    if os.path.exists(UPSTREAM):
+        os.remove(UPSTREAM)
+
+
+def enable():
+    password = read_password()
+    r = run(["chpasswd"], input="root:%s\n" % password)
+    password = None
+    if r.returncode != 0:
+        journal("enable failed: chpasswd (%s)" % r.stderr.strip()[-200:])
+        out(1, error=tr("The root password could not be set."))
+    if not root_password_set():
+        run(["usermod", "-U", "root"])
+    if not root_password_set():
+        journal("enable failed: root still locked")
+        out(1, error=tr("The root account could not be unlocked."))
+    removed = open_pam()
+    write_state(True)
+    journal("root may sign in at the login screen (root password set, %d PAM line(s) disabled)" % removed)
+    out(0, enabled=True)
+
+
+def disable():
+    if root_state() != "L":
+        r = run(["passwd", "-l", "root"])
+        if r.returncode != 0:
+            journal("disable failed: passwd -l root (%s)" % r.stderr.strip()[-200:])
+            out(1, error=tr("The root account could not be locked."))
+    close_pam()
+    write_state(False)
+    journal("root can no longer sign in at the login screen (root locked, PAM block restored)")
+    out(0, enabled=False)
+
+
+def main():
+    args = sys.argv[1:]
+    if len(args) != 1 or args[0] not in ("status", "enable", "disable"):
+        print(USAGE, file=sys.stderr)
+        sys.exit(2)
+    if args[0] == "status":
+        status()
+    if os.geteuid() != 0:
+        print("zeta-root-login: must run as root (pkexec)", file=sys.stderr)
+        sys.exit(1)
+    os.umask(0o022)
+    if args[0] == "enable":
+        enable()
+    disable()
+
+
+if __name__ == "__main__":
+    main()

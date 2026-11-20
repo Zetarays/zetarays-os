@@ -22,6 +22,7 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from i18n import ntr, tr  # noqa: E402
 from system import power  # noqa: E402
 from system import software_update as su  # noqa: E402
+from system import snapshots  # noqa: E402
 
 
 def _toast(widget, text):
@@ -483,6 +484,11 @@ class SoftwareUpdatePage(Adw.PreferencesPage):
         self._run(chosen, outcome.extra)
 
     def _run(self, chosen, extra):
+        # Settings › Backup: a system snapshot first, when the user asked for it
+        if not self._snapshot_taken and snapshots.before_update_wanted():
+            self._snapshot_then(lambda: self._run(chosen, extra))
+            return
+        self._snapshot_taken = False
         self.download_total = sum(u.download_size for u in chosen) + sum(d for d, _s in extra)
         self._set_state(tr("Updating…"), tr("You can keep working. Do not turn off the computer "
                                             "while updates are installed."),
@@ -491,6 +497,36 @@ class SoftwareUpdatePage(Adw.PreferencesPage):
         self._busy(True)
         self.session.install([u.id for u in chosen], self._on_progress,
                              lambda o: self._installed(o, len(chosen)), on_phase=self._on_phase)
+
+    _snapshot_taken = False
+
+    def _snapshot_then(self, cont):
+        """Timeshift snapshot (zeta-snapshot through pkexec), then cont().
+        If it fails the user chooses: update anyway, or stop here."""
+        self._set_state(tr("Creating a system snapshot…"),
+                        tr("So the system can go back to how it is now if an update causes "
+                           "problems. The first one takes a few minutes."),
+                        "emblem-synchronizing-symbolic")
+        self._busy(True, cancellable=False)
+
+        def go_on():
+            self._snapshot_taken = True
+            cont()
+
+        def done(result):
+            ok, message = result
+            self._busy(False)
+            if ok:
+                go_on()
+            elif message is None:                 # password window closed
+                self._show_summary_state(len(self.updates), sum(1 for u in self.updates if u.security))
+            else:
+                self._confirm(tr("Update without a snapshot?"), message, tr("Update Anyway"), go_on,
+                              on_cancel=lambda: self._show_summary_state(
+                                  len(self.updates), sum(1 for u in self.updates if u.security)))
+            return False
+        threading.Thread(target=lambda: GLib.idle_add(done, snapshots.create("before-update")),
+                         daemon=True).start()
 
     def _on_phase(self, phase):
         self.phase = phase

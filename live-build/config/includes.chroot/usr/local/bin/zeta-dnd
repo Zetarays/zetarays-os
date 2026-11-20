@@ -1,0 +1,77 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: Do Not Disturb and recent notifications.
+#
+#   zeta-dnd on | off | toggle   silence notifications, or show them again
+#   zeta-dnd status              {"dnd": true} or {"dnd": false}
+#   zeta-dnd history             recent notifications (with Clear and the switch)
+#   zeta-dnd bar                 for the bar: the bell icon while it is on
+#
+# Do Not Disturb is mako's "do-not-disturb" mode: notifications become
+# invisible, except critical ones (low battery...); the hidden ones are
+# still listed by "zeta-dnd history". The choice is saved in
+# ~/.config/zeta/do-not-disturb (the same file as Settings > Notifications),
+# so it survives a restart: zeta-appearance applies it at login.
+# The Control Center and Settings call this command: keep these names.
+
+CFG="$HOME/.config/zeta"
+FILE="$CFG/do-not-disturb"
+MODE=do-not-disturb
+BAR_SIGNAL=15        # SIGRTMIN+15: the bell in the bar (system/dock.py)
+
+mako_running() {
+    pgrep -xu "$(id -u)" mako >/dev/null 2>&1
+}
+
+active() {
+    # mako's current modes when it is running; otherwise the saved choice.
+    # makoctl is never called without mako: D-Bus would start it.
+    if mako_running && modes=$(makoctl mode 2>/dev/null); then
+        printf '%s\n' "$modes" | grep -qx "$MODE"
+        return
+    fi
+    [ "$(cat "$FILE" 2>/dev/null)" = 1 ]
+}
+
+set_dnd() {
+    mkdir -p "$CFG"
+    printf '%s' "$1" > "$FILE"
+    if mako_running; then
+        # other modes (if any) are kept; "-a" alone would add the mode twice
+        # when it is already on, and one "-r" would then leave it on
+        others=$(makoctl mode 2>/dev/null | grep -vx "$MODE" | tr '\n' ' ')
+        [ -n "${others# }" ] || others=default
+        if [ "$1" = 1 ]; then
+            # shellcheck disable=SC2086
+            makoctl mode -s $others "$MODE" >/dev/null 2>&1
+        else
+            # shellcheck disable=SC2086
+            makoctl mode -s $others >/dev/null 2>&1
+        fi
+    fi
+    pkill -RTMIN+$BAR_SIGNAL -x waybar 2>/dev/null
+    return 0
+}
+
+case "$1" in
+    on)     set_dnd 1 ;;
+    off)    set_dnd 0 ;;
+    toggle) if active; then set_dnd 0; else set_dnd 1; fi ;;
+    status) if active; then echo '{"dnd": true}'; else echo '{"dnd": false}'; fi ;;
+    history) exec zeta-panel notifications ;;
+    bar)
+        if active; then
+            icon="$CFG/bar/bell-off.svg"
+            [ -f "$icon" ] || icon=/usr/share/zeta/status/bell-off.svg
+            echo "$icon"
+        else
+            # a word that is not a file, not empty output: Waybar strips the
+            # final newline, and with no line at all its image module keeps
+            # the previous path, so the bell stayed in the bar after Do Not
+            # Disturb was turned off. A missing file clears the image.
+            echo "off"
+        fi ;;
+    *)
+        echo "usage: zeta-dnd on|off|toggle|status|history" >&2
+        exit 2 ;;
+esac

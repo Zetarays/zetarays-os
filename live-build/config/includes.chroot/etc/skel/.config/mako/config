@@ -12,7 +12,13 @@ outer-margin=12
 anchor=top-right
 default-timeout=5000
 icon-path=/usr/share/icons/zeta
+# recent notifications for "zeta-dnd history" (mako keeps 5 by default)
+max-history=50
 
-# Do Not Disturb (from the Control Center)
+# Do Not Disturb (zeta-dnd, from the Control Center or Settings)
 [mode=do-not-disturb]
 invisible=1
+
+# critical notifications (battery almost empty...) still appear
+[mode=do-not-disturb urgency=critical]
+invisible=0

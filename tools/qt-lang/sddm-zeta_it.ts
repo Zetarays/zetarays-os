@@ -27,5 +27,21 @@
         <source>Wrong password, try again</source>
         <translation>Password errata, riprova</translation>
     </message>
+    <message>
+        <source>Switch user</source>
+        <translation>Cambia utente</translation>
+    </message>
+    <message>
+        <source>Other user…</source>
+        <translation>Altro utente…</translation>
+    </message>
+    <message>
+        <source>User name</source>
+        <translation>Nome utente</translation>
+    </message>
+    <message>
+        <source>Type a user name</source>
+        <translation>Scrivi un nome utente</translation>
+    </message>
 </context>
 </TS>

@@ -1,0 +1,211 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: clipboard history, emoji picker and recent notifications.
+
+    zeta-clipboard                 open or close the clipboard history (Super+V)
+    zeta-clipboard emoji           open or close the emoji picker (Super+period)
+    zeta-clipboard notifications   open or close the recent notifications
+    zeta-clipboard enable          turn the clipboard history on
+    zeta-clipboard disable         turn it off (what was saved is cleared)
+    zeta-clipboard status          {"enabled": true, "entries": 12}
+    zeta-clipboard clear           empty the clipboard history
+
+One small panel with the two tabs Clipboard and Emoji, as on Windows 11
+(Win+V, Win+.). It stays in memory, hidden (the session starts it with
+ZETA_PANEL_HIDDEN=1): "zeta-panel clipboard|emoji|notifications" shows it
+instantly. Choosing an entry or an emoji copies it and pastes it into the
+window that had the focus (system/clipboard.py).
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+
+VIEWS = ("clipboard", "emoji", "notifications")
+
+
+def _cli(argv):
+    """Commands that need no window: answered without loading GTK."""
+    from system import clipboard
+    cmd = argv[1]
+    if cmd == "enable":
+        clipboard.set_enabled(True)
+    elif cmd == "disable":
+        clipboard.set_enabled(False)
+    elif cmd == "clear":
+        clipboard.wipe()
+    elif cmd == "status":
+        print(json.dumps(clipboard.status()))
+    return 0
+
+
+if len(sys.argv) > 1 and sys.argv[1] in ("enable", "disable", "status", "clear"):
+    sys.exit(_cli(sys.argv))
+if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help"):
+    print(__doc__.strip().split("\n\n")[1])
+    sys.exit(0)
+
+from ui import popup  # noqa: E402
+
+popup.preload_layer_shell()
+
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+from i18n import tr  # noqa: E402
+from system import clipboard, spawn  # noqa: E402
+from ui import clipboard_view, emoji_view, notification_view  # noqa: E402
+
+CSS = """
+button.qp-tab { padding: 6px 12px; border-radius: 10px; background: none; border: none;
+                box-shadow: none; }
+button.qp-tab:hover { background: @hover; }
+button.qp-tab.on { background: @accent_soft; }
+button.qp-tab label { font-size: 13px; font-weight: 500; }
+""" + clipboard_view.CSS + emoji_view.CSS + notification_view.CSS
+
+CARD_W, CARD_H = 400, 500
+
+
+def _bar_on_top():
+    try:
+        with open(os.path.expanduser("~/.config/zeta/dock-position")) as f:
+            return f.read().strip() == "top"
+    except OSError:
+        return False
+
+
+class QuickWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("Clipboard"), decorated=False)
+        popup.make_overlay(self, "zeta-clipboard")
+        self.view = None
+
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["zeta-card"])
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, vexpand=True,
+                        margin_top=12, margin_bottom=12, margin_start=14, margin_end=14)
+        self.card.append(inner)
+
+        self.tabs = Gtk.Box(spacing=4)
+        self.tab_buttons = {}
+        for view, icon, label in (("clipboard", "zeta-clipboard", tr("Clipboard")),
+                                  ("emoji", "zeta-emoji", tr("Emoji"))):
+            b = Gtk.Button(css_classes=["qp-tab"])
+            box = Gtk.Box(spacing=6)
+            box.append(Gtk.Image(icon_name=icon, pixel_size=16))
+            box.append(Gtk.Label(label=label))
+            b.set_child(box)
+            b.connect("clicked", lambda _b, v=view: self.set_view(v))
+            self.tabs.append(b)
+            self.tab_buttons[view] = b
+        inner.append(self.tabs)
+
+        self.clip = clipboard_view.ClipboardView(self.paste_data)
+        self.emoji = emoji_view.EmojiView(self.paste_text)
+        self.notif = notification_view.NotificationView()
+        self.views = {"clipboard": self.clip, "emoji": self.emoji, "notifications": self.notif}
+        # not homogeneous: the notifications card is only as tall as its content
+        self.stack = Gtk.Stack(vexpand=True, transition_type=Gtk.StackTransitionType.NONE,
+                               vhomogeneous=False, hhomogeneous=False)
+        for name, widget in self.views.items():
+            self.stack.add_named(widget, name)
+        inner.append(self.stack)
+        self.set_child(self.card)
+        popup.close_on_outside(self, self.card, self.close_panel)
+
+    def set_view(self, view):
+        """Switch the card to a view and get it ready (content, focus)."""
+        self.view = view
+        notif = view == "notifications"
+        self.tabs.set_visible(not notif)
+        for name, b in self.tab_buttons.items():
+            if name == view:
+                b.add_css_class("on")
+            else:
+                b.remove_css_class("on")
+        if notif:
+            self.card.set_size_request(380, -1)
+            self.card.set_halign(Gtk.Align.END)
+            top = _bar_on_top()
+            self.card.set_valign(Gtk.Align.START)
+            self.card.set_margin_top(84 if top else 12)
+            self.card.set_margin_end(12)
+        else:
+            self.card.set_size_request(CARD_W, CARD_H)
+            self.card.set_halign(Gtk.Align.CENTER)
+            self.card.set_valign(Gtk.Align.CENTER)
+            self.card.set_margin_top(0)
+            self.card.set_margin_end(0)
+        self.stack.set_visible_child_name(view)
+        self.views[view].prepare()
+        GLib.idle_add(lambda: self.views[view].focus() and False)
+
+    def close_panel(self):
+        # stays in memory, hidden: the next opening is instant
+        self.set_visible(False)
+        return False
+
+    # --- choosing something ---
+    def paste_data(self, data, mime):
+        clipboard.copy(data, mime)
+        self.set_visible(False)
+        clipboard.paste_later(done=self._pasted)
+
+    def paste_text(self, text):
+        self.paste_data(text.encode("utf-8"), clipboard.TEXT_MIME)
+
+    @staticmethod
+    def _pasted(ok):
+        """From the paste thread: no window to paste into (or no virtual
+        keyboard): the text is on the clipboard, and the user is told."""
+        if not ok:
+            spawn(["notify-send", "-a", "ZETA RAYS", "-i", "zeta-clipboard", "-t", "2500",
+                   tr("Copied"), tr("Paste it with Ctrl + V.")])
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Clipboard",
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.win = None
+        self.hidden = False
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.hidden = popup.started_hidden()
+        popup.clean_env()
+        popup.load_css(CSS)
+        # zeta-panel clipboard|emoji|notifications sends the action of the view
+        popup.show_action(self, lambda: self.toggle("clipboard"))
+        for view in VIEWS:
+            a = Gio.SimpleAction.new(view, None)
+            a.connect("activate", lambda *_a, v=view: (popup.follow_theme(), self.toggle(v)))
+            self.add_action(a)
+        self.hold()                    # stays alive even while the panel is hidden
+
+    def do_command_line(self, cmdline):
+        args = cmdline.get_arguments()[1:]
+        view = args[0] if args and args[0] in VIEWS else "clipboard"
+        if self.hidden:              # started by the session: ready, not visible
+            self.hidden = False
+            self.win = QuickWindow(self)
+            self.win.clip.prepare()  # the history is read now, not at the first Super+V
+            return 0
+        self.toggle(view)
+        return 0
+
+    def toggle(self, view="clipboard"):
+        """Same shortcut again: close. The other shortcut: switch view."""
+        if self.win is not None and self.win.get_visible() and self.win.view == view:
+            self.win.close_panel()
+            return
+        if self.win is None:
+            self.win = QuickWindow(self)
+        self.win.set_view(view)
+        self.win.present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

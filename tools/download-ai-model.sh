@@ -17,7 +17,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 M="$ROOT/live-build/config/includes.chroot/usr/share/ollama/.ollama/models"
 # name:tag of every model in the image (keep in step with models.py)
-MODELS="qwen3:4b-instruct granite4:micro-h"
+MODELS="qwen3:4b-instruct granite4.2:3b"
 
 mkdir -p "$M/blobs"
 for model in $MODELS; do

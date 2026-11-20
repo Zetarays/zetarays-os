@@ -36,32 +36,68 @@ Settings › AI.
 
 | Profile | When | Models, best first | Context |
 |---|---|---|---|
-| `low-power` | Intel N-series processor (N100, N150, N200, N97, N95) | `granite4:micro-h`, `qwen3:4b-instruct` | 2048 |
-| `8gb` | less than 12 GB of RAM | `granite4:micro-h`, `qwen3:4b-instruct` | 4096 |
-| `16gb` | 12 GB or more | `qwen3:4b-instruct`, `granite4:micro-h` | 4096 |
-| `large` | 24 GB or more and 8 or more processor threads | `granite4.1:8b` (recommended, download on click), `qwen3:4b-instruct`, `granite4:micro-h` | 8192 |
+| `low-power` | Intel N-series processor (N100, N150, N200, N97, N95) | `granite4.2:3b`, `granite4:micro-h` (2.5, if still installed), `qwen3:4b-instruct` | 2048 |
+| `8gb` | less than 12 GB of RAM | `granite4.2:3b`, `granite4:micro-h` (2.5, if still installed), `qwen3:4b-instruct` | 4096 |
+| `16gb` | 12 GB or more | `qwen3:4b-instruct`, `granite4.2:3b`, `granite4:micro-h` | 4096 |
+| `large` | 24 GB or more and 8 or more processor threads | `granite4.1:8b` (recommended, download on click), `qwen3:4b-instruct`, `granite4.2:3b`, `granite4:micro-h` | 8192 |
 
 When the first model of the profile is not installed, Settings › AI shows it
 as "Recommended for this computer" with a Download button: nothing is
 downloaded without the user's click, and the download checks the free disk
 space and whether the model fits the memory of the computer first.
 
+**From 2.5 to 3.0.** The image ships `qwen3:4b-instruct` and
+`granite4.2:3b`; `granite4:micro-h`, the small model of 2.5, is not in the
+3.0 image any more. A computer that still has it keeps using it (it is in
+every list, right after the model that replaces it) and Settings › AI shows
+`granite4.2:3b` as "Recommended for this computer" with its Download
+button. A model the user picked in 2.5 and that is not installed any more
+(the settings in a kept home folder still name it) gives way to the best
+installed model instead of an error at every question (`models.resolve`);
+Settings › AI › In use now says so.
+
 When the usual model cannot be loaded because free memory is short, a
 smaller installed model answers that question and the answer says so
 (`models.fallback`); the next question goes back to the usual model. The
 fallback is always local.
 
-Thinking models (Qwen3.5, Gemma 4, Qwen3 hybrids) are asked not to think
-(`"think": false`): a reasoning trace costs seconds before the first useful
+Thinking models (Granite 4.2, Qwen3.5, Gemma 4, Qwen3 hybrids) are asked not
+to think (`"think": false`, also by the action chooser): a reasoning trace costs seconds before the first useful
 word. Models that copy ZETA's note back into the answer have the copy
 removed, on screen and in the voice (`context.strip_note_echo`).
 
+### November 2026: Granite 4.2 3B replaces Granite 4.0 Micro
+
+Same method as in October (below), with Ollama 0.40.16, on the two models of
+2.5 and the new candidates (raw answers: `.cache/v25/bench/nov/res-*.json`):
+
+| Model | Memory loaded | Writing (tokens/s) | Reading (tokens/s) | First word, median | Commands | Checks | Note leaks |
+|---|---|---|---|---|---|---|---|
+| lfm3:1.7b (think off) | 1.457GiB | 35.0 | 168 | 2.10 s | 6/10 | 5/5 | 0 |
+| granite4.2:3b (think off) | 2.468GiB | 16.7 | 414 | 0.81 s | 10/10 | 4/5 | 0 |
+| granite4:micro-h | 2.291GiB | 16.6 | 397 | 0.94 s | 9/10 | 5/5 | 0 |
+| qwen3:4b-instruct | 3.149GiB | 15.1 | 338 | 1.01 s | 10/10 | 4/5 | 0 |
+| granite4.2:8b (think off) | 5.641GiB | 7.8 | 189 | 1.81 s | 9/10 | 3/5 | 0 |
+| granite4.1:8b | 5.641GiB | 6.9 | 197 | 1.66 s | 10/10 | 4/5 | 0 |
+
+`granite4.2:3b` (IBM, Apache-2.0) chooses all 10 commands (Granite 4.0
+Micro: 9), reads the prompt faster and gives the first word sooner, for
+0.18 GiB more memory; its Italian is good. It missed one check: in the
+apple arithmetic it wrote a wrong number first and then started correcting
+itself. It thinks by default, so ZETA always sends `"think": false`. It is
+the first model of the low-power and 8 GB profiles; Qwen3 4B Instruct stays
+first from 12 GB (the best Italian), Granite 4.1 8B stays the optional large
+model (Granite 4.2 8B scored lower). LFM3 1.7B writes twice as fast but
+chose 6/10 commands and has the LFM license (see below). In the image the
+model file is 2.24 GB instead of 1.94 GB (+0.30 GB): the two models
+together are about 4.7 GB.
+
 ### How the models were compared (October 2026)
 
-Both `qwen3:4b-instruct` (Qwen3 4B Instruct 2507, Qwen team, Apache-2.0) and
-`granite4:micro-h` (Granite 4.0 Micro, hybrid Mamba-2, IBM, Apache-2.0,
-Italian officially supported) are in the image: about 4.4 GB together. Each
-is the other's smaller or larger alternative.
+In 2.5 the image shipped `qwen3:4b-instruct` (Qwen3 4B Instruct 2507, Qwen
+team, Apache-2.0) and `granite4:micro-h` (Granite 4.0 Micro, hybrid
+Mamba-2, IBM, Apache-2.0, Italian officially supported), about 4.4 GB
+together. Each was the other's smaller or larger alternative.
 
 Method: Ollama 0.40.10 in a Debian 13 container limited to 4 processor cores
 and 16 GB (Apple silicon host, arm64), q8_0 KV cache, context 4096,
@@ -120,9 +156,9 @@ Not used, and why:
 the tests. Writing speed on a CPU is limited mostly by memory bandwidth per
 token: the N100 has one memory channel and four efficiency cores, so expect
 roughly a third to a half of the speeds above (about 4-6 tokens/s for
-Qwen3 4B, 6-9 for Granite 4.0 Micro), and 2-4 s to the first word of a
-follow-up question. That is why the low-power profile prefers Granite 4.0
-Micro and a 2048-token context. Measure on the real machine with
+Qwen3 4B, 6-9 for Granite 4.0 Micro and Granite 4.2 3B), and 2-4 s to the
+first word of a follow-up question. That is why the low-power profile
+prefers the small Granite model and a 2048-token context. Measure on the real machine with
 `zeta ai test` and `zeta-diagnostics` (section "local AI response").
 
 ## Memory
@@ -235,8 +271,47 @@ reuses everything it has already read (prefix cache). The history is
 shortened in blocks, not one turn at a time, and its size follows the speed
 measured on the computer (`~/.cache/zeta/ai-speed.json`). When the model is
 loaded in advance (at login with 16 GB, or when ZETA opens) the fixed prompt
-is read at the same time. Web sources for the local model are two excerpts
+is read at the same time.
+
+How long the model stays loaded follows the memory (`resources.py`). On
+6-11 GB a model that takes at most 36% of the RAM once loaded is "small":
+`granite4.2:3b` (about 2.65 GB, a third of 8 GB) is loaded when ZETA opens
+and kept 10 minutes after the last question instead of 5. That spares the
+reload and the reread of the fixed prompt (about 300 tokens, several
+seconds on an Intel N100) for a follow-up question; `qwen3:4b-instruct`
+(3.4 GB) on 8 GB keeps the 2.5 behaviour (loaded at the first question,
+released after 5 minutes). Never at login below 16 GB; the free memory is
+checked before every load, and with less than 0.6 GB free the model is
+released one minute after the reply. The memory figures of the models ZETA
+ships are measured (`models.LOADED_GB`), the others estimated from the file
+size. Web sources for the local model are two excerpts
 of 400 characters; reference entries are a few lines.
+
+## Reading the screen and files
+
+ZETA has no image model (one that sees pictures costs gigabytes of memory):
+it reads TEXT, and says so when there is none (`reading.py`).
+
+- **"What's on my screen?"**, "summarize / translate / explain what I'm
+  looking at", "cosa c'è sullo schermo?": the window in front is captured
+  with `grim` (the last window used before ZETA, from Hyprland's focus
+  history; the whole screen if there is none), its text is recognized by
+  `tesseract` (system language, English and Italian), and the text goes to
+  the local model with the request. The capture is deleted at once.
+- **"Summarize the file …"**: in Files, right-click a text, PDF, Word or
+  LibreOffice document › "Ask ZETA to Summarize" (ZETA opens with the
+  answer streaming), or `zeta summarize FILE` in the terminal, or write the
+  path in ZETA. PDFs are read with `pdftotext` (first 40 pages); `.docx`,
+  `.pptx`, `.odt`, `.odp`, `.ods` from their XML (no parser, no macro, at
+  most 4 MB read); a scanned PDF has no text: ZETA says so and points to
+  "Copy Text from Image".
+
+The model gets about 25 seconds of reading at the speed measured on the
+computer (400-3000 tokens) and never more than the context window leaves
+for a 450-token answer: on an Intel N100 with the 2048-token context, about
+1000 tokens (4000 characters). The answer says when only the first part was
+read. The text goes with that one question, without the earlier turns, and
+is not written to the memory: only the request and the answer are kept.
 
 ## Actions: closed catalog, verification, consent
 
@@ -270,6 +345,7 @@ zeta --remember TEXT      add one
 zeta --forget             clear the conversation
 zeta --forget-all         clear the conversation and the long-term memories
 zeta --learn FILE         index a text file as reference, locally
+zeta summarize FILE       a summary of a text, PDF, Word or LibreOffice file
 zeta ai status | ai test  details and a real test of the local model
 ```
 

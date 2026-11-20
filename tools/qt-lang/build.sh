@@ -12,6 +12,8 @@
 #
 # After changing a QML text: lupdate FILE.qml -ts THIS.ts -locations none,
 # translate, then run this script (needs lrelease: package qt6-l10n-tools).
+# Without Qt (on the Mac): python3 ts2qm.py IN.ts OUT.qm writes the same
+# bytes as lrelease for these files (--check compares with a shipped .qm).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHROOT="$HERE/../../live-build/config/includes.chroot"

@@ -122,10 +122,6 @@ class CancelToken:
                 return
         _shutdown(sock)
 
-    def unregister(self, sock) -> None:
-        with self._lock:
-            self._socks.discard(sock)
-
 
 def _shutdown(sock) -> None:
     try:

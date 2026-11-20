@@ -45,7 +45,9 @@ fetch "$M/vosk-model-small-it-0.22.zip"    "$C/vosk/models/vosk-model-small-it-0
 fetch "$M/vosk-model-small-en-us-0.15.zip" "$C/vosk/models/vosk-model-small-en-us-0.15.zip" 30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498
 
 # Vosk Python packages (PyPI, for Debian 13's Python 3.13); srt exists only
-# as a source distribution and is built inside the image with setuptools
+# as a source distribution: it is turned into a (pure Python) wheel here, so
+# the image never builds it. Building it inside the image with pip's isolated
+# setuptools broke in November 2026 ("cannot import name 'setup'").
 for a in x86_64 aarch64; do
     d="$C/vosk/$a"; mkdir -p "$d"
     for p in vosk cffi pycparser requests urllib3 idna charset_normalizer certifi tqdm websockets; do
@@ -55,6 +57,7 @@ for a in x86_64 aarch64; do
             --python-version 3.13 --implementation cp --abi cp313 --abi abi3 --abi none -d "$d" "$p"
     done
     pip3 download --quiet --no-deps --no-binary=:all: -d "$d" srt
+    pip3 wheel --quiet --no-deps -w "$d" "$d"/srt-*.tar.gz
     pip3 download --quiet --no-deps --only-binary=:all: -d "$d" setuptools wheel
 done
 echo "voice ready in $C/kokoro, $C/piper and $C/vosk"

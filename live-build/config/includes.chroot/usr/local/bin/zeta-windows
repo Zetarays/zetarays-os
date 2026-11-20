@@ -262,6 +262,9 @@ def _exit_shortcuts():
         (tr("Super + F"), tr("Full screen on or off")),
         (tr("Super + W"), tr("This list: open and minimized windows")),
         (tr("Super + Shift + W"), tr("Bring every window back inside the screen")),
+        # not ways out, but where users look for window keys: the snap layouts
+        (tr("Super + Shift + Left / Right"), tr("Left or right half of the screen")),
+        (tr("Super + Z"), tr("Snap layouts: halves, thirds, quarters")),
         (tr("Super + drag"), tr("Move a window, grabbing it anywhere")),
         (tr("Super + right-drag"), tr("Resize a window")),
         (tr("Ctrl + Tab"), tr("Switch between apps")),

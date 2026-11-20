@@ -48,7 +48,7 @@ SNIPPET_CHARS = 700
 LOCAL_SOURCES = 2
 LOCAL_SNIPPET_CHARS = 400
 def _user_agent() -> str:
-    """"ZETA-RAYS/2.5 (…)": the version comes from /etc/os-release."""
+    """"ZETA-RAYS/3.0 (…)": the version comes from /etc/os-release."""
     try:
         from system.release import product_token
         token = product_token()

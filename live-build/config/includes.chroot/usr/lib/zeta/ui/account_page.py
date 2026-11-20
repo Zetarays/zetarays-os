@@ -5,8 +5,16 @@ The picture (round, 512 px) is shown in the power and account menu, on the
 lock screen and at login. It can be a photo of the user (.jpg or .png, cut
 to a circle from the center) or a plain circle in one of the four system
 colors (the palette in ui/accent.py), by default the accent color.
+
+Administrator account (root): off by default. Turning it on asks for a new
+root password (twice) and runs /usr/libexec/zeta-root-login enable through
+pkexec, with the password on its standard input (never on the command
+line); turning it off runs disable. The state comes from the helper's
+status, which needs no password.
 """
+import json
 import os
+import subprocess
 import threading
 
 import gi
@@ -15,7 +23,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from i18n import tr  # noqa: E402
+from i18n import language, tr  # noqa: E402
 from system import avatar  # noqa: E402
 from ui import accent  # noqa: E402
 
@@ -25,6 +33,8 @@ CSS = """
 .av-color.av-chosen { outline: 2px solid @accent_bg_color; outline-offset: 3px; }
 """ + "".join(".av-color-%s { background: %s; }\n" % (k, c) for k, c, _n in accent.PALETTE)
 _css_loaded = False
+ROOT_HELPER = "/usr/libexec/zeta-root-login"
+ROOT_MIN_LEN = 8          # the helper refuses shorter passwords too
 
 
 def _load_css():
@@ -107,6 +117,18 @@ class AccountPage(Adw.PreferencesPage):
         self.add(colors)
         self._mark_choice()
 
+        # Administrator account (root): off by default
+        admin = Adw.PreferencesGroup(title=tr("Administrator account (root)"))
+        self.root_switch = Adw.SwitchRow(
+            title=tr("Allow signing in as root"),
+            subtitle=tr("Root can change anything on the system: turn this on only if you need it."),
+            sensitive=False)
+        self.root_switch.connect("notify::active", self._root_changed)
+        admin.add(self.root_switch)
+        self.add(admin)
+        self._root_busy = False
+        self._root_status()
+
         drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         drop.connect("drop", self._on_drop)
         self.add_controller(drop)
@@ -169,6 +191,122 @@ class AccountPage(Adw.PreferencesPage):
                 self._run_job(lambda: avatar.set_color(c))
             else:
                 self._run_job(lambda: avatar.set_color(accent.DEFAULT))
+
+    # --- root account -------------------------------------------------------
+    def _set_root_switch(self, active):
+        self._root_updating = True
+        self.root_switch.set_active(active)
+        self._root_updating = False
+
+    def _root_status(self):
+        def work():
+            try:
+                r = subprocess.run([ROOT_HELPER, "status"], capture_output=True, text=True, timeout=20)
+                return bool(json.loads(r.stdout.strip().splitlines()[-1]).get("enabled"))
+            except (OSError, subprocess.SubprocessError, ValueError, IndexError, AttributeError):
+                return None
+
+        def done(enabled):
+            if enabled is None:
+                self.root_switch.set_subtitle(tr("Not available on this system."))
+                return False
+            self._set_root_switch(enabled)
+            self.root_switch.set_sensitive(True)
+            return False
+        threading.Thread(target=lambda: GLib.idle_add(done, work()), daemon=True).start()
+
+    def _root_changed(self, row, _p):
+        if getattr(self, "_root_updating", False) or self._root_busy:
+            return
+        if row.get_active():
+            self._ask_root_password()
+        else:
+            self._root_apply("disable", None)
+
+    def _ask_root_password(self, error=""):
+        dlg = Adw.AlertDialog(heading=tr("New Root Password"),
+                              body=error or tr("Choose a password of at least {n} characters. "
+                                               "You will type it at the login screen with the "
+                                               "user name root.").format(n=ROOT_MIN_LEN))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        first = Gtk.PasswordEntry(show_peek_icon=True, activates_default=True,
+                                  placeholder_text=tr("Password"))
+        again = Gtk.PasswordEntry(show_peek_icon=True, activates_default=True,
+                                  placeholder_text=tr("Repeat the password"))
+        box.append(first)
+        box.append(again)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", tr("Cancel"))
+        dlg.add_response("ok", tr("Allow"))
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("ok")
+        dlg.set_close_response("cancel")
+
+        def answer(_d, resp):
+            pw, pw2 = first.get_text(), again.get_text()
+            first.set_text("")
+            again.set_text("")
+            if resp != "ok":
+                self._set_root_switch(False)
+                return
+            if len(pw) < ROOT_MIN_LEN:
+                GLib.idle_add(self._ask_root_password,
+                              tr("The password must be at least {n} characters long.").format(n=ROOT_MIN_LEN))
+            elif pw != pw2:
+                GLib.idle_add(self._ask_root_password, tr("The two passwords are different."))
+            elif any(ord(c) < 32 or ord(c) == 127 for c in pw):
+                GLib.idle_add(self._ask_root_password,
+                              tr("The password contains characters that cannot be used."))
+            else:
+                self._root_apply("enable", pw)
+        dlg.connect("response", answer)
+        dlg.present(self.get_root())
+        first.grab_focus()
+        return False
+
+    def _root_apply(self, action, password):
+        """enable/disable through pkexec, in a thread; the password goes on
+        the helper's standard input."""
+        self._root_busy = True
+        self.root_switch.set_sensitive(False)
+
+        def work():
+            try:
+                r = subprocess.run(["pkexec", ROOT_HELPER, "--lang=%s" % language(), action],
+                                   input=(password + "\n") if password is not None else "",
+                                   capture_output=True, text=True, timeout=120)
+            except (OSError, subprocess.SubprocessError) as e:
+                return False, str(e)
+            if r.returncode in (126, 127) and not r.stdout.strip():
+                return False, None              # password window closed or refused
+            try:
+                outcome = json.loads(r.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                outcome = {}
+            if r.returncode == 0:
+                return True, None
+            return False, outcome.get("error") or tr("Not changed.")
+
+        def done(result):
+            ok, error = result
+            self._root_busy = False
+            self.root_switch.set_sensitive(True)
+            if ok:
+                self._set_root_switch(action == "enable")
+            else:
+                # back to what the system really has
+                self._set_root_switch(action != "enable")
+                self._root_status()
+            if ok:
+                text = (tr("Root can now sign in at the login screen.") if action == "enable"
+                        else tr("Root can no longer sign in."))
+            else:
+                text = error or tr("Not changed.")
+            toasts = getattr(self.get_root(), "toasts", None)
+            if toasts is not None:
+                toasts.add_toast(Adw.Toast(title=text, timeout=4, use_markup=False))
+            return False
+        threading.Thread(target=lambda: GLib.idle_add(done, work()), daemon=True).start()
 
     def _done(self, ok, msg):
         _load(self.large, avatar.path())

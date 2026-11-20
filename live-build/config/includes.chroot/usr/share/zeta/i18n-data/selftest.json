@@ -590,6 +590,7 @@
    "blu": "blue",
    "rosso": "red",
    "verde": "green",
+   "viola": "purple",
    "bianco": "white"
   }
  },
@@ -638,6 +639,21 @@
    "What is a CPU? One sentence.",
    "Cos'è la RAM? Rispondi in breve.",
    "A cosa serve il disco SSD?"
+  ]
+ },
+ "ai_reading_requests": {
+  "it": [
+   ["Cosa c'è sullo schermo?", "screen"],
+   ["Riassumi quello che sto guardando", "screen"],
+   ["traducimi questa pagina in inglese", "screen"],
+   ["spiegami cosa c'è in questa finestra", "screen"],
+   ["Riassumi il file “{path}”", "file"],
+   ["riassumi questo documento", "which_file"],
+   ["spegni lo schermo", null],
+   ["fai uno screenshot", null],
+   ["metti la finestra a schermo intero", null],
+   ["abbassa la luminosità dello schermo", null],
+   ["apri firefox", null]
   ]
  }
 }

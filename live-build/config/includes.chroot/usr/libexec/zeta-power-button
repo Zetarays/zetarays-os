@@ -1,0 +1,28 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: what the power button does (run through pkexec only).
+#
+#   zeta-power-button poweroff|suspend|lock|ignore
+#
+# Writes HandlePowerKey into a logind drop-in and asks systemd-logind to
+# reload its configuration (SIGHUP, supported by systemd 257): the session
+# keeps running. Nothing else is accepted, written or run.
+set -eu
+
+case "${1:-}" in
+    poweroff|suspend|lock|ignore) action=$1 ;;
+    *) echo "usage: zeta-power-button poweroff|suspend|lock|ignore" >&2; exit 2 ;;
+esac
+[ "$#" -eq 1 ] || { echo "usage: zeta-power-button poweroff|suspend|lock|ignore" >&2; exit 2; }
+[ "$(id -u)" -eq 0 ] || { echo "zeta-power-button: must run as root (pkexec)" >&2; exit 1; }
+
+dir=/etc/systemd/logind.conf.d
+conf=$dir/50-zeta-power-button.conf
+umask 022
+mkdir -p "$dir"
+tmp=$(mktemp "$dir/.zeta-power-button.XXXXXX")
+printf '# ZETA RAYS: Settings > Power & Battery\n[Login]\nHandlePowerKey=%s\n' "$action" > "$tmp"
+chmod 644 "$tmp"
+mv -f "$tmp" "$conf"
+systemctl kill --kill-whom=main --signal=HUP systemd-logind.service
+echo "{\"action\": \"$action\"}"

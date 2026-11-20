@@ -8,7 +8,9 @@ versions to the English names of 2.0.
 Runs at login (zeta-desktop-session), before anything reads the settings.
 The steps are data: every /usr/share/zeta/migration/*.json, in name order
 (english-2.0: the Italian names of earlier versions; update-2.1: configuration
-files of 2.0 that the user never changed), each applied once per user:
+files of 2.0 that the user never changed; update-3.0-0-defaults: default
+settings of 2.5 brought to 3.0, before the other update-3.0-* files, which
+patch only what a user changed), each applied once per user:
 
   file       rename a file or folder (OLD may end in "*": same suffix kept);
              if the new name already exists the old one is left alone
@@ -23,7 +25,18 @@ files of 2.0 that the user never changed), each applied once per user:
   commands   rename old command names in user files (word boundaries)
   skel       a file copied from /etc/skel that the user never changed (its
              SHA-256 is one of the shipped versions) is replaced with the new
-             /etc/skel copy, so it comes out clean instead of patched
+             /etc/skel copy, so it comes out clean instead of patched; with
+             "keep_new", a file the user changed stays and the new version
+             is saved in ~/.local/state/zeta/migration-new/ for comparison
+  skel-new   files and links of /etc/skel that are new in this release
+             (not in the "known" list of earlier releases) are copied when
+             the user does not have them (new user services, new settings)
+  lua-append for a hyprland.lua the user changed: the new top-level
+             shortcut lines of this release (hl.bind(...) lines in /etc/skel
+             that are not in "base", the file of the earlier release) are
+             added at the end in a marked block, each one inside pcall so a
+             mistake cannot stop the configuration; keys the user already
+             bound are left alone
 
 Nothing is ever deleted except a file whose content was moved to its new
 name. A copy of every file changed is kept in
@@ -229,8 +242,17 @@ def step_skel(s):
         if os.path.islink(old) or not os.path.isfile(old) or not os.path.isfile(src):
             continue
         with open(old, "rb") as f:
-            digest = hashlib.sha256(f.read()).hexdigest()
+            content = f.read()
+        digest = hashlib.sha256(content).hexdigest()
+        with open(src, "rb") as f:
+            fresh = f.read()
+        if content == fresh and new_rel == rel:
+            continue                    # already the current version
         if digest not in known:
+            # only when this release changed the file (not for every file
+            # the user customized)
+            if s.get("keep_new") and hashlib.sha256(fresh).hexdigest() not in known:
+                keep_new_copy(new_rel, fresh)
             continue
         dest = os.path.join(HOME, new_rel)
         log.append("skel %s -> %s" % (old, dest))
@@ -241,7 +263,150 @@ def step_skel(s):
                 os.remove(old)
 
 
-STEPS = {"skel": step_skel, "file": step_file, "text": step_text, "jsonkey": step_json, "jsonvalue": step_json,
+def keep_new_copy(rel, data):
+    """The new version of a file the user changed, for comparison."""
+    dest = os.path.join(STATE, "migration-new", rel)
+    try:
+        with open(dest, "rb") as f:
+            if f.read() == data:
+                return                  # already kept (skel and lua-append steps)
+    except OSError:
+        pass
+    log.append("kept your %s (the new version is in %s)" % (os.path.join(HOME, rel), dest))
+    if not DRY:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(data)
+
+
+def step_skel_new(s):
+    known = set(s.get("known", []))
+    for base, dirs, files in os.walk("/etc/skel"):
+        names = files + [d for d in dirs if os.path.islink(os.path.join(base, d))]
+        for name in sorted(names):
+            src = os.path.join(base, name)
+            rel = os.path.relpath(src, "/etc/skel")
+            if rel in known:
+                continue
+            dest = os.path.join(HOME, rel)
+            if os.path.lexists(dest):
+                continue
+            log.append("new %s" % dest)
+            if DRY:
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            if os.path.islink(src):
+                os.symlink(os.readlink(src), dest)
+            else:
+                shutil.copy2(src, dest)
+
+
+def _balanced(line):
+    """One complete Lua call on one line: brackets closed, quotes closed."""
+    depth, quote, i = 0, "", 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c in "\"'":
+            quote = c
+        elif c == "-" and line[i:i + 2] == "--":
+            break
+        elif c in "({[":
+            depth += 1
+        elif c in ")}]":
+            depth -= 1
+            if depth < 0:
+                return False
+        i += 1
+    return depth == 0 and not quote
+
+
+def _bind_key(line):
+    """The key part of hl.bind(KEY, ...): the text before the first comma
+    at the outer level."""
+    inner = line[len("hl.bind("):]
+    depth, quote = 0, ""
+    for i, c in enumerate(inner):
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "\"'":
+            quote = c
+        elif c in "({[":
+            depth += 1
+        elif c in ")}]":
+            depth -= 1
+        elif c == "," and depth == 0:
+            return inner[:i].strip()
+    return ""
+
+
+def _self_contained(line, mine):
+    """True when the line uses nothing but the hl API, literals and «mod»
+    (defined in the user's file): a shortcut calling a helper function of
+    the new hyprland.lua would fail in the user's older file."""
+    code = re.sub(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'', '""', line)
+    if "function" in code:
+        return False
+    for m in re.finditer(r"(?<![.\w])([A-Za-z_]\w*)", code):
+        name = m.group(1)
+        if code[m.end():].lstrip().startswith("=") and not code[m.end():].lstrip().startswith("=="):
+            continue                    # a table key: { description = ... }
+        if name in ("hl", "true", "false", "nil"):
+            continue
+        if name == "mod" and re.search(r"^\s*(local\s+)?mod\s*=", mine, re.M):
+            continue
+        return False
+    return True
+
+
+def step_lua_append(s):
+    rel = s["file"]
+    path = os.path.join(HOME, rel)
+    src = os.path.join("/etc/skel", rel)
+    if os.path.islink(path) or not os.path.isfile(path) or not os.path.isfile(src):
+        return
+    try:
+        mine = open(path, encoding="utf-8").read()
+        fresh = open(src, encoding="utf-8").read()
+        base = open(s["base"], encoding="utf-8").read()
+    except (OSError, UnicodeDecodeError):
+        return
+    if mine == fresh or s["marker"] in mine:
+        return
+    before = set(base.splitlines())
+    mine_keys = {_bind_key(l.strip()) for l in mine.splitlines() if l.strip().startswith("hl.bind(")}
+    # commands that only work with functions of the new hyprland.lua
+    # (e.g. zeta-snap calls zeta_snap() through hyprctl eval)
+    exclude = s.get("exclude", [])
+    added, skipped = [], 0
+    for line in fresh.splitlines():
+        if line in before or not line.strip():
+            continue
+        if line.startswith("hl.bind(") and _balanced(line) and line.rstrip().endswith(")") \
+                and _self_contained(line, mine) and not any(x in line for x in exclude):
+            key = _bind_key(line)
+            if key and key not in mine_keys:
+                added.append(line.rstrip())
+        else:
+            skipped += 1
+    if skipped:
+        keep_new_copy(rel, fresh.encode("utf-8"))
+    if not added:
+        return
+    block = ["", "-- >>> %s: new shortcuts, added when the system was upgraded." % s["marker"],
+             "-- Your own settings above are unchanged; delete this block to remove them."]
+    block += ["pcall(function() %s end)" % l for l in added]
+    block += ["-- <<< %s" % s["marker"], ""]
+    log.append("lua-append %s: %d new shortcut lines" % (path, len(added)))
+    write(path, mine.rstrip("\n") + "\n" + "\n".join(block))
+
+
+STEPS = {"skel": step_skel, "skel-new": step_skel_new, "lua-append": step_lua_append, "file": step_file, "text": step_text, "jsonkey": step_json, "jsonvalue": step_json,
          "cred": step_cred, "commands": step_commands}
 
 

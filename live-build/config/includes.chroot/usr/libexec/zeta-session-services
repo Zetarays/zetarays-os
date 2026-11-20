@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-session-services — optional helpers chosen in Settings, started by
+# zeta-session at login. ZETA RAYS does not run the XDG autostart folder, so
+# the programs that other desktops start from there are started here, and
+# only when the user turned them on:
+#
+#   - the screen reader (Settings > Accessibility), at once;
+#   - the backup monitor of Déjà Dup (Settings > Backup, automatic
+#     backups), which waits in the background and starts the backup when
+#     it is due. Not on the live system: nothing there survives a restart.
+set -u
+
+zeta-screen-reader login
+
+MONITOR=/usr/libexec/deja-dup/deja-dup-monitor
+if [ ! -d /run/live/medium ] && [ -x "$MONITOR" ] \
+   && [ "$(gsettings get org.gnome.DejaDup periodic 2>/dev/null)" = "true" ]; then
+    sleep 60
+    # by full path: a process name is cut to 15 characters
+    pgrep -u "$(id -u)" -f "^$MONITOR\$" >/dev/null 2>&1 || exec nice -n 10 "$MONITOR"
+fi
+exit 0

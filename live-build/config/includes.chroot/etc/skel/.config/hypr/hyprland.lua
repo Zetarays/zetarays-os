@@ -188,6 +188,31 @@ hl.config({
     },
 })
 
+-- Settings › Keyboard & Mouse (zeta_input.lua) and › Accessibility
+-- (zeta_accessibility.lua): each returns { config = <hl.config table> }.
+-- Defaults ship in /etc/skel; the file is checked first, because a require
+-- of a missing module is a configuration error (red box) even inside pcall.
+local zeta_user = {}
+for _, name in ipairs({ "zeta_input", "zeta_accessibility" }) do
+    local f = io.open(os.getenv("HOME") .. "/.config/hypr/" .. name .. ".lua", "r")
+    if f then
+        f:close()
+        local ok_u, t = pcall(require, name)
+        if ok_u and type(t) == "table" then
+            zeta_user[name] = t
+            if type(t.config) == "table" then pcall(hl.config, t.config) end
+        end
+    end
+end
+-- the shortcut that switches keyboard layouts (only with two or more)
+local zeta_inp = zeta_user.zeta_input
+if zeta_inp and type(zeta_inp.kb_switch) == "string" and (kb.options or ""):find("grp:", 1, true) then
+    hl.config({ input = { kb_options = (string.gsub(kb.options, "grp:[%w_]+", zeta_inp.kb_switch)) } })
+end
+-- zoom level at start (Super + plus / minus change it, see SHORTCUTS)
+local zeta_a11y = (zeta_user.zeta_accessibility or {}).config or {}
+zeta_zoom_level = tonumber(zeta_a11y.cursor and zeta_a11y.cursor.zoom_factor) or 1
+
 -- Animations: smooth and quick
 hl.curve("zeta",   { type = "bezier", points = { {0.2, 0.9}, {0.1, 1} } })
 hl.curve("linear", { type = "bezier", points = { {0, 0},     {1, 1}   } })
@@ -284,13 +309,16 @@ hl.layer_rule({ name = "zeta-launcher-blur", match = { namespace = "^zeta-launch
 hl.layer_rule({ name = "zeta-search-blur",   match = { namespace = "^zeta-search$" },    blur = true, ignore_alpha = 0.1 })
 hl.layer_rule({ name = "zeta-notify-blur",   match = { namespace = "^notifications$" }, blur = true, ignore_alpha = 0.1 })
 hl.layer_rule({ name = "zeta-control-blur",  match = { namespace = "^zeta-control$" },  blur = true, ignore_alpha = 0.1 })
+hl.layer_rule({ name = "zeta-clipboard-blur", match = { namespace = "^zeta-clipboard$" }, blur = true, ignore_alpha = 0.1 })
 hl.layer_rule({ name = "zeta-power-blur",    match = { namespace = "^zeta-power-menu$" },  blur = true, ignore_alpha = 0.1 })
 hl.layer_rule({ name = "zeta-switcher-blur", match = { namespace = "^zeta-switcher$" }, blur = true, ignore_alpha = 0.1 })
 -- the snapshot of the window being minimized must appear instantly, on top
 -- of the real window: with a fade a jump would be visible (zeta-minimize)
 hl.layer_rule({ name = "zeta-minimize-instant", match = { namespace = "^zeta-minimize$" }, no_anim = true })
+-- the screenshot toolbar must vanish at once: the capture starts right after
+hl.layer_rule({ name = "zeta-screenshot-instant", match = { namespace = "^zeta-screenshot$" }, no_anim = true })
 
--- Floating, centered windows, as on macOS (Super + V to tile them), never
+-- Floating, centered windows, as on macOS (Super + Shift + V to tile them), never
 -- larger than the screen: on small screens nothing ends up under the bar.
 hl.window_rule({ name = "zeta-float-all", match = { class = ".*" }, float = true, center = true,
                  max_size = "(monitor_w*0.92) (monitor_h*0.84)" })
@@ -542,6 +570,116 @@ if zg_guard then
     end)
 end
 
+-------------------
+---- SNAP LAYOUTS ----
+-------------------
+
+-- Halves, thirds, quarters, centered, maximize and restore, like the snap
+-- layouts of Windows 11 and the window tiling of macOS (Super + Shift +
+-- arrows, Super + Z for the layouts popup, "zeta-snap NAME" from a
+-- terminal). The decisions live in /usr/lib/zeta/hypr/window_snap.lua
+-- (plain Lua, unit-tested outside Hyprland). Zones lie inside the same
+-- usable area the window guard keeps every window in: a snapped window is
+-- never under the bar or off screen, and the guard checks the result.
+local ZS_LIB_FILE = "/usr/lib/zeta/hypr/window_snap.lua"
+local zs_lib
+do
+    local f = io.open(ZS_LIB_FILE, "r")
+    if f then
+        f:close()
+        local ok, lib = pcall(dofile, ZS_LIB_FILE)
+        if ok and type(lib) == "table" then zs_lib = lib end
+    end
+end
+
+-- "address:0x55AB..", "0x55ab.." and "55ab.." are the same window
+local function zeta_norm_address(a)
+    a = tostring(a or ""):lower():gsub("^address:", "")
+    return (a:gsub("^0x", ""))
+end
+
+local zs_snapper
+if zs_lib then
+    zs_snapper = zs_lib.new({
+        window = function(addr)
+            local found
+            if addr == nil or addr == "" then
+                found = hl.get_active_window()
+            else
+                local want = zeta_norm_address(addr)
+                for _, c in ipairs(hl.get_windows()) do
+                    if zeta_norm_address(c.address) == want then found = c; break end
+                end
+            end
+            return found and zeta_snapshot(found) or nil
+        end,
+        area = function(s)
+            if zg_lib then
+                local areas = zeta_areas()
+                if #areas == 0 then return nil end
+                return zg_lib.area_for(s, areas, ZG_BAR)
+            end
+            local m = s.ref.monitor
+            return m and zeta_area(m) or nil
+        end,
+        resize = function(s, W, H)
+            hl.dispatch(hl.dsp.window.resize({ x = W, y = H, window = s.ref }))
+            local size = s.ref.size
+            return size.x, size.y
+        end,
+        move = function(s, X, Y)
+            hl.dispatch(hl.dsp.window.move({ x = X, y = Y, window = s.ref }))
+            local at = s.ref.at
+            return at.x, at.y
+        end,
+        fullscreen = function(s, mode, action)
+            hl.dispatch(hl.dsp.window.fullscreen({ mode = mode, action = action, window = s.ref }))
+        end,
+        float = function(s, on)
+            hl.dispatch(hl.dsp.window.float({ action = on and "enable" or "disable", window = s.ref }))
+        end,
+        move_dir = function(s, dir)
+            -- the layout move acts on the focused window
+            local a = hl.get_active_window()
+            if not a or a.address ~= s.address then
+                hl.dispatch(hl.dsp.focus({ window = s.ref }))
+            end
+            hl.dispatch(hl.dsp.window.move({ direction = dir }))
+        end,
+        later = function(ms, fn)
+            hl.timer(fn, { timeout = ms, type = "oneshot" })
+        end,
+        guard = zg_guard and function(addr) zg_guard.check_one(addr, "strict") end or nil,
+        -- zeta-float-all limits every window to 92% x 84% of the screen; a
+        -- zone may be taller (a half is the whole usable height). If this
+        -- property cannot be set the window is just a little shorter.
+        allow_size = function(s, W, H)
+            pcall(function()
+                hl.dispatch(hl.dsp.window.set_prop({ prop = "max_size",
+                    value = string.format("%d %d", W, H), window = s.ref }))
+            end)
+        end,
+    }, ZG_BAR)
+end
+
+-- zeta_snap("left"), zeta_snap("top-right", "0x55ab..."): see window_snap.lua
+-- for the names. Used by the shortcuts below and by zeta-snap (hyprctl eval).
+local zs_reported = false
+function zeta_snap(name, addr)
+    if not zs_snapper then return false end
+    local ok, res = pcall(zs_snapper.snap, name, addr)
+    if not ok then
+        if not zs_reported then
+            zs_reported = true
+            hl.notification.create({ text = "window_snap: " .. tostring(res), timeout = 8000 })
+        end
+        return false
+    end
+    return res
+end
+-- checked by zeta-selftest (hyprctl eval)
+zeta_snap_ready = zs_snapper ~= nil
+
 hl.on("window.open", function(w)
     -- Blender on Wayland draws a smaller interface at fractional scales: a
     -- Blender just started on Wayland (downloaded from blender.org and run
@@ -617,8 +755,21 @@ hl.bind(mod .. " + T",           hl.dsp.exec_cmd("zeta-appearance toggle-theme")
 -- list is shown in the Windows list (zeta-windows).
 hl.bind(mod .. " + Q",           hl.dsp.window.close(), { description = "zeta-exit:close" })
 hl.bind(mod .. " + F",           hl.dsp.window.fullscreen(), { description = "zeta-exit:fullscreen" })
-hl.bind(mod .. " + V",           hl.dsp.window.float({ action = "toggle" }))
-hl.bind(mod .. " + SHIFT + S",   hl.dsp.exec_cmd("sh -c 'grim -g \"$(slurp)\" - | wl-copy'"))
+-- Clipboard history and emoji, as on Windows 11 (Win+V, Win+.); Super+Ctrl+
+-- Space for emoji as on macOS. Floating/tiled moved to Super+Shift+V.
+hl.bind(mod .. " + V",           hl.dsp.exec_cmd("zeta-panel clipboard"))
+hl.bind(mod .. " + period",      hl.dsp.exec_cmd("zeta-panel emoji"))
+hl.bind(mod .. " + CTRL + SPACE", hl.dsp.exec_cmd("zeta-panel emoji"))
+hl.bind(mod .. " + SHIFT + V",   hl.dsp.window.float({ action = "toggle" }))
+-- Screenshots and screen recordings (zeta-screenshot), like Windows' Snipping
+-- Tool and macOS Cmd+Shift+5: saved to Pictures/Screenshots AND copied, with a
+-- notification (click: Edit, Copy Text, Open Folder, Delete). Esc cancels.
+hl.bind("Print",                 hl.dsp.exec_cmd("zeta-screenshot panel"))
+hl.bind("SHIFT + Print",         hl.dsp.exec_cmd("zeta-screenshot screen"))
+hl.bind("ALT + Print",           hl.dsp.exec_cmd("zeta-screenshot window --active"))
+hl.bind(mod .. " + SHIFT + S",   hl.dsp.exec_cmd("zeta-screenshot region"))
+-- start a recording (click a screen or drag an area), the same keys stop it
+hl.bind(mod .. " + SHIFT + R",   hl.dsp.exec_cmd("zeta-screenshot record"))
 -- Text from an area of the screen (OCR, done locally), like Windows' Text
 -- Extractor: select an area, the text ends up in the clipboard.
 hl.bind(mod .. " + SHIFT + T",   hl.dsp.exec_cmd("zeta-text-capture"))
@@ -681,10 +832,43 @@ hl.define_submap("zeta-switcher", function()
 end)
 hl.bind(mod .. " + M",           hl.dsp.window.fullscreen({ mode = "maximized" }), { description = "zeta-exit:maximize" })
 
+-- Accessibility (Settings › Accessibility): zoom around the pointer with
+-- Super + plus / minus (Super + 0 back to normal), screen reader on or off
+-- with Super + Alt + S. "equal" is the + key of US keyboards, "plus" the
+-- one of Italian and other layouts.
+function zeta_zoom(step)
+    if step == 0 then
+        zeta_zoom_level = 1
+    else
+        -- the value in force (Settings may have changed it), else the last one set here
+        local ok_z, now = pcall(hl.get_config, "cursor.zoom_factor")
+        now = (ok_z and tonumber(now)) or zeta_zoom_level or 1
+        zeta_zoom_level = math.max(1, math.min(10, now + step))
+    end
+    hl.config({ cursor = { zoom_factor = zeta_zoom_level } })
+end
+for _, key in ipairs({ "equal", "plus", "KP_Add" }) do
+    hl.bind(mod .. " + " .. key, function() zeta_zoom(0.5) end, { repeating = true, description = "zeta-zoom:in" })
+end
+for _, key in ipairs({ "minus", "KP_Subtract" }) do
+    hl.bind(mod .. " + " .. key, function() zeta_zoom(-0.5) end, { repeating = true, description = "zeta-zoom:out" })
+end
+hl.bind(mod .. " + 0", function() zeta_zoom(0) end, { description = "zeta-zoom:reset" })
+hl.bind(mod .. " + ALT + S", hl.dsp.exec_cmd("zeta-screen-reader toggle"))
+
 hl.bind(mod .. " + left",  hl.dsp.focus({ direction = "left" }))
 hl.bind(mod .. " + right", hl.dsp.focus({ direction = "right" }))
 hl.bind(mod .. " + up",    hl.dsp.focus({ direction = "up" }))
 hl.bind(mod .. " + down",  hl.dsp.focus({ direction = "down" }))
+
+-- Snap layouts (see SNAP LAYOUTS above): left and right half, maximize,
+-- restore; Super + Z opens the popup with every layout (halves, thirds,
+-- quarters, centered). The "zeta-snap:" descriptions are checked by zeta-selftest.
+hl.bind(mod .. " + SHIFT + left",  function() zeta_snap("left") end,     { description = "zeta-snap:left" })
+hl.bind(mod .. " + SHIFT + right", function() zeta_snap("right") end,    { description = "zeta-snap:right" })
+hl.bind(mod .. " + SHIFT + up",    function() zeta_snap("maximize") end, { description = "zeta-snap:maximize" })
+hl.bind(mod .. " + SHIFT + down",  function() zeta_snap("restore") end,  { description = "zeta-snap:restore" })
+hl.bind(mod .. " + Z",             hl.dsp.exec_cmd("zeta-snap menu"),    { description = "zeta-snap:menu" })
 
 for i = 1, 3 do
     hl.bind(mod .. " + " .. i,         hl.dsp.focus({ workspace = i }))

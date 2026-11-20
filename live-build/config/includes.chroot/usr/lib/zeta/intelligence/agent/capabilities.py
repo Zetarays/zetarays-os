@@ -880,11 +880,15 @@ def _page_name(page):
     return {"appearance": tr("Appearance"), "dock": tr("Dock"), "lock-screen": tr("Display"),
             "notifications": tr("Notifications"), "network": tr("Network"), "bluetooth": "Bluetooth",
             "audio": tr("Sound"), "printers": tr("Printers"), "ai": "AI", "info": tr("About"),
-            "default-apps": tr("Default Apps"), "software-update": tr("Software Update")}.get(page, page)
+            "default-apps": tr("Default Apps"), "software-update": tr("Software Update"),
+            "keyboard": tr("Keyboard & Mouse"), "datetime": tr("Date & Time"),
+            "accessibility": tr("Accessibility"), "storage": tr("Storage"), "backup": tr("Backup"),
+            "power": tr("Power & Battery")}.get(page, page)
 
 
 @capabilities("open_settings", "Opens Settings, optionally on a page (appearance, dock, display, notifications, "
-          "network, bluetooth, sound, printers, ai, about, default apps).", {"page": "optional"})
+          "network, bluetooth, sound, printers, ai, about, default apps, keyboard and mouse, date and time, "
+          "accessibility, storage, backup, power).", {"page": "optional"})
 def open_settings(args):
     p = S.norm(args.get("page") or "")
     p = re.sub(_W["page_prepositions"], "", p)                 # Italian prepositions

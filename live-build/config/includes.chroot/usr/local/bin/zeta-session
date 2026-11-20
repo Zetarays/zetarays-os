@@ -123,7 +123,8 @@ zeta-appearance apply
 xhost +si:localuser:root >/dev/null 2>&1 &
 
 # Wallpaper chosen by the user (or the ZETA RAYS one generated from the accent color)
-pgrep -x swaybg >/dev/null || zeta-wallpaper apply &
+# (only this user's: another user's session can be running after "Switch user")
+pgrep -x -u "$(id -u)" swaybg >/dev/null || zeta-wallpaper apply &
 # Title bars: the hyprbars plugin is loaded after the configuration is read,
 # so the buttons (close/minimize/maximize) are only registered on the next
 # reload. A single reload at startup, if the plugin is there.
@@ -146,6 +147,10 @@ notifications() {
     fi
 }
 supervise notifications notifications
+# Clipboard history (Super+V): every change is saved by zeta-clipboard-store
+# (not passwords, not while it is turned off). wl-paste waits for changes
+# with no polling.
+supervise clipboard wl-paste --watch /usr/libexec/zeta-clipboard-store
 # A single process listens to Hyprland events: it updates the workspace
 # numbers in the bar without the modules having to poll continuously.
 supervise workspaces zeta-workspaces listen
@@ -162,18 +167,22 @@ supervise minimize zeta-minimize --daemon
 # the editor never runs in a mode different from the desktop's (flicker).
 supervise editor-mode zeta-appearance follow-editor
 # Automatic lock (not on the live system: there everybody knows the password)
-[ -d /run/live/medium ] || pgrep -x hypridle >/dev/null || hypridle &
+[ -d /run/live/medium ] || pgrep -x -u "$(id -u)" hypridle >/dev/null || hypridle &
+# Night light: one wlsunset process follows the schedule by itself (no polling)
+zeta-night-light apply >/dev/null 2>&1 &
 /usr/libexec/polkit-mate-authentication-agent-1 &
+# Screen reader and automatic backups, when turned on in Settings
+/usr/libexec/zeta-session-services >/dev/null 2>&1 &
 
 # Watchdog for the wallpaper and desktop icons: if they crash, they come back.
 zeta-watchdog &
 
 # Bar panels kept ready in memory, hidden (launcher, control center, power,
-# search): a click shows them instantly (zeta-panel) instead of restarting
+# search, clipboard/emoji): a click shows them instantly (zeta-panel) instead of restarting
 # Python and GTK every time. A few seconds after login, so as not to slow it
 # down; if one crashes, the next click restarts it by itself.
 ( sleep 6
-  for p in zeta-launcher zeta-control-center zeta-power-menu zeta-search; do
+  for p in zeta-launcher zeta-control-center zeta-power-menu zeta-search zeta-clipboard; do
       ZETA_PANEL_HIDDEN=1 "$p" >/dev/null 2>&1 &
       sleep 1
   done ) &

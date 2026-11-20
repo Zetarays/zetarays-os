@@ -191,8 +191,3 @@ class Registry:
                  "model": prov._model(), "endpoint": prov._base(),
                  "model_default": models.preferred()[0], "profile": m.profile,
                  "local_models": prov.list_models()}]
-
-
-def default_model(provider_id: str = LOCAL) -> str:
-    """The model used on this computer when the user does not choose one."""
-    return models.preferred()[0]

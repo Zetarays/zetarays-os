@@ -1,0 +1,63 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: free disk space held by the system (run through pkexec only).
+
+    zeta-storage [--lang=CODE] clean-package-cache
+        apt-get clean: deletes the package files already downloaded and
+        installed (/var/cache/apt/archives). They are downloaded again only
+        if they are needed.
+
+Nothing else is accepted. The result is one JSON line on standard output
+with the space freed, in bytes.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+if len(sys.argv) > 1 and sys.argv[1].startswith("--lang="):
+    _code = sys.argv.pop(1)[len("--lang="):]
+    if re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?", _code):
+        os.environ["LANGUAGE"] = _code
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+C = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
+ARCHIVES = "/var/cache/apt/archives"
+
+
+def out(code, **data):
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+    sys.exit(code)
+
+
+def used(path):
+    r = subprocess.run(["du", "-sx", "-B1", path], capture_output=True, text=True, env=C, timeout=300)
+    try:
+        return int(r.stdout.split()[0])
+    except (ValueError, IndexError):
+        return 0
+
+
+def clean_package_cache():
+    before = used(ARCHIVES)
+    r = subprocess.run(["apt-get", "clean"], capture_output=True, text=True, env=C, timeout=600)
+    if r.returncode != 0:
+        # another program holds the package lock (an update running)
+        out(1, error=tr("The package cache is in use by an update: try again when it has finished."),
+            detail=r.stderr[-500:])
+    out(0, freed=max(0, before - used(ARCHIVES)))
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        out(2, error="must run through pkexec")
+    if argv == ["clean-package-cache"]:
+        clean_package_cache()
+    out(2, error="usage: zeta-storage [--lang=CODE] clean-package-cache")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

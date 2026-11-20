@@ -10,7 +10,6 @@
  "v_delete": "(?:elimina|cancella|rimuovi il file|rimuovi la cartella|butta|cestina|delete|erase|trash|remove the file|remove the folder|throw away|get rid of)",
  "v_turn_on": "(?:accendi|attiva|abilita|turn on|enable|switch on|activate)",
  "v_turn_off": "(?:spegni|disattiva|disabilita|turn off|disable|switch off|deactivate)",
- "art": "(?:il |lo |la |l'|i |gli |le |un |una |uno |del |della |dello |dei |delle |the |a |an |my )?",
  "computer": "(?:il |lo |the |my |this )?(?:computer|pc|sistema|portatile|mini pc|system|laptop|machine)",
  "places": "scrivania|desktop|documenti|download|downloads|scaricati|immagini|foto|musica|video|home|cartella personale|modelli|pubblici|documents|pictures|photos|music|videos|templates|public|home folder",
  "place_prep": "(?:sulla|sul|nella|nel|nei|negli|in|dentro|su|alla|al|dalla|dal|dai|on|to|into|inside|from|onto)",

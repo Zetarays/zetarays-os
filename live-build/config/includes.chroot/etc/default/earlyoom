@@ -19,4 +19,11 @@
 # --avoid: the desktop components are never touched, otherwise the cure
 # would be worse than the disease. --prefer: the big memory hogs that can be
 # restarted without losing anything are sacrificed first.
-EARLYOOM_ARGS=-m 12 -s 20 -r 0 --avoid ^(Hyprland|waybar|mako|swaybg|sddm|systemd|dbus-daemon|zeta-emergency)$ --prefer ^(ollama|llama-server|tesseract|pdftotext|firefox-esr)$
+# Also never stopped (3.0): hyprlock (a lock screen that dies leaves the
+# session locked with no way back in), sddm-helper (it owns the session:
+# stopping it logs the user out), Xwayland (every X11 window would go with
+# it) and the sound server (pipewire, pipewire-pulse, wireplumber).
+# Preferred (3.0): Firefox's tab processes ("Isolated Web Co", "Web Content";
+# "." stands for the space, which this variable cannot hold). Stopping one
+# closes the heavy tab, not the whole browser with every window.
+EARLYOOM_ARGS=-m 12 -s 20 -r 0 --avoid ^(Hyprland|hyprlock|Xwayland|waybar|mako|swaybg|sddm|sddm-helper|systemd|dbus-daemon|pipewire|pipewire-pulse|wireplumber|zeta-emergency)$ --prefer ^(ollama|llama-server|tesseract|pdftotext|Isolated.Web.Co|Web.Content|firefox-esr)$

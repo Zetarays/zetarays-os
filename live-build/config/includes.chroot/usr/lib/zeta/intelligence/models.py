@@ -34,31 +34,50 @@ from . import resources
 # Ollama names. Every profile lists its models best first; a model that is
 # not installed is skipped. The image ships DEFAULT_MODEL and SMALL_MODEL;
 # HIGH_MODEL is only recommended (download on click) to big computers.
-# Measured on the same prompts, options and 4-core container (docs/AI.md):
-#   qwen3:4b-instruct  3.2 GB loaded, 12.5 words/s, the best Italian
-#   granite4:micro-h   2.4 GB loaded, 17.7 words/s, good Italian, hybrid
-#                      Mamba-2 (lighter to read and to run on a slow CPU)
-#   granite4.1:8b      5.7 GB loaded, 7.8 words/s, the most fluent Italian of
+# Measured on the same prompts, options and 4-core container (docs/AI.md,
+# November 2026, Ollama 0.40.16):
+#   qwen3:4b-instruct  3.1 GiB loaded, 15.1 tokens/s, the best Italian
+#   granite4.2:3b      2.5 GiB loaded, 16.7 tokens/s, good Italian, 10/10
+#                      commands; it thinks unless told not to (think: false)
+#   granite4.1:8b      5.6 GiB loaded, 6.9 tokens/s, the most fluent Italian of
 #                      the larger models, 10/10 commands (download on click)
 DEFAULT_MODEL = "qwen3:4b-instruct"
-SMALL_MODEL = "granite4:micro-h"
+SMALL_MODEL = "granite4.2:3b"
 HIGH_MODEL = "granite4.1:8b"
+# The small model of 2.5 (9/10 commands). Not in the 3.0 image any more, but
+# a computer that has it keeps using it until SMALL_MODEL is downloaded
+# (Settings › AI offers the download): it stays in every list, after the
+# models that replace it, so ZETA never goes silent after an upgrade.
+LEGACY_SMALL_MODEL = "granite4:micro-h"
 
 PROFILES = {
     # Intel N-series: speed matters most (4 slow cores, one memory channel);
     # short context, the faster and lighter model first
-    "low-power": {"models": [SMALL_MODEL, DEFAULT_MODEL], "context": 2048},
+    "low-power": {"models": [SMALL_MODEL, LEGACY_SMALL_MODEL, DEFAULT_MODEL], "context": 2048},
     # 8 GB: room for the desktop, the browser and the voice first
-    "8gb": {"models": [SMALL_MODEL, DEFAULT_MODEL], "context": 4096},
+    "8gb": {"models": [SMALL_MODEL, LEGACY_SMALL_MODEL, DEFAULT_MODEL], "context": 4096},
     # 12 GB and more: the best Italian and English
-    "16gb": {"models": [DEFAULT_MODEL, SMALL_MODEL], "context": 4096},
+    "16gb": {"models": [DEFAULT_MODEL, SMALL_MODEL, LEGACY_SMALL_MODEL], "context": 4096},
     # 24 GB and 8 processor threads or more: a larger model is worth it
-    "large": {"models": [HIGH_MODEL, DEFAULT_MODEL, SMALL_MODEL], "context": 8192},
+    "large": {"models": [HIGH_MODEL, DEFAULT_MODEL, SMALL_MODEL, LEGACY_SMALL_MODEL],
+              "context": 8192},
 }
 
 # Models that think aloud unless asked not to: ZETA always asks them not to
-# (a reasoning trace costs seconds before the first useful word).
-THINKING_FAMILIES = ("qwen3.5:", "qwen3:", "gemma4:", "deepseek-r1", "lfm2.5")
+# (a reasoning trace costs seconds before the first useful word). Granite 4.2
+# thinks by default (Granite 4.0 and 4.1 do not).
+THINKING_FAMILIES = ("qwen3.5:", "qwen3:", "gemma4:", "deepseek-r1", "lfm2.5", "lfm3",
+                     "granite4.2:")
+
+# Memory a model really takes once loaded (GiB reported by `ollama ps`,
+# context 4096, q8_0 KV cache, Ollama 0.40.16; docs/AI.md). The estimate
+# from the file size (resources.LOADED_PER_FILE_GB) is kept for the others.
+LOADED_GB = {
+    "qwen3:4b-instruct": 3.15 * 1.074,
+    "granite4.2:3b": 2.47 * 1.074,
+    "granite4:micro-h": 2.29 * 1.074,
+    "granite4.1:8b": 5.64 * 1.074,
+}
 
 # Intel low-power processors: "Intel(R) N100", "N150", "N200", "N97", "N95"
 _LOW_POWER_CPU = re.compile(r"\bIntel\b.*\b(?:N\d{2,3}|N\d{3}E?)\b", re.I)
@@ -121,6 +140,46 @@ def _base_name(name: str) -> str:
     return name.split("@")[0]
 
 
+def installed_as(want: str, names) -> str:
+    """The installed name of a model ("qwen3:4b-instruct" may be installed as
+    "qwen3:4b-instruct-2507-q4_K_M"), or ""."""
+    for have in names:
+        if _base_name(have) == want or have.startswith(want + "-"):
+            return have
+    return ""
+
+
+def loaded_gb(name: str, file_gb: float = 0.0) -> float:
+    """Memory the model needs once loaded: measured when known, else
+    estimated from its file (resources.model_memory_gb)."""
+    for known, gb in LOADED_GB.items():
+        if name and installed_as(known, [name]):
+            return gb
+    return resources.model_memory_gb(file_gb)
+
+
+def resolve(chosen: str, installed: dict, profile: str | None = None) -> str:
+    """The model that will really answer.
+
+    The user's choice (Settings › AI) wins while it is installed. A choice
+    that is not installed any more (the 2.5 small model granite4:micro-h is
+    not in the 3.0 image: a home folder kept across the upgrade still names
+    it) gives way to the best installed model for this computer, instead of
+    an error at every question. When the list of installed models is unknown
+    (Ollama not running), the choice is kept: there is nothing better to say.
+    """
+    chosen = "" if is_cloud(chosen or "") else (chosen or "")
+    if chosen and (not installed or installed_as(chosen, list(installed)) or chosen in installed):
+        return installed_as(chosen, list(installed)) or chosen
+    return choose(installed or {}, profile)
+
+
+def stale_choice(chosen: str, installed: dict) -> bool:
+    """The user picked a model that is not installed (any more)."""
+    return bool(chosen and installed and not is_cloud(chosen)
+                and not installed_as(chosen, list(installed)) and chosen not in installed)
+
+
 def choose(installed: dict, profile: str | None = None) -> str:
     """The model to use when the user has not picked one.
 
@@ -132,12 +191,12 @@ def choose(installed: dict, profile: str | None = None) -> str:
     installed = {n: gb for n, gb in installed.items() if not is_cloud(n)}
     names = list(installed)
     for want in preferred(profile):
-        for have in names:
-            if _base_name(have) == want or have.startswith(want + "-"):
-                return have
+        have = installed_as(want, names)
+        if have:
+            return have
     room = resources.nominal_memory_gb() - resources.MARGIN_GB - 2.0   # the desktop's share
     fitting = sorted((gb, n) for n, gb in installed.items()
-                     if gb > 0 and resources.model_memory_gb(gb) <= max(room, 1.0)
+                     if gb > 0 and loaded_gb(n, gb) <= max(room, 1.0)
                      and not is_embedding(n))
     if fitting:
         return fitting[-1][1]                  # the largest that fits
@@ -151,7 +210,7 @@ def fallback(current: str, installed: dict) -> str:
     smaller = sorted((gb, n) for n, gb in installed.items()
                      if n != current and 0 < gb < (size or 99) and not is_embedding(n)
                      and not is_cloud(n)
-                     and resources.memory_for_model(resources.model_memory_gb(gb)))
+                     and resources.memory_for_model(loaded_gb(n, gb)))
     return smaller[-1][1] if smaller else ""
 
 

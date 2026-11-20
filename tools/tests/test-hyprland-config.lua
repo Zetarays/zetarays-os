@@ -26,6 +26,7 @@ os.remove(RUNTIME)
 os.execute("mkdir -p " .. RUNTIME)
 local function redirect(p)
     if p == "/usr/lib/zeta/hypr/window_guard.lua" then return GUARD_FILE end
+    if p == "/usr/lib/zeta/hypr/window_snap.lua" then return (GUARD_FILE:gsub("window_guard%.lua$", "window_snap.lua")) end
     if p == "/usr/lib/zeta/hypr/hyprbars.so" then return WITH_BARS and GUARD_FILE or "/nonexistent" end
     return p
 end
@@ -208,6 +209,35 @@ monitors[2] = nil
 local w7 = add_window { address = "0x7", x = -9000, y = -9000, w = 300, h = 200, special = true }
 tick(); tick(); zeta_recover(); run_oneshots()
 check("minimized untouched", w7.at.x == -9000)
+
+-- snap layouts (window_snap.lua through hyprland.lua's adapter)
+check("snap ready", zeta_snap_ready == true)
+local snap_binds = {}
+for _, b in ipairs(binds) do
+    local d = b.opts.description
+    if d and d:match("^zeta%-snap:") then snap_binds[d:sub(11)] = b end
+end
+for _, name in ipairs({ "left", "right", "maximize", "restore", "menu" }) do
+    check("bind snap " .. name, snap_binds[name] ~= nil)
+end
+local w8 = add_window { address = "0x8", x = 100, y = 100, w = 400, h = 300 }
+check("snap left by address", zeta_snap("left", "address:0x8"))
+run_oneshots()
+-- monitor 1 is now scale 2: logical 960x540, bar at 468
+check("snap left: left half of the usable area",
+      w8.at.x == 8 and w8.at.y - BAR == 8 and w8.at.x + w8.size.x == 476 and w8.at.y + w8.size.y == 460,
+      string.format("%d,%d %dx%d", w8.at.x, w8.at.y, w8.size.x, w8.size.y))
+check("snap restore", zeta_snap("restore", "0x8"))
+check("snap restore: back", w8.at.x == 100 and w8.size.x == 400, w8.at.x .. "," .. w8.at.y)
+local before = #dispatched
+zeta_snap("maximize", "0x8")
+local d = dispatched[#dispatched]
+check("snap maximize", #dispatched == before + 1 and d.dsp == "window.fullscreen"
+      and d.args.mode == "maximized" and d.args.action == "set")
+check("snap of a minimized window refused", not zeta_snap("left", "0x7"))
+check("snap of an unknown name refused", not zeta_snap("os.exit", "0x8"))
+snap_binds["left"].fn()       -- no active window in this fake world: nothing, no error
+
 -- errors inside the guard are caught and shown as a notification
 check("no runtime errors", #notes == 0, table.concat(notes, " | "))
 

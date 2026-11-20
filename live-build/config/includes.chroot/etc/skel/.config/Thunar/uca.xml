@@ -1,10 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- ZETA RAYS: right-click actions of the file manager.
      The stock action (Open Terminal Here), which this file replaces, is kept;
-     added are text recognition in images and PDFs, ZETA Share, the
+     added are Quick Look (Space, see accels.scm), text recognition in images and PDFs, a summary by ZETA of
+     text, PDF and office documents, ZETA Share, the
      administrator actions for system folders (/opt...) and the Folder Color
      submenu (the submenu name is localized at login by zeta-session). -->
 <actions>
+<action>
+	<icon>zeta-quicklook</icon>
+	<name>Quick Look</name>
+	<name xml:lang="it">Anteprima rapida</name>
+	<unique-id>zeta-quicklook</unique-id>
+	<command>zeta-quicklook %f</command>
+	<description>Shows a quick preview (Space). Space or Esc closes it, Enter opens the file</description>
+	<description xml:lang="it">Mostra un'anteprima rapida (Spazio). Spazio o Esc la chiude, Invio apre il file</description>
+	<patterns>*</patterns>
+	<directories/>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
 <action>
 	<icon>utilities-terminal</icon>
 	<name>Open Terminal Here</name>
@@ -27,6 +44,18 @@
 	<description xml:lang="it">Riconosce il testo (OCR, sul computer) e lo copia negli appunti</description>
 	<patterns>*.png;*.PNG;*.jpg;*.JPG;*.jpeg;*.JPEG;*.webp;*.WEBP;*.tif;*.tiff;*.TIF;*.bmp;*.gif;*.pdf;*.PDF</patterns>
 	<image-files/>
+	<other-files/>
+</action>
+<action>
+	<icon>zeta-core</icon>
+	<name>Ask ZETA to Summarize</name>
+	<name xml:lang="it">Chiedi a ZETA di riassumere</name>
+	<unique-id>zeta-summarize</unique-id>
+	<command>zeta-core --summarize %f</command>
+	<description>ZETA reads the document and summarizes it, on this computer</description>
+	<description xml:lang="it">ZETA legge il documento e lo riassume, sul computer</description>
+	<patterns>*.txt;*.TXT;*.md;*.markdown;*.rst;*.pdf;*.PDF;*.docx;*.DOCX;*.odt;*.ODT;*.pptx;*.odp;*.html;*.htm;*.csv;*.log;*.tex;*.srt</patterns>
+	<text-files/>
 	<other-files/>
 </action>
 <action>

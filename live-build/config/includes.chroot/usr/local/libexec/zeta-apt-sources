@@ -33,6 +33,10 @@ cat > /etc/apt/sources.list <<'EOF'
 EOF
 chmod 0644 /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources
 echo "package sources: main contrib non-free non-free-firmware"
+# The ZETA RAYS updates source (package zeta-rays-release) is managed by its
+# own check: active only while https://zetarays.org/apt/ answers.
+[ -x /usr/share/zeta-rays-release/check-source ] && /usr/share/zeta-rays-release/check-source
+[ -e /etc/apt/sources.list.d/zeta-rays.sources ] && echo "package sources: ZETA RAYS updates (zetarays.org)"
 # New installs get the security updates automatically (security archive
 # only, see /usr/libexec/zeta-auto-updates); the user can turn it off in
 # Settings > Software Update. The live session stays off. A failure here

@@ -1,0 +1,137 @@
+{
+  "description": "ZETA RAYS 2.5 to 3.0: default settings files the user never changed are replaced with the new ones; changed ones stay (new version kept for comparison); new shortcuts are added to a changed hyprland.lua; new files are added.",
+  "steps": [
+    {
+      "kind": "skel",
+      "keep_new": true,
+      "files": {
+        ".config/Thunar/uca.xml": [
+          "612c82131b4638253c0e28352deb775ad4111458a693e70ac98f5acd3e38c792",
+          "3a132b615023dbd4c76eead42467bb08389d583c337e9d11b49c7b03dc47ece6"
+        ],
+        ".config/atuin/config.toml": [
+          "42ea784a975504df0f0cd468a3be11d3a2ad29f8c7f43e51bc88b888de0821b3"
+        ],
+        ".config/foot/foot.ini": [
+          "f434c9e65f4772876fbaf842f18f90ecff0c3a568ceab1de32fa353ef050ba87",
+          "922330b09cf99971ca0b5389557ee48d2c29cd5457d9bb724c5f87204a3d1639"
+        ],
+        ".config/foot/theme.ini": [
+          "1895f488823703aed92cadf595bd8d38b12f6a93d24959cc89e010ad2ba01208",
+          "6016e417b1d452d842b237ecc63887eb357043308e46a9ec97520c445d1b79af"
+        ],
+        ".config/gtk-3.0/settings.ini": [
+          "a36103c7b752b9aa9b5af88a61ae09212a41c5de8381ba373dd5f5fce296ac9f"
+        ],
+        ".config/gtk-4.0/settings.ini": [
+          "d6dece1c1efcbc4455629cf808c5ec71307675441b2d6bf87561a34c19d10b6d"
+        ],
+        ".config/hypr/hypridle.conf": [
+          "420b8ab7f0f64efa29afb9325bd87e823c96f7740c75bd6962d9eb816223a840"
+        ],
+        ".config/hypr/hyprland.lua": [
+          "b178467dde84288ece50ec02b9014d810172e5dc81dd016c6fdc1117036e0265",
+          "e25ec3699dc4ec67ad7955fd6756c1370dea2f0077259bf6594f05a8c1886b2a",
+          "5e958abb42a4a94cc6ecf462b337dacea62115b24e5edd4844cdc362bfe42d1c"
+        ],
+        ".config/hypr/hyprlock.conf": [
+          "14ee79221aa2b91eb922cef40da429d84405151133d67a732124a6da90c2bc9b"
+        ],
+        ".config/hypr/zeta_appearance.lua": [
+          "0801bc13530bd709bc354b8bbc520d60207bb9dab31d4a57ba2b9b58fb346c70",
+          "1112ee69cc828b16fe26a9ccaf36168ca8dc5706bc3558aee631836b748199b6"
+        ],
+        ".config/hypr/zeta_colors.lua": [
+          "bbbbe3f30f10cf075fe6ac83871caa28559dcd886a0e609d647417f9d0ef705f"
+        ],
+        ".config/hypr/zeta_keyboard.lua": [
+          "03c65d9ad05d42e8026348ca74034998b530b0c40aa68e138ae000d61ca33d33"
+        ],
+        ".config/hypr/zeta_monitor.lua": [
+          "84b52984c07ac9ccc552bc011575125761b625f5c45efaaf3121e64ffcaa95e5"
+        ],
+        ".config/hypr/zeta_vm.lua": [
+          "25712167ce722b4ee26628e97f0cb8f344b8449288a27bf9a131a9f59f5183b7"
+        ],
+        ".config/mako/config": [
+          "e6abf5d5ab5dd0f741235e66dfa58be3d4696d2d54dcae216111ee844efa1f91"
+        ],
+        ".config/systemd/user/zeta-appimage.path": [
+          "c7211138b0aa2a1be7c7c4edd82e220e5bd70bd3b3de9f35856e2456209928dd",
+          "6881140928405f9191260250e2360c11d5795a80cac59913b655784bf64d2351"
+        ],
+        ".config/systemd/user/zeta-appimage.service": [
+          "4ab210887cc99f1e11f892d8a02995f6a59848504ddfb6c73fdf6199ec67e1b2"
+        ],
+        ".config/systemd/user/zeta-index.service": [
+          "96e3b149e567c6eca0aef5847d262e80466821c8d5ff0ca75dc2aaf9e59860dd"
+        ],
+        ".config/systemd/user/zeta-index.timer": [
+          "4afeff3291f4096e666f279ca54a759c15ccca55ca1359aaae18ac8b55ee66d1"
+        ],
+        ".config/waybar/config.jsonc": [
+          "3ba348b469e60f347f0595355fda712f88013f59d495503bdc3675f8f18941bf",
+          "b6b9cf9a6e3d648f61132e9293b2e5b95eee90544a7924fcdde3cfc7495d167b",
+          "730ebac345b11fa7d61cc26c3d38830636e4ae5410646cacd06acdcc2bee0f19"
+        ],
+        ".config/waybar/style.css": [
+          "ed9cf9033549b03f41cc1fb140be87d2b6856bc961787165336964faf49600cd",
+          "50b680837d922be1defdea4a7107740dd272e84d30ae59564af09a3d85132d1a",
+          "337d1c476074a3daae4a05b8043367c8196090be74ae2711ebc1d6a62396c761"
+        ],
+        ".config/zeta/accent": [
+          "bae9d647fef4643f4f15306a8a6e020d48991a8a744872db95efa3f03ee10446"
+        ],
+        ".inputrc": [
+          "7401b3bb0be47c136b586e0a002e9cb4fc4de319a59f58a81d2324791ca48028"
+        ],
+        ".zshrc": [
+          "226ae7740e0db9107d4b69e94328090904ad061cad2194021c5bea0f5128cc75"
+        ]
+      }
+    },
+    {
+      "kind": "lua-append",
+      "file": ".config/hypr/hyprland.lua",
+      "base": "/usr/share/zeta/migration/base-2.5/hyprland.lua",
+      "marker": "ZETA RAYS 3.0",
+      "exclude": [
+        "zeta-snap "
+      ]
+    },
+    {
+      "kind": "skel-new",
+      "known": [
+        ".bash_logout",
+        ".bashrc",
+        ".config/Thunar/uca.xml",
+        ".config/atuin/config.toml",
+        ".config/foot/foot.ini",
+        ".config/foot/theme.ini",
+        ".config/gtk-3.0/settings.ini",
+        ".config/gtk-4.0/settings.ini",
+        ".config/hypr/hypridle.conf",
+        ".config/hypr/hyprland.lua",
+        ".config/hypr/hyprlock.conf",
+        ".config/hypr/zeta_appearance.lua",
+        ".config/hypr/zeta_colors.lua",
+        ".config/hypr/zeta_keyboard.lua",
+        ".config/hypr/zeta_monitor.lua",
+        ".config/hypr/zeta_vm.lua",
+        ".config/mako/config",
+        ".config/systemd/user/default.target.wants/zeta-appimage.path",
+        ".config/systemd/user/timers.target.wants/zeta-index.timer",
+        ".config/systemd/user/zeta-appimage.path",
+        ".config/systemd/user/zeta-appimage.service",
+        ".config/systemd/user/zeta-index.service",
+        ".config/systemd/user/zeta-index.timer",
+        ".config/waybar/config.jsonc",
+        ".config/waybar/style.css",
+        ".config/zeta/accent",
+        ".inputrc",
+        ".profile",
+        ".zshrc"
+      ]
+    }
+  ]
+}

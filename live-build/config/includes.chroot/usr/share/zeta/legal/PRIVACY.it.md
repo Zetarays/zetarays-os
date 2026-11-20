@@ -22,6 +22,10 @@ automatici (attivi dopo l'installazione), e una volta a settimana se attivi il
 promemoria degli aggiornamenti. Mai nella sessione live, se non lo chiedi tu.
 **Che cosa**: quali pacchetti chiedi. Il tuo indirizzo IP è visibile al
 server, come per qualunque scaricamento.
+**Gli aggiornamenti di ZETA RAYS** arrivano da `zetarays.org/apt` allo stesso
+modo e negli stessi momenti: prima di ogni controllo dei pacchetti il sistema
+chiede a quell'indirizzo se l'archivio di ZETA RAYS c'è (una sola piccola
+richiesta, senza dati su di te o sul computer) e lo usa solo se risponde.
 **Si può evitare**: sì. Disattiva "Installa automaticamente gli aggiornamenti
 di sicurezza" in Impostazioni › Aggiornamento software, e non aggiornare. È
 sconsigliato: gli aggiornamenti portano le correzioni di sicurezza.
@@ -86,7 +90,17 @@ viene registrato su disco: viene trascritto e scartato.
 
 L'indice dei documenti e il riconoscimento del testo nelle immagini (OCR)
 funzionano **solo in locale**, con Tesseract. L'indice sta in
-`~/.cache/zeta/` e non esce dal computer.
+`~/.cache/zeta/` e non esce dal computer. Lo stesso vale per «cosa c'è sullo
+schermo?» e «Chiedi a ZETA di riassumere»: l'immagine della finestra viene
+letta sul computer e cancellata subito, e il testo va solo al modello locale.
+
+**La cronologia degli appunti** (Super+V) tiene le ultime 100 cose copiate in
+`~/.cache/cliphist`, leggibile solo da te. Ciò che i gestori di password
+segnano come password non viene mai salvato. L'interruttore nel pannello la
+spegne e la cancella; «Cancella tutto» la svuota quando vuoi.
+
+**Le catture e le registrazioni dello schermo** vengono salvate solo dove le
+vedi (Immagini/Screenshots, Video/Screen recordings).
 
 ## 5. Monitor di sistema — posizione di rete
 
@@ -123,6 +137,8 @@ li intercetta: vale l'informativa di Mozilla.
 | Impostazioni della scrivania | `~/.config/zeta/` |
 | Conversazioni e ricordi di ZETA | `~/.local/share/zeta/memory.db` |
 | Indice della ricerca, cache | `~/.cache/zeta/` |
+| Cronologia degli appunti | `~/.cache/cliphist/` |
+| Catture e registrazioni | `~/Pictures/Screenshots/`, `~/Videos/Screen recordings/` |
 | Registro degli accessi | `/var/lib/wtmpdb/` |
 
 Sono file tuoi, sul tuo disco. Si cancellano cancellandoli.
@@ -134,4 +150,4 @@ sul disco del computer**: tutto sta in memoria e sparisce allo spegnimento.
 
 ---
 
-*Ultimo aggiornamento: con ZETA RAYS OS 2.5.*
+*Ultimo aggiornamento: con ZETA RAYS OS 3.0.*

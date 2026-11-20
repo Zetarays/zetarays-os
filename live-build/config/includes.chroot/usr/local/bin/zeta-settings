@@ -14,14 +14,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
 sys.path.insert(0, "/usr/lib/zeta")
+import importlib  # noqa: E402
+import importlib.util  # noqa: E402
+import time  # noqa: E402
+
 from i18n import language, tr  # noqa: E402
 from i18n_data import load  # noqa: E402
-from ui.font_page import FontsPage  # noqa: E402
-from ui.account_page import AccountPage  # noqa: E402
-from ui.language_page import LanguagePage  # noqa: E402
-from ui.displays_page import DisplaysPage  # noqa: E402
-from ui.settings_pages import AudioPage, BluetoothPage, NetworkPage, PrintersPage  # noqa: E402
-from ui.update_page import SoftwareUpdatePage  # noqa: E402
 from system import dock as dockmod  # noqa: E402
 from system import wallpapers  # noqa: E402
 from ui import accent, theme  # noqa: E402
@@ -31,7 +29,73 @@ TITLES = {"account": tr("Account"), "appearance": tr("Appearance"), "dock": tr("
           "notifications": tr("Notifications"), "network": tr("Wi-Fi & Network"), "bluetooth": "Bluetooth",
           "audio": tr("Sound"), "printers": tr("Printers"), "ai": "AI", "info": tr("About"),
           "default-apps": tr("Default Apps"), "language": tr("Language & Region"),
-          "font": tr("Fonts"), "software-update": tr("Software Update")}
+          "font": tr("Fonts"), "software-update": tr("Software Update"),
+          "power": tr("Power & Battery"),
+          "keyboard": tr("Keyboard & Mouse"), "datetime": tr("Date & Time"),
+          "accessibility": tr("Accessibility"), "storage": tr("Storage"), "backup": tr("Backup"),
+          "security": tr("Security")}
+
+# Pages are built the first time they are shown, not when the window opens:
+# building all of them up front (network, printers, fonts, update lists...)
+# made Settings slow to appear. A page is a method of Window (the ones that
+# share the appearance preferences) or a class with a no-argument
+# constructor in /usr/lib/zeta/ui.
+PAGE_METHODS = {"appearance": "page_appearance", "dock": "page_dock",
+                "lock-screen": "page_lock_screen", "notifications": "page_notifications",
+                "ai": "page_ai", "default-apps": "page_default_apps", "info": "page_info"}
+PAGE_CLASSES = {"account": ("ui.account_page", "AccountPage"),
+                "displays": ("ui.displays_page", "DisplaysPage"),
+                "power": ("ui.power_page", "PowerPage"),
+                "network": ("ui.settings_pages", "NetworkPage"),
+                "bluetooth": ("ui.settings_pages", "BluetoothPage"),
+                "audio": ("ui.settings_pages", "AudioPage"),
+                "printers": ("ui.settings_pages", "PrintersPage"),
+                "language": ("ui.language_page", "LanguagePage"),
+                "font": ("ui.font_page", "FontsPage"),
+                "software-update": ("ui.update_page", "SoftwareUpdatePage"),
+                "keyboard": ("ui.input_page", "KeyboardMousePage"),
+                "datetime": ("ui.datetime_page", "DateTimePage"),
+                "accessibility": ("ui.accessibility_page", "AccessibilityPage"),
+                "storage": ("ui.storage_page", "StoragePage"),
+                "backup": ("ui.backup_page", "BackupPage")}
+# sidebar entries that open another app instead of a page
+EXTERNAL = {"security": ("zeta-security",)}
+ICONS = {"account": "zeta-account", "appearance": "zeta-palette", "dock": "zeta-dock",
+         "notifications": "zeta-bell-off", "lock-screen": "zeta-lock", "font": "zeta-font",
+         "network": "zeta-wifi", "bluetooth": "zeta-bluetooth", "printers": "zeta-printer",
+         "displays": "zeta-displays", "audio": "zeta-volume", "keyboard": "zeta-keyboard",
+         "power": "zeta-power", "datetime": "zeta-clock", "language": "zeta-language",
+         "storage": "zeta-storage", "backup": "zeta-backup", "default-apps": "zeta-app",
+         "software-update": "zeta-update", "info": "zeta-info", "accessibility": "zeta-accessibility",
+         "ai": "zeta-ai", "security": "zeta-shield"}
+# Sidebar sections, as on macOS and Windows: a small heading, or a plain
+# separator when the title is empty. Software Update replaced the old
+# "Packages" entry (Synaptic stays reachable from inside it, "Advanced").
+SECTIONS = [("", ["account"]),
+            (tr("Personal"), ["appearance", "dock", "notifications", "lock-screen", "font"]),
+            (tr("Connections"), ["network", "bluetooth", "printers"]),
+            (tr("Devices"), ["displays", "audio", "keyboard", "power"]),
+            (tr("System"), ["datetime", "language", "storage", "backup", "default-apps",
+                            "software-update", "info"]),
+            ("", ["accessibility", "ai", "security"])]
+
+
+def page_available(key):
+    """A page whose module is missing (an optional component) has no entry."""
+    if key in PAGE_METHODS or key in EXTERNAL:
+        return True
+    if key not in PAGE_CLASSES:
+        return False
+    try:
+        return importlib.util.find_spec(PAGE_CLASSES[key][0]) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def page_keys():
+    """Every page that can be opened (zeta-settings PAGE), in sidebar order."""
+    return [k for _t, keys in SECTIONS for k in keys if k not in EXTERNAL and page_available(k)]
+
 
 # the system palette (ui/accent.py), the same one used for the account picture
 SWATCHES = [(color, accent.color_name(k)) for k, color, _n in accent.PALETTE]
@@ -77,63 +141,33 @@ class Window(Adw.ApplicationWindow):
 
         split = Adw.NavigationSplitView()
         self.content = Adw.NavigationPage(title=TITLES["appearance"])
-        self.dock_page = Adw.PreferencesPage()
-        self.pages = {"account": AccountPage(),
-                      "appearance": self.page_appearance(), "dock": self.dock_page,
-                      "displays": DisplaysPage(),
-                      "lock-screen": self.page_lock_screen(), "notifications": self.page_notifications(),
-                      "network": NetworkPage(),
-                      "bluetooth": BluetoothPage(), "audio": AudioPage(),
-                      "printers": PrintersPage(),
-                      "ai": self.page_ai(), "default-apps": self.page_default_apps(),
-                      "language": LanguagePage(),
-                      "font": FontsPage(),
-                      "software-update": SoftwareUpdatePage(),
-                      "info": self.page_info()}
-        self.dock_entries = dockmod.load_dock()
-        self._render_dock()
+        self.pages = {}                  # key -> page, filled as pages are shown
+        self.current = None
 
         # --- Sidebar ---
         listbox = Gtk.ListBox(css_classes=["navigation-sidebar"])
-        # Each entry carries its page key (None for entries that open another
-        # app). The row -> page mapping is derived from here: a separate,
-        # hand-maintained list went out of sync as soon as an entry was added,
-        # and the sidebar highlighted the wrong row.
-        items = [
-            ("zeta-account", TITLES["account"], lambda: self.show("account", TITLES["account"]), "account"),
-            ("zeta-palette", TITLES["appearance"], lambda: self.show("appearance", TITLES["appearance"]), "appearance"),
-            ("zeta-dock", TITLES["dock"], lambda: self.show("dock", TITLES["dock"]), "dock"),
-            ("zeta-displays", TITLES["displays"], lambda: self.show("displays", TITLES["displays"]), "displays"),
-            ("zeta-lock", TITLES["lock-screen"], lambda: self.show("lock-screen", TITLES["lock-screen"]), "lock-screen"),
-            ("zeta-bell-off", TITLES["notifications"], lambda: self.show("notifications", TITLES["notifications"]),
-             "notifications"),
-            ("zeta-wifi", TITLES["network"], lambda: self.show("network", TITLES["network"]), "network"),
-            ("zeta-bluetooth", TITLES["bluetooth"], lambda: self.show("bluetooth", TITLES["bluetooth"]), "bluetooth"),
-            ("zeta-volume", TITLES["audio"], lambda: self.show("audio", TITLES["audio"]), "audio"),
-            ("zeta-printer", TITLES["printers"], lambda: self.show("printers", TITLES["printers"]), "printers"),
-            ("zeta-ai", TITLES["ai"], lambda: self.show("ai", TITLES["ai"]), "ai"),
-            ("zeta-app", TITLES["default-apps"], lambda: self.show("default-apps", TITLES["default-apps"]), "default-apps"),
-            ("zeta-language", TITLES["language"], lambda: self.show("language", TITLES["language"]), "language"),
-            ("zeta-font", TITLES["font"], lambda: self.show("font", TITLES["font"]), "font"),
-            ("zeta-shield", tr("Security"), lambda: launch("zeta-security"), None),
-            # Software Update replaces the old "Packages" entry (Synaptic):
-            # Synaptic stays reachable from inside the page ("Advanced")
-            ("zeta-update", TITLES["software-update"],
-             lambda: self.show("software-update", TITLES["software-update"]), "software-update"),
-            ("zeta-info", TITLES["info"], lambda: self.show("info", TITLES["info"]), "info"),
-        ]
-        for icon, label, action, _key in items:
-            row = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6)
-            row.append(Gtk.Image(icon_name=icon))
-            row.append(Gtk.Label(label=label, xalign=0))
-            lrow = Gtk.ListBoxRow(child=row)
-            lrow.action = action
-            listbox.append(lrow)
-        listbox.connect("row-activated", lambda _lb, r: r.action())
-        # the page opened by default is Appearance (not the first row, Account)
-        listbox.select_row(listbox.get_row_at_index([k for *_r, k in items].index("appearance")))
+        # Each row carries its page key. The row -> page mapping is derived
+        # from SECTIONS: a separate, hand-maintained list went out of sync as
+        # soon as an entry was added, and the sidebar highlighted the wrong row.
+        self.row_keys = []
+        for section, keys in SECTIONS:
+            first = True
+            for key in keys:
+                if not page_available(key):
+                    continue
+                row = Gtk.Box(spacing=12, margin_top=7, margin_bottom=7, margin_start=6)
+                row.append(Gtk.Image(icon_name=ICONS.get(key, "zeta-settings")))
+                row.append(Gtk.Label(label=TITLES.get(key, key), xalign=0))
+                lrow = Gtk.ListBoxRow(child=row)
+                lrow.key = key
+                # a heading (or a separator) above the first row of each section
+                lrow.section = section if first and self.row_keys else None
+                first = False
+                listbox.append(lrow)
+                self.row_keys.append(key)
+        listbox.set_header_func(self._sidebar_header)
+        listbox.connect("row-activated", lambda _lb, r: self._activate(r.key))
         self.listbox = listbox
-        self.row_keys = [key for *_rest, key in items]
 
         side_view = Adw.ToolbarView()
         side_view.add_top_bar(Adw.HeaderBar())
@@ -148,9 +182,65 @@ class Window(Adw.ApplicationWindow):
         self.content_view.add_top_bar(Adw.HeaderBar())
         self.content.set_child(self.content_view)
         split.set_content(self.content)
-        self.show("appearance", TITLES["appearance"])
         self.toasts = Adw.ToastOverlay(child=split)
         self.set_content(self.toasts)
+        # the page opened by default is Appearance (not the first row, Account),
+        # unless the command line asks for another one (App._open)
+
+    @staticmethod
+    def _sidebar_header(row, _before):
+        if row.section is None:
+            row.set_header(None)
+        elif row.section:
+            row.set_header(Gtk.Label(label=row.section, xalign=0, margin_start=12, margin_top=12,
+                                     margin_bottom=2, css_classes=["caption-heading", "dim-label"]))
+        else:
+            row.set_header(Gtk.Separator(margin_top=6, margin_bottom=6, margin_start=8, margin_end=8))
+
+    def _activate(self, key):
+        if key in EXTERNAL:
+            launch(*EXTERNAL[key])
+            # the highlight stays on the page being shown
+            self._highlight(self.current)
+        else:
+            self.show(key)
+
+    def _highlight(self, key):
+        if key in self.row_keys:
+            self.listbox.select_row(self.listbox.get_row_at_index(self.row_keys.index(key)))
+
+    def page(self, key):
+        """The page for a key, built the first time it is needed."""
+        if key in self.pages:
+            return self.pages[key]
+        try:
+            if key in PAGE_METHODS:
+                page = getattr(self, PAGE_METHODS[key])()
+            else:
+                module, name = PAGE_CLASSES[key]
+                page = getattr(importlib.import_module(module), name)()
+        except Exception as e:  # noqa: BLE001 - one broken page must not bring down Settings
+            import traceback
+            traceback.print_exc()
+            page = Adw.PreferencesPage()
+            g = Adw.PreferencesGroup(title=TITLES.get(key, key))
+            g.add(Adw.ActionRow(title=tr("This page could not be opened"), subtitle=str(e),
+                                use_markup=False))
+            page.add(g)
+        self.pages[key] = page
+        return page
+
+    def forget_page(self, key):
+        """Build a page again the next time it is shown (its values changed
+        elsewhere). The page on screen stays until another one is chosen."""
+        if key != self.current:
+            self.pages.pop(key, None)
+
+    def reload_page(self, key):
+        """Rebuild a page now and show it again if it is on screen."""
+        old = self.pages.pop(key, None)
+        if key == self.current and old is not None:
+            self.show(key)
 
     def toast(self, text):
         # plain text: printer or network names containing "&" must not vanish
@@ -226,11 +316,11 @@ class Window(Adw.ApplicationWindow):
             # the system did not accept the choice: revert to the real one
             GLib.idle_add(lambda: (row.set_selected(row._previous), False)[1])
 
-    def show(self, key, title, anchor=None):
-        self.content.set_title(title)
-        self.content_view.set_content(self.pages[key])
-        if key in getattr(self, "row_keys", []):
-            self.listbox.select_row(self.listbox.get_row_at_index(self.row_keys.index(key)))
+    def show(self, key, title=None, anchor=None):
+        self.content.set_title(title or TITLES.get(key, key))
+        self.content_view.set_content(self.page(key))
+        self.current = key
+        self._highlight(key)
         if anchor:
             # The entry that opened Settings asked for a specific section
             # (wallpaper, theme, icons): scroll to it instead of leaving the
@@ -239,7 +329,7 @@ class Window(Adw.ApplicationWindow):
             GLib.idle_add(self._scroll_to, key, anchor, priority=GLib.PRIORITY_LOW)
 
     def _scroll_to(self, key, anchor):
-        group = self.anchors.get((key, anchor))
+        group = getattr(self, "anchors", {}).get((key, anchor))
         page = self.pages.get(key)
         if group is None or page is None:
             return False
@@ -263,6 +353,8 @@ class Window(Adw.ApplicationWindow):
 
     def page_appearance(self):
         page = Adw.PreferencesPage()
+        self.swatch_buttons = []          # the page can be built again (Accessibility)
+        self._pref_cache = None           # and must show the values of now
         group = Adw.PreferencesGroup(
             title=tr("Accent color"),
             description=tr("Changes borders, bar, launcher, notifications and wallpaper."))
@@ -475,6 +567,22 @@ class Window(Adw.ApplicationWindow):
         test.add_suffix(b)
         g.add(test)
         page.add(g)
+
+        # History: recent notifications (zeta-dnd) and clipboard (zeta-clipboard)
+        h = Adw.PreferencesGroup(title=tr("History"))
+        recent = Adw.ActionRow(title=tr("Recent notifications"),
+                               subtitle=tr("Also the ones hidden by Do Not Disturb"))
+        show = Gtk.Button(label=tr("Show"), valign=Gtk.Align.CENTER)
+        show.connect("clicked", lambda *_: launch("zeta-dnd", "history"))
+        recent.add_suffix(show)
+        h.add(recent)
+        clip = Adw.SwitchRow(title=tr("Clipboard history"),
+                             subtitle=tr("Super + V shows what you copied. Passwords are never saved."))
+        clip.set_active(read_first(os.path.expanduser("~/.config/zeta/clipboard-history")) != "0")
+        clip.connect("notify::active", lambda r, _p: launch(
+            "zeta-clipboard", "enable" if r.get_active() else "disable"))
+        h.add(clip)
+        page.add(h)
         return page
 
     def _switch(self, heading, below, key):
@@ -615,6 +723,9 @@ class Window(Adw.ApplicationWindow):
             theme.reload()
         # The command may have corrected an out-of-range value: read it back.
         self._pref_cache = self._read_appearance()
+        if key in ("cursor-size", "animations"):
+            # Accessibility shows the same two values
+            self.forget_page("accessibility")
         return False
 
     def on_scale(self, combo, _param):
@@ -624,12 +735,16 @@ class Window(Adw.ApplicationWindow):
 
     # --- Wallpaper ---
     def _wallpaper_state(self):
-        try:
-            out = subprocess.run(["zeta-wallpaper", "get"], capture_output=True,
-                                 text=True, timeout=5).stdout.split("\n")
-            return out[0].strip(), (out[1].strip() if len(out) > 1 else "fill")
-        except (OSError, subprocess.SubprocessError, IndexError):
-            return "", "fill"
+        # read once and kept until the wallpaper changes: the Appearance page
+        # asked for it four times while being built (a process each time)
+        if getattr(self, "_wallpaper_cache", None) is None:
+            try:
+                out = subprocess.run(["zeta-wallpaper", "get"], capture_output=True,
+                                     text=True, timeout=5).stdout.split("\n")
+                self._wallpaper_cache = (out[0].strip(), (out[1].strip() if len(out) > 1 else "fill"))
+            except (OSError, subprocess.SubprocessError, IndexError):
+                return "", "fill"
+        return self._wallpaper_cache
 
     def _wallpaper_label(self):
         path, _ = self._wallpaper_state()
@@ -658,6 +773,7 @@ class Window(Adw.ApplicationWindow):
                 b.remove_css_class("selected")
 
     def _after_wallpaper(self, _ok=True):
+        self._wallpaper_cache = None
         self.wallpaper_row.set_subtitle(self._wallpaper_label())
         self._mark_wallpaper()
 
@@ -705,7 +821,8 @@ class Window(Adw.ApplicationWindow):
         if 0 <= idx < len(self._mode_ids):
             self._slow_command(["zeta-wallpaper", "mode", self._mode_ids[idx]],
                                 tr("Wallpaper fit updated"),
-                                tr("Could not change the fit"))
+                                tr("Could not change the fit"),
+                                then=lambda _ok: setattr(self, "_wallpaper_cache", None))
 
     def on_custom(self, _button):
         dialog = Gtk.ColorDialog(title=tr("Accent color"), with_alpha=False)
@@ -745,6 +862,12 @@ class Window(Adw.ApplicationWindow):
             self.custom_button.add_css_class("selected")
 
     # --- Dock ---
+    def page_dock(self):
+        self.dock_page = Adw.PreferencesPage()
+        self.dock_entries = dockmod.load_dock()
+        self._render_dock()
+        return self.dock_page
+
     def _render_dock(self):
         # clear the page
         for g in getattr(self, "_dock_groups", []):
@@ -911,11 +1034,15 @@ class Window(Adw.ApplicationWindow):
         self._preload_options = ["auto", "1", "0"]
         # The decision is the one made by intelligence/resources.py: here it is
         # only displayed, without repeating the threshold (it used to be copied by hand).
-        from intelligence import resources
+        from intelligence import models, resources
         gb = resources.nominal_memory_gb()
+        try:
+            model_gb = models.loaded_gb(models.preferred()[0])
+        except Exception:  # noqa: BLE001 - only a label: never break the page
+            model_gb = resources.MODEL_GB
         if resources.preload_allowed():
             below = tr("Automatic on this computer ({gb} GB): keeps the model ready")
-        elif gb >= resources.ROOMY_THRESHOLD:
+        elif resources.preload_on_open(model_gb):
             below = tr("Automatic on this computer ({gb} GB): loads it when you open ZETA")
         else:
             below = tr("Automatic on this computer ({gb} GB): loads it at the first question "
@@ -923,7 +1050,9 @@ class Window(Adw.ApplicationWindow):
         preload_row = Adw.ComboRow(
             title=tr("AI model always ready"),
             subtitle=below.format(gb="%.0f" % gb),
-            model=Gtk.StringList.new([tr("Automatic"), tr("Always ready (~3.7 GB in use)"),
+            model=Gtk.StringList.new([tr("Automatic"),
+                                      tr("Always ready (~{gb} GB in use)").format(
+                                          gb=("%.1f" % model_gb).replace(".", "," if language() == "it" else ".")),
                                       tr("Only when needed")]))
         try:
             preload_row.set_selected(self._preload_options.index(self._pref("ai-preload")))
@@ -1085,16 +1214,73 @@ class App(Adw.Application):
         self._open([])
 
     def _open(self, args):
-        theme.apply(CSS)
-        win = self.props.active_window or Window(self)
         # "appearance" opens the page; "appearance:wallpaper" opens it already scrolled
         # to the wallpaper section (used by the desktop's right-click menu).
         args = [a for a in args if a not in ("--page", "-p")]
         start, _, anchor = (args[0] if args else "").partition(":")
-        if start in win.pages:
+        if start in EXTERNAL:
+            # an entry of the sidebar that is another app (Security)
+            launch(*EXTERNAL[start])
+            return
+        theme.apply(CSS)
+        win = self.props.active_window or Window(self)
+        if start in page_keys():
             win.show(start, TITLES.get(start, start), anchor or None)
+        elif win.current is None:
+            win.show("appearance")
         win.present()
 
 
+def usage():
+    lines = [tr("Usage: zeta-settings [PAGE[:SECTION]]"), "",
+             tr("Opens ZETA RAYS Settings, on a page when one is given. Pages:")]
+    for key in page_keys():
+        lines.append("  %-16s %s" % (key, TITLES.get(key, key)))
+    lines += ["", tr("Sections: appearance:accent, appearance:wallpaper, appearance:theme, "
+                     "appearance:effects")]
+    return "\n".join(lines)
+
+
+def check_pages():
+    """zeta-settings --check-pages: build every page without showing the
+    window, print one JSON line per page (key, ok, milliseconds, error).
+    Used by zeta-selftest; exit code 1 if a page fails."""
+    results = []
+
+    class Checker(Adw.Application):
+        def do_activate(self):
+            theme.apply(CSS)
+            t = time.perf_counter()
+            win = Window(self)
+            results.append({"key": "(window)", "ok": True,
+                            "ms": round((time.perf_counter() - t) * 1000)})
+            for key in page_keys():
+                t = time.perf_counter()
+                try:
+                    if key in PAGE_METHODS:
+                        getattr(win, PAGE_METHODS[key])()
+                    else:
+                        module, name = PAGE_CLASSES[key]
+                        getattr(importlib.import_module(module), name)()
+                    results.append({"key": key, "ok": True,
+                                    "ms": round((time.perf_counter() - t) * 1000)})
+                except Exception as e:  # noqa: BLE001 - reported, the next page is checked
+                    results.append({"key": key, "ok": False, "error": repr(e),
+                                    "ms": round((time.perf_counter() - t) * 1000)})
+            win.destroy()
+            self.quit()
+
+    Checker(application_id="org.zetarays.SettingsCheck",
+            flags=Gio.ApplicationFlags.NON_UNIQUE).run([sys.argv[0]])
+    for r in results:
+        print(json.dumps(r))
+    return 0 if results and all(r["ok"] for r in results) else 1
+
+
 if __name__ == "__main__":
+    if any(a in ("-h", "--help", "help") for a in sys.argv[1:]):
+        print(usage())
+        sys.exit(0)
+    if sys.argv[1:] == ["--check-pages"]:
+        sys.exit(check_pages())
     App().run(sys.argv)

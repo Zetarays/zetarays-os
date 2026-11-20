@@ -1,0 +1,370 @@
+[
+ {
+  "en": "AI engine (Ollama)",
+  "it": "Motore AI (Ollama)"
+ },
+ {
+  "en": "AI engine (Ollama): already up to date",
+  "it": "Motore AI (Ollama): già aggiornato"
+ },
+ {
+  "en": "AI engine (Ollama): updated to the version of ZETA RAYS {version}",
+  "it": "Motore AI (Ollama): aggiornato alla versione di ZETA RAYS {version}"
+ },
+ {
+  "en": "AI engine: {version}",
+  "it": "Motore AI: {version}"
+ },
+ {
+  "en": "AI: your current model keeps working. Settings > AI recommends the model of this release ({models}) and downloads it with one click.",
+  "it": "AI: il modello attuale continua a funzionare. Impostazioni > AI consiglia il modello di questa versione ({models}) e lo scarica con un click."
+ },
+ {
+  "en": "Add --yes to run without questions.",
+  "it": "Aggiungi --yes per procedere senza domande."
+ },
+ {
+  "en": "Administrator rights needed: run it with sudo.",
+  "it": "Servono i permessi di amministratore: avvialo con sudo."
+ },
+ {
+  "en": "Administrator rights needed: the password is asked by sudo.",
+  "it": "Servono i permessi di amministratore: la password viene chiesta da sudo."
+ },
+ {
+  "en": "Another program is installing software ({what}): wait until it finishes.",
+  "it": "Un altro programma sta installando software ({what}): attendi che finisca."
+ },
+ {
+  "en": "Architecture: {arch}",
+  "it": "Architettura: {arch}"
+ },
+ {
+  "en": "Backup",
+  "it": "Copia di sicurezza"
+ },
+ {
+  "en": "Backup and rollback: sudo bash {dir}/rollback.sh",
+  "it": "Copia di sicurezza e ripristino: sudo bash {dir}/rollback.sh"
+ },
+ {
+  "en": "Backup folder: /var/backups/zeta-rays-{version}-DATE",
+  "it": "Cartella della copia di sicurezza: /var/backups/zeta-rays-{version}-DATA"
+ },
+ {
+  "en": "Boot screen changed: rebuilding the boot image (about a minute)",
+  "it": "Schermata di avvio cambiata: ricostruzione dell'immagine di avvio (circa un minuto)"
+ },
+ {
+  "en": "Cancelled: nothing was changed.",
+  "it": "Annullato: non è stato cambiato nulla."
+ },
+ {
+  "en": "Checking the file (SHA-256)...",
+  "it": "Controllo del file (SHA-256)..."
+ },
+ {
+  "en": "Checks",
+  "it": "Controlli"
+ },
+ {
+  "en": "Command failed: {cmd}",
+  "it": "Comando non riuscito: {cmd}"
+ },
+ {
+  "en": "Compare these settings files with the new version (.dpkg-dist) when you have time:",
+  "it": "Quando hai tempo, confronta questi file di impostazioni con la nuova versione (.dpkg-dist):"
+ },
+ {
+  "en": "Continue? [y/N]",
+  "it": "Continuare? [s/N]"
+ },
+ {
+  "en": "Copies of the files that will change: {dir}",
+  "it": "Copie dei file che cambieranno: {dir}"
+ },
+ {
+  "en": "Finishing",
+  "it": "Completamento"
+ },
+ {
+  "en": "Free space: {free} (needed about {need})",
+  "it": "Spazio libero: {free} (ne servono circa {need})"
+ },
+ {
+  "en": "Hyprland could not be updated ({step}): the ZETA RAYS files were not changed.",
+  "it": "Non è stato possibile aggiornare Hyprland ({step}): i file di ZETA RAYS non sono stati cambiati."
+ },
+ {
+  "en": "Hyprland {version} was installed without the ZETA RAYS fixes: stopping.",
+  "it": "È stato installato Hyprland {version} senza le correzioni di ZETA RAYS: mi fermo."
+ },
+ {
+  "en": "Hyprland: {version} with title bars rebuilt",
+  "it": "Hyprland: {version} con le barre del titolo ricostruite"
+ },
+ {
+  "en": "Installing the packages would remove {names}: stopping, the ZETA RAYS files were not changed.",
+  "it": "Installare i pacchetti rimuoverebbe {names}: mi fermo, i file di ZETA RAYS non sono stati cambiati."
+ },
+ {
+  "en": "Interrupted.",
+  "it": "Interrotto."
+ },
+ {
+  "en": "Interrupted. Run the upgrade again to complete it (it resumes safely).",
+  "it": "Interrotto. Avvia di nuovo l'aggiornamento per completarlo (riprende in sicurezza)."
+ },
+ {
+  "en": "Log: /var/log/zeta-rays-upgrade.log",
+  "it": "Registro: /var/log/zeta-rays-upgrade.log"
+ },
+ {
+  "en": "Network: the package servers answer",
+  "it": "Rete: i server dei pacchetti rispondono"
+ },
+ {
+  "en": "New packages: none missing",
+  "it": "Nuovi pacchetti: non ne manca nessuno"
+ },
+ {
+  "en": "New packages: {names}",
+  "it": "Nuovi pacchetti: {names}"
+ },
+ {
+  "en": "No connection to the package servers (deb.debian.org): connect to the internet and try again.",
+  "it": "Nessuna connessione ai server dei pacchetti (deb.debian.org): collegati a internet e riprova."
+ },
+ {
+  "en": "No longer part of ZETA RAYS, kept because it was changed: {path}",
+  "it": "Non fa più parte di ZETA RAYS, tenuto perché è stato modificato: {path}"
+ },
+ {
+  "en": "No longer part of ZETA RAYS, removed (a copy is kept): {path}",
+  "it": "Non fa più parte di ZETA RAYS, rimosso (ne resta una copia): {path}"
+ },
+ {
+  "en": "Not authorized: nothing was changed.",
+  "it": "Non autorizzato: non è stato cambiato nulla."
+ },
+ {
+  "en": "Not enough free space: {need} needed, {free} free.",
+  "it": "Spazio libero insufficiente: ne servono {need}, liberi {free}."
+ },
+ {
+  "en": "Not installed (check failed): {list}",
+  "it": "Non installati (controllo non superato): {list}"
+ },
+ {
+  "en": "Not installed, it does not pass the check: {path}",
+  "it": "Non installato, non supera il controllo: {path}"
+ },
+ {
+  "en": "Not restored (deleted on this computer): {path}",
+  "it": "Non ripristinato (eliminato su questo computer): {path}"
+ },
+ {
+  "en": "Note: some packages are not fully configured; the upgrade completes them first.",
+  "it": "Nota: alcuni pacchetti non sono configurati del tutto; l'aggiornamento li completa per primi."
+ },
+ {
+  "en": "Nothing was changed.",
+  "it": "Non è stato cambiato nulla."
+ },
+ {
+  "en": "Open a terminal and run:",
+  "it": "Apri un terminale ed esegui:"
+ },
+ {
+  "en": "Package source for ZETA RAYS updates",
+  "it": "Sorgente dei pacchetti per gli aggiornamenti di ZETA RAYS"
+ },
+ {
+  "en": "Packages",
+  "it": "Pacchetti"
+ },
+ {
+  "en": "Pending Debian updates: {n}",
+  "it": "Aggiornamenti Debian in attesa: {n}"
+ },
+ {
+  "en": "Press Enter to close this window.",
+  "it": "Premi Invio per chiudere questa finestra."
+ },
+ {
+  "en": "Restart now? [y/N]",
+  "it": "Riavviare ora? [s/N]"
+ },
+ {
+  "en": "Restart the computer to finish.",
+  "it": "Riavvia il computer per finire."
+ },
+ {
+  "en": "Restoring the previous ZETA RAYS files...",
+  "it": "Ripristino dei file precedenti di ZETA RAYS..."
+ },
+ {
+  "en": "Resuming the interrupted upgrade, backup: {dir}",
+  "it": "Riprendo l'aggiornamento interrotto, copia di sicurezza: {dir}"
+ },
+ {
+  "en": "Running: {step}",
+  "it": "In esecuzione: {step}"
+ },
+ {
+  "en": "Services: {list}",
+  "it": "Servizi: {list}"
+ },
+ {
+  "en": "Settings files changed on this computer: kept as they are, the new version is saved next to them (.dpkg-dist):",
+  "it": "File di impostazioni modificati su questo computer: restano come sono, la nuova versione viene salvata accanto (.dpkg-dist):"
+ },
+ {
+  "en": "Skipped (--no-apt)",
+  "it": "Saltato (--no-apt)"
+ },
+ {
+  "en": "Skipped (a folder or special file is in the way): {path}",
+  "it": "Saltato (al suo posto c'è una cartella o un file speciale): {path}"
+ },
+ {
+  "en": "System: ZETA RAYS {version}",
+  "it": "Sistema: ZETA RAYS {version}"
+ },
+ {
+  "en": "Test mode: network and package checks skipped",
+  "it": "Modalità di prova: controlli di rete e pacchetti saltati"
+ },
+ {
+  "en": "Test mode: system root {root}",
+  "it": "Modalità di prova: radice del sistema {root}"
+ },
+ {
+  "en": "Test run (--dry-run): nothing is changed.",
+  "it": "Prova (--dry-run): non viene cambiato nulla."
+ },
+ {
+  "en": "Test run finished: nothing was changed.",
+  "it": "Prova finita: non è stato cambiato nulla."
+ },
+ {
+  "en": "The AI engine was not installed correctly.",
+  "it": "Il motore AI non è stato installato correttamente."
+ },
+ {
+  "en": "The Debian updates could not be installed: the ZETA RAYS files were not changed.",
+  "it": "Non è stato possibile installare gli aggiornamenti Debian: i file di ZETA RAYS non sono stati cambiati."
+ },
+ {
+  "en": "The file could not be unpacked: is there free space in /var/tmp?",
+  "it": "Non è stato possibile estrarre il file: c'è spazio libero in /var/tmp?"
+ },
+ {
+  "en": "The file is damaged (wrong checksum): download it again.",
+  "it": "Il file è danneggiato (checksum errato): scaricalo di nuovo."
+ },
+ {
+  "en": "The file is incomplete (interrupted download?): download it again.",
+  "it": "Il file è incompleto (download interrotto?): scaricalo di nuovo."
+ },
+ {
+  "en": "The new packages could not be installed: the ZETA RAYS files were not changed.",
+  "it": "Non è stato possibile installare i nuovi pacchetti: i file di ZETA RAYS non sono stati cambiati."
+ },
+ {
+  "en": "The package lists could not be updated (network or package servers): nothing was changed.",
+  "it": "Non è stato possibile aggiornare gli elenchi dei pacchetti (rete o server dei pacchetti): non è stato cambiato nulla."
+ },
+ {
+  "en": "The system asks for the administrator password to upgrade ZETA RAYS.",
+  "it": "Il sistema chiede la password di amministratore per aggiornare ZETA RAYS."
+ },
+ {
+  "en": "The upgrade did not complete: the ZETA RAYS files are as before (packages installed by apt stay).",
+  "it": "L'aggiornamento non è stato completato: i file di ZETA RAYS sono come prima (i pacchetti installati da apt restano)."
+ },
+ {
+  "en": "The upgrade file is damaged ({path}): download it again.",
+  "it": "Il file di aggiornamento è danneggiato ({path}): scaricalo di nuovo."
+ },
+ {
+  "en": "The upgrade is already running in another window.",
+  "it": "L'aggiornamento è già in corso in un'altra finestra."
+ },
+ {
+  "en": "The window title bars could not be rebuilt for the new Hyprland.",
+  "it": "Non è stato possibile ricostruire le barre del titolo delle finestre per il nuovo Hyprland."
+ },
+ {
+  "en": "This file is for {want} computers, this one is {have}: use the {have} file.",
+  "it": "Questo file è per computer {want}, questo è {have}: usa il file {have}."
+ },
+ {
+  "en": "This is not ZETA RAYS OS (/etc/os-release).",
+  "it": "Questo non è ZETA RAYS OS (/etc/os-release)."
+ },
+ {
+  "en": "This is the live session (USB stick): install ZETA RAYS first, or upgrade the installed system.",
+  "it": "Questa è la sessione live (chiavetta USB): installa prima ZETA RAYS, oppure aggiorna il sistema installato."
+ },
+ {
+  "en": "This system was already upgraded on {date}: running again repairs missing or damaged files.",
+  "it": "Questo sistema è già stato aggiornato il {date}: avviarlo di nuovo ripara i file mancanti o danneggiati."
+ },
+ {
+  "en": "This upgrade is for ZETA RAYS {old}: this system is {have}.",
+  "it": "Questo aggiornamento è per ZETA RAYS {old}: questo sistema è {have}."
+ },
+ {
+  "en": "Version: {old} -> {new}",
+  "it": "Versione: {old} -> {new}"
+ },
+ {
+  "en": "Warning: {step} did not complete (see the log)",
+  "it": "Attenzione: {step} non è stato completato (vedi il registro)"
+ },
+ {
+  "en": "What will change",
+  "it": "Cosa cambierà"
+ },
+ {
+  "en": "Your settings are brought up to date at your next login.",
+  "it": "Le tue impostazioni vengono aggiornate al prossimo accesso."
+ },
+ {
+  "en": "ZETA RAYS files",
+  "it": "File di ZETA RAYS"
+ },
+ {
+  "en": "ZETA RAYS files: {new} new, {changed} changed, {same} already up to date",
+  "it": "File di ZETA RAYS: {new} nuovi, {changed} cambiati, {same} già aggiornati"
+ },
+ {
+  "en": "ZETA RAYS upgrade. Options: --dry-run (show what would change), --yes (no questions).",
+  "it": "Aggiornamento di ZETA RAYS. Opzioni: --dry-run (mostra cosa cambierebbe), --yes (nessuna domanda)."
+ },
+ {
+  "en": "ZETA RAYS {old} -> {new} upgrade ({arch})",
+  "it": "Aggiornamento di ZETA RAYS {old} -> {new} ({arch})"
+ },
+ {
+  "en": "ZETA RAYS {version} is installed.",
+  "it": "ZETA RAYS {version} è installato."
+ },
+ {
+  "en": "y",
+  "it": "s"
+ },
+ {
+  "en": "yes",
+  "it": "sì"
+ },
+ {
+  "en": "{n} files installed",
+  "it": "{n} file installati"
+ },
+ {
+  "en": "Removing the Raspberry Pi firmware (not used here, it blocked kernel updates)",
+  "it": "Rimuovo il firmware Raspberry Pi (qui non serve e bloccava gli aggiornamenti del kernel)"
+ }
+]

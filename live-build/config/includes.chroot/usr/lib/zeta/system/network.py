@@ -456,14 +456,3 @@ def set_proxy(mode, host="", port=0, url=""):
             f.write("no_proxy=localhost,127.0.0.1,::1\n")
     elif os.path.exists(ENV_FILE):
         os.remove(ENV_FILE)
-
-
-def proxy_env():
-    """Proxy as seen by programs (environment variables)."""
-    return {k: v for k, v in os.environ.items() if k.lower() in ("http_proxy", "https_proxy", "all_proxy")}
-
-
-def public_ip_local():
-    """Local IPs per interface (no external requests)."""
-    out = run(["ip", "-o", "-4", "addr", "show", "scope", "global"])
-    return re.findall(r"^\d+:\s+(\S+)\s+inet\s+([\d.]+)", out or "", re.M)

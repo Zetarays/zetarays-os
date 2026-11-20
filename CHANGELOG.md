@@ -1,5 +1,76 @@
 # Changelog
 
+## 3.0 — 2026-11-20
+
+Images: `zetarays-3.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.
+Upgrade from 2.5 without reinstalling: `zetarays-3.0-upgrade-{amd64,arm64}.run`.
+
+### Highlights of 3.0
+- **Upgrade in place from 2.5.** One file per architecture
+  (`sudo bash zetarays-3.0-upgrade-ARCH.run`, or a double-click in Files):
+  it checks the system, saves every file it replaces in
+  `/var/backups/zeta-rays-2.5-DATE/` with a `rollback.sh`, installs the new
+  packages and the pending Debian updates, then the ZETA RAYS files. Files,
+  apps and settings stay; settings files changed by hand are kept (the new
+  version goes next to them). `--dry-run` shows everything first. From 3.0 the
+  ZETA RAYS updates have their own signed package source (docs/UPDATES.md),
+  active only while it answers, so it never makes Software Update fail.
+- **Screenshots and screen recording.** Print opens a toolbar (area, window,
+  full screen, record an area or the screen, pick a color, timer, pointer,
+  sound); Shift+Print captures the screen, Alt+Print the active window,
+  Super+Shift+S an area, Super+Shift+R starts and stops a recording. Every
+  capture is saved in Pictures/Screenshots and copied; its notification
+  opens Edit (arrows, text, blur), Copy Text (OCR), Open Folder and Delete.
+- **Clipboard history and emoji** like Windows: Super+V lists the last 100
+  copies (text and images, passwords from password managers are never
+  saved) and pastes the one you pick; Super+. inserts emoji with search.
+- **Night Light** (Settings › Displays and the Control Center): warmer colors
+  from sunset to sunrise (computed offline from the time zone), always, or
+  at custom times, with a temperature slider.
+- **Control Center quick settings**: Night Light, Do Not Disturb, Power Mode,
+  Screenshot, Record and Clipboard. Do Not Disturb keeps critical
+  notifications and shows a bell in the bar; the notification history is one
+  click away.
+- **Snap layouts**: Super+Shift+Left/Right for halves, Up to maximize, Down to
+  restore; Super+Z opens the layouts (halves, thirds, quarters, centered).
+- **Quick Look**: Space previews the selected file in Files and on the
+  desktop (images, PDF, text, video, folders).
+- **New Settings pages**: Power & Battery (power mode, battery health, screen
+  off/lock/suspend times, power button), Keyboard & Mouse, Date & Time,
+  Accessibility (screen reader, larger text, high contrast, zoom with
+  Super+plus/minus, reduce motion), Storage (what uses the space, cleanup)
+  and Backup (personal files with Déjà Dup, system snapshots with Timeshift,
+  optionally before every system update). The sidebar is grouped and pages
+  are built only when opened, so Settings opens faster.
+- **ZETA reads the screen and your files**: "what's on my screen?",
+  "translate what I'm looking at", and "Ask ZETA to Summarize" on a text,
+  PDF or office file in Files (also `zeta summarize FILE`). All local.
+- **New AI model for 8 GB and mini PCs: Granite 4.2 3B** (faster first
+  word, all commands right, better Italian than Granite 4.0 Micro, which keeps
+  working on upgraded systems until the new one is downloaded). Qwen3 4B
+  Instruct stays for 16 GB, Granite 4.1 8B for large computers. Ollama 0.40.16.
+- **Purple** joins the accent colors (and the account picture colors), with a
+  purple logo wallpaper; new **Rays** wallpaper.
+
+### Fixed
+- arm64 installs could not install kernel updates: the Raspberry Pi firmware
+  package's boot step failed on every computer that is not a Raspberry Pi.
+  It is no longer in the image, and the upgrade removes it.
+- ZETA's "open the packages settings" opened the default page.
+- The panels follow every accent color: switches, check boxes, the focused
+  search field and selected text kept the GTK blue. After switching between
+  dark and light, a panel already in memory redraws its icons (the delete
+  buttons in the clipboard history were invisible on the light card).
+
+### Performance and cleanup
+- The unattended-upgrades shutdown guard runs only while automatic updates
+  are on; earlyoom never stops the lock screen, the login helper or audio, and
+  stops a heavy browser tab before the whole browser.
+- Two data-center firmware packages (about 200 MB) removed from the image.
+- Dead code, unused icons and data removed (about 225 lines of Python,
+  9 files); a `performance` self-test group reports memory, processes and
+  services.
+
 ## 2.5 — 2026-10-25
 
 Images: `zetarays-2.5-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.

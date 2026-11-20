@@ -111,9 +111,6 @@ class Update:
         self.size = 0                        # installed size of the new version
         self.old_size = 0                    # installed size of the current version
 
-    def as_dict(self):
-        return {k: getattr(self, k) for k in self.__slots__}
-
 
 class Outcome:
     """Result of an operation: kind is a stable key, message is for people."""

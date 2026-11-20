@@ -148,6 +148,14 @@ def icon_size() -> int:
     return v if 28 <= v <= 64 else 42
 
 
+def _clock_pref(name: str) -> bool:
+    """A bar clock choice from Settings › Date & Time (on unless "0")."""
+    try:
+        return (CFG / name).read_text().strip() != "0"
+    except OSError:
+        return True
+
+
 def _clock_locale() -> str:
     """Language of the bar clock: the user's (LC_ALL, LC_TIME, LANG), if it
     is actually installed. Waybar cannot use a missing locale (the clock
@@ -218,7 +226,7 @@ def render_config(dock: list[dict]) -> dict:
         ("margin-bottom" if position() == "bottom" else "margin-top"): 12,
         "modules-left": ["image#launcher", "group/workspaces"],
         "modules-center": ["group/dock", "group/minimized"],
-        "modules-right": ["custom/windowlist", "custom/keyboard", "image#search", "image#net",
+        "modules-right": ["custom/windowlist", "custom/keyboard", "image#dnd", "image#search", "image#net",
                           "image#vol", "image#bat", "clock", "image#power"],
         # Windows list button, only when the windows have no title bars
         # (hyprbars not loaded): then it is the mouse way to reach, close and
@@ -236,6 +244,15 @@ def render_config(dock: list[dict]) -> dict:
             "exec": "zeta-keyboard status", "return-type": "json",
             "interval": 300, "signal": 14,
             "on-click": "zeta-keyboard next", "tooltip": True,
+        },
+        # Do Not Disturb: a crossed-out bell only while it is on (otherwise
+        # zeta-dnd prints nothing and Waybar hides it). Updated by zeta-dnd
+        # and zeta-appearance (SIGRTMIN+15). Click: recent notifications;
+        # right click: turn it off.
+        "image#dnd": {
+            "exec": "zeta-dnd bar", "interval": 300, "signal": 15, "size": 18,
+            "tooltip": False, "on-click": "zeta-dnd history",
+            "on-click-right": "zeta-dnd off",
         },
         "image#launcher": {
             "exec": "echo $HOME/.config/zeta/launcher.svg",
@@ -299,8 +316,11 @@ def render_config(dock: list[dict]) -> dict:
                         "size": 18,
                         "tooltip": False, "on-click": "zeta-panel power"},
         "clock": {
-            "format": "<span weight='500'>{0:%H:%M}</span>\n<span size='8.5pt' foreground='#8A8A8E'>{0:L"
-                      + short_date + "}</span>",
+            # Settings › Date & Time: 24-hour clock and date below the time
+            # (files clock-24h and clock-date, on unless set to "0")
+            "format": "<span weight='500'>{0:" + ("%H:%M" if _clock_pref("clock-24h") else "%I:%M %p")
+                      + "}</span>" + ("\n<span size='8.5pt' foreground='#8A8A8E'>{0:L"
+                                      + short_date + "}</span>" if _clock_pref("clock-date") else ""),
             "locale": _clock_locale(), "justify": "right",
             "tooltip-format": "<span size='11pt'>{0:L" + long_date
                               + "}</span>\n\n<tt>{calendar}</tt>",

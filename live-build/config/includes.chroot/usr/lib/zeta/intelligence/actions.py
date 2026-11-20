@@ -196,7 +196,7 @@ class ActionEngine:
         self.register(Action(
             "open_settings", 2, tr("Opens ZETA RAYS Settings, optionally on a specific page."),
             {"type": "object",
-             "properties": {"page": {"type": "string", "description": "page key: appearance, network, bluetooth, audio, ai, security, packages, info (about)"}}},
+             "properties": {"page": {"type": "string", "description": "page key: appearance, network, bluetooth, audio, ai, security, packages, info (about), keyboard, datetime, accessibility, storage, backup, power"}}},
             _open_settings))
         self.register(Action(
             "open_system_monitor", 2, tr("Opens the ZETA RAYS System Monitor (CPU, network, processes, firewall…)."),
@@ -1000,7 +1000,9 @@ def _set_wallpaper(args: dict) -> ActionResult:
     return ActionResult(True, tr("Wallpaper changed to {name}.").format(name=p.name) + (" " + r if r else ""))
 
 
-SETTINGS_PAGES = {"appearance", "network", "bluetooth", "audio", "ai", "security", "packages", "info"}
+SETTINGS_PAGES = {"appearance", "network", "bluetooth", "audio", "ai", "security", "packages", "info",
+                  "keyboard", "datetime", "accessibility", "storage", "backup", "power",
+                  "software-update"}
 # words the user (or the model) may use for a page -> page key
 SETTINGS_ALIASES = _W["settings_aliases"]
 
@@ -1009,7 +1011,10 @@ def page_name(page: str) -> str:
     """Display name of a Settings page."""
     names = {"appearance": tr("Appearance"), "network": tr("Network"), "bluetooth": "Bluetooth",
             "audio": tr("Sound"), "ai": "AI", "security": tr("Security"),
-            "packages": tr("Packages"), "info": tr("About")}
+            "packages": tr("Packages"), "info": tr("About"),
+            "keyboard": tr("Keyboard & Mouse"), "datetime": tr("Date & Time"),
+            "accessibility": tr("Accessibility"), "storage": tr("Storage"), "backup": tr("Backup"),
+            "power": tr("Power & Battery"), "software-update": tr("Software Update")}
     return names.get(page, page)
 
 
@@ -1019,6 +1024,9 @@ def _open_settings(args: dict) -> ActionResult:
         return ActionResult(False, tr("Settings isn't available."))
     page = (args.get("page") or "").strip().lower()
     page = SETTINGS_ALIASES.get(page, page)
+    # "packages" (2.5 and the model's schema): the page is Software Update now
+    if page == "packages":
+        page = "software-update"
     cmd = [exe] + ([page] if page in SETTINGS_PAGES else [])
     try:
         _popen(cmd, start_new_session=True)

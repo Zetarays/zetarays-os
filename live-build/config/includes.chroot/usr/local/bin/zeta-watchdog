@@ -26,11 +26,20 @@ pid_alive() {     # pid -> true if it exists and is not a zombie
     done < "/proc/$1/status" 2>/dev/null
     return 1
 }
+# Only this user's processes count: after "Switch user" another session runs
+# its own wallpaper and desktop icons, which must not hide missing ones here.
+mine() {          # pid -> true if its real user is this user
+    local k v
+    while read -r k v _; do
+        [ "$k" = Uid: ] && { [ "$v" = "$UID" ]; return; }
+    done < "/proc/$1/status" 2>/dev/null
+    return 1
+}
 find_pid() {     # name (as in /proc/PID/comm) -> PID[name], 0 if not found
     local d n
     for d in /proc/[0-9]*; do
         read -r n < "$d/comm" 2>/dev/null || continue
-        [ "$n" = "$1" ] && pid_alive "${d#/proc/}" && { PID[$1]=${d#/proc/}; return 0; }
+        [ "$n" = "$1" ] && mine "${d#/proc/}" && pid_alive "${d#/proc/}" && { PID[$1]=${d#/proc/}; return 0; }
     done
     PID[$1]=0; return 1
 }
@@ -46,7 +55,7 @@ desktop_alive() {
     [ "$p" != 0 ] && pid_alive "$p" && return 0
     for d in /proc/[0-9]*; do
         read -r n < "$d/comm" 2>/dev/null || continue
-        [ "$n" = python3 ] || continue
+        [ "$n" = python3 ] && mine "${d#/proc/}" || continue
         mapfile -d '' -t arg < "$d/cmdline" 2>/dev/null
         if [ "${arg[1]:-}" = /usr/local/bin/zeta-desktop ]; then
             PID[desktop]=${d#/proc/}; return 0
@@ -70,6 +79,12 @@ screen_locked() { [ -f "$LOCK_FLAG" ]; }
 # (crash) and another starts, this loop must not stay alive next to the new
 # session's loop (two bars and two desktops showed up).
 MY_HYPRLAND=$(pgrep -nx -u "$(id -u)" Hyprland)
+# "Switch user", then the same user signs in again: SDDM does not reuse an
+# automatic-login session, so the new login (zeta-desktop-session) asks this
+# one to come back with SIGUSR2 and ends. A moment later, when SDDM is back
+# on its own console, this session activates itself (logind allows it to an
+# inactive session without a password: the login itself was the check).
+trap 'nap 2; [ -n "${XDG_SESSION_ID:-}" ] && loginctl activate "$XDG_SESSION_ID" 2>/dev/null' USR2
 round=0
 while true; do
     nap "$INTERVAL"

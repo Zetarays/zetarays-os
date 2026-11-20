@@ -30,6 +30,10 @@
    "green logo",
    "logo verde"
   ],
+  "zeta-purple.jpg": [
+   "purple logo",
+   "logo viola"
+  ],
   "zeta-red.jpg": [
    "red logo",
    "logo rosso"
@@ -37,6 +41,14 @@
   "zeta-white.jpg": [
    "white logo",
    "logo bianco"
+  ],
+  "zeta-rays.jpg": [
+   "rays",
+   "raggi",
+   "prism",
+   "prisma",
+   "rainbow",
+   "arcobaleno"
   ]
  },
  "prefixes": [

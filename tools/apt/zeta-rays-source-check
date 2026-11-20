@@ -1,0 +1,28 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: keeps the package source of the ZETA RAYS updates active only
+# while its repository answers.
+#
+# A source whose repository does not exist (not published yet, moved, site
+# down) makes every "apt update" end with an error, and Software Update with
+# it. So the source in /etc/apt/sources.list.d is a copy of the package's
+# pristine file, written while https://zetarays.org/apt/ answers and removed
+# while it does not. Run by APT before each update (apt.conf.d/50zeta-rays-source:
+# the change applies from the next update) and by the package's postinst.
+# Only one small request, to the same address APT itself would contact.
+SRC=/usr/share/zeta-rays-release/zeta-rays.sources
+DST=/etc/apt/sources.list.d/zeta-rays.sources
+[ "$(id -u)" = 0 ] || exit 0
+[ -s "$SRC" ] || exit 0
+command -v curl >/dev/null 2>&1 || exit 0
+uri=$(sed -n 's/^URIs:[[:space:]]*//p' "$SRC" | head -n 1)
+suite=$(sed -n 's/^Suites:[[:space:]]*//p' "$SRC" | head -n 1)
+case "$uri" in https://*) ;; *) exit 0 ;; esac
+if curl -fsSL -o /dev/null --max-time 8 --proto '=https' -r 0-0 "${uri%/}/dists/$suite/InRelease" 2>/dev/null; then
+    if ! cmp -s "$SRC" "$DST"; then
+        cp "$SRC" "$DST.zeta-tmp" && chmod 0644 "$DST.zeta-tmp" && mv -f "$DST.zeta-tmp" "$DST"
+    fi
+else
+    rm -f "$DST"
+fi
+exit 0

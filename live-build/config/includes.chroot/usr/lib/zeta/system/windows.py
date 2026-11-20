@@ -82,7 +82,6 @@ def _sel(addr):
 # not as "1 minimized". The image is captured just before hiding the window,
 # while it is still on screen: afterwards it is no longer drawn.
 PREVIEWS = os.path.expanduser("~/.cache/zeta/minimized")
-SLOTS = 8                                  # maximum number of thumbnails in the bar
 ASPECT_RATIO = 1.6                             # thumbnail width / height
 
 

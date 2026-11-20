@@ -7,10 +7,10 @@ body:
     attributes:
       label: Image used
       options:
-        - zetarays-2.5-amd64.iso
-        - zetarays-2.5-arm64.iso
-        - zetarays-2.5-amd64.ova
-        - zetarays-2.5-arm64.ova
+        - zetarays-3.0-amd64.iso
+        - zetarays-3.0-arm64.iso
+        - zetarays-3.0-amd64.ova
+        - zetarays-3.0-arm64.ova
         - an older image (write which one in the description)
     validations:
       required: true

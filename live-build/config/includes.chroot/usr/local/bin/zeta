@@ -11,6 +11,7 @@ Usage:
   zeta --forget             clear the conversation memory
   zeta --forget-all         clear the conversation and the long-term memories
   zeta --learn FILE         give ZETA a text file as reference (local)
+  zeta summarize FILE       a summary of a text, PDF, Word or LibreOffice file
   zeta -- <question>        a question that starts like a command below
 
 System commands (read only):
@@ -143,27 +144,6 @@ def cmd_learn(path: str) -> int:
     return 0
 
 
-def not_configured() -> int:
-    """No model available: explain what to do instead of showing errors."""
-    from intelligence.assistant import NOT_CONFIGURED
-    print("%s%sZETA%s %s— ZETA RAYS OS%s\n" % (BOLD, ACCENT, R, DIM, R))
-    import shutil
-    import textwrap
-    width = max(40, min(90, shutil.get_terminal_size((80, 24)).columns - 2))
-    for par in NOT_CONFIGURED.split("\n"):
-        print(textwrap.fill(par, width))
-    print()
-    try:
-        ans = input("%s%s%s" % (DIM, tr("Press Enter to open Settings › AI, or type 'exit': "), R))
-    except (EOFError, KeyboardInterrupt):
-        return 0
-    if ans.strip().lower() not in ANSWERS["exit"] + ["q"]:
-        import subprocess
-        subprocess.Popen(["zeta-settings", "ai"], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return 0
-
-
 def interactive(assistant: Assistant) -> int:
     ai_ready = assistant.provider.available()
     tag = assistant.provider_label() if ai_ready else tr("local commands")
@@ -191,6 +171,12 @@ SYSTEM_WORDS = {"system", "status", "memory", "processes", "ps", "repositories",
                 "repository", "repo", "ai", "shell", "diagnose"}
 
 
+def summarize_request(path: str) -> str:
+    """The request for a file summary (intelligence/reading.py understands
+    it in English and in Italian)."""
+    return tr("Summarize the file “{path}”").format(path=path)
+
+
 def cmd_help() -> int:
     print(tr("""Usage:
   zeta                      start a conversation
@@ -201,6 +187,7 @@ def cmd_help() -> int:
   zeta --forget             clear the conversation memory
   zeta --forget-all         also clear the long-term memories
   zeta --learn FILE         give ZETA a text file as reference
+  zeta summarize FILE       summarize a text, PDF, Word or LibreOffice file
   zeta -- QUESTION          a question that starts like a command below
 
 System commands (read only):
@@ -242,6 +229,12 @@ def main(argv: list[str]) -> int:
         return 0
     if args and args[0] == "--learn" and len(args) == 2:
         return cmd_learn(args[1])
+    if args and args[0] == "summarize" and len(args) >= 2:
+        import os
+        path = os.path.abspath(os.path.expanduser(" ".join(args[1:])))
+        if os.path.isfile(path):
+            # the same request as the file manager's «Ask ZETA to Summarize»
+            args = [summarize_request(path)]
 
     assistant = Assistant()
     if args:

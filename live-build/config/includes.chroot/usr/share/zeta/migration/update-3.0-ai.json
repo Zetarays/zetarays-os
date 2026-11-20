@@ -1,0 +1,14 @@
+{
+ "version": "3.0",
+ "_comment": "3.0, ZETA (AI): the file manager's «Ask ZETA to Summarize» action is added to the custom actions of users who come from 2.5. The text before it is the one of the 2.5 file only (in the 3.0 file another action follows the image-recognition one), so a 3.0 user never gets it twice.",
+ "steps": [
+  {
+   "kind": "text",
+   "old": "\t<image-files/>\n\t<other-files/>\n</action>\n<action>\n\t<icon>zeta-share</icon>",
+   "new": "\t<image-files/>\n\t<other-files/>\n</action>\n<action>\n\t<icon>zeta-core</icon>\n\t<name>Ask ZETA to Summarize</name>\n\t<name xml:lang=\"it\">Chiedi a ZETA di riassumere</name>\n\t<unique-id>zeta-summarize</unique-id>\n\t<command>zeta-core --summarize %f</command>\n\t<description>ZETA reads the document and summarizes it, on this computer</description>\n\t<description xml:lang=\"it\">ZETA legge il documento e lo riassume, sul computer</description>\n\t<patterns>*.txt;*.TXT;*.md;*.markdown;*.rst;*.pdf;*.PDF;*.docx;*.DOCX;*.odt;*.ODT;*.pptx;*.odp;*.html;*.htm;*.csv;*.log;*.tex;*.srt</patterns>\n\t<text-files/>\n\t<other-files/>\n</action>\n<action>\n\t<icon>zeta-share</icon>",
+   "where": [
+    "~/.config/Thunar/uca.xml"
+   ]
+  }
+ ]
+}

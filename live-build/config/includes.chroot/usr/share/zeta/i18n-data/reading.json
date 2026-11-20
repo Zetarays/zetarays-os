@@ -1,0 +1,16 @@
+{
+ "_comment": "Italian request patterns of intelligence/reading.py (the English ones are in the code). 'screen' and 'not_screen' are matched on the normalized text (lowercase, no accents); 'file' and 'which_file' on the text as written, ignoring case (paths keep their case). 'file' must match the Italian translation of «Summarize the file “{path}”».",
+ "screen": [
+  "\\b(?:che )?cos(?:a|') ?(?:c'e|ce|c e|vedi|appare|compare|si vede)\\b.{0,20}\\b(?:sullo|nello|sul|nel|allo) (?:schermo|monitor|display)\\b",
+  "\\b(?:che )?cosa sto (?:guardando|vedendo|leggendo)\\b",
+  "\\b(?:che )?cos(?:a|') ?(?:c'e|ce|c e) (?:in|su) questa (?:finestra|pagina)\\b",
+  "\\b(?:leggi(?:mi)?|riassumi(?:mi)?|traduci(?:mi)?|spiega(?:mi)?|descrivi(?:mi)?|correggi|controlla|fammi un riassunto di|dimmi)\\b.{0,40}\\b(?:(?:sullo|nello|sul|lo|il|allo) (?:schermo|monitor|display)|(?:quello|cio) che (?:sto guardando|vedo|sto leggendo|ho davanti)|questa (?:finestra|pagina)|la (?:finestra|pagina) (?:aperta|attiva|corrente|davanti))\\b"
+ ],
+ "not_screen": "\\b(?:schermo intero|luminosita|risoluzione|salvaschermo|blocca|spegni|accendi|schermata|registra|condividi)\\b|\\bsecondo (?:schermo|monitor)\\b",
+ "file": [
+  "^(?:per favore\\s+)?(?:puoi\\s+|potresti\\s+)?(?:riassumi(?:mi)?|riassumere|fammi un riassunto (?:del|di|dello|della)|spiega(?:mi)?|traduci(?:mi)?|leggi(?:mi)?)\\s+(?:il |questo |quel |lo |la |questa |quella )?(?:file|documento|pdf)?\\s*[“\\\"«']?(?P<path>[~/][^“”\\\"«»]*?)[”\\\"»']?\\s*[.?!]?$"
+ ],
+ "which_file": [
+  "^(?:per favore\\s+)?(?:puoi\\s+|potresti\\s+)?(?:riassumi(?:mi)?|riassumere|fammi un riassunto (?:del|di|dello|della))\\s+(?:questo|un|il|quel|lo|questa|la|quella) (?:file|documento|pdf)\\s*[.?!]?$"
+ ]
+}

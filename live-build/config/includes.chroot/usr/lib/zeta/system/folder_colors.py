@@ -35,7 +35,7 @@ COLORS = {
     "white": ("#FFFFFF", "White"),
     "green": ("#4CC94A", "Green"),
     "blue": ("#3A8DFF", "Blue"),
-    "purple": ("#A855F7", "Purple"),
+    "purple": ("#7C3AED", "Purple"),
 }
 
 

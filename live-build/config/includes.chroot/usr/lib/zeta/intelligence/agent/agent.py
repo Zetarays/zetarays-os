@@ -154,7 +154,10 @@ def choose_with_model(text: str, provider) -> list | None:
     schema = {"type": "object", "properties": {"action": {"type": "string", "enum": names},
                                                 "arguments": {"type": "object"}},
               "required": ["action"]}
+    # a model that thinks by default (granite4.2, qwen3) is asked not to:
+    # its reasoning would use up the 120 tokens before the JSON answer
     body = {"model": provider._model(), "stream": False, "format": schema,
+             **provider._think(),
              "keep_alive": provider.KEEP_ALIVE,
              # same load options as the chat: otherwise Ollama reloads the model
              "options": {"temperature": 0, "num_predict": 120, **provider.load_options()},

@@ -144,6 +144,10 @@ chmod 0755 /usr/libexec/zeta-auto-updates
 chmod 0644 /etc/apt/apt.conf.d/52zeta-security-updates /usr/share/polkit-1/actions/org.zetarays.auto-updates.policy
 grep -q 'Unattended-Upgrade "0"' /etc/apt/apt.conf.d/52zeta-security-updates \
   || { echo "automatic updates must be off in the image" >&2; exit 1; }
+# ...and so is their power-off guard (a resident Python process of about
+# 16 MB): zeta-auto-updates enables it together with the updates (installer,
+# Settings > Software Update).
+systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true
 chown root:root /usr/local/libexec/zeta-ssh-installed /etc/calamares/modules/shellprocess-ssh.conf
 chmod 0755 /usr/local/libexec/zeta-ssh-installed
 # SSH: server installed but off by default (turned on with «zeta-ssh on»)
@@ -306,6 +310,17 @@ fi
 
 # --- Icon theme ---
 gtk-update-icon-cache -f /usr/share/icons/zeta 2>/dev/null || true
+
+# --- Firmware no desktop computer uses ----------------------------------------
+# live-build installs every firmware package of the archive. These two are for
+# data-center hardware only (Netronome SmartNICs, Marvell Prestera switch
+# chips): about 200 MB of the image that no PC, Mini PC or laptop can load.
+# Nothing depends on them. Done before the initramfs is generated below.
+dpkg --purge firmware-netronome firmware-marvell-prestera >/dev/null 2>&1 || true
+# raspi-firmware (arm64): ZETA RAYS does not boot on a Raspberry Pi, and on any
+# other computer /boot/firmware is not a mounted partition: its initramfs hook
+# then fails and blocks every kernel update of the installed system.
+dpkg --purge raspi-firmware >/dev/null 2>&1 || true
 
 # Regenerate the initramfs with the boot theme
 update-initramfs -u -k all || true

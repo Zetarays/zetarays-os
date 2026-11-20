@@ -75,8 +75,8 @@ def remove_old_lock():
 # 2026: Goddess and the four logos). "fill" would cut their sides on a screen
 # that is not 16:9; shown whole on black they look the same, uncut, on any
 # screen. The full-bleed ones (waves, circuits, terminal) keep "fill".
-BLACK_EDGES = {"zeta-goddess.jpg", "zeta-blue.jpg", "zeta-green.jpg", "zeta-red.jpg",
-               "zeta-white.jpg"}
+BLACK_EDGES = {"zeta-goddess.jpg", "zeta-rays.jpg", "zeta-blue.jpg", "zeta-green.jpg", "zeta-red.jpg",
+               "zeta-purple.jpg", "zeta-white.jpg"}
 
 
 def swaybg_options(path, mode):
@@ -93,7 +93,8 @@ def apply():
     remove_old_lock()
     if not shutil.which("swaybg"):
         return 1
-    subprocess.run(["pkill", "-x", "swaybg"], check=False)
+    # only this user's (as root it would close other sessions' wallpaper)
+    subprocess.run(["pkill", "-x", "-u", str(os.getuid()), "swaybg"], check=False)
     subprocess.Popen(["swaybg"] + swaybg_options(path, mode),
                      start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

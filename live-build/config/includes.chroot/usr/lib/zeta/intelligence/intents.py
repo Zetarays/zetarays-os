@@ -94,7 +94,7 @@ _KNOWLEDGE = [
      tr("Settings › Appearance › Wallpaper: click one of the ZETA RAYS wallpapers, or Choose… "
         "for your own image. Or tell me “set the red waves wallpaper”.")),
     (_W["knowledge.5"],
-     tr("Settings › Appearance › Accent Color: blue, red, white, green, or + to pick your own. "
+     tr("Settings › Appearance › Accent Color: blue, red, green, purple, white, or + to pick your own. "
         "It changes the whole interface at once. Or tell me “open appearance settings”.")),
     (_W["knowledge.6"],
      tr("Settings › Appearance › Theme: Dark or Light. Or tell me “open appearance settings”.")),

@@ -25,6 +25,7 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from i18n import tr  # noqa: E402
 from system import power, displays  # noqa: E402
 from ui import accent  # noqa: E402
+from ui.night_light_group import NightLightGroup  # noqa: E402
 
 CONFIRM_SECONDS = 15
 ROTATIONS = (0, 1, 2, 3)      # Hyprland: normal, 90°, 180°, 270°
@@ -177,7 +178,11 @@ class DisplaysPage(Adw.PreferencesPage):
         self._groups = []
         self.connect("map", lambda *_: self._on_shown())
         self.connect("unmap", lambda *_: self._on_hidden())
+        self._night = None
         self.reload()
+        # Night Light: one group for all displays, always the last one
+        self._night = NightLightGroup()
+        self.add(self._night)
 
     # ------------------------------------------------------------ state
     def reload(self, keep_chosen=True):
@@ -290,6 +295,10 @@ class DisplaysPage(Adw.PreferencesPage):
     def _add(self, g):
         self.add(g)
         self._groups.append(g)
+        if self._night is not None:
+            # the display groups are rebuilt: Night Light goes back to the end
+            self.remove(self._night)
+            self.add(self._night)
 
     def _number(self, name):
         for i, m in enumerate(self.displays, 1):

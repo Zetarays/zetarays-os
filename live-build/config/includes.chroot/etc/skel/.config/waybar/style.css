@@ -96,12 +96,14 @@ tooltip {
 /* System status */
 #image.net,
 #image.vol,
-#image.bat {
+#image.bat,
+#image.dnd {
   padding: 0 8px;
   border-radius: 10px;
 }
 #image.net:hover,
 #image.vol:hover,
+#image.dnd:hover,
 #image.bat:hover,
 #image.power:hover,
 #clock:hover {

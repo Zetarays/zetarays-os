@@ -394,4 +394,4 @@ class LanguagePage(Adw.PreferencesPage):
                 os.unlink(FILE_IM)
             except OSError:
                 pass
-            subprocess.run(["pkill", "-x", "fcitx5"], capture_output=True)
+            subprocess.run(["pkill", "-x", "-u", str(os.getuid()), "fcitx5"], capture_output=True)

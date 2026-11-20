@@ -1,0 +1,31 @@
+[Desktop Entry]
+Type=Application
+Name=Screenshot
+Name[it]=Cattura schermo
+GenericName=Screenshots and screen recording
+GenericName[it]=Screenshot e registrazione dello schermo
+Comment=Capture an area, a window or the whole screen, or record the screen
+Comment[it]=Cattura una zona, una finestra o tutto lo schermo, oppure registra lo schermo
+Exec=zeta-screenshot panel
+Icon=zeta-screenshot
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=screenshot;screen;capture;snip;snipping;print;record;recording;video;clip;
+Keywords[it]=screenshot;schermata;cattura;ritaglio;stampa;registra;registrazione;video;schermo;
+StartupNotify=false
+Actions=region;screen;record;
+
+[Desktop Action region]
+Name=Capture an Area
+Name[it]=Cattura una zona
+Exec=zeta-screenshot region
+
+[Desktop Action screen]
+Name=Capture the Full Screen
+Name[it]=Cattura tutto lo schermo
+Exec=zeta-screenshot screen
+
+[Desktop Action record]
+Name=Record the Screen
+Name[it]=Registra lo schermo
+Exec=zeta-screenshot record

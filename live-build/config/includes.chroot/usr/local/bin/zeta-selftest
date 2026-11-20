@@ -38,6 +38,10 @@ TITLES = {
     "ai": tr("Artificial intelligence"),
     "terminal": tr("Terminal"),
     "agent": tr("Agent (ZETA Core)"),
+    "controlcenter": tr("Control Center, Night Light and power"),
+    "clipboard": tr("Clipboard, emoji and notifications"),
+    "capture": tr("Screenshots and screen recording"),
+    "performance": tr("Performance (memory, processes, services)"),
 }
 
 
@@ -325,6 +329,218 @@ def no_fake_menu_entries():
                      len(pages)).format(n=len(pages))
 
 
+@test("settings")
+def settings_every_page_builds():
+    """Every Settings page is built without errors (zeta-settings
+    --check-pages builds them all off screen) and the window itself opens
+    fast, now that the pages are built only when shown."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    c, out, err = _sh(["zeta-settings", "--check-pages"], timeout=180)
+    results = []
+    for line in out.splitlines():
+        try:
+            results.append(json.loads(line))
+        except ValueError:
+            pass
+    pages = [r for r in results if r.get("key") != "(window)"]
+    broken = ["%s: %s" % (r["key"], r.get("error", "")[:80]) for r in pages if not r.get("ok")]
+    if broken or not pages:
+        return False, "; ".join(broken) or (err[-160:] or "no output")
+    for key in ("keyboard", "datetime", "accessibility", "storage", "backup"):
+        if key not in [r["key"] for r in pages]:
+            return False, _missing([key])
+    window = next((r["ms"] for r in results if r.get("key") == "(window)"), -1)
+    slow = max(pages, key=lambda r: r.get("ms", 0))
+    return True, "%d pages, window %d ms, slowest %s %d ms" % (len(pages), window, slow["key"], slow["ms"])
+
+
+@test("settings")
+def settings_command_line_pages():
+    """zeta-settings --help lists the page keys, including the new ones."""
+    c, out, _e = _sh(["zeta-settings", "--help"], timeout=30)
+    keys = {line.split()[0] for line in out.splitlines() if line.startswith("  ") and line.split()}
+    want = {"appearance", "keyboard", "datetime", "accessibility", "storage", "backup", "info"}
+    if c != 0 or not want <= keys:
+        return False, _missing(sorted(want - keys) or ["--help"])
+    return True, "%d pages listed" % len(keys)
+
+
+@test("settings")
+def keyboard_mouse_and_accessibility_files():
+    """Keyboard & Mouse and Accessibility: the generated Lua files only hold
+    plain values (anything else is refused), the defaults exist in /etc/skel
+    and hyprland.lua reads them; the zoom and screen reader shortcuts are
+    bound."""
+    from ui import accessibility_page, input_page, page_tools
+    text = input_page.lua_text(input_page.load())
+    if "tap_to_click" not in text or "kb_switch" not in text:
+        return False, "zeta_input.lua: %s" % text[:80]
+    for bad in ('x"); os.execute("id', "a\nb"):
+        try:
+            page_tools.lua_literal(bad)
+            return False, "unsafe Lua string accepted: %r" % bad
+        except ValueError:
+            pass
+    if "zoom_factor" not in accessibility_page.lua_text(accessibility_page.load()):
+        return False, "zeta_accessibility.lua without zoom"
+    for name in ("zeta_input.lua", "zeta_accessibility.lua"):
+        if not os.path.isfile("/etc/skel/.config/hypr/" + name):
+            return False, _missing(["/etc/skel/.config/hypr/" + name])
+    conf = open("/etc/skel/.config/hypr/hyprland.lua").read()
+    for needed in ('"zeta_input", "zeta_accessibility"', "function zeta_zoom", "zeta-screen-reader toggle"):
+        if needed not in conf:
+            return False, _missing([needed])
+    if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        _rc, out, _e = _sh(["hyprctl", "-j", "binds"])
+        try:
+            found = {b.get("description") for b in json.loads(out or "[]")}
+        except ValueError:
+            found = set()
+        absent = [d for d in ("zeta-zoom:in", "zeta-zoom:out", "zeta-zoom:reset") if d not in found]
+        if absent:
+            return False, _missing(absent)
+        _rc, out, _e = _sh(["hyprctl", "eval", "if type(zeta_zoom) ~= 'function' then error('no zoom') end"])
+        if not out.startswith("ok"):
+            return False, "zoom function: %s" % out[:120]
+    return True, "plain values only, defaults in /etc/skel, zoom bound"
+
+
+@test("settings")
+def bar_clock_follows_date_time_choices():
+    """Date & Time: the bar clock switches to 12 hours and hides the date
+    when asked (system/dock.py reads clock-24h and clock-date)."""
+    import tempfile
+    from pathlib import Path
+    from system import dock
+    saved = dock.CFG
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            dock.CFG = Path(d)
+            default = dock.render_config([])["clock"]["format"]
+            (Path(d) / "clock-24h").write_text("0\n")
+            (Path(d) / "clock-date").write_text("0\n")
+            changed = dock.render_config([])["clock"]["format"]
+        finally:
+            dock.CFG = saved
+    if "%H:%M" not in default or "\n" not in default:
+        return False, "default: %r" % default
+    if "%I:%M %p" not in changed or "\n" in changed:
+        return False, "12 hours without date: %r" % changed
+    return True, "24 h with date by default; 12 h and no date when chosen"
+
+
+@test("settings")
+def snapshots_listed_and_helpers_strict():
+    """Backup and Storage: snapshots are read from Timeshift's folder (the
+    automatic ones recognized), and the root helpers refuse anything but
+    their fixed operations."""
+    import tempfile
+    from system import snapshots
+    saved = snapshots.SNAPSHOT_DIR
+    with tempfile.TemporaryDirectory() as d:
+        for name, comment in (("2026-01-02_10-00-00", snapshots.AUTO_COMMENT),
+                              ("2026-03-04_10-00-00", "by hand")):
+            os.makedirs(os.path.join(d, name))
+            with open(os.path.join(d, name, "info.json"), "w") as f:
+                json.dump({"created": "1767348000", "comments": comment, "tags": "O"}, f)
+        try:
+            snapshots.SNAPSHOT_DIR = d
+            found = snapshots.listing()
+        finally:
+            snapshots.SNAPSHOT_DIR = saved
+    if [s["name"] for s in found] != ["2026-03-04_10-00-00", "2026-01-02_10-00-00"] \
+            or not found[1]["auto"] or found[0]["auto"]:
+        return False, "listing: %r" % found
+    problems = []
+    for helper, argv in (("/usr/libexec/zeta-snapshot", ["create", "everything"]),
+                         ("/usr/libexec/zeta-snapshot", ["create", "manual"]),
+                         ("/usr/libexec/zeta-storage", ["rm", "-rf", "/"])):
+        if not os.access(helper, os.X_OK):
+            problems.append(_missing([helper]))
+            continue
+        c, _out, _e = _sh([helper] + argv)
+        if c == 0:
+            problems.append("%s %s accepted" % (os.path.basename(helper), " ".join(argv)))
+    for policy in ("org.zetarays.snapshot", "org.zetarays.storage"):
+        if not os.path.isfile("/usr/share/polkit-1/actions/%s.policy" % policy):
+            problems.append(_missing([policy]))
+    return not problems, "; ".join(problems) or "2 snapshots read, helpers refuse other arguments"
+
+
+@test("settings")
+def root_login_helper_strict():
+    """Settings › Account › "Allow signing in as root": the helper refuses
+    anything but status/enable/disable, enable needs root and its password
+    comes only from standard input, the polkit action always asks
+    (auth_admin, never kept), and the state it reports matches the login
+    screen's PAM file (root blocked whenever the option is off)."""
+    import xml.etree.ElementTree as ET
+    helper = "/usr/libexec/zeta-root-login"
+    policy = "/usr/share/polkit-1/actions/org.zetarays.root-login.policy"
+    missing = [p for p in (helper, policy) if not os.path.exists(p)]
+    if missing:
+        return False, _missing(missing)
+    problems = []
+    for argv in ([], ["bogus"], ["status", "extra"], ["enable", "Password123"], ["--lang=it"]):
+        c, _o, _e = _sh([helper] + argv)
+        if c != 2:
+            problems.append("%r accepted (%d)" % (" ".join(argv), c))
+    if os.geteuid() != 0:
+        c, _o, _e = _sh("echo Password123 | %s enable" % helper)
+        if c != 1:
+            problems.append("enable without root: %d" % c)
+    defaults = ET.parse(policy).getroot().find("action/defaults")
+    values = {e.tag: e.text for e in defaults} if defaults is not None else {}
+    if set(values.values()) != {"auth_admin"}:
+        problems.append("policy defaults %r" % values)
+    c, _o, _e = _sh(["pkaction", "--action-id", "org.zetarays.root-login"])
+    if c != 0:
+        problems.append("polkit action not registered")
+    c, out, _e = _sh([helper, "status"])
+    try:
+        state = json.loads(out.splitlines()[-1])
+    except (ValueError, IndexError):
+        return False, "status: %r" % out
+    try:
+        pam = open("/etc/pam.d/sddm", encoding="utf-8").read()
+    except OSError:
+        pam = ""
+    blocked = re.search(r"^\s*auth\s+\S+\s+pam_succeed_if\.so\b.*\buser\s*!=\s*root", pam, re.M)
+    if not state.get("pam") and not blocked:
+        problems.append("option off but /etc/pam.d/sddm does not block root")
+    if state.get("pam") and blocked:
+        problems.append("option on but /etc/pam.d/sddm still blocks root")
+    return not problems, "; ".join(problems) or "root sign-in %s, helper strict" % (
+        "allowed" if state.get("enabled") else "off")
+
+
+@test("settings")
+def login_screen_switch_user():
+    """Login screen: "Switch user" lists the users plus "Other user…" (a
+    name typed by hand), with its Italian text compiled in the theme's .qm."""
+    theme = "/usr/share/sddm/themes/zeta"
+    try:
+        qml = open(os.path.join(theme, "Main.qml"), encoding="utf-8").read()
+        qm = open(os.path.join(theme, "translations/it.qm"), "rb").read()
+    except OSError as e:
+        return False, str(e)
+    wanted = ["function openUserList", "function chooseEntry", "id: nameField", "id: userView",
+              'qsTr("Switch user")', 'qsTr("Other user…")', "Keys.onEscapePressed"]
+    problems = [w for w in wanted if w not in qml]
+    for imp in re.findall(r"^import\s+(\S+)", qml, re.M):
+        if imp != "QtQuick":
+            problems.append("import " + imp)
+    # a .qm holds only translated messages, each with its English source
+    for text in ("Switch user", "Other user…", "User name", "Type a user name"):
+        if text.encode("utf-8") not in qm:
+            problems.append("it.qm without %r" % text)
+    for icon in ("users.svg", "user-other.svg"):
+        if not os.path.isfile(os.path.join(theme, "icons", icon)):
+            problems.append(_missing([icon]))
+    return not problems, "; ".join(problems) or "user list, other user and Italian text present"
+
+
 # ---------------------------------------------------------------- system
 @test("system")
 def no_failed_units():
@@ -351,6 +567,29 @@ def no_failed_units():
     if notes:
         detail += "; " + ", ".join(notes)
     return not failed_units, detail
+
+
+@test("system")
+def root_session_can_start():
+    """A root session (allowed in Settings › Account) can start: the
+    session gives Hyprland the flag it needs to run as root, copies
+    /etc/skel into a home that never got it (/root), and Hyprland still
+    knows that flag."""
+    problems = []
+    try:
+        session = open("/usr/local/bin/zeta-desktop-session", encoding="utf-8").read()
+    except OSError as e:
+        return False, str(e)
+    if "--i-am-really-stupid" not in session:
+        problems.append("no root flag for Hyprland")
+    if "/etc/skel/." not in session:
+        problems.append("no /etc/skel copy for an empty home")
+    _rc, out, err = _sh(["Hyprland", "--help"], timeout=10)
+    if "--i-am-really-stupid" not in out + err:
+        problems.append("Hyprland --help does not list the root flag")
+    if not os.path.isfile("/etc/skel/.config/hypr/hyprland.lua"):
+        problems.append(_missing(["/etc/skel/.config/hypr/hyprland.lua"]))
+    return not problems, "; ".join(problems) or "root flag, skel copy"
 
 
 @test("system")
@@ -891,6 +1130,86 @@ def honest_access_log():
     # «interrupted». Here it is enough that none is fake.
     return True, ntr("{n} open session, real", "{n} open sessions, all real",
                      len(open_sessions)).format(n=len(open_sessions))
+
+
+# ------------------------------------------------ updates of ZETA RAYS itself (3.0)
+@test("system")
+def zeta_updates_source():
+    """ZETA RAYS updates come from https://zetarays.org/apt/, signed with the
+    ZETA RAYS key (package zeta-rays-release, docs/UPDATES.md): the source
+    file and the key must be in place and the key must be readable. The
+    active copy in /etc/apt/sources.list.d exists only while the repository
+    answers (check-source), so the package's pristine file is checked."""
+    import tempfile
+    src = "/usr/share/zeta-rays-release/zeta-rays.sources"
+    key = "/usr/share/keyrings/zeta-rays-archive-keyring.gpg"
+    rc, version, _ = _sh(["dpkg-query", "-W", "-f=${Version}", "zeta-rays-release"])
+    if rc != 0 or not version:
+        return False, tr("package source for ZETA RAYS updates missing")
+    missing = [p for p in (src, key, "/usr/share/zeta-rays-release/check-source",
+                           "/etc/apt/apt.conf.d/50zeta-rays-source") if not os.path.exists(p)]
+    if missing:
+        return False, _missing(missing)
+    text = open(src, encoding="utf-8").read()
+    if key not in text or "zetarays.org/apt" not in text:
+        return False, tr("unexpected content in {path}").format(path=src)
+    with tempfile.TemporaryDirectory() as home:      # no change to ~/.gnupg
+        rc, out, _ = _sh(["gpg", "--homedir", home, "--batch", "--with-colons", "--show-keys", key])
+    fpr = [l.split(":")[9] for l in out.splitlines() if l.startswith("fpr:")]
+    if rc != 0 or not fpr:
+        return False, tr("the signing key cannot be read")
+    return True, tr("version {version}, key {key}").format(version=version, key=fpr[0][-16:])
+
+
+@test("system")
+def upgrade_record_consistent():
+    """After an in-place upgrade (zetarays-X-upgrade-ARCH.run) its record
+    must say finished, and /etc/os-release must carry the version it
+    installed."""
+    import glob
+    states = sorted(glob.glob("/var/lib/zeta/upgrade-*/state.json"))
+    if not states:
+        return True, tr("skipped (installed from an image)")
+    path = states[-1]
+    want = os.path.basename(os.path.dirname(path))[len("upgrade-"):]
+    try:
+        state = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, tr("unreadable: {file}").format(file=path)
+    have = ""
+    for line in open("/etc/os-release", encoding="utf-8"):
+        if line.startswith("VERSION_ID="):
+            have = line.split("=", 1)[1].strip().strip('"')
+    if state.get("status") == "rolled-back":
+        return True, tr("upgrade to {version} undone, files restored").format(version=want)
+    if state.get("status") != "done":
+        return False, tr("upgrade to {version} not finished: {status}").format(
+            version=want, status=state.get("status", "?"))
+    if have != want:
+        return False, tr("version in os-release is {have}, expected {want}").format(have=have, want=want)
+    return True, tr("upgraded to {version} on {date}").format(version=want, date=state.get("finished", "?"))
+
+
+@test("system")
+def user_migrations_valid():
+    """The settings migrations that zeta-migrate-user applies at login must
+    be readable, use known steps, and find the files they compare with."""
+    import glob
+    kinds = {"skel", "skel-new", "lua-append", "file", "text", "jsonkey", "jsonvalue", "cred", "commands"}
+    files = sorted(glob.glob("/usr/share/zeta/migration/*.json"))
+    steps = 0
+    for path in files:
+        try:
+            data = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError):
+            return False, tr("unreadable: {file}").format(file=path)
+        for s in data.get("steps", []):
+            steps += 1
+            if s.get("kind") not in kinds:
+                return False, tr("unknown step {kind} in {file}").format(kind=s.get("kind"), file=path)
+            if s["kind"] == "lua-append" and not os.path.exists(s.get("base", "")):
+                return False, _missing([s.get("base", "?")])
+    return bool(files), tr("{n} migrations, {steps} steps").format(n=len(files), steps=steps)
 
 
 # ------------------------------------------------ ZETA RAYS 1.7, late September
@@ -1468,6 +1787,261 @@ def ai_ram_decisions():
         except (OSError, UnboundLocalError):
             pass
     return not wrong, "; ".join(wrong) if wrong else _cases_passed(len(cases))
+
+
+@test("ai")
+def ai_small_model_and_upgrade():
+    """3.0: granite4.2:3b is the model of low-power and 8 GB computers, asked
+    not to think (also by the action chooser); a computer that still has
+    the 2.5 model granite4:micro-h keeps using it until the new one is
+    downloaded, and a chosen model that is not installed any more gives way
+    to an installed one instead of failing at every question."""
+    import json as _json
+    from intelligence import models
+    from intelligence.agent import agent as AG
+    from intelligence.providers import base as B
+    from intelligence.providers.base import ProviderConfig
+    from intelligence.providers.ollama import OllamaProvider
+    wrong = []
+    for profile in ("low-power", "8gb"):
+        if models.preferred(profile)[0] != "granite4.2:3b":
+            wrong.append("first model %s" % profile)
+    if not models.thinks("granite4.2:3b") or models.thinks("granite4:micro-h"):
+        wrong.append("thinking")
+    upgraded = {"granite4:micro-h": 1.9, "qwen3:4b-instruct": 2.5}
+    for profile, want in (("8gb", "granite4:micro-h"), ("low-power", "granite4:micro-h"),
+                          ("16gb", "qwen3:4b-instruct")):
+        if models.choose(upgraded, profile) != want:
+            wrong.append("upgrade %s" % profile)
+    fresh = {"granite4.2:3b": 2.2, "qwen3:4b-instruct": 2.5}
+    if models.resolve("granite4:micro-h", fresh, "8gb") != "granite4.2:3b":
+        wrong.append("stale choice")
+    if not models.stale_choice("granite4:micro-h", fresh) or models.stale_choice("qwen3:4b-instruct", fresh):
+        wrong.append("stale note")
+    if models.resolve("qwen3:4b-instruct", fresh, "8gb") != "qwen3:4b-instruct":
+        wrong.append("choice not kept")
+    if models.resolve("granite4:micro-h", {}, "8gb") != "granite4:micro-h":
+        wrong.append("choice dropped without a list")
+    if not 2.5 < models.loaded_gb("granite4.2:3b", 2.2) < 2.8:
+        wrong.append("loaded size")
+    # the action chooser sends think: false to a thinking model
+    sent = []
+
+    class Local(OllamaProvider):
+        def available(self):
+            return True
+
+        def _model(self):
+            return "granite4.2:3b"
+
+    class Answer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, _n):
+            return _json.dumps({"message": {"content": '{"action": "none"}'}}).encode()
+
+    old = B.open_url
+    try:
+        def fake(req, **_kw):
+            sent.append(_json.loads(req.data.decode()))
+            return Answer()
+        B.open_url = fake
+        prov = Local(ProviderConfig(name="ollama", label="Ollama"))
+        prov._last_tags = {"granite4.2:3b": 2.2}
+        AG.choose_with_model("open the documents folder", prov)
+    finally:
+        B.open_url = old
+    if not sent or sent[0].get("think") is not False:
+        wrong.append("chooser thinks: %s" % (sent[0].get("think") if sent else "no request"))
+    return not wrong, "; ".join(wrong) if wrong else tr("profile here: {p}, models: {m}").format(
+        p=models.machine().profile, m=", ".join(models.preferred()))
+
+
+@test("ai")
+def ai_ram_decisions_small_model():
+    """8 GB with granite4.2:3b (about 2.65 GB loaded, a third of the RAM):
+    loaded when ZETA opens and kept 10 minutes; a 3.4 GB model on 8 GB, or
+    any model on 4 GB, keeps the careful behaviour; 12 GB and more always
+    load when ZETA opens."""
+    import tempfile
+    from intelligence import models
+    from intelligence import resources as R
+    small = models.loaded_gb("granite4.2:3b")
+    large = models.loaded_gb("qwen3:4b-instruct")
+    cases = [  # (MemTotal kB, MemAvailable kB, model GB, keep_alive, preload when ZETA opens)
+        (8_000_000, 5_800_000, small, "10m", True),
+        (8_000_000, 5_800_000, large, "5m", False),
+        (8_000_000, 400_000, small, "1m", True),        # memory short now: released soon
+        (3_900_000, 2_600_000, small, "2m", False),     # 4 GB
+        (12_100_000, 8_000_000, large, "10m", True),
+    ]
+    old = R.MEMINFO
+    wrong = []
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".meminfo", delete=False) as f:
+            path = f.name
+        R.MEMINFO = path
+        for total, avail, model, keep, on_open in cases:
+            with open(path, "w") as f:
+                f.write("MemTotal: %d kB\nMemFree: 100000 kB\nMemAvailable: %d kB\n" % (total, avail))
+            got = (R.keep_alive(model), R.preload_on_open(model), R.preload_allowed())
+            if got != (keep, on_open, False):
+                wrong.append("%.0f GB/%.1f GB model: %s" % (R.nominal_memory_gb(), model, got))
+    finally:
+        R.MEMINFO = old
+        try:
+            os.unlink(path)
+        except (OSError, UnboundLocalError):
+            pass
+    return not wrong, "; ".join(wrong) if wrong else _cases_passed(len(cases))
+
+
+@test("ai")
+def ai_reading_requests():
+    """«What's on my screen?», «summarize the file …» (English and Italian)
+    are recognized; screenshots, screen off, full screen and brightness are
+    not readings."""
+    import tempfile
+    from intelligence import reading
+    wrong = []
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write("hello")
+        path = f.name
+    try:
+        cases = [("What's on my screen?", "screen"), ("summarize what I'm looking at", "screen"),
+                 ("translate this page into Italian", "screen"), ("explain the active window", "screen"),
+                 ("Summarize the file “%s”" % path, "file"), ("summarize %s" % path, "file"),
+                 ("summarize ~/no-such-folder/x.pdf", "missing"), ("summarize this file", "which_file"),
+                 ("take a screenshot", None), ("turn off the screen", None), ("go full screen", None),
+                 ("lower the screen brightness", None), ("open firefox", None),
+                 ("what is a screen reader?", None)]
+        cases += [(p.replace("{path}", path), k) for p, k in _phrases("ai_reading_requests")["it"]]
+        for phrase, want in cases:
+            got = reading.parse(phrase)
+            if (got[0] if got else None) != want:
+                wrong.append("%s -> %s" % (phrase, got))
+            elif want == "file" and got[1] != path:
+                wrong.append("path of %s" % phrase)
+    finally:
+        os.unlink(path)
+    return not wrong, "; ".join(wrong) if wrong else _cases_passed(len(cases))
+
+
+@test("ai")
+def ai_reading_files_and_screen():
+    """The text of plain, HTML, Word and LibreOffice files is read (office
+    files from their XML, nothing interpreted), cut to the model's budget;
+    the window read is the last one used that is not ZETA; a picture without
+    text gets an honest answer and the model is not asked."""
+    import tempfile
+    import zipfile
+    from intelligence import reading
+    from intelligence import assistant as A
+    from intelligence.providers.base import Provider, ProviderConfig, Reply
+    wrong = []
+    body = "Quarterly report. Sales grew by twelve percent in the north region."
+    with tempfile.TemporaryDirectory() as d:
+        files = {"a.txt": body, "a.html": "<html><script>x()</script><p>%s</p></html>" % body}
+        for name, text in files.items():
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+        with zipfile.ZipFile(os.path.join(d, "a.docx"), "w") as z:
+            z.writestr("word/document.xml", '<w:document><w:body><w:p><w:r><w:t>Quarterly report.'
+                       '</w:t></w:r></w:p><w:p><w:r><w:t>Sales grew by twelve percent in the north '
+                       'region.</w:t></w:r></w:p></w:body></w:document>')
+        with zipfile.ZipFile(os.path.join(d, "a.odt"), "w") as z:
+            z.writestr("content.xml", "<office:text><text:p>Quarterly report.</text:p>"
+                       "<text:p>Sales grew by twelve percent in the north region.</text:p></office:text>")
+        with open(os.path.join(d, "a.bin"), "wb") as f:
+            f.write(b"\0\1\2binary")
+        for name in ("a.txt", "a.html", "a.docx", "a.odt"):
+            text = reading.file_text(os.path.join(d, name)).text
+            if "twelve percent" not in text or "x()" in text:
+                wrong.append(name)
+        try:
+            reading.file_text(os.path.join(d, "a.bin"))
+            wrong.append("binary read")
+        except reading.ReadError:
+            pass
+    long_text = ("word " * 5000).strip()
+    cut, was_cut = reading.trim(long_text, reading.budget(2048))
+    if not was_cut or len(cut) > (2048 - reading.SYSTEM_TOKENS) * reading.CHARS_PER_TOKEN:
+        wrong.append("budget 2048: %d" % len(cut))
+    clients = [{"class": "org.zetarays.Core", "focusHistoryID": 0, "workspace": {"id": 1},
+                "size": [600, 800], "at": [0, 0], "mapped": True},
+               {"class": "firefox", "focusHistoryID": 1, "workspace": {"id": 1},
+                "size": [1200, 800], "at": [10, 10], "mapped": True, "title": "News"},
+               {"class": "foot", "focusHistoryID": 2, "workspace": {"id": 1},
+                "size": [800, 600], "at": [0, 0], "mapped": True},
+               {"class": "gimp", "focusHistoryID": 0, "workspace": {"id": 3},
+                "size": [800, 600], "at": [0, 0], "mapped": True}]
+    if (reading.target_window(clients, {1}) or {}).get("class") != "firefox":
+        wrong.append("window chosen")
+    # the reading reaches the model with the request; no text, no model
+    asked = []
+
+    class Fake(Provider):
+        def available(self):
+            return True
+
+        def _model(self):
+            return "granite4.2:3b"
+
+        def stream(self, messages, on_text):
+            asked.append([m.content for m in messages])
+            on_text("A summary.")
+            return Reply(text="A summary.")
+    old = reading.screen_text
+    try:
+        a = A.Assistant(Fake(ProviderConfig(name="ollama", label="Ollama", context=2048, max_tokens=220)))
+        a.memory.enabled = False
+        a.history = []
+        reading.screen_text = lambda: reading.Document("screen", "News", body)
+        answer = a.respond("summarize what's on my screen", on_text=lambda c: None)
+        sent = asked[-1][-1] if asked else ""
+        if "twelve percent" not in sent or "summarize what's on my screen" not in sent \
+                or "A summary." not in answer:
+            wrong.append("reading not sent")
+        if len(asked[-1]) != 1:
+            wrong.append("history sent with the reading")
+        if a.provider.config.max_tokens != 220:
+            wrong.append("answer length not restored")
+        n = len(asked)
+        reading.screen_text = lambda: reading.Document("screen", "Photos", "~ |")
+        a.respond("what's on my screen?", on_text=lambda c: None)
+        if len(asked) != n:
+            wrong.append("model asked without text")
+    finally:
+        reading.screen_text = old
+    return not wrong, "; ".join(wrong) if wrong else tr("files, window and answer checked")
+
+
+@test("ai")
+def ai_summarize_action_in_files():
+    """The file manager offers «Ask ZETA to Summarize» (new users from
+    /etc/skel, 2.5 users through the 3.0 migration, never twice), and the
+    reading tools are installed."""
+    wrong = []
+    try:
+        skel = open("/etc/skel/.config/Thunar/uca.xml", encoding="utf-8").read()
+    except OSError:
+        skel = ""
+    if "zeta-core --summarize %f" not in skel:
+        wrong.append("uca.xml")
+    try:
+        step = json.load(open("/usr/share/zeta/migration/update-3.0-ai.json"))["steps"][0]
+        if step["new"] not in skel or step["old"] in skel:
+            wrong.append("migration")
+    except (OSError, ValueError, KeyError, IndexError):
+        wrong.append("migration")
+    for tool in ("grim", "tesseract", "pdftotext"):
+        if not _sh(["sh", "-c", "command -v " + tool])[1]:
+            wrong.append(tool)
+    return not wrong, _missing(wrong) if wrong else tr("action and tools present")
 
 
 @test("ai")
@@ -2472,6 +3046,227 @@ def minimized_found_after_crash():
             windows.forget(addr)
 
 
+@test("windows")
+def snap_layouts_bound():
+    """Snap layouts: Super + Shift + Left/Right/Up/Down and Super + Z are
+    bound in Hyprland ("zeta-snap:" descriptions), window_snap.lua is loaded
+    and zeta-snap knows the same 16 zone names."""
+    rc, out, _e = _sh(["zeta-snap", "list"])
+    names = out.split()
+    if rc != 0 or len(names) != 16 or "left" not in names or "top-right" not in names:
+        return False, "zeta-snap list: %r" % names[:4]
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    super_, shift = 64, 1
+    expected = {"left": (super_ | shift, "left"), "right": (super_ | shift, "right"),
+                "maximize": (super_ | shift, "up"), "restore": (super_ | shift, "down"),
+                "menu": (super_, "z")}
+    _rc, out, _e = _sh(["hyprctl", "-j", "binds"])
+    try:
+        binds = json.loads(out or "[]")
+    except ValueError:
+        return False, "hyprctl binds"
+    found = {}
+    for b in binds:
+        d = b.get("description") or ""
+        if d.startswith("zeta-snap:") and not b.get("submap"):
+            found[d.split(":", 1)[1]] = (b.get("modmask"), (b.get("key") or "").lower())
+    wrong = [name for name, want in expected.items() if found.get(name) != want]
+    if wrong:
+        return False, _missing(wrong)
+    _rc, out, _e = _sh(["hyprctl", "eval", "if not zeta_snap_ready then error('snap not loaded') end"])
+    if not out.startswith("ok"):
+        return False, tr("snap layouts not loaded: {detail}").format(detail=out[:120])
+    return True, ntr("{n} snap shortcut bound", "{n} snap shortcuts bound",
+                     len(expected)).format(n=len(expected))
+
+
+@test("windows")
+def snap_halves_quarters_and_restore():
+    """A window snapped to the left half and to the top right quarter fills
+    that part of the usable area (title bar included, never under the bar),
+    maximize fills the screen, and restore puts it back where it was."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    from system import windows
+    bar = 32 if windows.title_bars_present() else 0
+    title = "zeta-selftest snap"
+    proc = _test_window(_PLAIN_SCRIPT, title)
+    gap, tol = 8, 3
+
+    def geometry():
+        c = _client(title)
+        return (tuple(c["at"]), tuple(c["size"]), c.get("fullscreen", 0), c) if c else None
+
+    try:
+        deadline = time.monotonic() + 10
+        g = None
+        while time.monotonic() < deadline and not g:
+            time.sleep(0.4)
+            g = geometry()
+        if not g:
+            return False, tr("the test window did not appear")
+        time.sleep(1.6)                  # the guard's checks after opening are done
+        before = geometry()
+        addr = before[3]["address"]
+        area = _usable_area().get(before[3]["monitor"])
+        if not area:
+            return False, tr("no displays from hyprctl")
+        x0, y0, x1, y1 = area
+        mid = (x0 + x1) / 2
+
+        def fits(name, left, top, right, bottom):
+            if _sh(["zeta-snap", name, addr])[0] != 0:
+                return "%s: zeta-snap failed" % name
+            time.sleep(0.7)
+            (x, y), (w, h), _fs, _c = geometry()
+            got = (x, y - bar, x + w, y + h)
+            # the bar's reserved space can differ by its margin from the
+            # layer the guard measures: the top and bottom are checked loosely
+            if (abs(got[0] - left) > tol or abs(got[2] - right) > tol
+                    or got[1] < y0 - 1 or abs(got[1] - top) > tol + 12
+                    or got[3] > y1 + 1 or abs(got[3] - bottom) > tol + 12):
+                return "%s: %d,%d %dx%d" % (name, x, y, w, h)
+            return None
+
+        problems = [p for p in (
+            fits("left", x0 + gap, y0 + gap, mid - gap / 2, y1 - gap),
+            fits("top-right", mid + gap / 2, y0 + gap, x1 - gap, (y0 + y1) / 2 - gap / 2),
+        ) if p]
+        _sh(["zeta-snap", "restore", addr])
+        time.sleep(0.7)
+        back = geometry()
+        if abs(back[0][0] - before[0][0]) > tol or abs(back[1][0] - before[1][0]) > tol:
+            problems.append("restore: %r instead of %r" % (back[:2], before[:2]))
+        _sh(["zeta-snap", "maximize", addr])
+        time.sleep(0.7)
+        if not geometry()[2]:
+            problems.append("maximize: not maximized")
+        _sh(["zeta-snap", "restore", addr])
+        time.sleep(0.7)
+        if geometry()[2]:
+            problems.append("restore: still maximized")
+        if problems:
+            return False, "; ".join(problems)
+        return True, tr("left half, top right quarter, maximize and restore")
+    finally:
+        proc.kill()
+
+
+def _tiny_png(path, w=40, h=30):
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+    rows = b"".join(b"\0" + b"\x3a\x8d\xff" * w for _ in range(h))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def _tiny_pdf(path, pages=2):
+    kids = " ".join("%d 0 R" % (3 + i) for i in range(pages))
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            ("<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, pages)).encode()]
+    objs += [b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 280] >>"] * pages
+    out, offsets = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (i, o)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    out += b"".join(b"%010d 00000 n \n" % off for off in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    with open(path, "wb") as f:
+        f.write(out)
+
+
+@test("windows")
+def quick_look_recognizes_files():
+    """Quick Look (zeta-quicklook --info, no window): a picture, a two-page
+    PDF (first page made with pdftoppm), a text file larger than 200 KB
+    (cut), a folder (items and size) and an unknown binary file."""
+    import shutil
+    import tempfile
+    d = tempfile.mkdtemp(prefix="zeta-selftest-ql-")
+    try:
+        _tiny_png(os.path.join(d, "picture.png"))
+        _tiny_pdf(os.path.join(d, "document.pdf"))
+        with open(os.path.join(d, "notes.txt"), "w") as f:
+            f.write("zeta selftest\n" * 20000)
+        os.makedirs(os.path.join(d, "folder", "inside"))
+        with open(os.path.join(d, "folder", "inside", "a.bin"), "wb") as f:
+            f.write(b"\0\1\2" * 1000)
+        cases = [("picture.png", {"kind": "image", "preview": True, "width": 40}),
+                 ("document.pdf", {"kind": "pdf", "preview": True, "pages": 2}),
+                 ("notes.txt", {"kind": "text", "truncated": True}),
+                 ("folder", {"kind": "folder", "items": 1, "files": 1, "total": 3000}),
+                 ("folder/inside/a.bin", {"kind": "other"})]
+        wrong = []
+        for name, want in cases:
+            rc, out, err = _sh(["zeta-quicklook", "--info", os.path.join(d, name)], timeout=30)
+            try:
+                got = json.loads(out)
+            except ValueError:
+                wrong.append("%s: %s" % (name, (err or out)[:80]))
+                continue
+            bad = {k: got.get(k) for k, v in want.items() if got.get(k) != v}
+            if rc != 0 or bad:
+                wrong.append("%s: %r" % (name, bad))
+        if wrong:
+            return False, "; ".join(wrong)
+        return True, _cases_passed(len(cases))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@test("windows")
+def quick_look_in_files_and_desktop():
+    """The file manager has the Quick Look action on Space (uca.xml and
+    accels.scm of this user) and Quick Look opens a window."""
+    cfg = os.path.expanduser("~/.config/Thunar")
+    try:
+        uca = open(os.path.join(cfg, "uca.xml"), encoding="utf-8").read()
+        accels = open(os.path.join(cfg, "accels.scm"), encoding="utf-8").read()
+    except OSError as e:
+        return False, str(e)
+    if "<unique-id>zeta-quicklook</unique-id>" not in uca:
+        return False, tr("Quick Look action missing in the file manager")
+    if '(gtk_accel_path "<Actions>/ThunarActions/uca-action-zeta-quicklook" "space")' not in accels:
+        return False, tr("Space is not bound to Quick Look in the file manager")
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    import shutil
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(prefix="zeta-selftest-ql-"), "zeta-selftest.txt")
+    with open(path, "w") as f:
+        f.write("zeta-selftest\n")
+    start = time.monotonic()
+    proc = subprocess.Popen(["zeta-quicklook", path], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    c = None
+    try:
+        while time.monotonic() - start < 10 and not c:
+            time.sleep(0.1)
+            c = _client("zeta-selftest.txt")
+        if not c:
+            return False, tr("the Quick Look window did not appear")
+        ms = int((time.monotonic() - start) * 1000)
+        if c.get("class") != "org.zetarays.QuickLook":
+            return False, "class %s" % c.get("class")
+        return True, tr("window in {ms} ms").format(ms=ms)
+    finally:
+        if c:
+            _sh(["hyprctl", "dispatch", 'hl.dsp.window.close({ window = "address:%s" })' % c["address"]])
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+
+
 @test("settings")
 def displays_read_and_settings_valid():
     """Settings › Displays: displays are read from Hyprland with their modes;
@@ -2499,14 +3294,14 @@ def displays_read_and_settings_valid():
 
 @test("settings")
 def avatar_in_system_colors():
-    """The account picture: a solid circle in one of the 4 accent colors
+    """The account picture: a solid circle in one of the 5 accent colors
     (a single palette, the same as the «make it red» commands), no
     symbols; a color outside the palette is rejected."""
     from ui import accent
     from system import avatar
     from intelligence import intents
     colors = [c for _k, c, _n in accent.PALETTE]
-    if colors != ["#3A8DFF", "#C8102E", "#4CC94A", "#FFFFFF"]:
+    if colors != ["#3A8DFF", "#C8102E", "#4CC94A", "#7C3AED", "#FFFFFF"]:
         return False, "%r" % colors
     for word, k in _phrases("avatar_in_system_colors")["colors"].items():
         if intents._COLORS[word] != accent.color_of(k):
@@ -2516,7 +3311,7 @@ def avatar_in_system_colors():
         return False, tr("a color outside the palette was accepted")
     if os.path.isdir("/usr/share/zeta/avatar"):
         return False, tr("old symbol pictures still installed")
-    return True, tr("4 colors, one palette, current choice: {c}").format(c=avatar.choice())
+    return True, tr("5 colors, one palette, current choice: {c}").format(c=avatar.choice())
 
 
 @test("settings")
@@ -2677,6 +3472,1053 @@ def monitor_service_verdicts_are_calm():
     if U.valid_unit("-H.service") or U.valid_unit("../x.service") or not U.valid_unit(backlight):
         return False, "unit name validation"
     return True, "%d cases, 4 levels" % len(cases)
+
+
+# ---------------------------------------------------------------- controlcenter
+def _wlsunset_temperature(argv, env, when):
+    """The temperature wlsunset 0.3.0 shows at `when` (epoch) in manual mode
+    (-S/-s/-d), computed as its main.c does, with its own TZ."""
+    def opt(flag):
+        return argv[argv.index(flag) + 1]
+
+    def secs(hhmm):
+        return int(hhmm[:2]) * 3600 + int(hhmm[3:]) * 60
+    low, high, ramp = int(opt("-t")), int(opt("-T")), int(opt("-d"))
+    old = os.environ.get("TZ")
+    try:
+        if "TZ" in env:
+            os.environ["TZ"] = env["TZ"]
+            time.tzset()
+        offset = -time.localtime(when).tm_gmtoff
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        time.tzset()
+    day = when - ((when - offset) % 86400)
+    sunrise, sunset = secs(opt("-S")) + day, secs(opt("-s")) + day
+    if when < sunrise - ramp or when >= sunset + ramp:
+        return low
+    if sunrise <= when < sunset:
+        return high
+    return None                       # inside a gradual change
+
+
+@test("controlcenter")
+def night_light_schedule():
+    """Night Light: settings are checked, the position comes from the time
+    zone (never from the Internet), sunrise and sunset are plausible, and a
+    custom period inside one day (00:30 to 06:00) becomes a wlsunset command
+    that is warm exactly then."""
+    import tempfile
+    from system import night_light as nl
+    saved = nl.CONFIG
+    with tempfile.TemporaryDirectory() as tmp:
+        nl.CONFIG = os.path.join(tmp, "night-light.json")
+        try:
+            conf = nl.update(enabled=True, schedule="custom", temperature=3500,
+                             **{"from": "00:30", "to": "06:00"})
+            for bad in ({"from": "25:00"}, {"schedule": "never"}, {"from": "06:00"}):
+                try:
+                    nl.update(**bad)
+                    return False, "accepted %r" % (bad,)
+                except ValueError:
+                    pass
+            if nl.update(temperature=99999)["temperature"] != nl.T_MAX:
+                return False, "temperature not limited"
+            conf = nl.update(temperature=3500)
+            argv, env = nl.command(conf)
+            base = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
+            wrong = []
+            for hour, want in ((3, 3500), (12, 6500), (23, 6500), (6.5, 6500), (0.1, 6500)):
+                got = _wlsunset_temperature(argv, env, int(base + hour * 3600))
+                if got != want:
+                    wrong.append("%s h: %s K" % (hour, got))
+            if wrong:
+                return False, "custom 00:30-06:00: " + ", ".join(wrong)
+            argv, env = nl.command(nl.update(**{"from": "21:00", "to": "07:00"}))
+            if "TZ" in env or argv[argv.index("-S") + 1] != "07:00":
+                return False, " ".join(argv)
+        finally:
+            nl.CONFIG = saved
+    june = time.strptime("2026-06-21 12:00", "%Y-%m-%d %H:%M")
+    rise, set_ = nl.sun_times(41.9, 12.48, june, utc_offset_minutes=120)
+    if not (5 * 60 + 15 <= rise <= 5 * 60 + 55 and 20 * 60 + 30 <= set_ <= 21 * 60 + 5):
+        return False, "Rome, June 21: %s-%s" % (nl.hhmm(rise), nl.hhmm(set_))
+    zone = nl.timezone_name()
+    loc = nl.location({"schedule": "sunset"})
+    if zone and not zone.startswith("Etc/") and zone != "UTC" and loc is None:
+        return False, tr("no position for the time zone {zone}").format(zone=zone)
+    return True, "%s → %s" % (zone, ("%.1f, %.1f" % loc) if loc else "-")
+
+
+@test("controlcenter")
+def night_light_process():
+    """One wlsunset when Night Light is on, none when it is off (no polling
+    script, no duplicates)."""
+    import shutil
+    if not shutil.which("wlsunset"):
+        return False, _missing(["wlsunset"])
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return True, _outside_session()
+    from system import night_light as nl
+    st = nl.status()
+    _c, out, _e = _sh(["pgrep", "-c", "-x", "-u", str(os.getuid()), "wlsunset"])
+    count = int(out or 0)
+    want = 1 if st["enabled"] else 0
+    return count == want, "enabled=%s, wlsunset ×%d" % (st["enabled"], count)
+
+
+@test("controlcenter")
+def night_light_on_off():
+    """zeta-night-light on/preview/off really starts and ends wlsunset; the
+    previous settings are put back."""
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return True, _outside_session()
+    from system import night_light as nl
+    try:
+        before = open(nl.CONFIG).read()
+    except OSError:
+        before = None
+
+    def count():
+        _c, o, _e = _sh(["pgrep", "-c", "-x", "-u", str(os.getuid()), "wlsunset"])
+        return int(o or 0)
+    try:
+        rc, out, _e = _sh(["zeta-night-light", "on"])
+        time.sleep(1.0)
+        on_count = count()
+        try:
+            st = json.loads(out or "{}")
+        except ValueError:
+            st = {}
+        _sh(["zeta-night-light", "preview", "3000"])
+        time.sleep(0.5)
+        preview_count = count()
+        _sh(["zeta-night-light", "off"])
+        off_count = count()
+    finally:
+        if before is None:
+            try:
+                os.remove(nl.CONFIG)
+            except OSError:
+                pass
+        else:
+            with open(nl.CONFIG, "w") as f:
+                f.write(before)
+        _sh(["zeta-night-light", "apply"])
+    detail = "on ×%d, preview ×%d, off ×%d" % (on_count, preview_count, off_count)
+    if rc == 0 and st.get("enabled") and on_count == 1 == preview_count and off_count == 0:
+        return True, detail
+    c, virt, _e = _sh(["systemd-detect-virt"])
+    if on_count == 0 and c == 0 and virt not in ("", "none"):
+        # wlsunset ends at once when no display offers gamma control
+        return True, tr("skipped: the virtual display has no gamma control ({virt})").format(virt=virt)
+    return False, detail
+
+
+@test("controlcenter")
+def power_modes():
+    """power-profiles-daemon answers, offers Balanced, and switching mode
+    works for the user (then the previous mode is put back)."""
+    from system import power
+    if not os.path.exists("/usr/libexec/power-profiles-daemon"):
+        return False, _missing(["power-profiles-daemon"])
+    p = power.power_profiles()
+    if p is None:
+        return False, tr("the power mode service does not answer")
+    if "balanced" not in p["available"]:
+        return False, ", ".join(p["available"])
+    others = [x for x in p["available"] if x != p["active"]]
+    if not others:
+        return True, p["active"]
+    start = p["active"]
+    try:
+        if not power.set_power_profile(others[0]):
+            return False, "set %s refused" % others[0]
+        time.sleep(0.5)
+        now = (power.power_profiles() or {}).get("active")
+    finally:
+        power.set_power_profile(start)
+    return now == others[0], "%s → %s → %s (%s)" % (start, others[0], start, ", ".join(p["available"]))
+
+
+@test("controlcenter")
+def idle_times_and_suspend():
+    """Screen off / lock / suspend times reach hypridle.conf quickly (only the
+    idle file is rewritten, not the whole theme) and invalid values are refused."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as home:
+        env = {k: v for k, v in os.environ.items() if k != "HYPRLAND_INSTANCE_SIGNATURE"}
+        env["HOME"] = home
+        start = time.monotonic()
+        codes = []
+        for key, value in (("auto-suspend", "30"), ("screen-off", "0"), ("auto-lock", "5")):
+            r = subprocess.run(["zeta-appearance", "set", key, value], env=env,
+                               capture_output=True, text=True, timeout=30)
+            codes.append(r.returncode)
+        elapsed = time.monotonic() - start
+        bad = subprocess.run(["zeta-appearance", "set", "auto-suspend", "999"], env=env,
+                             capture_output=True, text=True, timeout=30).returncode
+        try:
+            conf = open(os.path.join(home, ".config/hypr/hypridle.conf")).read()
+        except OSError as e:
+            return False, str(e)
+    wrong = []
+    if codes != [0, 0, 0] or bad == 0:
+        wrong.append("exit codes %s / %d" % (codes, bad))
+    if "timeout = 1800" not in conf or "systemctl suspend" not in conf:
+        wrong.append("no suspend listener")
+    if "timeout = 300" not in conf or "dpms" in conf:
+        wrong.append("lock/screen-off listeners")
+    if elapsed > 6:
+        wrong.append("%.1f s" % elapsed)
+    return not wrong, "; ".join(wrong) or "%.1f s" % elapsed
+
+
+@test("controlcenter")
+def power_button_helper():
+    """The power button setting goes only through the polkit helper, which
+    refuses anything but its four actions."""
+    from system import power
+    helper = power.POWER_BUTTON_HELPER
+    policy = "/usr/share/polkit-1/actions/org.zetarays.power-button.policy"
+    missing = [p for p in (helper, policy) if not os.path.exists(p)]
+    if missing:
+        return False, _missing(missing)
+    rc, _o, _e = _sh([helper, "reboot"])
+    rc2, _o, _e = _sh([helper, "poweroff", "extra"])
+    if rc != 2 or rc2 != 2:
+        return False, "invalid arguments accepted (%d, %d)" % (rc, rc2)
+    rc, _o, _e = _sh(["pkaction", "--action-id", "org.zetarays.power-button"])
+    if rc != 0:
+        return False, "polkit action not registered"
+    return True, "HandlePowerKey=%s" % power.power_button_action()
+
+
+@test("controlcenter")
+def quick_toggle_sources():
+    """The Control Center's quick toggles read their state from commands
+    that answer in JSON; the missing ones are hidden, never broken."""
+    import shutil
+    icons = "/usr/share/icons/zeta/scalable/apps"
+    names = ["zeta-night-light", "zeta-power-mode", "zeta-screenshot", "zeta-record",
+             "zeta-clipboard"]
+    missing = [n for n in names if not os.path.isfile(os.path.join(icons, n + ".svg"))]
+    if missing:
+        return False, _missing(missing)
+    rc, out, _e = _sh(["zeta-night-light", "status"])
+    try:
+        st = json.loads(out)
+        if not {"enabled", "active", "schedule", "temperature"} <= set(st):
+            return False, out
+    except ValueError:
+        return False, out or "zeta-night-light status"
+    seen = ["zeta-night-light"]
+    for cmd, key in (("zeta-dnd", "dnd"), ("zeta-screenshot", "recording")):
+        if not shutil.which(cmd):
+            continue
+        rc, out, _e = _sh([cmd, "status"])
+        try:
+            if not isinstance(json.loads(out).get(key), bool):
+                return False, "%s status: %s" % (cmd, out)
+        except (ValueError, AttributeError):
+            return False, "%s status: %s" % (cmd, out)
+        seen.append(cmd)
+    return True, ", ".join(seen)
+
+
+_PANELS_SCRIPT = r'''
+import importlib.machinery, importlib.util, json, os, sys, time
+os.environ["ZETA_LAYER_PRELOADED"] = "1"         # no re-exec with LD_PRELOAD
+sys.path.insert(0, "/usr/lib/zeta")
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio
+out = {}
+
+
+def ms(t):
+    return round((time.perf_counter() - t) * 1000)
+
+
+def activate(app):
+    t = time.perf_counter()
+    from ui.power_page import PowerPage
+    PowerPage()
+    out["power_page_ms"] = ms(t)
+    t = time.perf_counter()
+    from ui.displays_page import DisplaysPage
+    DisplaysPage()
+    out["displays_page_ms"] = ms(t)
+    loader = importlib.machinery.SourceFileLoader("zeta_cc", "/usr/local/bin/zeta-control-center")
+    cc = importlib.util.module_from_spec(importlib.util.spec_from_loader("zeta_cc", loader))
+    t = time.perf_counter()
+    loader.exec_module(cc)
+    out["control_import_ms"] = ms(t)
+    t = time.perf_counter()
+    win = cc.Control(app, "control")
+    out["control_build_ms"] = ms(t)
+    t = time.perf_counter()
+    win._gather_quick(win._round)
+    out["quick_state_ms"] = ms(t)
+    win.destroy()
+    print(json.dumps(out))
+    app.quit()
+
+
+app = Adw.Application(application_id="org.zetarays.SelftestPanels",
+                      flags=Gio.ApplicationFlags.NON_UNIQUE)
+app.connect("activate", activate)
+app.run([])
+'''
+
+
+@test("controlcenter")
+def panels_build():
+    """Settings › Power & Battery, Settings › Displays (with Night Light) and
+    the Control Center build without errors; the times are shown."""
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return True, _outside_session()
+    try:
+        r = subprocess.run([sys.executable, "-c", _PANELS_SCRIPT], capture_output=True,
+                           text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    last = (r.stdout.strip().splitlines() or [""])[-1]
+    try:
+        data = json.loads(last)
+    except ValueError:
+        return False, (r.stderr.strip().splitlines() or ["exit %d" % r.returncode])[-1]
+    return True, ", ".join("%s %s" % (k[:-3], v) for k, v in data.items()) + " ms"
+
+
+# ------------------------------------- clipboard history, emoji, Do Not Disturb
+
+_CLIP_STORE = "/usr/libexec/zeta-clipboard-store"
+# wl-paste stand-in for the test: lists the types given in FAKE_TYPES (the
+# real cliphist and the real store script run; the user's clipboard and
+# history are never touched)
+_FAKE_WL_PASTE = r'''#!/bin/sh
+case "$1" in
+    --list-types) printf '%s\n' "$FAKE_TYPES" | tr ',' '\n' ;;
+    *) printf 'zeta-image' ;;
+esac
+'''
+
+
+@test("clipboard")
+def clipboard_tools_present():
+    """cliphist, wl-clipboard, wtype and mako are installed; the store script,
+    the panel and the emoji list are there."""
+    import shutil
+    missing = [c for c in ("cliphist", "wl-paste", "wl-copy", "wtype", "makoctl", "zeta-clipboard",
+                           "zeta-emoji", "zeta-dnd") if not shutil.which(c)]
+    if not os.access(_CLIP_STORE, os.X_OK):
+        missing.append(_CLIP_STORE)
+    if missing:
+        return False, _missing(missing)
+    from ui import emoji_view
+    items = emoji_view.load_emoji()
+    groups_found = {g for _e, _n, g in items}
+    if len(items) < 1800 or groups_found != set(emoji_view.GROUPS):
+        return False, "emoji.json: %d emoji, groups %s" % (len(items), sorted(groups_found))
+    first = emoji_view.search(items, "thumbs up")
+    if not first or items[first[0]][0] != "\U0001F44D":
+        return False, "emoji search"
+    return True, "%d emoji" % len(items)
+
+
+@test("clipboard")
+def clipboard_shortcuts():
+    """Super+V = clipboard history, Super+period = emoji, Super+Shift+V =
+    floating/tiled window (moved from Super+V)."""
+    cfg = os.path.expanduser("~/.config/hypr/hyprland.lua")
+    try:
+        text = open(cfg).read()
+    except OSError:
+        return True, tr("skipped (no Hyprland configuration)")
+    want = {'" + V"': "zeta-panel clipboard", '" + period"': "zeta-panel emoji",
+            '" + SHIFT + V"': "float"}
+    wrong = []
+    for key, action in want.items():
+        line = next((ln for ln in text.splitlines() if "hl.bind(" in ln and key in ln), "")
+        if action not in line:
+            wrong.append(key.strip('" +'))
+    return not wrong, (tr("missing shortcuts: {names}").format(names=", ".join(wrong))
+                       if wrong else "Super+V, Super+., Super+Shift+V")
+
+
+@test("clipboard")
+def clipboard_store_skips_passwords():
+    """The history saves what is copied, never passwords (password manager
+    hint, CLIPBOARD_STATE=sensitive), nothing while it is off, does not lose
+    an entry when a password manager empties the clipboard, keeps 100 entries."""
+    import shutil
+    import tempfile
+    if not shutil.which("cliphist") or not os.access(_CLIP_STORE, os.X_OK):
+        return False, _missing(["cliphist", _CLIP_STORE])
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = os.path.join(tmp, "wl-paste")
+        with open(stub, "w") as f:
+            f.write(_FAKE_WL_PASTE)
+        os.chmod(stub, 0o755)
+        env = dict(os.environ, HOME=tmp, XDG_CACHE_HOME=os.path.join(tmp, "cache"),
+                   PATH=tmp + ":" + os.environ.get("PATH", "/usr/bin:/bin"))
+        env.pop("CLIPBOARD_STATE", None)
+
+        def put(text, types="text/plain;charset=utf-8,text/plain", state=None):
+            e = dict(env, FAKE_TYPES=types)
+            if state:
+                e["CLIPBOARD_STATE"] = state
+            subprocess.run([_CLIP_STORE], input=text.encode(), env=e, capture_output=True, timeout=10)
+
+        def listed():
+            return subprocess.run(["cliphist", "list"], env=env, capture_output=True,
+                                  text=True, timeout=10).stdout
+
+        put("zeta-plain")
+        put("zeta-secret-1", "text/plain;charset=utf-8,x-kde-passwordManagerHint")
+        put("zeta-secret-2", state="sensitive")
+        put("", "", state="clear")
+        put("zeta-picture", "text/html,image/png")
+        os.makedirs(os.path.join(tmp, ".config", "zeta"))
+        with open(os.path.join(tmp, ".config", "zeta", "clipboard-history"), "w") as f:
+            f.write("0")
+        put("zeta-while-off")
+        os.remove(os.path.join(tmp, ".config", "zeta", "clipboard-history"))
+        out = listed()
+        if "zeta-plain" not in out:
+            return False, "plain text not saved"
+        if "zeta-secret" in out:
+            return False, "a password was saved"
+        if "zeta-while-off" in out:
+            return False, "saved while off"
+        if "zeta-image" not in out:
+            return False, "image offer not saved as the image"
+        for i in range(105):
+            put("zeta-item %d" % i)
+        n = len(listed().splitlines())
+        if n != 100:
+            return False, "%d entries instead of 100" % n
+    return True, "100 entries, passwords skipped"
+
+
+@test("clipboard")
+def clipboard_on_off_command():
+    """zeta-clipboard status/disable/enable (used by Settings), on a
+    temporary home: disable also clears the history."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        env = dict(os.environ, HOME=tmp, XDG_CACHE_HOME=os.path.join(tmp, "cache"))
+
+        def status():
+            r = subprocess.run(["zeta-clipboard", "status"], env=env, capture_output=True,
+                               text=True, timeout=15)
+            return json.loads(r.stdout or "{}")
+        try:
+            first = status()
+            subprocess.run(["zeta-clipboard", "disable"], env=env, timeout=15)
+            off = status()
+            subprocess.run(["zeta-clipboard", "enable"], env=env, timeout=15)
+            on = status()
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            return False, str(e)
+    if first.get("enabled") is not True or off.get("enabled") is not False or on.get("enabled") is not True:
+        return False, "%s / %s / %s" % (first, off, on)
+    return True, "on, off, on"
+
+
+def _clipboard_resident():
+    """The resident panel owns its D-Bus name (its process is named python3:
+    it re-executes itself to load gtk4-layer-shell, so pgrep cannot find it)."""
+    out = _sh(["gdbus", "call", "--session", "--timeout", "5", "--dest", "org.freedesktop.DBus",
+               "--object-path", "/org/freedesktop/DBus", "--method",
+               "org.freedesktop.DBus.NameHasOwner", "org.zetarays.Clipboard"])[1]
+    return "true" in out
+
+
+@test("clipboard")
+def clipboard_watcher_running():
+    """In the session: the watcher (wl-paste --watch with the store script) and
+    the resident panel are running."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    rc, out, _ = _sh(["pgrep", "-x", "-u", str(os.getuid()), "wl-paste"])
+    watching = False
+    for pid in out.split():
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as f:
+                watching = watching or _CLIP_STORE.encode() in f.read()
+        except OSError:
+            pass
+    resident = _clipboard_resident()
+    missing = [n for n, ok in (("wl-paste --watch", watching), ("zeta-clipboard", resident)) if not ok]
+    return not missing, _missing(missing) if missing else tr("both ready")
+
+
+@test("clipboard")
+def dnd_command():
+    """zeta-dnd status answers {"dnd": ...}, toggle switches it and it is put
+    back; mako's configuration keeps critical notifications visible and a
+    history of 50."""
+    rc, out, _ = _sh(["zeta-dnd", "status"])
+    try:
+        before = json.loads(out)["dnd"]
+    except (ValueError, KeyError, TypeError):
+        return False, "status: %r" % out
+    if _sh(["pgrep", "-x", "-u", str(os.getuid()), "mako"])[0] == 0:
+        _sh(["zeta-dnd", "toggle"])
+        try:
+            flipped = json.loads(_sh(["zeta-dnd", "status"])[1])["dnd"]
+        except (ValueError, KeyError, TypeError):
+            flipped = before
+        _sh(["zeta-dnd", "on" if before else "off"])
+        try:
+            back = json.loads(_sh(["zeta-dnd", "status"])[1])["dnd"]
+        except (ValueError, KeyError, TypeError):
+            back = None
+        if flipped == before or back != before:
+            return False, "toggle %s -> %s -> %s" % (before, flipped, back)
+    try:
+        conf = open(os.path.expanduser("~/.config/mako/config")).read()
+    except OSError:
+        conf = ""
+    if conf and ("[mode=do-not-disturb urgency=critical]" not in conf or "max-history" not in conf):
+        return False, "mako config: critical notifications or history missing"
+    return True, "dnd %s" % ("on" if before else "off")
+
+
+_QUICK_BUILD_SCRIPT = r'''
+import importlib.machinery, importlib.util, json, os, sys, time
+os.environ["ZETA_LAYER_PRELOADED"] = "1"      # no re-exec: only the build is timed
+sys.argv = ["zeta-clipboard"]
+t = time.perf_counter()
+loader = importlib.machinery.SourceFileLoader("zeta_clip", "/usr/local/bin/zeta-clipboard")
+mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("zeta_clip", loader))
+loader.exec_module(mod)
+out = {"import_ms": round((time.perf_counter() - t) * 1000)}
+from gi.repository import Gio, Gtk
+
+
+def activate(app):
+    t = time.perf_counter()
+    win = mod.QuickWindow(app)
+    out["build_ms"] = round((time.perf_counter() - t) * 1000)
+    for view in ("clipboard", "emoji", "notifications"):
+        t = time.perf_counter()
+        win.set_view(view)
+        out[view + "_ms"] = round((time.perf_counter() - t) * 1000)
+    win.destroy()
+    print(json.dumps(out))
+    app.quit()
+
+
+app = Gtk.Application(application_id="org.zetarays.SelftestClipboard",
+                      flags=Gio.ApplicationFlags.NON_UNIQUE)
+app.connect("activate", activate)
+app.run([])
+'''
+
+
+@test("clipboard")
+def quick_panels_build():
+    """The clipboard/emoji/notifications panel builds without errors (cold
+    start: import and build times, then the preparation of each view)."""
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return True, _outside_session()
+    import glob
+    env = dict(os.environ)
+    libs = glob.glob("/usr/lib/*/libgtk4-layer-shell.so.0")
+    if libs:                 # loaded before libwayland, as the real panel does
+        env["LD_PRELOAD"] = libs[0]
+    try:
+        r = subprocess.run([sys.executable, "-c", _QUICK_BUILD_SCRIPT], capture_output=True,
+                           text=True, timeout=60, env=env)
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    last = (r.stdout.strip().splitlines() or [""])[-1]
+    try:
+        data = json.loads(last)
+    except ValueError:
+        return False, (r.stderr.strip().splitlines() or ["exit %d" % r.returncode])[-1]
+    return True, ", ".join("%s %s" % (k[:-3], v) for k, v in data.items()) + " ms"
+
+
+def _layer_open(namespace, timeout=3.0):
+    """Wait until a layer surface with this namespace is on screen: the
+    time.monotonic() when it appeared, or None."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        out = _sh(["hyprctl", "-j", "layers"], timeout=3)[1]
+        if '"%s"' % namespace in out:
+            return time.monotonic()
+        time.sleep(0.005)
+    return None
+
+
+@test("clipboard")
+def quick_panels_open_fast():
+    """Super+V, Super+period and the notification history appear quickly (time
+    from the command to the panel on screen, resident panel). The panel is
+    closed again right after."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    if not _clipboard_resident():
+        return False, _missing(["zeta-clipboard"])
+    times = {}
+    for view in ("clipboard", "emoji", "notifications"):
+        t0 = time.monotonic()
+        subprocess.run(["zeta-panel", view], capture_output=True, timeout=10)
+        shown = _layer_open("zeta-clipboard")
+        subprocess.run(["zeta-panel", view], capture_output=True, timeout=10)   # close it
+        if shown is None:
+            return False, "%s: not shown" % view
+        times[view] = round((shown - t0) * 1000)
+        for _i in range(100):           # wait until it is gone
+            if '"zeta-clipboard"' not in _sh(["hyprctl", "-j", "layers"], timeout=3)[1]:
+                break
+            time.sleep(0.01)
+    slow = [v for v, t in times.items() if t > 400]
+    detail = ", ".join("%s %d ms" % (v, t) for v, t in times.items())
+    return not slow, detail
+
+
+# ---------------------------------------------------------------- capture
+@test("capture")
+def capture_command_help():
+    """zeta-screenshot answers --help and lists the commands the Control
+    Center and the shortcuts use."""
+    rc, out, _ = _sh(["zeta-screenshot", "--help"])
+    missing = [c for c in ("panel", "region", "window", "screen", "record", "record-stop",
+                           "status") if c not in out.split()]
+    if rc != 0:
+        return False, "rc=%d" % rc
+    rc2, _, _ = _sh(["zeta-screenshot", "region", "--no-such-option"])
+    if rc2 != 2:
+        return False, "unknown option accepted (rc=%d)" % rc2
+    return not missing, _missing(missing) if missing else tr("all commands listed")
+
+
+@test("capture")
+def capture_status_json():
+    """`zeta-screenshot status` prints JSON with "recording" and "file"."""
+    rc, out, _ = _sh(["zeta-screenshot", "status"])
+    try:
+        st = json.loads(out)
+    except ValueError:
+        return False, "not JSON: %r" % out[:80]
+    ok = rc == 0 and isinstance(st.get("recording"), bool) and "file" in st
+    if ok and st["recording"] and not st.get("file"):
+        ok = False
+    return ok, "recording=%s" % st.get("recording")
+
+
+@test("capture")
+def capture_file_names_and_folders():
+    """File names (no overwriting within the same second), folders, options
+    file: checked in a temporary folder, nothing of the user is touched."""
+    import tempfile
+    from system import capture
+    with tempfile.TemporaryDirectory() as d:
+        when = time.mktime((2026, 1, 2, 3, 4, 5, 0, 0, -1))
+        folder = capture.ensure_folder(os.path.join(d, "Pictures", "Screenshots"))
+        a = capture.unique_path(folder, capture.SCREENSHOT_STEM, ".png", when)
+        b = capture.unique_path(folder, capture.SCREENSHOT_STEM, ".png", when)
+        v = capture.unique_path(d, capture.RECORDING_STEM, ".mp4", when)
+        expected = ["Screenshot 2026-01-02 03-04-05.png", "Screenshot 2026-01-02 03-04-05 (2).png",
+                    "Screen recording 2026-01-02 03-04-05.mp4"]
+        got = [os.path.basename(p) for p in (a, b, v)]
+        if got != expected:
+            return False, "; ".join(got)
+    if not capture.screenshots_dir().endswith("/Screenshots"):
+        return False, capture.screenshots_dir()
+    if not capture.recordings_dir().endswith("/Screen recordings"):
+        return False, capture.recordings_dir()
+    s = capture.load_settings()
+    if set(s) != set(capture.DEFAULTS) or s["delay"] not in capture.DELAYS:
+        return False, "options: %s" % s
+    return True, "%s, %s" % (capture.screenshots_dir(), capture.recordings_dir())
+
+
+@test("capture")
+def capture_recorder_and_indicator_logic():
+    """The wf-recorder command line (screen, area, sound) and the corner of
+    the recording indicator, which must stay outside the recorded area."""
+    from system import capture
+    cmd = capture.recorder_command("/tmp/x.mp4", "10,20 300x200", None, True)
+    if cmd[:4] != ["wf-recorder", "-y", "-f", "/tmp/x.mp4"] or "-g" not in cmd \
+            or "--audio=@DEFAULT_MONITOR@" not in cmd:
+        return False, " ".join(cmd)
+    if "-o" not in capture.recorder_command("/tmp/x.mp4", None, "DP-1", False):
+        return False, "screen recording without -o"
+    mons = [{"name": "A", "x": 0, "y": 0, "w": 1920, "h": 1080, "focused": True, "workspaces": {1}},
+            {"name": "B", "x": 1920, "y": 0, "w": 1920, "h": 1080, "focused": False, "workspaces": {2}}]
+    cases = [(((10, 20, 300, 200), None, mons), ("A", "top-right")),
+             (((1500, 0, 420, 200), None, mons), ("A", "top-left")),
+             (((0, 0, 1920, 1080), None, mons), ("B", "top-right")),
+             ((None, "A", mons), ("B", "top-right")),
+             ((None, "A", mons[:1]), ("A", "top-right"))]
+    for args, expected in cases:
+        got = capture.pill_corner(*args)
+        if got != expected:
+            return False, "%s -> %s (expected %s)" % (args[:2], got, expected)
+    return True, _cases_passed(len(cases) + 2)
+
+
+@test("capture")
+def capture_tools_installed():
+    """The programs behind screenshots and recordings."""
+    import shutil
+    needed = ["grim", "slurp", "wl-copy", "notify-send", "wf-recorder", "swappy", "tesseract",
+              "ffmpegthumbnailer", "gapplication", "gio"]
+    missing = [n for n in needed if not shutil.which(n)]
+    extra = tr("color picker present") if shutil.which("hyprpicker") else tr("no color picker")
+    return not missing, _missing(missing) if missing else extra
+
+
+@test("capture")
+def capture_shortcuts_bound():
+    """Print, Shift+Print, Super+Shift+S and Super+Shift+R call zeta-screenshot."""
+    cfg = os.path.expanduser("~/.config/hypr/hyprland.lua")
+    if not os.path.exists(cfg):
+        cfg = "/etc/skel/.config/hypr/hyprland.lua"
+    try:
+        text = open(cfg).read()
+    except OSError as e:
+        return False, str(e)
+    want = ['"zeta-screenshot panel"', '"zeta-screenshot screen"', '"zeta-screenshot region"',
+            '"zeta-screenshot record"']
+    missing = [w for w in want if w not in text]
+    return not missing, _missing(missing) if missing else cfg
+
+
+@test("capture")
+def capture_screen_in_session():
+    """A real capture of the screen under the pointer, into a temporary
+    folder (no notification, nothing copied): a valid PNG comes out."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or not os.environ.get("WAYLAND_DISPLAY"):
+        return True, _outside_session()
+    import tempfile
+    from system import capture
+    with tempfile.TemporaryDirectory() as d:
+        t0 = time.monotonic()
+        rc, out, err = _sh(["zeta-screenshot", "screen", "--no-notify", "--no-copy", "--save",
+                            "--folder", d], timeout=30)
+        ms = round((time.monotonic() - t0) * 1000)
+        path = out.strip().splitlines()[-1] if out.strip() else ""
+        if rc != 0 or not os.path.isfile(path) or os.path.dirname(path) != d:
+            return False, "rc=%d %s" % (rc, err[-120:])
+        size = capture.png_size(path)
+        if not size or size[0] < 100 or size[1] < 100:
+            return False, "not a PNG: %s" % path
+    return True, "%dx%d, %d ms" % (size[0], size[1], ms)
+
+
+@test("capture")
+def capture_toolbar_opens():
+    """Print shows the toolbar (first time: Python and GTK start; later it is
+    already in memory). Closed again right after."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+
+    def shown(timeout):
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            if '"zeta-screenshot"' in _sh(["hyprctl", "-j", "layers"], timeout=3)[1]:
+                return True
+            time.sleep(0.01)
+        return False
+    def toggle():
+        # not waited for: the first call becomes the resident process itself
+        subprocess.Popen(["zeta-screenshot", "panel"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    times = []
+    for _i in range(2):
+        t0 = time.monotonic()
+        toggle()
+        ok = shown(8)
+        times.append(round((time.monotonic() - t0) * 1000))
+        toggle()                                                   # close it
+        if not ok:
+            return False, "not shown"
+        for _j in range(100):
+            if '"zeta-screenshot"' not in _sh(["hyprctl", "-j", "layers"], timeout=3)[1]:
+                break
+            time.sleep(0.01)
+    return times[-1] <= 400, "first %d ms, then %d ms" % tuple(times)
+
+
+# ---------------------------------------------------------------- performance
+# Measurements for comparing releases (2.5 vs 3.0) on the same computer or
+# VM: run "zeta-selftest performance" a few minutes after login, with no app
+# open. The numbers are in the detail column; a test fails only when
+# something is really wrong (stale precompiled Python, memory settings not
+# applied, a high idle load, the update guard missing).
+_SESSION_COMMS = ("Hyprland", "waybar", "mako", "swaybg", "hypridle", "hyprlock", "wl-paste",
+                  "wlsunset", "Xwayland", "xdg-desktop-por", "polkit-mate-aut", "ollama",
+                  "deja-dup-monito", "orca", "power-profiles-")
+
+
+def _proc_text(pid, name):
+    try:
+        with open("/proc/%s/%s" % (pid, name), "rb") as f:
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _proc_kb(text, key):
+    m = re.search(r"^%s:\s+(\d+) kB" % re.escape(key), text, re.M)
+    return int(m.group(1)) if m else 0
+
+
+def _zeta_label(argv, comm):
+    """A short, stable name: the program, plus its first argument for the
+    resident helpers that share a program (zeta-appearance follow-editor)."""
+    args = [a for a in argv if a]
+    if args and os.path.basename(args[0]).startswith(("python", "bash", "sh")):
+        args = args[1:]
+        while args and args[0].startswith("-"):     # python3 -S script
+            args = args[1:]
+    if not args:
+        return comm
+    name = os.path.basename(args[0])
+    if name.startswith("zeta-") and len(args) > 1 and not args[1].startswith("-"):
+        name += " " + args[1]
+    return name
+
+
+def _resident_processes():
+    """[(label, rss_kb, uss_kb or None)] of the ZETA RAYS session programs
+    and of the background services they rely on."""
+    me = str(os.getuid())
+    found = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit() or int(pid) == os.getpid():
+            continue
+        status = _proc_text(pid, "status")
+        if not status:
+            continue
+        comm = (re.search(r"^Name:\s*(.*)$", status, re.M) or [None, ""])[1]
+        argv = _proc_text(pid, "cmdline").split("\0")
+        joined = " ".join(argv)
+        zeta = any(p in joined for p in ("/usr/local/bin/zeta-", "/usr/libexec/zeta-",
+                                         "/usr/local/libexec/zeta-"))
+        if not zeta and comm not in _SESSION_COMMS:
+            continue
+        if "zeta-selftest" in joined:
+            continue
+        rss = _proc_kb(status, "VmRSS")
+        uss = None
+        uid = (re.search(r"^Uid:\s*(\d+)", status, re.M) or [None, ""])[1]
+        if uid == me:
+            rollup = _proc_text(pid, "smaps_rollup")
+            if rollup:
+                uss = _proc_kb(rollup, "Private_Clean") + _proc_kb(rollup, "Private_Dirty")
+        if rss:
+            found.append((_zeta_label(argv, comm), rss, uss))
+    return found
+
+
+@test("performance")
+def perf_resident_memory():
+    """Memory of every ZETA RAYS program kept running (bar, panels, helpers)
+    and of the services next to them. RSS counts the shared libraries in
+    every process; USS (private memory, own processes only) is what closing
+    that program would give back."""
+    procs = _resident_processes()
+    if not procs:
+        return True, _outside_session()
+    rss = sum(p[1] for p in procs) // 1024
+    uss = sum(p[2] or 0 for p in procs) // 1024
+    # the copies of one program (the session's watchdog subshells) on one line
+    merged = {}
+    for name, r, u in procs:
+        n, r0, u0 = merged.get(name, (0, 0, None))
+        merged[name] = (n + 1, r0 + r, u if u0 is None else u0 + (u or 0))
+    order = sorted(merged.items(), key=lambda kv: -(kv[1][2] if kv[1][2] is not None else kv[1][1]))
+    rows = ["%s%s %d/%s" % (name, " x%d" % n if n > 1 else "", r // 1024, "-" if u is None else u // 1024)
+            for name, (n, r, u) in order]
+    return True, tr("Processes: {n}, RSS {rss} MB, USS {uss} MB (each: RSS/USS MB): {rows}").format(
+        n=len(procs), rss=rss, uss=uss, rows=", ".join(rows))
+
+
+@test("performance")
+def perf_memory_and_processes():
+    """Used memory as "free" shows it (total minus available), swap in use
+    and the number of processes (kernel threads included, as "ps -e")."""
+    try:
+        with open("/proc/meminfo") as f:
+            info = f.read()
+    except OSError as e:
+        return False, str(e)
+    total = _proc_kb(info, "MemTotal") // 1024
+    used = total - _proc_kb(info, "MemAvailable") // 1024
+    swap = (_proc_kb(info, "SwapTotal") - _proc_kb(info, "SwapFree")) // 1024
+    pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    user = sum(1 for p in pids if _proc_text(p, "cmdline"))
+    return True, tr("{used} MB used of {total} MB, swap {swap} MB, processes: {n} (programs: {user}, the rest are kernel threads)").format(
+        used=used, total=total, swap=swap, n=len(pids), user=user)
+
+
+def _cpu_times():
+    with open("/proc/stat") as f:
+        values = [int(v) for v in f.readline().split()[1:]]
+    return sum(values), values[3] + values[4]          # total, idle + iowait
+
+
+def _proc_cpu():
+    ticks = {}
+    for pid in os.listdir("/proc"):
+        if pid.isdigit():
+            stat = _proc_text(pid, "stat")
+            if ")" in stat:
+                name = stat[stat.index("(") + 1:stat.rindex(")")]
+                fields = stat[stat.rindex(")") + 2:].split()
+                ticks[pid] = (name, int(fields[11]) + int(fields[12]))
+    return ticks
+
+
+@test("performance")
+def perf_idle_cpu():
+    """CPU in use over 5 seconds while nothing is being done, and the
+    programs that used it. Above 10% something is busy at rest."""
+    total0, idle0 = _cpu_times()
+    before = _proc_cpu()
+    time.sleep(5)
+    total1, idle1 = _cpu_times()
+    after = _proc_cpu()
+    span = max(1, total1 - total0)
+    busy = 100.0 * (span - (idle1 - idle0)) / span
+    me = str(os.getpid())
+    deltas = []
+    for pid, (name, t) in after.items():
+        if pid != me and pid in before:
+            d = t - before[pid][1]
+            if d > 0:
+                deltas.append((d, name))
+    deltas.sort(reverse=True)
+    hz = os.sysconf("SC_CLK_TCK")
+    top = ", ".join("%s %.2fs" % (n, d / hz) for d, n in deltas[:4]) or tr("none")
+    return busy <= 10, tr("{busy}% busy; most active: {top}").format(busy="%.1f" % busy, top=top)
+
+
+@test("performance")
+def perf_services():
+    """System services running now, how many units start at boot, timers
+    and the user's own services: the list to compare between releases."""
+    rc, out, err = _sh(["systemctl", "list-units", "--type=service", "--state=running",
+                        "--no-legend", "--plain"])
+    if rc != 0:
+        return False, err[:120]
+    running = sorted(line.split()[0].removesuffix(".service") for line in out.splitlines() if line.strip())
+    _, enabled, _ = _sh(["systemctl", "list-unit-files", "--state=enabled", "--no-legend"])
+    _, timers, _ = _sh(["systemctl", "list-timers", "--no-legend", "--plain"])
+    timer_names = sorted(w.removesuffix(".timer") for line in timers.splitlines()
+                         for w in line.split() if w.endswith(".timer"))
+    _, user, _ = _sh(["systemctl", "--user", "list-units", "--type=service", "--state=running",
+                      "--no-legend", "--plain"])
+    user_names = sorted(line.split()[0].removesuffix(".service") for line in user.splitlines() if line.strip())
+    return True, tr("Running: {n} ({names}); enabled unit files: {enabled}; timers: {timers}; user: {user}").format(
+        n=len(running), names=", ".join(running), enabled=len(enabled.splitlines()),
+        timers=", ".join(timer_names) or tr("none"), user=", ".join(user_names) or tr("none"))
+
+
+@test("performance")
+def perf_boot_time():
+    """Boot time as systemd measures it and the slowest units. The login
+    screen does not wait for network-online.target (only cups-browsed
+    does), so "graphical.target" can come later than the login screen."""
+    rc, out, err = _sh(["systemd-analyze"])
+    if rc != 0:
+        return True, tr("not available: {error}").format(error=(err or out)[:100])
+    first = out.splitlines()[0] if out else ""
+    _, blame, _ = _sh(["systemd-analyze", "blame", "--no-pager"])
+    slow = ", ".join("%s %s" % (line.split()[-1], " ".join(line.split()[:-1]))
+                     for line in blame.splitlines()[:5] if line.split())
+    return True, "%s | %s" % (first.replace("Startup finished in ", ""), slow)
+
+
+@test("performance")
+def perf_python_precompiled():
+    """Every ZETA RAYS Python module has its precompiled file, up to date:
+    otherwise every start would recompile it (users cannot write to /usr)."""
+    import importlib.util
+    import struct
+    missing, stale, total = [], [], 0
+    for root, dirs, files in os.walk("/usr/lib/zeta"):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            total += 1
+            src = os.path.join(root, f)
+            pyc = importlib.util.cache_from_source(src)
+            try:
+                with open(pyc, "rb") as fh:
+                    head = fh.read(16)
+                st = os.stat(src)
+            except OSError:
+                missing.append(src[len("/usr/lib/zeta/"):])
+                continue
+            flags, mtime, size = struct.unpack("<III", head[4:16])
+            if flags == 0 and (mtime != int(st.st_mtime) & 0xFFFFFFFF or size != st.st_size & 0xFFFFFFFF):
+                stale.append(src[len("/usr/lib/zeta/"):])
+    if missing or stale:
+        return False, tr("Modules: {total}; missing: {missing}; outdated: {stale}").format(
+            total=total, missing=", ".join(missing[:6]) or "0", stale=", ".join(stale[:6]) or "0")
+    return True, tr("Modules: {total}, all precompiled").format(total=total)
+
+
+@test("performance")
+def perf_memory_settings():
+    """The memory settings of ZETA RAYS are in force: compressed swap in RAM
+    (zram, zstd), swappiness and the other values of 99-zeta-memory.conf,
+    the anti-thrashing protection and earlyoom protecting the session."""
+    def read(path):
+        try:
+            with open(path) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+    want = {"vm/swappiness": "100", "vm/page-cluster": "0", "vm/vfs_cache_pressure": "50",
+            "vm/dirty_background_bytes": "67108864", "vm/dirty_bytes": "268435456"}
+    wrong = ["%s=%s" % (k.split("/")[1], read("/proc/sys/" + k)) for k, v in want.items()
+             if read("/proc/sys/" + k) != v]
+    if "/dev/zram" not in read("/proc/swaps"):
+        wrong.append("zram swap")
+    elif "[zstd]" not in read("/sys/block/zram0/comp_algorithm"):
+        wrong.append("zram " + read("/sys/block/zram0/comp_algorithm"))
+    if os.path.exists("/sys/kernel/mm/lru_gen/min_ttl_ms") and read("/sys/kernel/mm/lru_gen/min_ttl_ms") != "1000":
+        wrong.append("lru_gen min_ttl_ms=" + read("/sys/kernel/mm/lru_gen/min_ttl_ms"))
+    rc, pids, _ = _sh(["pgrep", "-x", "earlyoom"])
+    if rc != 0:
+        wrong.append("earlyoom")
+    else:
+        cmd = _proc_text(pids.split()[0], "cmdline").replace("\0", " ")
+        if "hyprlock" not in cmd:
+            wrong.append("earlyoom --avoid")
+    return not wrong, (tr("wrong: {names}").format(names=", ".join(wrong)) if wrong
+                       else "zram zstd, swappiness 100, earlyoom")
+
+
+@test("performance")
+def perf_update_guard_follows_setting():
+    """unattended-upgrades.service (the power-off guard of automatic updates,
+    a resident Python process) runs only while automatic updates are on."""
+    if not os.path.exists("/usr/bin/unattended-upgrade"):
+        return True, _missing(["unattended-upgrades"])
+    _, value, _ = _sh(["apt-config", "shell", "V", "APT::Periodic::Unattended-Upgrade"])
+    on = value not in ("", "V='0'")
+    _, enabled, _ = _sh(["systemctl", "is-enabled", "unattended-upgrades.service"])
+    _, active, _ = _sh(["systemctl", "is-active", "unattended-upgrades.service"])
+    if on and enabled != "enabled":
+        return False, tr("automatic updates on, guard {state}").format(state=enabled or "?")
+    return True, "updates %s, guard %s/%s" % ("on" if on else "off", enabled or "?", active or "?")
 
 
 def _usage():

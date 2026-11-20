@@ -438,7 +438,7 @@ if has curl && curl -s -m 3 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; the
     if [ -n "$MOD" ]; then
         T0=$(date +%s%N)
         curl -s -m 90 http://127.0.0.1:11434/api/generate \
-             -d "{\"model\":\"$MOD\",\"prompt\":\"Reply only: ok\",\"stream\":false}" >/dev/null 2>&1
+             -d "{\"model\":\"$MOD\",\"prompt\":\"Reply only: ok\",\"stream\":false,\"think\":false}" >/dev/null 2>&1
         T1=$(date +%s%N)
         printf "$(gettext 'model %s, first response: %s ms')\n" "$MOD" "$(( (T1-T0)/1000000 ))"
     else

@@ -73,6 +73,7 @@ docker run --rm --privileged --platform "linux/$ARCH" \
     rm -f $W/target/usr/share/zeta/ollama-runtime.tar.zst
     rm -rf $W/target/usr/share/zeta/hyprland-patched
     rm -rf $W/target/usr/share/zeta/localsend
+    rm -rf $W/target/usr/share/zeta/apt-release
     rm -rf $W/target/usr/share/zeta/piper-cache $W/target/usr/share/zeta/vosk-cache
     find $W/target/usr/lib/zeta $W/target/usr/local/bin -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
     chmod 755 $W/target/usr/local/bin/zeta-*
@@ -146,7 +147,9 @@ EOF
       # same package sources and automatic security updates as a system
       # installed from the ISO (Calamares runs the same helper)
       /usr/local/libexec/zeta-apt-sources
-      apt-get update -qq
+      # the ZETA RAYS updates source (zeta-rays-release) fails until
+      # https://zetarays.org/apt/ is published: the Debian sources are enough here
+      apt-get update -qq || echo \"WARNING: apt-get update reported errors (is https://zetarays.org/apt/ published?)\"
       apt-get purge -y -qq live-boot live-boot-initramfs-tools live-config live-config-systemd user-setup || true
       for b in /usr/sbin/grub-install /usr/sbin/update-grub; do dpkg-divert --local --rename --add \$b >/dev/null; ln -sf /bin/true \$b; done
       apt-get install -y -qq --no-install-recommends $GPKG_ENV efibootmgr

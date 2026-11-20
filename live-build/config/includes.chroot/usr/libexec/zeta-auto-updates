@@ -63,4 +63,16 @@ CONFEOF
 chmod 0644 "$TMP"
 mv -f "$TMP" "$CONF"
 trap - EXIT
+# unattended-upgrades.service is only a guard for the power-off: a Python
+# process (about 16 MB) that waits the whole session so that an update in
+# progress is never cut off. It runs only while automatic updates are on.
+# --no-block: never wait here for an update in progress. Inside the
+# installer (a chroot) systemctl only changes the links, which is enough.
+if [ "$VALUE" = 1 ]; then
+  systemctl enable unattended-upgrades.service >/dev/null 2>&1 || true
+  systemctl start --no-block unattended-upgrades.service >/dev/null 2>&1 || true
+else
+  systemctl disable unattended-upgrades.service >/dev/null 2>&1 || true
+  systemctl stop --no-block unattended-upgrades.service >/dev/null 2>&1 || true
+fi
 echo "automatic security updates: $1"

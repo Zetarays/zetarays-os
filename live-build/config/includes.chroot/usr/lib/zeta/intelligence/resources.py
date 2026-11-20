@@ -9,12 +9,23 @@ crawl: the desktop starts swapping to disk and the user sees freezes and
 slowdowns. This module decides, once and in one place only, how much we can
 afford. The goal: the whole system runs well on 8 GB.
 
-  RAM      at login    after a reply   before loading
-  < 6 GB   never       2 minutes       check free memory; suggest a smaller
-                                       model
-  6-11 GB  never       5 minutes       check free memory (8 GB machines)
-  12-15    never       10 minutes      check free memory
-  16+ GB   yes         2 hours         check free memory
+  RAM      at login    ZETA opened     after a reply   before loading
+  < 6 GB   never       never           2 minutes       check free memory;
+                                                       suggest a smaller model
+  6-11 GB  never       small model     5 minutes; 10   check free memory
+                       only (*)        with a small    (8 GB machines)
+                                       model (*)
+  12-15    never       yes             10 minutes      check free memory
+  16+ GB   yes         yes             2 hours         check free memory
+
+(*) "small": the model takes at most SMALL_SHARE of the RAM once loaded.
+granite4.2:3b, the 3.0 model of 8 GB computers, takes about 2.65 GB: a third
+of 8 GB. Holding it ten minutes instead of five spares a reload (seconds on
+a slow disk) and the reread of the system prompt (about 300 tokens, several
+seconds on an Intel N100) for the next question, and loading it when ZETA
+opens hides that wait while the question is typed. The free memory is
+checked first in every case. qwen3:4b-instruct (3.4 GB) is not "small" on
+8 GB and keeps the 2.5 behaviour.
 
 "Check free memory" = MemAvailable must hold the model plus a margin for the
 rest of the system; otherwise ZETA answers with a smaller installed model
@@ -47,10 +58,14 @@ ROOMY_THRESHOLD = 12.0      # from here: ten minutes
 # suggests a smaller model.
 LOW_RAM_THRESHOLD = 6.0
 SHORT_NOW_GB = 0.6          # free memory below this: unload soon, on any machine
+# A model that takes at most this share of the RAM once loaded is "small" for
+# the computer: on 6-11 GB it is kept longer and loaded when ZETA opens.
+SMALL_SHARE = 0.36
 
 
 def smaller_model() -> str:
-    """A smaller model that still answers well (shipped in the image)."""
+    """A smaller model that still answers well (shipped in the image:
+    granite4.2:3b since 3.0)."""
     from .models import SMALL_MODEL
     return SMALL_MODEL
 
@@ -92,12 +107,19 @@ def available_memory_gb() -> float:
     return _meminfo("MemAvailable")
 
 
-def keep_alive() -> str:
+def small_for_machine(model_gb: float) -> bool:
+    """The model (GB once loaded) is a small share of this computer's RAM."""
+    gb = nominal_memory_gb()
+    return gb > 0 and 0 < model_gb <= gb * SMALL_SHARE
+
+
+def keep_alive(model_gb: float = 0.0) -> str:
     """How long to keep the model in memory after the last question.
 
     On a roomy machine it pays to keep it warm for a long time: reloading it
     costs seconds. On a small machine the opposite holds: 3.7 GB held for half
-    an hour is worth less than a desktop that stays smooth.
+    an hour is worth less than a desktop that stays smooth. `model_gb`: what
+    the model in use takes once loaded (0 = unknown, the default model's).
     """
     gb = nominal_memory_gb()
     if gb <= 0:
@@ -110,7 +132,7 @@ def keep_alive() -> str:
     if gb < LOW_RAM_THRESHOLD:
         return "2m"
     if gb < ROOMY_THRESHOLD:
-        return "5m"
+        return "10m" if small_for_machine(model_gb) else "5m"
     if gb < COMFORTABLE_THRESHOLD:
         return "10m"
     # 16 GB and more: 3.7 GB are a small share, and a reload costs seconds
@@ -175,6 +197,16 @@ def preload_allowed() -> bool:
     return nominal_memory_gb() >= PRELOAD_THRESHOLD
 
 
+def preload_on_open(model_gb: float = 0.0) -> bool:
+    """Whether to load the model when ZETA's window opens (zeta-core): from
+    12 GB, and on 6-11 GB when the model is small for the computer. The
+    free memory is checked by the preload itself (OllamaProvider.preload)."""
+    gb = nominal_memory_gb()
+    if gb >= ROOMY_THRESHOLD:
+        return True
+    return gb >= LOW_RAM_THRESHOLD and small_for_machine(model_gb)
+
+
 # How much the default local model takes once loaded, plus the margin the rest
 # of the system must be able to keep. Below this threshold loading it doesn't
 # just slow things down: it sends the computer into swap and freezes it.
@@ -231,5 +263,6 @@ def plan(model_gb: float = 0.0) -> dict:
     """The whole decision for this machine, now (Settings and the tests)."""
     need = model_gb or MODEL_GB
     return {"nominal_gb": nominal_memory_gb(), "available_gb": available_memory_gb(),
-            "preload_at_login": preload_allowed(), "keep_alive": keep_alive(),
+            "preload_at_login": preload_allowed(), "preload_on_open": preload_on_open(model_gb),
+            "keep_alive": keep_alive(model_gb),
             "can_load": memory_for_model(need), "advice": low_ram_advice(need)}

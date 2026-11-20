@@ -11,10 +11,13 @@ Checks:
   ("ZETA RAYS X.Y", "OS X.Y") and fallbacks such as VERSION_ID", "X.Y"
   must use the version in VERSION (most files read it at build or run time
   and contain no number at all);
-- the website links point to releases/<VERSION>/.../zetarays-<VERSION>-*.
+- the website links point to releases/<VERSION>/.../zetarays-<VERSION>-*:
+  the four images and the two upgrade files (ARCH/upgrade/).
 
 Not checked (history, not the current release):
 - CHANGELOG.md below the first section;
+- the snapshots of the website as it was published (seo-zetarays/original-live,
+  seo-zetarays/seo-optimized) and the SEO audit that describes them;
 - the 2.0 settings migration (english-2.0.json, migrated-english-2.0), which
   names that migration, not the release;
 - the lines listed in ALLOWED below, each with its reason.
@@ -23,7 +26,8 @@ Names and texts in Italian (an archive name, lines of the Italian legal texts,
 the Italian word for "version" on the web pages) are in data/check-version.json.
 
 Files regenerated at release time by tools/sync-site.sh (the site's
-README.txt and SHA256SUMS) only produce warnings.
+README.txt and SHA256SUMS, also copied into an SEO build made before the
+release step) only produce warnings.
 
 Exit code 1 when a check fails.
 """
@@ -40,6 +44,11 @@ SKIP_DIRS = {".git", ".cache", "out", "cache", "node_modules", "__pycache__", "s
 SKIP_FILES = set(DATA["skip_files"])  # existing archives
 # Historical copies, never published
 SKIP_PATHS = {"site-zetarays/index-original.html"}
+# Snapshots of a website already published (the live site downloaded before
+# the SEO work, the optimized copy deployed from it) and the audit that
+# describes them: they show the release that was online at the time
+SKIP_PREFIXES = ("seo-zetarays/original-live/", "seo-zetarays/seo-optimized/",
+                 "seo-zetarays/SEO_AUDIT/")
 MAX_SIZE = 4 * 1024 * 1024
 
 # (path relative to the repository, text contained in the line): reason
@@ -66,6 +75,9 @@ ALLOWED.update({(path, text): why for path, text, why in DATA["allowed"]})
 
 # Generated at release time from the delivery folder: warnings only
 RELEASE_GENERATED = {"site-zetarays/README.txt", "site-zetarays/SHA256SUMS"}
+# ...and their copies in the input and output of an SEO build
+# (seo-zetarays/tools/build_optimized.py) made before the release step
+RELEASE_GENERATED_COPY = re.compile(r"^seo-zetarays/(original|seo-optimized)-[0-9.]+/(README\.txt|SHA256SUMS)$")
 
 V = r"(\d+\.\d+(?:\.\d+)?)"
 PATTERNS = [
@@ -111,7 +123,7 @@ def text_files():
             if b"\0" in data:
                 continue
             rel = os.path.relpath(path, ROOT)
-            if rel not in SKIP_PATHS:
+            if rel not in SKIP_PATHS and not rel.startswith(SKIP_PREFIXES):
                 yield rel, data.decode("utf-8", "replace")
 
 
@@ -149,17 +161,26 @@ def main(argv):
             stale = sorted({m.group(1) for pat in pats for m in pat.finditer(clean)} - {version})
             if stale:
                 msg = "%s:%d: stale version %s: %s" % (rel, n, ", ".join(stale), line.strip()[:120])
-                (warnings if rel in RELEASE_GENERATED else problems).append(msg)
+                generated = rel in RELEASE_GENERATED or RELEASE_GENERATED_COPY.match(rel)
+                (warnings if generated else problems).append(msg)
 
     site = os.path.join(ROOT, "site-zetarays", "index.html")
     if os.path.exists(site):
         links = re.findall(r'href="(https://download\.zetarays\.org/[^"]+)"', open(site, encoding="utf-8").read())
-        want = re.compile(r"https://download\.zetarays\.org/releases/%s/(amd64|arm64)/(iso|ova)/"
-                          r"zetarays-%s-\1\.\2$" % (re.escape(version), re.escape(version)))
-        if len(links) != 4:
-            problems.append("site-zetarays/index.html: expected 4 download links, found %d" % len(links))
+        v = re.escape(version)
+        image = re.compile(r"https://download\.zetarays\.org/releases/%s/(amd64|arm64)/(iso|ova)/"
+                           r"zetarays-%s-\1\.\2$" % (v, v))
+        upgrade = re.compile(r"https://download\.zetarays\.org/releases/%s/(amd64|arm64)/upgrade/"
+                             r"zetarays-%s-upgrade-\1\.run$" % (v, v))
+        images = [link for link in links if image.match(link)]
+        upgrades = [link for link in links if upgrade.match(link)]
+        if len(set(images)) != 4:
+            problems.append("site-zetarays/index.html: expected 4 image download links, found %d" % len(images))
+        if len(set(upgrades)) != 2:
+            problems.append("site-zetarays/index.html: expected 2 upgrade download links, found %d"
+                            % len(upgrades))
         for link in links:
-            if not want.match(link):
+            if link not in images and link not in upgrades:
                 problems.append("site-zetarays/index.html: download link not for %s: %s" % (version, link))
 
     per_file = {}

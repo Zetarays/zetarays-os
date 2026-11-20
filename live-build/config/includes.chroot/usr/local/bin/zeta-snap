@@ -1,0 +1,291 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: snap layouts, like Windows 11 and the window tiling of macOS.
+
+  zeta-snap NAME [ADDRESS]   put the active window (or the given one) in a zone:
+      left  right  top  bottom                  halves
+      top-left  top-right  bottom-left  bottom-right   quarters
+      left-third  center-third  right-third     thirds
+      left-two-thirds  right-two-thirds         two thirds
+      center                                    centered, same size
+      maximize  restore                         fill the screen / back to before
+  zeta-snap menu             the Snap Layouts popup for the active window (Super+Z)
+  zeta-snap list             the names above, one per line
+
+Shortcuts: Super + Shift + Left / Right (halves), Super + Shift + Up
+(maximize), Super + Shift + Down (restore), Super + Z (popup).
+
+The geometry is computed inside Hyprland (/usr/lib/zeta/hypr/window_snap.lua,
+called through "hyprctl eval"): zones lie inside the usable area of the
+window's display, never under the bar, and the window guard checks the
+result. A tiled window (Super + Shift + V) moves in the tiled layout with
+the halves and becomes floating for the other zones.
+"""
+import json
+import re
+import subprocess
+import sys
+
+# the same names as M.NAMES in window_snap.lua
+NAMES = ("bottom", "bottom-left", "bottom-right", "center", "center-third", "left",
+         "left-third", "left-two-thirds", "maximize", "restore", "right", "right-third",
+         "right-two-thirds", "top", "top-left", "top-right")
+# a Hyprland window address; it ends up inside Lua code, so nothing else passes
+ADDRESS = re.compile(r"^(address:)?(0x)?[0-9a-fA-F]{1,16}$")
+
+
+def _hyprctl(args, timeout=3):
+    try:
+        r = subprocess.run(["hyprctl"] + args, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+
+
+def snap(name, address=""):
+    """0 when Hyprland did it, 1 when there was nothing to do, 2 on bad input."""
+    if name not in NAMES or (address and not ADDRESS.match(address)):
+        return 2
+    lua = 'if not zeta_snap(%s, %s) then error("nothing to snap") end' % (
+        json.dumps(name), json.dumps(address or ""))
+    rc, out = _hyprctl(["eval", lua])
+    return 0 if rc == 0 and out.startswith("ok") else 1
+
+
+def _active_window():
+    """The window the popup acts on, read BEFORE the popup takes the keyboard."""
+    rc, out = _hyprctl(["-j", "activewindow"])
+    try:
+        w = json.loads(out) if rc == 0 and out else {}
+    except ValueError:
+        return None
+    if not isinstance(w, dict) or not w.get("address"):
+        return None
+    if str((w.get("workspace") or {}).get("name", "")).startswith("special:"):
+        return None
+    return w
+
+
+def _monitor_name(monitor_id):
+    rc, out = _hyprctl(["-j", "monitors"])
+    try:
+        for m in json.loads(out) if rc == 0 else []:
+            if m.get("id") == monitor_id:
+                return m.get("name")
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def cli():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "list":
+        print("\n".join(NAMES))
+        return 0
+    if cmd in NAMES:
+        address = sys.argv[2] if len(sys.argv) > 2 else ""
+        rc = snap(cmd, address)
+        if rc == 2:
+            sys.path.insert(0, "/usr/lib/zeta")
+            from i18n import tr
+            print(tr("zeta-snap: invalid window address"), file=sys.stderr)
+        return rc
+    if cmd == "menu":
+        return None
+    sys.path.insert(0, "/usr/lib/zeta")
+    from i18n import tr
+    print(tr("""ZETA RAYS: snap layouts.
+
+  zeta-snap NAME [ADDRESS]   put the active window (or the given one) in a zone:
+      left, right, top, bottom, top-left, top-right, bottom-left,
+      bottom-right, left-third, center-third, right-third,
+      left-two-thirds, right-two-thirds, center, maximize, restore
+  zeta-snap menu             the Snap Layouts popup (Super + Z)
+  zeta-snap list             the names, one per line
+
+Super + Shift + Left or Right: left or right half. Super + Shift + Up:
+maximize. Super + Shift + Down: restore."""))
+    return 0 if cmd in ("-h", "--help", "help") else 2
+
+
+_rc = cli()
+if _rc is not None:
+    sys.exit(_rc)
+
+# ---------------------------------------------------------------- popup
+sys.path.insert(0, "/usr/lib/zeta")
+from ui import popup  # noqa: E402
+
+popup.preload_layer_shell()          # re-executes the program once, before anything else
+
+TARGET = _active_window()
+if not TARGET:
+    sys.exit(1)                      # no window to arrange: nothing to show
+MONITOR = _monitor_name(TARGET.get("monitor"))
+
+from i18n import tr  # noqa: E402
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk, Pango  # noqa: E402
+
+CSS = """
+.snap-card { padding: 16px 18px; }
+.snap-title { font-size: 15px; font-weight: 500; }
+.snap-sub { font-size: 11px; color: @ink_dim; }
+.snap-layout { background: @surface_2; border: 1px solid @line; border-radius: 10px; padding: 5px; }
+button.snap-zone { min-width: 0; min-height: 0; padding: 0; border: none; box-shadow: none;
+                   border-radius: 5px; background: @hover_2; }
+button.snap-zone:hover, button.snap-zone:focus-visible { background: @accent; }
+button.snap-wide { background: @surface_2; border: 1px solid @line; box-shadow: none;
+                   border-radius: 10px; padding: 6px 12px; }
+button.snap-wide:hover, button.snap-wide:focus-visible { background: @accent_soft; border-color: @accent_line; }
+"""
+
+W, H, SPACING = 128, 80, 4
+
+# Each thumbnail is one layout; each of its parts is a zone to click.
+LAYOUTS = (
+    ("row", (("left", 1), ("right", 1))),
+    ("row", (("left-third", 1), ("right-two-thirds", 2))),
+    ("row", (("left-two-thirds", 2), ("right-third", 1))),
+    ("col", (("top", 1), ("bottom", 1))),
+    ("grid", (("top-left", "top-right"), ("bottom-left", "bottom-right"))),
+    ("row", (("left-third", 1), ("center-third", 1), ("right-third", 1))),
+)
+
+
+def zone_label(name):
+    return {
+        "left": tr("Left half"), "right": tr("Right half"),
+        "top": tr("Top half"), "bottom": tr("Bottom half"),
+        "top-left": tr("Top left quarter"), "top-right": tr("Top right quarter"),
+        "bottom-left": tr("Bottom left quarter"), "bottom-right": tr("Bottom right quarter"),
+        "left-third": tr("Left third"), "center-third": tr("Middle third"),
+        "right-third": tr("Right third"), "left-two-thirds": tr("Left two thirds"),
+        "right-two-thirds": tr("Right two thirds"), "center": tr("Centered"),
+        "maximize": tr("Maximize"), "restore": tr("Restore"),
+    }.get(name, name)
+
+
+class SnapWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=tr("Snap Layouts"), decorated=False)
+        popup.make_overlay(self, "zeta-snap")
+        self._on_monitor(MONITOR)
+        self.chosen = False
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                       css_classes=["zeta-card", "snap-card"],
+                       halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        card.append(Gtk.Label(label=tr("Snap Layouts"), css_classes=["snap-title"],
+                              halign=Gtk.Align.START))
+        title = (TARGET.get("title") or TARGET.get("class") or "").replace("\n", " ")
+        if title:
+            card.append(Gtk.Label(label=title, css_classes=["snap-sub"], halign=Gtk.Align.START,
+                                  ellipsize=Pango.EllipsizeMode.END, max_width_chars=60))
+
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10, halign=Gtk.Align.CENTER)
+        first = None
+        for i, (kind, parts) in enumerate(LAYOUTS):
+            frame, button = self._layout(kind, parts)
+            grid.attach(frame, i % 3, i // 3, 1, 1)
+            first = first or button
+        card.append(grid)
+
+        row = Gtk.Box(spacing=8, homogeneous=True)
+        for name in ("center", "maximize", "restore"):
+            b = Gtk.Button(label=zone_label(name), css_classes=["snap-wide"])
+            b.connect("clicked", self._choose, name)
+            row.append(b)
+        card.append(row)
+        card.append(Gtk.Label(
+            label=tr("Super + Shift + Left or Right: half of the screen. Super + Shift + Up: "
+                     "maximize. Super + Shift + Down: restore. Esc closes."),
+            css_classes=["zeta-caption"], halign=Gtk.Align.START, wrap=True, max_width_chars=60))
+        self.set_child(card)
+        popup.close_on_outside(self, card, self.close_app)
+        if first is not None:
+            first.grab_focus()
+
+    def _on_monitor(self, name):
+        """The popup opens on the display of the window it arranges."""
+        if not name:
+            return
+        try:
+            gi.require_version("Gtk4LayerShell", "1.0")
+            from gi.repository import Gdk, Gtk4LayerShell as LS
+            monitors = Gdk.Display.get_default().get_monitors()
+            for i in range(monitors.get_n_items()):
+                m = monitors.get_item(i)
+                if m.get_connector() == name:
+                    LS.set_monitor(self, m)
+                    return
+        except (ValueError, ImportError, AttributeError):
+            pass
+
+    def _zone(self, name, w, h):
+        b = Gtk.Button(css_classes=["snap-zone"], tooltip_text=zone_label(name))
+        b.set_size_request(max(8, int(w)), max(8, int(h)))
+        b.update_property([Gtk.AccessibleProperty.LABEL], [zone_label(name)])
+        b.connect("clicked", self._choose, name)
+        return b
+
+    def _layout(self, kind, parts):
+        frame = Gtk.Box(css_classes=["snap-layout"])
+        first = None
+        if kind == "grid":
+            inner = Gtk.Grid(column_spacing=SPACING, row_spacing=SPACING)
+            for r, line in enumerate(parts):
+                for c, name in enumerate(line):
+                    b = self._zone(name, (W - SPACING) / 2, (H - SPACING) / 2)
+                    inner.attach(b, c, r, 1, 1)
+                    first = first or b
+        else:
+            vertical = kind == "col"
+            inner = Gtk.Box(spacing=SPACING, orientation=Gtk.Orientation.VERTICAL if vertical
+                            else Gtk.Orientation.HORIZONTAL)
+            total = sum(f for _n, f in parts)
+            free = (H if vertical else W) - SPACING * (len(parts) - 1)
+            for name, frac in parts:
+                size = free * frac / total
+                b = self._zone(name, W if vertical else size, size if vertical else H)
+                inner.append(b)
+                first = first or b
+        frame.append(inner)
+        return frame, first
+
+    def _choose(self, _button, name):
+        if self.chosen:
+            return
+        self.chosen = True
+        # hide first and give the keyboard back to the window, then arrange it
+        self.set_visible(False)
+
+        def later():
+            snap(name, TARGET["address"])
+            self.close_app()
+            return False
+        GLib.timeout_add(120, later)
+
+    def close_app(self):
+        self.get_application().quit()
+        return False
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.Snap", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.clean_env()
+        popup.load_css(CSS)
+
+    def do_activate(self):
+        if self.props.active_window:
+            self.quit()                  # Super + Z again: closes it
+            return
+        SnapWindow(self).present()
+
+
+sys.exit(App().run([sys.argv[0]]))

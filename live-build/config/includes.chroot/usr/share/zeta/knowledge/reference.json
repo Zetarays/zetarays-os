@@ -1,6 +1,6 @@
 {
  "about": "Verified facts that change over time, shipped with ZETA RAYS OS so that the local model can answer them without the web. Each entry has the date it was checked and its source; ZETA tells the user that date. Updated with every release (and by system updates of the zeta-knowledge data).",
- "release": "2.5",
+ "release": "3.0",
  "entries": [
   {
    "id": "us-president",
@@ -17,7 +17,7 @@
    ],
    "text": "Donald J. Trump is the 47th President of the United States, in office since 20 January 2025 (he was also the 45th president, 2017-2021). The Vice President is JD Vance.",
    "url": "https://www.whitehouse.gov/administration/",
-   "verified": "2026-10-24"
+   "verified": "2026-11-20"
   },
   {
    "id": "it-pm",
@@ -32,7 +32,24 @@
    ],
    "text": "Giorgia Meloni is the President of the Council of Ministers (Prime Minister) of Italy, in office since 22 October 2022.",
    "url": "https://www.governo.it/it/il-governo",
-   "verified": "2026-10-24"
+   "verified": "2026-11-20"
+  },
+  {
+   "id": "uk-pm",
+   "title": "Prime Minister of the United Kingdom",
+   "keywords": [
+    "primo ministro britannico",
+    "premier britannico",
+    "primo ministro del Regno Unito",
+    "governo britannico",
+    "Downing Street",
+    "UK prime minister",
+    "British prime minister",
+    "prime minister of the United Kingdom"
+   ],
+   "text": "Andy Burnham (Labour) is the Prime Minister of the United Kingdom, in office since 20 July 2026; he succeeded Keir Starmer, who resigned.",
+   "url": "https://theweek.com/uk/world-news/andy-burnham-new-uk-prime-minister",
+   "verified": "2026-11-20"
   },
   {
    "id": "it-president",
@@ -46,7 +63,7 @@
    ],
    "text": "Sergio Mattarella is the President of the Italian Republic, in office since 3 February 2015; he was re-elected on 29 January 2022 for a second seven-year term.",
    "url": "https://it.wikipedia.org/wiki/Presidente_della_Repubblica_Italiana",
-   "verified": "2026-10-24"
+   "verified": "2026-11-20"
   },
   {
    "id": "pope",
@@ -62,7 +79,7 @@
    ],
    "text": "Leo XIV (Robert Francis Prevost, born in Chicago in 1955) is the Pope, elected on 8 May 2025.",
    "url": "https://www.vatican.va/content/vatican/it.html",
-   "verified": "2026-10-24"
+   "verified": "2026-11-20"
   }
  ]
 }

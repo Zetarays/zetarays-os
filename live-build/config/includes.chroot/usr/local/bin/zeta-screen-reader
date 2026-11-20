@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-screen-reader — the screen reader (Orca), Settings > Accessibility.
+#
+#   zeta-screen-reader on | off | toggle   change it now and for the next logins
+#                                          (Super + Alt + S runs "toggle")
+#   zeta-screen-reader login               start it at login when it is on
+#
+# The choice is the standard desktop key
+# org.gnome.desktop.a11y.applications screen-reader-enabled (kept by dconf).
+set -u
+SCHEMA=org.gnome.desktop.a11y.applications
+KEY=screen-reader-enabled
+
+command -v orca >/dev/null 2>&1 || exit 0
+
+enabled() { [ "$(gsettings get "$SCHEMA" "$KEY" 2>/dev/null)" = "true" ]; }
+
+start() {
+    pgrep -x -u "$(id -u)" orca >/dev/null 2>&1 || setsid orca --replace >/dev/null 2>&1 &
+}
+
+stop() {
+    pkill -x -u "$(id -u)" orca 2>/dev/null
+    return 0
+}
+
+case "${1:-}" in
+    on)
+        gsettings set "$SCHEMA" "$KEY" true
+        start
+        ;;
+    off)
+        gsettings set "$SCHEMA" "$KEY" false
+        stop
+        ;;
+    toggle)
+        if enabled; then
+            gsettings set "$SCHEMA" "$KEY" false
+            stop
+        else
+            gsettings set "$SCHEMA" "$KEY" true
+            start
+        fi
+        ;;
+    login)
+        if enabled; then start; fi
+        ;;
+    *)
+        echo "usage: zeta-screen-reader on | off | toggle | login" >&2
+        exit 2
+        ;;
+esac
+exit 0

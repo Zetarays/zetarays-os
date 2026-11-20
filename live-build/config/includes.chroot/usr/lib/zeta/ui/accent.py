@@ -28,6 +28,7 @@ PALETTE = (
     ("blue", "#3A8DFF", "Blue"),
     ("red", "#C8102E", "Red"),
     ("green", "#4CC94A", "Green"),
+    ("purple", "#7C3AED", "Purple"),
     ("white", "#FFFFFF", "White"),
 )
 
@@ -37,7 +38,7 @@ def color_name(key: str) -> str:
     tools/i18n.py can find them)."""
     from i18n import tr
     return {"blue": tr("Blue"), "red": tr("Red"), "green": tr("Green"),
-            "white": tr("White")}.get(key, key)
+            "purple": tr("Purple"), "white": tr("White")}.get(key, key)
 
 
 def color_of(key: str) -> str | None:

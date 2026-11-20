@@ -1,0 +1,8 @@
+# ZETA RAYS OS: updates of the ZETA RAYS components (desktop, Settings, ZETA,
+# security tools), signed with the ZETA RAYS key. Debian packages keep coming
+# from debian.sources. Software Update shows both.
+Types: deb
+URIs: https://zetarays.org/apt/
+Suites: trixie
+Components: main
+Signed-By: /usr/share/keyrings/zeta-rays-archive-keyring.gpg

@@ -40,7 +40,6 @@ V_DELETE = _W["v_delete"]
 V_TURN_ON = _W["v_turn_on"]
 V_TURN_OFF = _W["v_turn_off"]
 
-_ART = _W["art"]
 _COMPUTER = _W["computer"]
 
 # places (well-known folders), in Italian and in English

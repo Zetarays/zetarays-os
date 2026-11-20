@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # ZETA RAYS — Ollama (local AI model) for ZETA, offline.
-# Installs the Ollama runtime and sets up the local model (qwen3:4b-instruct).
+# Installs the Ollama runtime and checks the local models bundled in the image
+# (qwen3:4b-instruct and granite4.2:3b, see tools/download-ai-model.sh).
 # FATAL on purpose: AI is a core feature of ZETA RAYS, and an image without the
 # engine or the model is a broken product. If anything here fails, the build
 # stops instead of shipping a system in which ZETA stays silent.

@@ -18,7 +18,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.request
 
 sys.path.insert(0, "/usr/lib/zeta")
 from i18n import tr, trc  # noqa: E402
@@ -65,15 +64,7 @@ def short_datetime(ts):
 
 # The state of services is decided in one place (unitstate.py), shared with
 # zeta-health, "zeta system", zeta-selftest and zeta-diagnostics.
-from monitor.unitstate import classify_service, failed_verdicts  # noqa: E402,F401
-
-
-def failed_services():
-    """(errors, warnings): names of the failed services that are a confirmed
-    problem, and of those that only need attention (see unitstate.assess)."""
-    verdicts = failed_verdicts()
-    return ([v["unit"][:-8] for v in verdicts if v["level"] == "error"],
-            [v["unit"][:-8] for v in verdicts if v["level"] == "warning"])
+from monitor.unitstate import classify_service  # noqa: E402,F401
 
 
 class Collectors:
@@ -83,7 +74,6 @@ class Collectors:
         self._net_prev = None
         self._disk_prev = None
         self._proc_primed = False
-        self.geo_enabled = True
 
     # ---------------- system ----------------
     def system(self):
@@ -302,50 +292,6 @@ class Collectors:
             dns = re.findall(r"(\d+\.\d+\.\d+\.\d+)", r)
         return {"gateway": gw, "dns": dns or [NA]}
 
-    def public_ip_geo(self):
-        """IP geolocation (EXTERNAL). Only if enabled. None if unavailable."""
-        if not self.geo_enabled:
-            return None
-        try:
-            req = urllib.request.Request("https://ipwho.is/",
-                                         headers={"User-Agent": "Zeta-Monitor"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                d = json.loads(resp.read().decode("utf-8"))
-            if not d.get("success", True):
-                return None
-            conn = d.get("connection", {}) or {}
-            return {"ip": d.get("ip", NA), "city": d.get("city", NA),
-                    "region": d.get("region", NA), "country": d.get("country", NA),
-                    "lat": d.get("latitude"), "lon": d.get("longitude"),
-                    "isp": conn.get("isp", conn.get("org", NA)),
-                    "asn": conn.get("asn", NA)}
-        except Exception:  # noqa: BLE001
-            return None
-
-    def connections(self):
-        rows = []
-        if not psutil:
-            return rows
-        try:
-            conns = psutil.net_connections(kind="inet")
-        except (psutil.AccessDenied, PermissionError):
-            return None    # permission denied: the UI shows PERMISSION REQUIRED
-        except Exception:  # noqa: BLE001
-            return rows
-        for c in conns:
-            proto = "TCP" if c.type == socket.SOCK_STREAM else "UDP"
-            la = "%s:%s" % c.laddr if c.laddr else NA
-            ra = "%s:%s" % c.raddr if c.raddr else "—"
-            name = NA
-            if c.pid:
-                try:
-                    name = psutil.Process(c.pid).name()
-                except Exception:  # noqa: BLE001
-                    name = NA
-            rows.append({"proto": proto, "local": la, "remote": ra,
-                         "state": c.status or "—", "pid": c.pid or NA, "process": name})
-        return rows
-
     # ---------------- processes ----------------
     def processes(self, limit=200):
         rows = []
@@ -488,94 +434,6 @@ class Collectors:
         return False, tr("{name} won't close even when forced: it's waiting on the disk "
                          "or the system. Try again shortly.").format(name=name)
 
-    # ---------------- firewall ----------------
-    def firewall(self):
-        out = {"system": NA, "status": "UNKNOWN", "rules": NA,
-               "policies": NA, "text": ""}
-        if shutil.which("nft"):
-            rs = _run(["nft", "list", "ruleset"])
-            if rs.strip():
-                out["system"] = "nftables"
-                out["status"] = "ACTIVE"
-                out["rules"] = len(re.findall(r"\b(drop|accept|reject|jump)\b", rs))
-                out["text"] = rs[:8000]
-                pol = re.findall(r"policy (\w+)", rs)
-                out["policies"] = ", ".join(sorted(set(pol))) or NA
-                return out
-            out["system"] = "nftables"
-            out["status"] = "INACTIVE"
-        if shutil.which("ufw"):
-            r = _run(["ufw", "status"], c_locale=True)
-            if "Status: active" in r:
-                out["system"] = "ufw"; out["status"] = "ACTIVE"; out["text"] = r
-                return out
-        if shutil.which("iptables"):
-            r = _run(["iptables", "-S"])
-            if r.strip():
-                out["system"] = "iptables"
-                out["status"] = "ACTIVE" if r.count("\n") > 3 else "INACTIVE"
-                out["text"] = r[:8000]
-                out["rules"] = r.count("\n")
-        return out
-
-    # ---------------- logins / authentication ----------------
-    def sessions(self):
-        rows = []
-        if psutil:
-            try:
-                for u in psutil.users():
-                    rows.append({"user": u.name, "tty": u.terminal or "—",
-                                 "host": u.host or tr("local"),
-                                 "since": time.strftime("%H:%M", time.localtime(u.started))})
-            except Exception:  # noqa: BLE001
-                pass
-        return rows
-
-    def auth_events(self, limit=40):
-        """Authentication events from the system logs (if readable)."""
-        events = []
-        readable = os.access("/var/log/auth.log", os.R_OK)
-        source = None
-        if readable:
-            source = _run(["tail", "-n", "400", "/var/log/auth.log"])
-        else:
-            source = _run(["journalctl", "-n", "400", "--no-pager", "-o", "short-iso",
-                           "SYSLOG_FACILITY=10"])  # auth
-        if not source.strip():
-            return {"permission": not readable and not source, "events": events}
-        for line in source.splitlines():
-            ev = self._parse_auth_line(line)
-            if ev:
-                events.append(ev)
-        return {"permission": False, "events": events[-limit:][::-1]}
-
-    def _parse_auth_line(self, line):
-        low = line.lower()
-        t = ""
-        m = re.search(r"(\d{2}:\d{2}:\d{2})", line)
-        if m:
-            t = m.group(1)
-        ip = ""
-        mi = re.search(r"from (\d+\.\d+\.\d+\.\d+)", line)
-        if mi:
-            ip = mi.group(1)
-        user = ""
-        mu = re.search(r"for (?:invalid user )?(\w+)", line) or re.search(r"user (\w+)", line)
-        if mu:
-            user = mu.group(1)
-        if "accepted" in low and "sshd" in low:
-            return (t, user, ip or "—", "SSH", "LOGIN", "SUCCESS")
-        if "failed password" in low or "authentication failure" in low:
-            svc = "SSH" if "sshd" in low else "AUTH"
-            return (t, user, ip or "—", svc, "LOGIN", "FAILED")
-        if "session opened" in low:
-            return (t, user, ip or "—", "SESSION", "OPEN", "INFO")
-        if "session closed" in low:
-            return (t, user, ip or "—", "SESSION", "CLOSE", "INFO")
-        if "sudo:" in low and "command=" in low:
-            return (t, user, tr("local"), "SUDO", "AUTH", "SUCCESS")
-        return None
-
     # ---------------- services ----------------
     def services(self, limit=120):
         """Every loaded service with an honest state.
@@ -610,21 +468,6 @@ class Collectors:
         p = subprocess.run(["pkexec", "systemctl", action, name + ".service"],
                            capture_output=True, text=True)
         return p.returncode == 0, (p.stderr or "").strip()
-
-    # ---------------- security events ----------------
-    def security_events(self):
-        """Combine the events that are really available (nothing made up)."""
-        events = []
-        auth = self.auth_events(limit=12)
-        for t, user, ip, svc, ev, status in auth.get("events", []):
-            sev = "ALERT" if status == "FAILED" else ("NOTICE" if svc == "SUDO" else "INFO")
-            events.append((t, "%s %s %s" % (svc, ev, status),
-                           tr("{user} from {ip}").format(user=user, ip=ip) if ip and ip != "—" else user, sev))
-        for v in failed_verdicts():
-            if v["level"] in ("error", "warning"):
-                events.append((time.strftime("%H:%M:%S"), v["title"], v["unit"],
-                               "ALERT" if v["level"] == "error" else "WARNING"))
-        return events
 
 
 # ---------------- privileged data (read-only helper) ----------------

@@ -19,11 +19,13 @@ if [ -n "$XDG_SESSION_ID" ]; then
                  awk -v u="$USER" -v s="$XDG_SESSION_ID" '$3 == u && $1 != s && $4 == "seat0" {print $1}'); do
         if [ "$(loginctl show-session "$old" -p Type --value)" = wayland ] &&
            [ "$(loginctl show-session "$old" -p State --value)" != closing ]; then
-            loginctl activate "$old" 2>/dev/null
-            # SDDM, when closing this login, goes back to its own console:
-            # repeat the switch from the user manager, which outlives this session.
-            systemd-run --user --quiet --on-active=2 loginctl activate "$old" 2>/dev/null ||
-                ( sleep 2; loginctl activate "$old" ) &
+            # Activating it from here does not hold: when this login ends,
+            # SDDM jumps back to its own (empty) console, and switching away
+            # first ends this login at once. The old session switches back by
+            # itself instead (zeta-watchdog, on SIGUSR2, a moment after this
+            # login is gone): a session may always activate itself. SDDM's
+            # own "ReuseSession" only covers logins made with a password.
+            pkill -USR2 -u "$(id -u)" -x zeta-watchdog 2>/dev/null
             exit 0
         fi
     done
@@ -31,6 +33,16 @@ fi
 
 LOGDIR="$HOME/.local/share/zeta"
 HYPRCFG="$HOME/.config/hypr"
+
+# --- a home folder that never got /etc/skel ----------------------------------
+# useradd copies /etc/skel into a new user's home, but /root (root can sign
+# in when Settings > Account allows it) and accounts made without -m never
+# got it: without hyprland.lua the desktop would start with no bar, no
+# shortcuts and no ZETA RAYS settings. The missing files are copied, nothing
+# that exists is overwritten.
+if [ ! -e "$HYPRCFG/hyprland.lua" ] && [ -d /etc/skel ]; then
+    cp -a --update=none /etc/skel/. "$HOME/" 2>/dev/null
+fi
 mkdir -p "$LOGDIR" "$HYPRCFG"
 
 # --- settings saved by an earlier version ----------------------------------
@@ -38,6 +50,10 @@ mkdir -p "$LOGDIR" "$HYPRCFG"
 # home folder coming from an earlier version is converted once, before
 # Hyprland reads its configuration (the program records that it is done).
 /usr/libexec/zeta-migrate-user >> "$LOGDIR/migration.log" 2>&1
+# Quick Look in the file manager (right-click action and the Space key) for
+# a home folder of an earlier version: added once, before Files can run
+[ -e "$HOME/.local/state/zeta/quicklook-thunar" ] || \
+    /usr/local/bin/zeta-quicklook --setup-thunar >> "$LOGDIR/migration.log" 2>&1
 
 # --- 3D acceleration available? -------------------------------------------
 # The probe initializes the graphics card driver (0.1-0.5 s at every login):
@@ -137,15 +153,39 @@ fi
 # zeta-recovery, which stops after 3 crashes in 10 minutes.
 MARKER="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/zeta-recovery"
 rm -f "$MARKER"
+# Hyprland refuses to run as root unless told so explicitly: the root
+# session exists only when the owner allowed it (Settings > Account).
+HYPR_ARGS=()
+[ "$(id -u)" -eq 0 ] && HYPR_ARGS=(-- --i-am-really-stupid)
 while true; do
     # Hyprland log: kept short (over 2 MB it rotates to .1) instead of
     # growing session after session
     if [ "$(stat -c %s "$LOGDIR/hyprland.log" 2>/dev/null || echo 0)" -gt 2000000 ]; then
         mv -f "$LOGDIR/hyprland.log" "$LOGDIR/hyprland.log.1"
     fi
-    start-hyprland >> "$LOGDIR/hyprland.log" 2>&1
+    start-hyprland "${HYPR_ARGS[@]}" >> "$LOGDIR/hyprland.log" 2>&1
     rc=$?
-    [ -f "$MARKER" ] || exit "$rc"
+    if [ ! -f "$MARKER" ]; then
+        # Logged out while another desktop is still open on this seat (after
+        # "Switch user"): SDDM then goes back to its own console, which is
+        # empty, and the screen stayed black. Ask it for the login screen a
+        # moment later; the other
+        # user gets back in from there with the password.
+        if [ -n "$XDG_SESSION_ID" ] &&
+           loginctl list-sessions --no-legend 2>/dev/null |
+           awk -v s="$XDG_SESSION_ID" '$1 != s && $4 == "seat0" {f=1} END {exit !f}'; then
+            # from the user manager: it lives about 10 s longer than the last
+            # session (UserStopDelaySec), while a background process of this
+            # session ends with it. AccuracySec: a timer may otherwise fire up
+            # to a minute late, after the manager is gone.
+            systemd-run --user --quiet --collect --on-active=3 \
+                --timer-property=AccuracySec=100ms dbus-send --system \
+                --type=method_call --dest=org.freedesktop.DisplayManager \
+                /org/freedesktop/DisplayManager/Seat0 \
+                org.freedesktop.DisplayManager.Seat.SwitchToGreeter >/dev/null 2>&1
+        fi
+        exit "$rc"
+    fi
     rm -f "$MARKER"
     echo "zeta-desktop-session: recovering after a Hyprland crash ($(date '+%F %T'))" >> "$LOGDIR/hyprland.log"
     # The pieces of the crashed session (started by Hyprland) are left

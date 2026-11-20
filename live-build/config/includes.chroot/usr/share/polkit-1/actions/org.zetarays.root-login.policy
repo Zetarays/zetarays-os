@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>ZETA RAYS</vendor>
+  <!-- Always asks for the password (auth_admin, not auth_admin_keep): the
+       root account is too important for a remembered authorization. -->
+  <action id="org.zetarays.root-login">
+    <description>Allow or forbid signing in as root</description>
+    <description xml:lang="it">Consentire o vietare l'accesso come root</description>
+    <message>Enter your password to change whether root can sign in.</message>
+    <message xml:lang="it">Inserisci la password per cambiare se root può accedere.</message>
+    <icon_name>system-users</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-root-login</annotate>
+  </action>
+</policyconfig>

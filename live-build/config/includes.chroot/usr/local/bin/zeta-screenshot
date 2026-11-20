@@ -1,0 +1,218 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS — screenshots and screen recordings.
+
+  zeta-screenshot [panel]          the toolbar (Print)
+  zeta-screenshot region           drag an area (Super+Shift+S)
+  zeta-screenshot window           click a window (--active: the active one)
+  zeta-screenshot screen           the screen under the pointer (--all: every screen)
+  zeta-screenshot record [region|screen]
+                                   start a recording, or stop the running one
+                                   (Super+Shift+R); without a target a click
+                                   picks a screen and a drag picks an area
+  zeta-screenshot record-stop      stop the running recording
+  zeta-screenshot status           recording state as JSON
+  zeta-screenshot color            copy the color of a point on the screen
+  zeta-screenshot card FILE        the card with what can be done with a capture
+
+Screenshot options: --delay N, --save / --no-save, --copy / --no-copy,
+--pointer / --no-pointer, --folder DIR, --no-notify. Recording options:
+--delay N, --audio / --no-audio. Without options the toolbar's choices are
+used (~/.config/zeta/screenshot.json).
+
+Captures go to Pictures/Screenshots and to the clipboard, recordings to
+Videos/Screen recordings. Esc while choosing cancels without leaving
+anything behind. Only the toolbar, the card and the recording indicator
+load GTK: the other commands start in a few tens of milliseconds.
+"""
+import os
+import sys
+import time
+
+os.environ.setdefault("ZETA_CAPTURE_T0", repr(time.time()))
+sys.path.insert(0, "/usr/lib/zeta")
+
+APP_ID = "org.zetarays.Screenshot"
+COMMANDS = ("panel", "region", "window", "screen", "record", "record-stop", "status",
+            "color", "card")
+
+
+def _toolbar_running():
+    """The toolbar already in memory: a single D-Bus call shows it."""
+    import subprocess
+    try:
+        return subprocess.run(["gapplication", "action", APP_ID, "show"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              timeout=5).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _gtk(args):
+    from ui import popup
+    popup.preload_layer_shell()           # re-executes this command once, with LD_PRELOAD
+    from ui import capture_ui
+    return capture_ui.main(args)
+
+
+def _usage():
+    from i18n import tr
+    return tr("Usage: zeta-screenshot [COMMAND] [OPTIONS]\n\n"
+              "Commands:\n"
+              "  panel          the toolbar (default)\n"
+              "  region         drag an area of the screen\n"
+              "  window         click a window (--active: the active window)\n"
+              "  screen         the screen under the pointer (--all: every screen)\n"
+              "  record         start a recording or stop the running one\n"
+              "                 (record region, record screen)\n"
+              "  record-stop    stop the running recording\n"
+              "  status         recording state (JSON)\n"
+              "  color          copy the color of a point on the screen\n"
+              "  card FILE      what can be done with a capture\n\n"
+              "Options: --delay N, --save, --no-save, --copy, --no-copy, --pointer,\n"
+              "--no-pointer, --folder DIR, --no-notify, --audio, --no-audio, --all, --active")
+
+
+def _options(argv):
+    """(positional words, options dict). Unknown options -> ValueError."""
+    words, opts = [], {}
+    flags = {"--save": ("save", True), "--no-save": ("save", False),
+             "--copy": ("copy", True), "--no-copy": ("copy", False),
+             "--pointer": ("pointer", True), "--no-pointer": ("pointer", False),
+             "--audio": ("audio", True), "--no-audio": ("audio", False),
+             "--no-notify": ("notify", False), "--all": ("all", True),
+             "--active": ("active", True)}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in flags:
+            k, v = flags[a]
+            opts[k] = v
+        elif a in ("--delay", "--folder"):
+            if i + 1 >= len(argv):
+                raise ValueError(a)
+            opts[a[2:]] = argv[i + 1]
+            i += 1
+        elif a.startswith("--delay=") or a.startswith("--folder="):
+            k, v = a[2:].split("=", 1)
+            opts[k] = v
+        elif a.startswith("-"):
+            raise ValueError(a)
+        else:
+            words.append(a)
+        i += 1
+    if "delay" in opts:
+        try:
+            opts["delay"] = max(0, min(60, int(opts["delay"])))
+        except ValueError:
+            raise ValueError("--delay")
+    return words, opts
+
+
+def _screenshot(mode, opts):
+    from system import capture
+    from i18n import tr
+    s = capture.load_settings()
+    save = opts.get("save", s["save"])
+    copy = opts.get("copy", s["copy"])
+    if not save and not copy:
+        save = True                        # a capture must end up somewhere
+    path, error = capture.take(mode, delay=opts.get("delay", 0), save=save, copy=copy,
+                               pointer=opts.get("pointer", s["pointer"]),
+                               folder=opts.get("folder"), all_screens=opts.get("all", False),
+                               active=opts.get("active", False))
+    if path is None:
+        if error:                          # None = canceled with Esc: nothing at all
+            print(error, file=sys.stderr)
+            if opts.get("notify", True):
+                capture.notify(tr("Screenshot failed"), error)
+            return 1
+        return 0
+    print(path)
+    if not opts.get("notify", True):
+        return 0
+    child = capture.background()
+    if child is False:
+        return 0
+    action = capture.notify_screenshot(path, copy)
+    if action:
+        capture.handle_action(path, action)
+    if child:
+        os._exit(0)
+    return 0
+
+
+def _record(words, opts):
+    from system import capture
+    if capture.recording_state():
+        capture.stop_recording(wait=True)
+        return 0
+    target = words[0] if words else None
+    if target not in (None, "region", "screen"):
+        print(_usage(), file=sys.stderr)
+        return 2
+    audio = opts.get("audio", capture.load_settings()["audio"])
+    # the child chooses the area, records and stays as the supervisor; the
+    # shortcut or the Control Center that called us gets control back at once
+    child = capture.background()
+    if child is False:
+        return 0
+    from i18n import tr
+    path, error = capture.start_recording(target, audio=audio, delay=opts.get("delay", 0))
+    if error:
+        capture.notify(tr("Screen recording"), error)
+    elif path:
+        capture.supervise()
+    if child:
+        os._exit(0)
+    return 0 if not error else 1
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "panel"
+    if cmd in ("-h", "--help", "help"):
+        print(_usage())
+        return 0
+    if cmd == "_app":                      # the GTK process (toolbar, card, indicator)
+        return _gtk(argv[2:] or ["panel"])
+    if cmd == "panel":
+        # (after the layer-shell re-execution it is known not to be running)
+        if "ZETA_LAYER_PRELOADED" not in os.environ and _toolbar_running():
+            return 0
+        return _gtk(["panel"])
+    if cmd not in COMMANDS:
+        print(_usage(), file=sys.stderr)
+        return 2
+    try:
+        words, opts = _options(argv[2:])
+    except ValueError as e:
+        print("zeta-screenshot: %s\n\n%s" % (e, _usage()), file=sys.stderr)
+        return 2
+    if cmd in ("region", "window", "screen"):
+        return _screenshot(cmd, opts)
+    if cmd == "record":
+        return _record(words, opts)
+    from system import capture
+    if cmd == "record-stop":
+        was = capture.stop_recording(wait=True)
+        if not was:
+            print("not recording", file=sys.stderr)
+        return 0
+    if cmd == "status":
+        import json
+        print(json.dumps(capture.status()))
+        return 0
+    if cmd == "color":
+        capture.pick_color()
+        return 0
+    if cmd == "card":
+        if not words or not os.path.isfile(words[0]):
+            print(_usage(), file=sys.stderr)
+            return 2
+        capture.ask_app("card", os.path.abspath(words[0]))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

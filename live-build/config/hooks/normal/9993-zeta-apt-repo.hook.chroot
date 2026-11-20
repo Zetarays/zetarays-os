@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS — package source of the ZETA RAYS updates (zeta-rays-release).
+#
+# build.sh builds the package (tools/make-zeta-debs.py --release-only) into
+# /usr/share/zeta/apt-release when the repository key exists: it holds
+# the source of https://zetarays.org/apt/ (active only while it answers) and
+# the public key the updates are signed with. Software Update then shows
+# the ZETA RAYS updates next to the Debian ones (docs/UPDATES.md).
+# Installed after hook 9990, so the image build itself never reads that
+# source. Not fatal: without the package the system works, it only gets no
+# ZETA RAYS updates; the build log says so.
+set -e
+D=/usr/share/zeta/apt-release
+DEB=$(ls "$D"/zeta-rays-release_*_all.deb 2>/dev/null | head -1 || true)
+if [ -z "$DEB" ]; then
+    echo "ZETA RAYS: WARNING - no package source for ZETA RAYS updates (repository key missing)"
+    rm -rf "$D"
+    exit 0
+fi
+dpkg -i "$DEB"
+rm -rf "$D"
+if [ ! -s /usr/share/keyrings/zeta-rays-archive-keyring.gpg ] || [ ! -s /usr/share/zeta-rays-release/zeta-rays.sources ] || [ ! -x /usr/share/zeta-rays-release/check-source ]; then
+    echo "ZETA RAYS: ERROR - zeta-rays-release installed without its files" >&2
+    exit 1
+fi
+echo "ZETA RAYS: package source for ZETA RAYS updates installed ($(dpkg-query -W -f='${Version}' zeta-rays-release))"

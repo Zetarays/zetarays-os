@@ -124,8 +124,14 @@ class AIPage:
     def _update_effective(self):
         def job():
             p = Registry().resolve_default()
-            return tr("{name} · model {model}").format(name=p.config.label,
+            text = tr("{name} · model {model}").format(name=p.config.label,
                                                        model=p._model() or tr("default"))
+            chosen = p.config.model
+            if models.stale_choice(chosen, getattr(p, "_last_tags", None) or {}):
+                # e.g. granite4:micro-h chosen in 2.5, not in the 3.0 image
+                text += "\n" + tr("{model}, chosen earlier, is not installed: ZETA uses the "
+                                   "best installed model instead.").format(model=chosen)
+            return text
         _in_thread(job, lambda r: self.effective_row.set_subtitle(
             r if isinstance(r, str) else tr("can't be determined")))
 
@@ -208,7 +214,9 @@ class AIPage:
         for r in self._model_rows:
             self.ollama_models.remove(r)
         self._model_rows = []
-        in_use = self._option(LOCAL, "model", "") or models.choose({m["name"]: m["gb"] for m in models_})
+        # a chosen model that is not installed any more gives way to the best
+        # installed one (models.resolve), as ZETA itself does
+        in_use = models.resolve(self._option(LOCAL, "model", ""), {m["name"]: m["gb"] for m in models_})
         self.ollama_models.set_subtitle(tr("{n} · in use: {model}").format(n=len(models_), model=in_use)
                                         if models_ else tr("none: download one below"))
         for m in models_:

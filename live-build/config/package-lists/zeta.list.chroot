@@ -90,11 +90,31 @@ mako-notifier
 libnotify-bin
 swaybg
 wl-clipboard
+# Clipboard history (Super+V, zeta-clipboard): cliphist stores what is copied
+# (trixie main 0.5.0-1); wtype types Ctrl+V into the focused window to paste
+# the chosen entry or emoji (trixie main 0.4-3). Both amd64 and arm64.
+cliphist
+wtype
 grim
 slurp
+# Screenshots and screen recording (zeta-screenshot): wf-recorder records the
+# screen to MP4 (trixie main 0.5.0-2), swappy annotates a screenshot: arrows,
+# text, highlight, blur (trixie main 1.5.1-2). Both amd64 and arm64.
+wf-recorder
+swappy
+# Color picker of the screenshot toolbar: only in the official backports
+# (trixie-backports 0.4.7-1~bpo13+1, amd64 and arm64), like Hyprland itself;
+# it needs libhyprutils10, pinned to backports by the libhypr* rule.
+hyprpicker
 brightnessctl
 hyprlock
 hypridle
+# Night light (zeta-night-light): warmer colors through wlr-gamma-control,
+# which Hyprland 0.55 implements; trixie main 0.3.0-1 (amd64, arm64)
+wlsunset
+# Power modes in Settings and the Control Center (Power Saver / Balanced /
+# Performance); trixie 0.30-1.1 (amd64, arm64), conflicts only with tlp/tuned
+power-profiles-daemon
 # login records (Monitor → Users)
 wtmpdb
 libpam-wtmpdb
@@ -396,3 +416,19 @@ libnss-mdns
 # App isolation: the kernel has AppArmor on; this loads Debian's profiles
 # (as on a standard Debian install) so Security shows it active
 apparmor
+
+# --- Settings 3.0: Accessibility, Storage, Backup (trixie versions noted) ---
+# Screen reader for Settings > Accessibility (orca 48.1, about 60 MB with
+# speech-dispatcher). Recommends are off: the espeak-ng voice module of
+# speech-dispatcher must be listed, or Orca has no voice.
+orca
+speech-dispatcher-espeak-ng
+# Settings > Storage: "Analyze in detail" (baobab 48.0, 2 MB) and "Disks"
+# (gnome-disk-utility 46.1, 7 MB: format USB drives, write disk images)
+baobab
+gnome-disk-utility
+# Settings > Backup: personal files with Deja Dup (deja-dup 45.2 + duplicity,
+# about 25 MB) and system snapshots with Timeshift (timeshift 24.06.6, rsync
+# mode on the ext4 system the installer creates, 5 MB)
+deja-dup
+timeshift

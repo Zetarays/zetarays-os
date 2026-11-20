@@ -1,0 +1,90 @@
+{
+  "about": "Build hooks reviewed for the in-place upgrade (tools/make-upgrade.sh). A hook whose SHA-256 differs from the one here stops the bundle build: read the change, decide whether the upgrader must repeat it (upgrade: replay = the bundle runs the hook as it is on the installed system; partial = zeta_upgrade.py does the parts that matter, see 'how'; conditional = only when its input changed; skip = nothing to do on an installed system), update zeta_upgrade.py if needed, then run tools/make-upgrade.sh --accept-hooks.",
+  "hooks": {
+    "0100-zeta-branding.hook.chroot": {
+      "sha256": "509ff1a6ca210128ef8d108dc7527555e6460d9f2569be0e99674bb86235ad9a",
+      "upgrade": "partial",
+      "how": "version in os-release, issue, motd (SDDM and GRUB theme files carry it in the bundle); file modes; systemctl enable lines that are new since 2.5; glib schemas; icon caches; boot splash images and initramfs when the boot theme or the brand logo changed; update-grub when /etc/default/grub.d changed. Diversions, time zone and bashrc lines are already on a 2.5 system."
+    },
+    "0110-zeta-languages.hook.chroot": {
+      "sha256": "c270058636cc3d04aaafe90c88b9a8b917fc08dbcd45ed57eb5164d92949a03b",
+      "upgrade": "partial",
+      "how": "when languages.json changed: the new locales are enabled in /etc/locale.gen and generated; the system language is never reset"
+    },
+    "0200-zeta-vosk.hook.chroot": {
+      "sha256": "8c463a8d1fbeb689db513352ff815e6456676f45217f6b5770fd7e9836a254b9",
+      "upgrade": "skip",
+      "how": "speech recognition models are not upgraded"
+    },
+    "0210-zeta-voice.hook.chroot": {
+      "sha256": "d03787da2067961a539691e1b3e0615489e83315202631f294a8eddba48e9815",
+      "upgrade": "skip",
+      "how": "voices are not upgraded"
+    },
+    "0300-zeta-ollama.hook.chroot": {
+      "sha256": "8fd10eda8d10f45afc542b5af0bc0d1746670bd0a1620216c14f3ed6ca4a8608",
+      "upgrade": "partial",
+      "how": "Ollama runtime (GPU libraries left out, as the hook does) and the ollama.service text written by this hook; models are not bundled"
+    },
+    "0350-zeta-hyprland-patched.hook.chroot": {
+      "sha256": "c3d7d2ef6bcf80240d71a6d41b570e8cfae4219f9e3263b08d2c3e9281fa4a1a",
+      "upgrade": "conditional",
+      "how": "replayed only when the patched Hyprland version differs from the installed one"
+    },
+    "0360-zeta-localsend.hook.chroot": {
+      "sha256": "42af77fb0d53507cb2edc36aeec2a367b4634937d844e39a68b922d14be37e07",
+      "upgrade": "skip",
+      "how": "LocalSend 1.18.2 already installed by 2.5"
+    },
+    "0400-zeta-hyprbars.hook.chroot": {
+      "sha256": "5624105a14662584ce7e45dad7700c722dee207a027934555615878ef85475b4",
+      "upgrade": "conditional",
+      "how": "replayed together with 0350 (title bars rebuilt for the new Hyprland)"
+    },
+    "0500-zeta-menu.hook.chroot": {
+      "sha256": "d6e9dd137f82e5e4f3683151c34f56a36ffa441c8b4bc3eb71f944cf1ff5f4a8",
+      "upgrade": "replay",
+      "how": "idempotent"
+    },
+    "0600-zeta-legal.hook.chroot": {
+      "sha256": "f944e0c1b0c55a06d6d1e6444b75a8c1d8b52ff56b4b90754aaf19583bebce95",
+      "upgrade": "replay",
+      "how": "legal documents regenerated with the new version and packages"
+    },
+    "0650-zeta-security-scans.hook.chroot": {
+      "sha256": "cde7095109c1a586c9cc09b40a54294c4fd477ebef06f704340b083c59f98962",
+      "upgrade": "replay",
+      "how": "idempotent"
+    },
+    "0700-zeta-flatpak.hook.chroot": {
+      "sha256": "e16df715d01d481ab0b3805d9623327d899bf11b4eebaea302425e0e7db0e0da",
+      "upgrade": "skip",
+      "how": "Flathub already configured by 2.5"
+    },
+    "9000-zeta-disk.hook.binary": {
+      "sha256": "24aeeac170115c7b2fefc6bfb56670300a73db14cce36b294fd035b351e5f754",
+      "upgrade": "skip",
+      "how": "boot medium only"
+    },
+    "9990-zeta-upgrade.hook.chroot": {
+      "sha256": "065c142e3dbfbdbab81575adf8d57bd4e2fb460234a415baf4367d89b5ad5119",
+      "upgrade": "partial",
+      "how": "apt-get update and dist-upgrade with the same options; Hyprland must stay the +zeta build"
+    },
+    "9993-zeta-apt-repo.hook.chroot": {
+      "sha256": "6c04e48f83b05bf8f91878474aeafa1ee2f636c0cb3c0260edb703bd9e8ae3fd",
+      "upgrade": "partial",
+      "how": "the bundle installs the same zeta-rays-release package itself"
+    },
+    "9995-zeta-final-language.hook.chroot": {
+      "sha256": "4c395e19ac7fa6929f70e0f7e17433f5a21a6a0c814aaa9b8dc4cef7e71a1e35",
+      "upgrade": "skip",
+      "how": "would reset the language chosen by the user"
+    },
+    "9996-zeta-speed.hook.chroot": {
+      "sha256": "357843385c36149dae8a150027d5c8d2da29f2b4f65b30fda45748adaacfe45a",
+      "upgrade": "partial",
+      "how": "ZETA Python code precompiled and icon caches rebuilt"
+    }
+  }
+}

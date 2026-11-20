@@ -1,0 +1,73 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-night-light: warmer screen colors in the evening.
+
+  zeta-night-light on | off | toggle   turn the night light on or off
+  zeta-night-light status              current state (JSON)
+  zeta-night-light apply               follow the saved settings (session start)
+  zeta-night-light preview KELVIN      show a temperature now, without saving
+  zeta-night-light set KEY VALUE       schedule always|sunset|custom,
+                                       temperature 1500-6000, from HH:MM, to HH:MM
+
+Settings: ~/.config/zeta/night-light.json. A single wlsunset process follows
+the schedule by itself; this command only starts or replaces it.
+"""
+import json
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from system import night_light as nl  # noqa: E402
+from i18n import tr  # noqa: E402
+
+
+def usage():
+    return tr("""zeta-night-light: warmer screen colors in the evening.
+
+  zeta-night-light on | off | toggle   turn the night light on or off
+  zeta-night-light status              current state (JSON)
+  zeta-night-light apply               follow the saved settings (session start)
+  zeta-night-light preview KELVIN      show a temperature now, without saving
+  zeta-night-light set KEY VALUE       schedule always|sunset|custom,
+                                       temperature 1500-6000, from HH:MM, to HH:MM""")
+
+
+def invalid(key, value):
+    print(tr("Invalid value for {key}: {value}").format(key=key, value=value), file=sys.stderr)
+    return 2
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "status"
+    if cmd == "status":
+        print(json.dumps(nl.status()))
+        return 0
+    if cmd == "apply":
+        return 0 if nl.apply() else 1
+    if cmd in ("on", "off", "toggle"):
+        enabled = {"on": True, "off": False}.get(cmd, not nl.load()["enabled"])
+        conf = nl.update(enabled=enabled)
+        ok = nl.apply(conf)
+        print(json.dumps(nl.status(conf)))
+        return 0 if ok else 1
+    if cmd == "preview" and len(argv) == 3 and argv[2].isdigit():
+        return 0 if nl.preview(int(argv[2])) else 1
+    if cmd == "set" and len(argv) == 4:
+        key, value = argv[2], argv[3]
+        # "enabled" is changed with on/off: bool("off") would turn it on
+        if key not in ("schedule", "temperature", "from", "to"):
+            return invalid(key, value)
+        if key == "temperature" and not value.isdigit():
+            return invalid(key, value)
+        try:
+            conf = nl.update(**{key: value})
+        except ValueError:
+            return invalid(key, value)
+        nl.apply(conf)
+        print(json.dumps(nl.status(conf)))
+        return 0
+    print(usage(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,157 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: system snapshots with Timeshift (run through pkexec only).
+
+    zeta-snapshot [--lang=CODE] create manual
+        a snapshot of the system files now (Settings > Backup)
+    zeta-snapshot [--lang=CODE] create before-update
+        the same before the updates are installed (Software Update); only
+        the newest three of these automatic snapshots are kept
+
+Nothing else is accepted: the description of the snapshot is fixed here, no
+text from the caller reaches Timeshift. The snapshot is refused on the live
+system and when the disk has not enough free space for it. The result is one
+JSON line on standard output.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+# the caller's language for the messages (pkexec resets the environment)
+if len(sys.argv) > 1 and sys.argv[1].startswith("--lang="):
+    _code = sys.argv.pop(1)[len("--lang="):]
+    if re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?", _code):
+        os.environ["LANGUAGE"] = _code
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+
+C = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
+TIMESHIFT = "/usr/bin/timeshift"
+SNAPSHOT_DIR = "/timeshift/snapshots"
+COMMENTS = {"manual": "ZETA RAYS: created in Settings",
+            "before-update": "ZETA RAYS: before update"}
+KEEP_AUTOMATIC = 3
+NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$")
+TIMESHIFT_CONF = "/etc/timeshift/timeshift.json"
+UUID_RE = re.compile(r"^[0-9A-Fa-f-]{4,64}$")
+GB = 1024 ** 3
+# the system folders a first snapshot copies (the personal folders are left
+# out by Timeshift's defaults)
+SYSTEM_DIRS = ("/usr", "/etc", "/var", "/opt", "/boot", "/srv")
+
+
+def out(code, **data):
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+    sys.exit(code)
+
+
+def snapshots():
+    """[(name, comment)] oldest first."""
+    found = []
+    try:
+        names = sorted(n for n in os.listdir(SNAPSHOT_DIR) if NAME_RE.match(n))
+    except OSError:
+        return found
+    for name in names:
+        try:
+            with open(os.path.join(SNAPSHOT_DIR, name, "info.json"), encoding="utf-8") as f:
+                comment = str(json.load(f).get("comments", ""))
+        except (OSError, ValueError, AttributeError):
+            comment = ""
+        found.append((name, comment))
+    return found
+
+
+def needed_bytes():
+    """Room a new snapshot needs. The first one copies the system files;
+    later ones only what changed (unchanged files are hard links)."""
+    if snapshots():
+        return 2 * GB
+    total = 0
+    for d in SYSTEM_DIRS:
+        if not os.path.isdir(d):
+            continue
+        r = subprocess.run(["du", "-sx", "-B1", d], capture_output=True, text=True, env=C,
+                           timeout=600)
+        try:
+            total += int(r.stdout.split()[0])
+        except (ValueError, IndexError):
+            pass
+    return total + GB
+
+
+def check_space():
+    st = os.statvfs("/")
+    free = st.f_bavail * st.f_frsize
+    disk = st.f_blocks * st.f_frsize
+    # always leave a twentieth of the disk free for the system itself
+    need = needed_bytes() + disk // 20
+    if free < need:
+        out(1, error=tr("Not enough free disk space for a snapshot: it needs {need} GB, "
+                        "{free} GB are free.").format(need="%.1f" % (need / GB),
+                                                      free="%.1f" % (free / GB)))
+
+
+def prune():
+    """Only the newest automatic snapshots stay."""
+    auto = [n for n, c in snapshots() if c == COMMENTS["before-update"]]
+    for name in auto[:-KEEP_AUTOMATIC] if len(auto) > KEEP_AUTOMATIC else []:
+        subprocess.run([TIMESHIFT, "--delete", "--snapshot", name, "--scripted"] + device_args(),
+                       capture_output=True, text=True, env=C, timeout=1800)
+
+
+def device_args():
+    """Timeshift's own choice when it has one (set in its window); otherwise
+    the system partition. Without a choice Timeshift takes the first Linux
+    partition it finds, which on a computer with two systems may be the
+    other one, and the snapshots would not be in /timeshift/snapshots
+    (where Settings reads them) nor on the disk whose space was checked."""
+    try:
+        with open(TIMESHIFT_CONF, encoding="utf-8") as f:
+            if str(json.load(f).get("backup_device_uuid") or "").strip():
+                return []
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        r = subprocess.run(["findmnt", "-n", "-o", "UUID", "/"], capture_output=True, text=True,
+                           env=C, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    uuid = r.stdout.strip()
+    return ["--snapshot-device", "UUID=" + uuid] if UUID_RE.match(uuid) else []
+
+
+def create(kind):
+    if os.path.exists("/run/live/medium"):
+        out(2, error=tr("Snapshots need ZETA RAYS installed on the computer."))
+    if not os.access(TIMESHIFT, os.X_OK):
+        out(2, error=tr("Timeshift is not installed."))
+    check_space()
+    r = subprocess.run([TIMESHIFT, "--create", "--comments", COMMENTS[kind], "--tags", "O",
+                        "--scripted"] + device_args(),
+                       capture_output=True, text=True, env=C, timeout=3 * 3600)
+    if r.returncode != 0:
+        out(1, error=tr("The snapshot could not be created."),
+            detail=(r.stdout[-600:] + r.stderr[-600:]).strip())
+    if kind == "before-update":
+        prune()
+    out(0, created=kind)
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        out(2, error="must run through pkexec")
+    if len(argv) == 2 and argv[0] == "create" and argv[1] in COMMENTS:
+        create(argv[1])
+    out(2, error="usage: zeta-snapshot [--lang=CODE] create manual|before-update")
+
+
+if __name__ == "__main__":
+    if shutil.which("ionice"):
+        # the copy must not make the desktop sluggish
+        subprocess.run(["ionice", "-c", "3", "-p", str(os.getpid())], capture_output=True)
+    main(sys.argv[1:])

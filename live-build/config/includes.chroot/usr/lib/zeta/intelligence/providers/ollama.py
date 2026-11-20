@@ -119,9 +119,11 @@ class OllamaProvider(Provider):
             return {}
 
     def _model_gb(self, tags: dict | None = None) -> float:
-        """Memory the model in use needs once loaded (estimated from its file)."""
+        """Memory the model in use needs once loaded (measured for the models
+        ZETA ships, else estimated from its file)."""
         tags = self._tags() if tags is None else tags
-        return resources.model_memory_gb(tags.get(self._model_from(list(tags)), 0.0))
+        name = self._model_from(list(tags))
+        return models.loaded_gb(name, tags.get(name, 0.0))
 
     def preload(self) -> bool:
         """Load the model into memory without generating anything.
@@ -156,14 +158,20 @@ class OllamaProvider(Provider):
 
     def _model(self) -> str:
         if self.config.model and not models.is_cloud(self.config.model):
-            return self.config.model
+            # the user's choice, while it is installed (models.resolve): the
+            # list of the last check is enough, no request per call
+            tags = getattr(self, "_last_tags", None)
+            if tags is None:
+                tags = self._tags()
+            return models.resolve(self.config.model, tags)
         return self._model_from(self.list_models())
 
     def _model_from(self, names: list[str]) -> str:
-        if self.config.model and not models.is_cloud(self.config.model):
-            return self.config.model
         tags = getattr(self, "_last_tags", None) or {}
-        return models.choose({n: tags.get(n, 0.0) for n in names})
+        installed = {n: tags.get(n, 0.0) for n in names}
+        if self.config.model and not models.is_cloud(self.config.model):
+            return models.resolve(self.config.model, installed)
+        return models.choose(installed)
 
     def fallback_model(self) -> str:
         """A smaller installed model that fits in the free memory now, or ""."""
@@ -195,7 +203,9 @@ class OllamaProvider(Provider):
         Keeping 3.7 GB busy for half an hour on an 8 GB machine is the exact
         recipe for the freezes and slowdowns we want to avoid.
         """
-        return resources.keep_alive()
+        tags = getattr(self, "_last_tags", None) or {}
+        name = self._model_from(list(tags)) if tags else ""
+        return resources.keep_alive(models.loaded_gb(name, tags.get(name, 0.0)) if name else 0.0)
 
     def load_options(self) -> dict:
         """The options that decide how the model is loaded (Ollama reloads the

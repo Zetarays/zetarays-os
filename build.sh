@@ -127,6 +127,19 @@ echo "$LS_SHA  $LS_CACHE" | shasum -a 256 -c - >/dev/null 2>&1 \
   || { echo "ERROR: $LS_FILE does not match the official checksum: not using it." >&2; exit 1; }
 rm -rf "$LS_DEST"; mkdir -p "$LS_DEST"
 cp -f "$LS_CACHE" "$LS_DEST/"
+
+# --- Package source of the ZETA RAYS updates (zeta-rays-release) -------------
+# Built from tools/apt (sources file + public key); hook 9993 installs it.
+# Without the key (tools/apt/gen-repo-key.py never run) the image has no
+# ZETA RAYS updates source, and the log says so (docs/UPDATES.md).
+REL_DEST="$ROOT/live-build/config/includes.chroot/usr/share/zeta/apt-release"
+rm -rf "$REL_DEST"
+if [ -s "$ROOT/tools/apt/zeta-rays-archive-keyring.gpg" ]; then
+  python3 "$ROOT/tools/make-zeta-debs.py" --release-only --version "$ZETA_VERSION" --out "$REL_DEST" >/dev/null \
+    || { echo "ERROR: the zeta-rays-release package could not be built" >&2; exit 1; }
+else
+  echo "WARNING: no repository key (tools/apt/gen-repo-key.py): image without ZETA RAYS updates" >&2
+fi
 # Cleanup on exit, in ONE single function. A «trap ... EXIT» replaces the
 # previous one instead of adding to it: with two separate traps, on amd64 the
 # colima one overrode this one, the 1.3 GB archive stayed in the sources and
@@ -139,6 +152,7 @@ cleanup() {
   rm -rf "$PIPER_DEST" "$VOSK_DEST"
   rm -rf "$HYPR_DEST"
   rm -rf "$LS_DEST"
+  rm -rf "$REL_DEST"
   if [ "$RESTORE_BINFMT" = 1 ]; then
     colima ssh -- sudo sh -c "echo 1 > $BINFMT/rosetta; echo 0 > $BINFMT/qemu-x86_64" || true
   fi
@@ -238,7 +252,7 @@ docker run --rm --privileged \
         # in hook 0210, then "Vosk is not in the image" three times). Only
         # while the hooks stage is unfinished, so nothing stays in the image.
         if [ ! -e .build/chroot_hooks ] && [ -d chroot/usr/share/zeta ]; then
-          for p in vosk-cache piper-cache ollama-runtime.tar.zst localsend hyprland-patched; do
+          for p in vosk-cache piper-cache ollama-runtime.tar.zst localsend hyprland-patched apt-release; do
             [ -e "config/includes.chroot/usr/share/zeta/$p" ] || continue
             rm -rf "chroot/usr/share/zeta/$p"
             cp -a "config/includes.chroot/usr/share/zeta/$p" "chroot/usr/share/zeta/$p"

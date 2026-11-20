@@ -360,7 +360,7 @@ if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
       bar_color = \"$TITLEBAR\", col = { text = \"$TITLEBAR_TEXT\" } } } }) end" >/dev/null 2>&1 || true
   # respect the wallpaper chosen by the user, if any
   zeta-wallpaper apply >/dev/null 2>&1 || {
-    pkill -x swaybg 2>/dev/null || true
+    pkill -x -u "$(id -u)" swaybg 2>/dev/null || true
     setsid swaybg -m fill -i "$CFG/wallpaper.png" >/dev/null 2>&1 &
   }
   # A single bar reload, and only after Hyprland is done: Waybar

@@ -1,0 +1,65 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: saves one clipboard change into the clipboard history (Super+V).
+#
+# Started by the session as:  wl-paste --watch /usr/libexec/zeta-clipboard-store
+# wl-paste runs it on every clipboard change, with the copied data on stdin.
+#
+# What is NOT saved:
+# - anything while "Clipboard history" is off (~/.config/zeta/clipboard-history = 0);
+# - passwords: password managers (KeePassXC and others) mark them with the
+#   "x-kde-passwordManagerHint" type. wl-clipboard 2.2.1 (Debian trixie) does
+#   not look at it, so the types are checked here. Newer wl-clipboard (2.3)
+#   also says CLIPBOARD_STATE=sensitive: honoured as well;
+# - an emptied clipboard (CLIPBOARD_STATE nil/clear). cliphist would delete
+#   the LAST entry on "clear", which after a skipped password is an
+#   unrelated entry the user wants to keep: nothing is done instead.
+#
+# Images: when the copied data has no plain text but an image (a browser's
+# "Copy Image" also offers HTML), the image is saved, not the HTML.
+# The history keeps the last 100 entries (cliphist, in ~/.cache/cliphist).
+
+MAX=100
+drain() { cat >/dev/null; exit 0; }
+
+conf="$HOME/.config/zeta/clipboard-history"
+if [ -r "$conf" ]; then
+    enabled=
+    read -r enabled < "$conf" || :     # (a file without a final newline still fills it)
+    [ "$enabled" = 0 ] && drain
+fi
+
+case "${CLIPBOARD_STATE:-data}" in
+    sensitive|nil|clear) drain ;;
+esac
+
+nl='
+'
+types=$(wl-paste --list-types 2>/dev/null) || types=
+case "$nl$types$nl" in
+    *"${nl}x-kde-passwordManagerHint$nl"*) drain ;;
+esac
+
+text=no
+image=
+first=
+old_ifs=$IFS
+IFS=$nl
+for t in $types; do
+    [ -n "$first" ] || first=$t
+    case "$t" in
+        text/plain*|UTF8_STRING|STRING|TEXT) text=yes ;;
+        image/png) image=image/png ;;
+        image/*) [ -n "$image" ] || image=$t ;;
+    esac
+done
+IFS=$old_ifs
+
+# With no text at all wl-paste sent the first type offered: when that is
+# already an image (a screenshot), stdin is the image.
+if [ "$text" = no ] && [ -n "$image" ] && [ "${first#image/}" = "$first" ]; then
+    cat >/dev/null
+    wl-paste --no-newline --type "$image" 2>/dev/null | cliphist -max-items "$MAX" store
+    exit 0
+fi
+exec cliphist -max-items "$MAX" store

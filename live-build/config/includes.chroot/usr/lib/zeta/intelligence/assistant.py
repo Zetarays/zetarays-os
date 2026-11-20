@@ -206,6 +206,12 @@ class Assistant:
         remembered = self.memory_command(text)
         if remembered is not None:
             return remembered
+        # «what's on my screen?», «summarize the file …»: the text is read
+        # here, the local model answers (reading.py)
+        if allow_ai:
+            read = self.read_and_ask(text, on_text=on_text, confirm=confirm, consent=consent)
+            if read is not None:
+                return read
         local = self.local_command(text, confirm)
         if local is not None:
             self.memory.save_turn(text, local, operation=True)
@@ -268,6 +274,46 @@ class Assistant:
             return tr("The memory is full. Remove something in Settings › AI › Memory.")
         return tr("Tell me what to remember, for example: “remember that I live in Bologna”.")
 
+    def read_and_ask(self, text: str, on_text: Callable[[str], None] | None = None,
+                     confirm: Callable[[ActionResult], bool] | None = None,
+                     consent: Callable[[list], str | None] | None = None) -> str | None:
+        """«What's on my screen?», «translate what I'm looking at»,
+        «summarize the file “…”»: read the text (screen: the window in front,
+        recognized locally; file: its text), then the local model answers
+        the request with it. None = not such a request."""
+        from . import reading
+        request = reading.parse(text)
+        if request is None:
+            return None
+        kind, path = request
+        if kind == "which_file":
+            return tr("Which file? Write its path (for example “summarize ~/Documents/report.pdf”), "
+                      "or right-click it in Files and choose “Ask ZETA to Summarize”.")
+        if kind == "missing":
+            return tr("I can't find the file “{path}”.").format(path=path)
+        try:
+            doc = reading.screen_text() if kind == "screen" else reading.file_text(path)
+        except reading.ReadError as e:
+            return str(e)
+        if self._canceled():
+            self.last_turn["canceled"] = True
+            return tr("Request canceled.")
+        if not reading.has_words(doc.text):
+            if kind == "screen":
+                return tr("I found no text in the window in front ({window}). I can read the "
+                          "text on the screen, but I can't see pictures: there is no image model "
+                          "on this computer.").format(window=doc.source)
+            return tr("I found no text in “{name}”. If it is a scanned document, use "
+                      "“Copy Text from Image” on it first (right-click in Files).").format(name=doc.source)
+        # a summary or a translation needs a longer answer than a chat reply
+        config = self.provider.config
+        usual = config.max_tokens
+        config.max_tokens = max(usual or 0, reading.ANSWER_TOKENS)
+        try:
+            return self.ask(text, on_text=on_text, confirm=confirm, consent=consent, document=doc)
+        finally:
+            config.max_tokens = usual
+
     @staticmethod
     def _says_nothing(text: str) -> str | None:
         """Immediately discard input there is nothing to answer to.
@@ -289,12 +335,15 @@ class Assistant:
 
     def ask(self, text: str, on_text: Callable[[str], None] | None = None,
             confirm: Callable[[ActionResult], bool] | None = None,
-            consent: Callable[[list], str | None] | None = None) -> str:
+            consent: Callable[[list], str | None] | None = None,
+            document=None) -> str:
         """A conversation turn with the local model.
 
         `on_text` receives the pieces of the reply as they arrive (streaming);
         without it, or with streaming off in Settings, it is called once, at
-        the end.
+        the end. `document`: a reading.Document the request is about (the
+        screen, a file): its text goes with this question only, cut to what
+        the model reads quickly; the memory keeps the question, not the text.
         """
         prov = self.provider
         if self._token is None:                  # called directly, not through respond()
@@ -306,7 +355,10 @@ class Assistant:
             if not fallback:
                 return self._not_ready(prov)
         settings = load_settings()
-        web, sources, reference = self._web_context(text, settings, consent)
+        if document is not None:
+            web, sources, reference = "", [], []     # the answer is in the text read
+        else:
+            web, sources, reference = self._web_context(text, settings, consent)
         if self._canceled():
             self.last_turn["canceled"] = True
             return tr("Request canceled.")
@@ -321,7 +373,20 @@ class Assistant:
                                  always_language=always_language(settings))
 
         start = len(self.history)
-        self.history.append(Message("user", context.with_note(text, note)))
+        asked = text
+        if document is not None:
+            from . import reading
+            body, cut = reading.trim(document.text, reading.budget(prov.config.context,
+                                                                   prov.config.max_tokens))
+            asked = reading.frame(document, body, cut) + "\n\n" + text
+            if cut:
+                self._notes.append(tr("(I read only the first part of the text: {shown} of {total} "
+                                      "characters.)").format(shown=len(body), total=len(document.text)))
+        self.history.append(Message("user", context.with_note(asked, note)))
+        if document is not None:
+            # the text goes with this question only: the earlier turns stay
+            # out of this request (the context of a small computer is short)
+            self._window_first = self.history[-1]
         streaming = bool(on_text and getattr(prov.config, "stream", True))
         reply = self._stream_turn(on_text) if streaming else self._turn()
         if reply.error == "memory" and not self._canceled():

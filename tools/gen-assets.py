@@ -3,7 +3,6 @@
 # Generates the ZETA RAYS graphic assets (icons, logo, wallpaper, login icons)
 # from the same shapes used in the design (design/gen.py).
 import os
-import pathlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHROOT = os.path.join(ROOT, "live-build", "config", "includes.chroot")
@@ -58,8 +57,7 @@ symbol_in = ('<svg %s width="256" height="%d" viewBox="%s" fill="ACCENT" '
                  "%.3f %.3f %.3f %.3f" % (_sx, _sy, _sw, _sh), SYMBOL_ONLY))
 write("usr/share/zeta/brand/zeta-logo.svg.in", logo_in)
 write("usr/share/zeta/brand/zeta-symbol.svg.in", symbol_in)
-for name, color in (("white", "#FFFFFF"), ("black", "#000000")):
-    write("usr/share/zeta/brand/zeta-logo-%s.svg" % name, logo_in.replace("ACCENT", color))
+write("usr/share/zeta/brand/zeta-logo-white.svg", logo_in.replace("ACCENT", "#FFFFFF"))
 
 # «Supported package» icon of Synaptic and the APT tools: in Debian it is the
 # Debian swirl; here it is the ZETA RAYS symbol, in the system blue.
@@ -234,7 +232,6 @@ UI_ICONS = {
     "restart": ICONS["restart"],
     "power": ICONS["power"],
     "wifi": ICONS["wifi"],
-    "wifi-off": '<path d="M4.5 10a11 11 0 0 1 15 0M7.5 13.3a6.5 6.5 0 0 1 9 0" stroke-opacity="0.35"/><circle cx="12" cy="17" r="1.2"/><path d="M4 4l16 16"/>',
     "wifi-1": '<path d="M4.5 10a11 11 0 0 1 15 0M7.5 13.3a6.5 6.5 0 0 1 9 0" stroke-opacity="0.3"/><circle cx="12" cy="17" r="1.2"/>',
     "wifi-2": '<path d="M4.5 10a11 11 0 0 1 15 0" stroke-opacity="0.3"/><path d="M7.5 13.3a6.5 6.5 0 0 1 9 0"/><circle cx="12" cy="17" r="1.2"/>',
     "wifi-3": '<path d="M4.5 10a11 11 0 0 1 15 0M7.5 13.3a6.5 6.5 0 0 1 9 0"/><circle cx="12" cy="17" r="1.2"/>',
@@ -247,7 +244,6 @@ UI_ICONS = {
     "volume-mute": '<path d="M4 9.5h3l4.5-4v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
     "mic": '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/>',
     "mic-off": '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/><path d="M4 4l16 16"/>',
-    "speaker": '<rect x="6" y="3" width="12" height="18" rx="2.5"/><circle cx="12" cy="14.5" r="3"/><circle cx="12" cy="7.5" r="1"/>',
     "sun": '<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>',
     "battery": ICONS["battery"],
     # «settings» would collide with the zeta-settings app tile written above

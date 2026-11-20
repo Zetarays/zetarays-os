@@ -5,7 +5,8 @@
 A single resident process with three views, each showing only its own things:
 
   control    (clock, battery, Super+A)  Wi-Fi, Bluetooth, Do Not Disturb,
-             VPN, theme, brightness and battery, Settings, power off
+             VPN, Night Light, power mode, theme, screenshot, screen
+             recording, clipboard, brightness and battery, Settings, power off
   network    (network icon)       status, Internet, Wi-Fi and available
              networks, VPN, Network Settings
   audio      (volume icon)        volume and outputs, microphone and inputs,
@@ -15,6 +16,8 @@ Up to 2.0 the network and volume icons opened the same panel, with sound and
 network mixed in with the quick tiles. Same command = open/close; asking for
 another view while the panel is open switches to it.
 """
+import json
+import shutil
 import sys
 import threading
 
@@ -28,7 +31,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gio, GLib, Gtk, Pango  # noqa: E402
 
-from system import audio, bluetooth, network, power, run, spawn  # noqa: E402
+from system import audio, bluetooth, network, night_light, power, run, spawn  # noqa: E402
 from i18n import tr, trc  # noqa: E402
 
 VIEWS = ("control", "network", "audio")
@@ -39,6 +42,8 @@ CSS = """
 .cc-tile-sub { font-size: 11px; color: @ink_dim; }
 button.zeta-tile.on .cc-tile-sub { color: @ink_2; }
 .cc-title { font-size: 14px; font-weight: 600; }
+button.cc-action { padding: 8px 4px; }
+.cc-action-label { font-size: 11px; color: @ink_2; }
 """
 
 
@@ -46,12 +51,43 @@ def icon(name, size=16):
     return Gtk.Image(icon_name=name, pixel_size=size)
 
 
+def _json_of(cmd, timeout=3):
+    """JSON printed by another ZETA command, or {} (missing, slow, broken)."""
+    if not shutil.which(cmd[0]):
+        return {}
+    try:
+        data = json.loads(run(cmd, timeout=timeout) or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def dnd_active():
+    # zeta-dnd also remembers the choice; makoctl is the fallback without it
+    if shutil.which("zeta-dnd"):
+        return bool(_json_of(["zeta-dnd", "status"]).get("dnd"))
     return "do-not-disturb" in (run(["makoctl", "mode"]) or "")
 
 
-def set_dnd(on):
-    run(["makoctl", "mode", "-a" if on else "-r", "do-not-disturb"])
+def flip_dnd():
+    if shutil.which("zeta-dnd"):
+        run(["zeta-dnd", "toggle"], timeout=5)
+    else:
+        run(["makoctl", "mode", "-a" if not dnd_active() else "-r", "do-not-disturb"])
+
+
+def next_profile(p):
+    """The power mode after the current one (Power Saver → Balanced →
+    Performance → Power Saver), among those the computer offers."""
+    avail = p["available"]
+    i = avail.index(p["active"]) if p["active"] in avail else -1
+    return avail[(i + 1) % len(avail)]
+
+
+def profile_name(key):
+    # short names: they fit under the tile title
+    return {"power-saver": trc("power mode", "Saver"), "balanced": tr("Balanced"),
+            "performance": tr("Performance")}.get(key, key)
 
 
 def caption(text):
@@ -78,7 +114,9 @@ class Tile(Gtk.Button):
         ic.set_center_widget(self.image)
         box.append(ic)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, hexpand=True)
-        self.title = Gtk.Label(label=title, xalign=0, css_classes=["cc-tile-title"])
+        # ellipsized: a long translation must never widen the panel
+        self.title = Gtk.Label(label=title, xalign=0, css_classes=["cc-tile-title"],
+                               ellipsize=Pango.EllipsizeMode.END)
         text.append(self.title)
         self.sub = Gtk.Label(label="", xalign=0, css_classes=["cc-tile-sub"],
                              ellipsize=Pango.EllipsizeMode.END, max_width_chars=14)
@@ -95,6 +133,30 @@ class Tile(Gtk.Button):
         (self.add_css_class if on else self.remove_css_class)("on")
         self.sub.set_text(subtitle)
         self.set_sensitive(sensitive)
+
+
+class ActionButton(Gtk.Button):
+    """Small square button of the bottom row (Screenshot, Record, Clipboard):
+    it does something once instead of turning something on."""
+
+    def __init__(self, icon_name, label, on_click):
+        super().__init__(css_classes=["zeta-tile", "cc-action"], hexpand=True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        ic = Gtk.CenterBox(css_classes=["tile-icon"], halign=Gtk.Align.CENTER)
+        ic.set_size_request(30, 30)
+        self.image = icon(icon_name)
+        ic.set_center_widget(self.image)
+        box.append(ic)
+        self.label = Gtk.Label(label=label, css_classes=["cc-action-label"],
+                               ellipsize=Pango.EllipsizeMode.END, max_width_chars=10)
+        box.append(self.label)
+        self.set_child(box)
+        self.connect("clicked", lambda *_: on_click())
+
+    def set_state(self, on, label=None):
+        (self.add_css_class if on else self.remove_css_class)("on")
+        if label:
+            self.label.set_text(label)
 
 
 class Control(Gtk.ApplicationWindow):
@@ -130,14 +192,31 @@ class Control(Gtk.ApplicationWindow):
         self.t_dnd = Tile("zeta-bell-off", tr("Do Not Disturb"), self.toggle_dnd)
         self.t_vpn = Tile("zeta-vpn", "VPN", self.toggle_vpn)
         self.t_theme = Tile("zeta-moon", tr("Theme"), self.toggle_theme)
+        self.t_night = Tile("zeta-night-light", tr("Night Light"), self.toggle_night)
+        self.t_power = Tile("zeta-power-mode", trc("quick setting", "Power Mode"),
+                            self.cycle_power)
+        self.t_power.set_visible(False)       # only with power-profiles-daemon
         self.tiles.attach(self.t_net, 0, 0, 1, 1)
         self.tiles.attach(self.t_bt, 1, 0, 1, 1)
         self.tiles.attach(self.t_dnd, 0, 1, 1, 1)
         self.tiles.attach(self.t_vpn, 1, 1, 1, 1)
-        # two columns wide: the other four turn something on and off, this one
+        self.tiles.attach(self.t_night, 0, 2, 1, 1)
+        self.tiles.attach(self.t_power, 1, 2, 1, 1)
+        # two columns wide: the others turn something on and off, this one
         # switches between two states, and the full row makes that obvious.
-        self.tiles.attach(self.t_theme, 0, 2, 2, 1)
+        self.tiles.attach(self.t_theme, 0, 3, 2, 1)
         inner.append(self.tiles)
+        self._profiles = None
+
+        # --- control center: one-shot actions ---
+        self.actions = Gtk.Box(spacing=8, homogeneous=True)
+        self.a_shot = ActionButton("zeta-screenshot", tr("Screenshot"), self.take_screenshot)
+        self.a_rec = ActionButton("zeta-record", tr("Record"), self.toggle_recording)
+        self.a_clip = ActionButton("zeta-clipboard", tr("Clipboard"), self.open_clipboard)
+        for b in (self.a_shot, self.a_rec, self.a_clip):
+            self.actions.append(b)
+        self._show_actions()
+        inner.append(self.actions)
 
         # --- sound: output and input ---
         self.sound = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -281,6 +360,7 @@ class Control(Gtk.ApplicationWindow):
         self.head_title.set_text({"network": tr("Wi-Fi & Network"), "audio": tr("Sound")}.get(v, ""))
         self.wifi_sw.set_visible(False)            # _apply shows it if there is Wi-Fi
         self.tiles.set_visible(v == "control")
+        self.actions.set_visible(v == "control" and self._has_actions)
         self.sound.set_visible(v == "audio")
         self.netsec.set_visible(v == "network")
         if v != "control":
@@ -298,9 +378,67 @@ class Control(Gtk.ApplicationWindow):
             self.refresh_all(rescan=True)
 
     # ---------- data ----------
-    def refresh_all(self, rescan=False):
+    def refresh_all(self, rescan=False, quick=True):
         threading.Thread(target=self._gather, args=(self.view, self._round, rescan),
                          daemon=True).start()
+        if quick and self.view == "control":
+            # the quick toggles in a thread of their own: they never wait for
+            # the network and Bluetooth answers, nor slow them down
+            threading.Thread(target=self._gather_quick, args=(self._round,),
+                             daemon=True).start()
+
+    def _gather_quick(self, round_):
+        data = {"round": round_, "dnd": dnd_active(), "profiles": power.power_profiles(),
+                "recording": None}
+        try:
+            data["night"] = night_light.status()
+        except (OSError, ValueError):
+            data["night"] = None
+        if shutil.which("zeta-screenshot"):
+            data["recording"] = bool(_json_of(["zeta-screenshot", "status"]).get("recording"))
+        GLib.idle_add(self._apply_quick, data)
+
+    def _apply_quick(self, d):
+        if d["round"] != self._round or self.view != "control":
+            return False
+        self.t_dnd.set_state(d["dnd"], tr("Active") if d["dnd"] else tr("Off"))
+        self._show_night(d["night"])
+        p = d["profiles"]
+        self._profiles = p
+        has_modes = bool(p and len(p["available"]) > 1)
+        self.t_power.set_visible(has_modes)
+        self.tiles.get_layout_manager().get_layout_child(self.t_night).set_column_span(
+            1 if has_modes else 2)
+        if has_modes:
+            self.t_power.set_state(p["active"] != "balanced", profile_name(p["active"]))
+        self._show_actions()
+        rec = bool(d["recording"])
+        self.a_rec.set_state(rec, tr("Stop") if rec else tr("Record"))
+        return False
+
+    def _show_night(self, st):
+        if not st:
+            self.t_night.set_state(False, tr("Unavailable"), sensitive=False)
+            return
+        if not st["enabled"]:
+            sub = tr("Off")
+        elif st["active"]:
+            sub = (tr("Until {time}").format(time=st["night_to"])
+                   if st["schedule"] != "always" and "night_to" in st else tr("On"))
+        elif "night_from" in st:
+            sub = tr("From {time}").format(time=st["night_from"])
+        else:
+            sub = tr("On")
+        self.t_night.set_state(st["enabled"], sub, sensitive=st["available"] or st["enabled"])
+
+    def _show_actions(self):
+        """Buttons whose program is missing are left out (and the whole row
+        when none is there)."""
+        self.a_shot.set_visible(bool(shutil.which("zeta-screenshot")))
+        self.a_rec.set_visible(self.a_shot.get_visible())
+        self.a_clip.set_visible(bool(shutil.which("zeta-clipboard")))
+        self._has_actions = self.a_shot.get_visible() or self.a_clip.get_visible()
+        self.actions.set_visible(self.view == "control" and self._has_actions)
 
     def _gather(self, view, round_, rescan=False):
         data = {"view": view, "round": round_}
@@ -318,7 +456,7 @@ class Control(Gtk.ApplicationWindow):
             if view == "network":
                 data["internet"] = network.connectivity()
             else:
-                data.update(bt=bluetooth.adapter(), dnd=dnd_active(),
+                data.update(bt=bluetooth.adapter(),
                             bright=power.backlight()[0], bat=power.battery(),
                             light=theme.is_light())
         GLib.idle_add(self._apply, data)
@@ -326,7 +464,9 @@ class Control(Gtk.ApplicationWindow):
     def _periodic(self):
         # while hidden (resident) nothing is read: no background work
         if not self.busy and self.get_visible():
-            self.refresh_all()
+            # the quick toggles are read when the panel opens and after a
+            # click, not every 3 seconds (they start other programs)
+            self.refresh_all(quick=False)
         return True
 
     def _apply(self, d):
@@ -414,7 +554,6 @@ class Control(Gtk.ApplicationWindow):
         self.t_bt.set_state(bool(bt and bt["powered"]),
                             (tr("On") if bt["powered"] else tr("Off")) if bt else tr("Unavailable"),
                             sensitive=bool(bt))
-        self.t_dnd.set_state(d["dnd"], tr("Active") if d["dnd"] else tr("Off"))
         self.t_theme.set_state(d["light"], "SUPER + T",
                                title=tr("Light theme") if d["light"] else tr("Dark theme"),
                                icon_name="zeta-sun" if d["light"] else "zeta-moon")
@@ -541,9 +680,50 @@ class Control(Gtk.ApplicationWindow):
                             GLib.idle_add(self.refresh_all)),
             daemon=True).start()
 
+    def _in_thread(self, work):
+        """Run work() away from the window, then read the state again."""
+        self._round += 1        # data read before the click would undo the new state
+        threading.Thread(target=lambda: (work(), GLib.idle_add(self.refresh_all)),
+                         daemon=True).start()
+
     def toggle_dnd(self):
-        set_dnd(not dnd_active())
-        self.refresh_all()
+        on = "on" not in self.t_dnd.get_css_classes()
+        self.t_dnd.set_state(on, tr("Active") if on else tr("Off"))   # at once
+        self._in_thread(flip_dnd)
+
+    def toggle_night(self):
+        on = "on" not in self.t_night.get_css_classes()
+        self.t_night.set_state(on, tr("On") if on else tr("Off"))
+
+        def work():
+            try:
+                night_light.apply(night_light.update(enabled=on))
+            except (OSError, ValueError):
+                pass
+        self._in_thread(work)
+
+    def cycle_power(self):
+        p = self._profiles
+        if not p or not p["available"]:
+            return
+        new = next_profile(p)
+        p["active"] = new
+        self.t_power.set_state(new != "balanced", profile_name(new))
+        self._in_thread(lambda: power.set_power_profile(new))
+
+    def _after_closing(self, cmd):
+        """Hide the panel first: it must not end up in the picture."""
+        self.close_app()
+        GLib.timeout_add(300, lambda: (spawn(cmd), False)[1])
+
+    def take_screenshot(self):
+        self._after_closing(["zeta-screenshot", "panel"])
+
+    def toggle_recording(self):
+        self._after_closing(["zeta-screenshot", "record"])
+
+    def open_clipboard(self):
+        self._after_closing(["zeta-clipboard"])
 
     def toggle_vpn(self):
         vp = network.vpns()

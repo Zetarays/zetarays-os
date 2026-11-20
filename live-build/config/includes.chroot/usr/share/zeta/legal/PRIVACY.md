@@ -24,6 +24,10 @@ week if you turn on the update reminder. Never in the live session unless
 you ask.
 **What**: which packages you request. Your IP address is visible to the
 server, as with any download.
+**ZETA RAYS updates** come from `zetarays.org/apt` in the same way, at the
+same moments: before each package check the system asks that address
+whether the ZETA RAYS repository is there (one small request, nothing about
+you or the computer is sent), and uses it only if it answers.
 **Can it be avoided**: yes. Turn off "Install security updates
 automatically" in Settings › Software Update, and do not update. This is not
 recommended: updates bring security fixes.
@@ -87,7 +91,17 @@ not recorded to disk: it is transcribed and discarded.
 
 The document index and text recognition in images (OCR) work **locally
 only**, with Tesseract. The index is kept in `~/.cache/zeta/` and never
-leaves the computer.
+leaves the computer. The same goes for "what's on my screen?" and "Ask ZETA
+to Summarize": the picture of the window is read on the computer and deleted
+at once, and the text goes only to the local model.
+
+**Clipboard history** (Super+V) keeps the last 100 things you copied in
+`~/.cache/cliphist`, readable by you only. What password managers mark as a
+password is never saved. The switch in the history panel turns it off and
+deletes it; "Clear all" deletes it at any time.
+
+**Screenshots and screen recordings** are saved only where you see them
+(Pictures/Screenshots, Videos/Screen recordings).
 
 ## 5. System Monitor — network location
 
@@ -124,6 +138,8 @@ Mozilla's privacy policy applies.
 | Desktop settings | `~/.config/zeta/` |
 | Conversations and memories of ZETA | `~/.local/share/zeta/memory.db` |
 | Search index, cache | `~/.cache/zeta/` |
+| Clipboard history | `~/.cache/cliphist/` |
+| Screenshots and recordings | `~/Pictures/Screenshots/`, `~/Videos/Screen recordings/` |
 | Login records | `/var/lib/wtmpdb/` |
 
 They are your files, on your disk. Deleting them deletes the data.
@@ -136,4 +152,4 @@ when you shut down.
 
 ---
 
-*Last updated: with ZETA RAYS OS 2.5.*
+*Last updated: with ZETA RAYS OS 3.0.*

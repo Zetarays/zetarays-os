@@ -153,28 +153,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     except sqlite3.DatabaseError:
         db.close()
         _set_aside(path)
-        _note_damage(path)
         return connect(path)
-
-
-def _note_damage(path: Path) -> None:
-    """Remember that the old file was damaged, to tell the user once."""
-    try:
-        with open(str(path) + ".damaged", "w") as f:
-            f.write(time.strftime("%Y-%m-%d %H:%M"))
-    except OSError:
-        pass
-
-
-def damage_report() -> str:
-    """When the store had to be started again: the date, else "" (read once)."""
-    marker = Path(str(DB_FILE) + ".damaged")
-    try:
-        when = marker.read_text().strip()
-        marker.unlink()
-        return when
-    except OSError:
-        return ""
 
 
 @contextlib.contextmanager

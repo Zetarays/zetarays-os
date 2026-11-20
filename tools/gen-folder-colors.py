@@ -13,7 +13,7 @@ import os
 
 ROOT = "live-build/config/includes.chroot"
 COLORS = {"red": "#C8102E", "white": "#FFFFFF", "green": "#4CC94A",
-          "blue": "#3A8DFF", "purple": "#A855F7"}
+          "blue": "#3A8DFF", "purple": "#7C3AED"}
 XMLNS = 'xmlns="http://www.w3.org/2000/svg"'
 
 

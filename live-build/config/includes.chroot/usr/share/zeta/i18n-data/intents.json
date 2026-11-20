@@ -19,6 +19,12 @@
   "rete|wifi|wi fi|network": "network",
   "audio|suono|volume|sound": "audio",
   "bluetooth": "bluetooth",
+  "tastiera|mouse|touchpad|keyboard": "keyboard",
+  "data e ora|orologio|fuso orario|date and time|time ?zone|\\bclock\\b": "datetime",
+  "accessibilita|lettore (dello )?schermo|ingrandimento|accessibility|screen reader|magnifier": "accessibility",
+  "archiviazione|spazio (su )?disco|storage|disk space": "storage",
+  "backup|istantane|snapshot|time machine": "backup",
+  "energia|batteria|\\bpower\\b|battery": "power",
   "aspetto|tema|colore|colori|appearance|theme|colou?rs?|wallpaper": "appearance",
   "\\bai\\b|intelligenza|assistente|assistant": "ai",
   "sicurezza|firewall|security": "security",
@@ -29,14 +35,14 @@
  "colors": {
   "giallo": "#FFB020",
   "arancione": "#FF8A34",
-  "viola": "#A855F7",
+  "viola": "#7C3AED",
   "rosa": "#FF6FA5",
   "turchese": "#2DD4BF",
   "grigio": "#8A8A8E",
   "yellow": "#FFB020",
   "orange": "#FF8A34",
-  "purple": "#A855F7",
-  "violet": "#A855F7",
+  "purple": "#7C3AED",
+  "violet": "#7C3AED",
   "pink": "#FF6FA5",
   "turquoise": "#2DD4BF",
   "teal": "#2DD4BF",
@@ -63,6 +69,11 @@
    "verde",
    "green",
    "green"
+  ],
+  [
+   "viola",
+   "purple",
+   "purple"
   ],
   [
    "bianco",

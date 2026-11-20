@@ -26,6 +26,7 @@ _DATA = load("wallpapers")
 # gallery order.
 CATALOG = [(f, name, tuple(_DATA["search_names"][f])) for f, name in (
     ("zeta-goddess.jpg", tr("Goddess")),
+    ("zeta-rays.jpg", tr("Rays")),
     ("zeta-blue-waves.jpg", tr("Blue waves")),
     ("zeta-green-circuits.jpg", tr("Green circuits")),
     ("zeta-red-waves.jpg", tr("Red waves")),
@@ -33,6 +34,7 @@ CATALOG = [(f, name, tuple(_DATA["search_names"][f])) for f, name in (
     ("zeta-blue.jpg", tr("Blue logo")),
     ("zeta-green.jpg", tr("Green logo")),
     ("zeta-red.jpg", tr("Red logo")),
+    ("zeta-purple.jpg", tr("Purple logo")),
     ("zeta-white.jpg", tr("White logo")),
 )]
 

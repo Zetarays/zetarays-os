@@ -8,6 +8,31 @@
    "live-build/config/includes.chroot/usr/share/zeta/legal/PRIVACY.it.md",
    "con ZETA RAYS OS 2.0.",
    "legal text: the version in which the policy last changed"
+  ],
+  [
+   "docs/UPDATES.md",
+   "",
+   "the upgrade guide names the release it upgrades from and the file names of this release on purpose"
+  ],
+  [
+   "live-build/config/includes.chroot/usr/share/zeta/migration/update-3.0-0-defaults.json",
+   "",
+   "a migration names the releases it migrates between"
+  ],
+  [
+   "live-build/config/includes.chroot/usr/share/zeta/legal/PRIVACY.md",
+   "Since ZETA RAYS 2.5",
+   "legal text: the release that removed online AI services"
+  ],
+  [
+   "live-build/config/includes.chroot/usr/share/zeta/legal/PRIVACY.md",
+   "ZETA RAYS 2.5 no longer reads them",
+   "legal text: the release that stopped reading old API keys"
+  ],
+  [
+   "live-build/config/includes.chroot/usr/share/zeta/legal/PRIVACY.it.md",
+   "ZETA RAYS 2.5 non le legge più",
+   "testo legale: la versione che ha smesso di leggere le vecchie chiavi"
   ]
  ],
  "page_patterns": [

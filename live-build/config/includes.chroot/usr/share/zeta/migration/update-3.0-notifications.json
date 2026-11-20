@@ -1,0 +1,14 @@
+{
+ "version": "3.0",
+ "_comment": "3.0, notifications: a mako config the user (or zeta-accent, which rewrites border-color) changed is not replaced by update-3.0-0-defaults; it still gets the longer history for zeta-dnd history and critical notifications that show during Do Not Disturb. The 3.0 file does not contain the old text, so it is never patched twice.",
+ "steps": [
+  {
+   "kind": "text",
+   "old": "icon-path=/usr/share/icons/zeta\n\n# Do Not Disturb (from the Control Center)\n[mode=do-not-disturb]\ninvisible=1",
+   "new": "icon-path=/usr/share/icons/zeta\n# recent notifications for \"zeta-dnd history\" (mako keeps 5 by default)\nmax-history=50\n\n# Do Not Disturb (zeta-dnd, from the Control Center or Settings)\n[mode=do-not-disturb]\ninvisible=1\n\n# critical notifications (battery almost empty...) still appear\n[mode=do-not-disturb urgency=critical]\ninvisible=0",
+   "where": [
+    "~/.config/mako/config"
+   ]
+  }
+ ]
+}

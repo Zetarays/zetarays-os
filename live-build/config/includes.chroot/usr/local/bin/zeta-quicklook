@@ -1,0 +1,649 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS Quick Look: an instant preview of a file, like on macOS.
+
+  zeta-quicklook FILE          preview window
+  zeta-quicklook --info FILE   what the preview would show, as JSON (tests)
+  zeta-quicklook --setup-thunar   once per user: the file manager's Quick Look
+                               action and Space shortcut (home folders of
+                               earlier versions; run by zeta-desktop-session)
+
+  images        the picture, fitted to the window
+  PDF           the first page (pdftoppm), with the number of pages
+  text and code the first 200 KB, in a monospace font
+  video         a still frame (the file manager's thumbnail or ffmpegthumbnailer)
+  audio         icon, type and size
+  folders       number of items and total size
+  anything else icon, type, size and date
+
+Space or Esc closes, Enter opens the file with its default app (the button
+at the bottom does the same). Running it again with another file shows that
+file in the same window; with the same file it closes, so Space in the file
+manager works as a toggle. Nothing is ever modified or executed: the
+file is only read, and "Open" goes through the default app of its type.
+"""
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+TEXT_LIMIT = 200 * 1024          # text shown: the first 200 KB
+IMAGE_MAX_BYTES = 150 * 1024 * 1024
+IMAGE_MAX_PIXELS = 120_000_000   # larger pictures: icon only (decoding would take seconds)
+FOLDER_BUDGET = 4.0              # seconds spent adding up a folder's size
+TEXT_TYPES = ("application/json", "application/xml", "application/javascript",
+              "application/x-shellscript", "application/x-desktop", "application/toml",
+              "application/x-yaml", "application/sql", "application/x-php", "application/x-perl",
+              "application/x-ruby", "application/x-python", "application/x-subrip",
+              "application/x-wine-extension-ini", "application/x-trash", "application/ld+json",
+              "application/x-m4", "application/x-awk", "application/x-desktop")
+
+
+def _gio():
+    import gi
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+    return Gio
+
+
+def _looks_like_text(path):
+    """No NUL byte and valid UTF-8 in the first 8 KB."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8192)
+    except OSError:
+        return False
+    if b"\0" in head:
+        return False
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError as e:
+        # a multi-byte character cut at the end of the block is fine
+        return e.start >= len(head) - 4
+    return True
+
+
+def classify(path):
+    """{kind, mime, description, size, mtime, name} without opening any window.
+    kind: folder, image, pdf, text, video, audio, other, missing."""
+    name = os.path.basename(os.path.normpath(path)) or path
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {"kind": "missing", "name": name, "mime": "", "description": "", "size": 0, "mtime": 0}
+    Gio = _gio()
+    out = {"name": name, "size": st.st_size, "mtime": st.st_mtime}
+    if stat.S_ISDIR(st.st_mode):
+        out.update(kind="folder", mime="inode/directory",
+                   description=Gio.content_type_get_description("inode/directory"))
+        return out
+    if not stat.S_ISREG(st.st_mode):
+        # pipes, devices, sockets: never read (a pipe would block)
+        out.update(kind="other", mime="inode/special", description="", size=0)
+        return out
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+    except OSError:
+        head = b""
+    mime, _uncertain = Gio.content_type_guess(path, head)
+    mime = Gio.content_type_get_mime_type(mime) or mime or "application/octet-stream"
+    if mime.startswith("image/"):
+        kind = "image"
+    elif mime == "application/pdf":
+        kind = "pdf"
+    elif mime.startswith("video/"):
+        kind = "video"
+    elif mime.startswith("audio/"):
+        kind = "audio"
+    elif (mime.startswith("text/") or mime in TEXT_TYPES
+          or Gio.content_type_is_a(mime, "text/plain")
+          or (st.st_size == 0) or _looks_like_text(path)):
+        kind = "text"
+    else:
+        kind = "other"
+    out.update(kind=kind, mime=mime, description=Gio.content_type_get_description(mime))
+    return out
+
+
+# ---------------------------------------------------------------- previews (no GTK)
+def _thumbnail_cache(path):
+    """The thumbnail the file manager already made (tumbler), if any."""
+    import hashlib
+    import urllib.parse
+    uri = "file://" + urllib.parse.quote(os.path.abspath(path))
+    digest = hashlib.md5(uri.encode()).hexdigest()   # noqa: S324 - the freedesktop thumbnail name
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    for size in ("xx-large", "x-large", "large", "normal"):
+        p = os.path.join(cache, "thumbnails", size, digest + ".png")
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def pdf_first_page(path, workdir, width=1400):
+    """(png of page 1, number of pages); either may be None."""
+    pages = None
+    path = os.path.abspath(path)     # starts with "/": never taken for an option
+    try:
+        r = subprocess.run(["pdfinfo", path], capture_output=True, text=True, timeout=8,
+                           env=dict(os.environ, LC_ALL="C"))
+        for line in r.stdout.splitlines():
+            if line.startswith("Pages:"):
+                pages = int(line.split(":", 1)[1])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    base = os.path.join(workdir, "page")
+    try:
+        subprocess.run(["pdftoppm", "-f", "1", "-l", "1", "-png", "-singlefile",
+                        "-scale-to", str(width), path, base],
+                       capture_output=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    png = base + ".png"
+    return (png if os.path.exists(png) else None), pages
+
+
+def video_frame(path, workdir, width=960):
+    """A still frame: the file manager's thumbnail, or a new one."""
+    cached = _thumbnail_cache(path)
+    if cached:
+        return cached
+    out = os.path.join(workdir, "frame.png")
+    try:
+        subprocess.run(["ffmpegthumbnailer", "-i", os.path.abspath(path), "-o", out,
+                        "-s", str(width), "-t", "10%", "-c", "png"],
+                       capture_output=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return out if os.path.exists(out) else None
+
+
+def read_text(path):
+    """(text, truncated): the first TEXT_LIMIT bytes, as UTF-8."""
+    with open(path, "rb") as f:
+        data = f.read(TEXT_LIMIT + 1)
+    truncated = len(data) > TEXT_LIMIT
+    return data[:TEXT_LIMIT].decode("utf-8", errors="replace"), truncated
+
+
+def folder_summary(path, budget=FOLDER_BUDGET):
+    """(items directly inside, total bytes, files counted, complete).
+    Symbolic links are not followed; stops after `budget` seconds."""
+    try:
+        items = len(os.listdir(path))
+    except OSError:
+        return 0, 0, 0, False
+    total, files, complete = 0, 0, True
+    deadline = time.monotonic() + budget
+    stack = [path]
+    while stack:
+        if time.monotonic() > deadline:
+            complete = False
+            break
+        d = stack.pop()
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            stack.append(e.path)
+                        else:
+                            total += e.stat(follow_symlinks=False).st_size
+                            files += 1
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    return items, total, files, complete
+
+
+def info_json(path):
+    """--info: the classification and, for PDFs and videos, whether a
+    preview image can be made (it is made in a temporary folder, removed)."""
+    out = classify(path)
+    work = tempfile.mkdtemp(prefix="zeta-quicklook-")
+    try:
+        if out["kind"] == "pdf":
+            png, pages = pdf_first_page(path, work, 300)
+            out.update(preview=bool(png), pages=pages)
+        elif out["kind"] == "video":
+            out.update(preview=bool(video_frame(path, work, 320)))
+        elif out["kind"] == "text":
+            text, truncated = read_text(path)
+            out.update(chars=len(text), truncated=truncated)
+        elif out["kind"] == "folder":
+            items, total, files, complete = folder_summary(path, 2.0)
+            out.update(items=items, total=total, files=files, complete=complete)
+        elif out["kind"] == "image":
+            try:
+                import gi
+                gi.require_version("GdkPixbuf", "2.0")
+                from gi.repository import GdkPixbuf
+                fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(path)
+                out.update(preview=fmt is not None, width=w, height=h)
+            except (ValueError, ImportError):
+                out.update(preview=False)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
+THUNAR_ACTION_ID = "<unique-id>zeta-quicklook</unique-id>"
+THUNAR_ACCEL = '(gtk_accel_path "<Actions>/ThunarActions/uca-action-zeta-quicklook" "space")'
+
+
+def _write_atomic(path, text):
+    tmp = path + ".zeta-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def setup_thunar(home=None, skel="/etc/skel/.config/Thunar"):
+    """Once per user, at login (zeta-desktop-session): a home folder from
+    an earlier version gets the "Quick Look" custom action and the Space
+    shortcut of the file manager. New users already have both (/etc/skel).
+    Done once (a stamp file): an action or shortcut the user removed
+    afterwards is never put back. A shortcut entry the user already has,
+    changed or cleared, is left alone."""
+    import re
+    home = home or os.path.expanduser("~")
+    stamp = os.path.join(home, ".local/state/zeta/quicklook-thunar")
+    if os.path.exists(stamp):
+        return 0
+    cfg = os.path.join(home, ".config/Thunar")
+    uca = os.path.join(cfg, "uca.xml")
+    try:
+        with open(os.path.join(skel, "uca.xml"), encoding="utf-8") as f:
+            block = re.search(r"<action>(?:(?!</action>).)*" + re.escape(THUNAR_ACTION_ID)
+                              + r".*?</action>\n", f.read(), re.S)
+    except OSError:
+        block = None
+    try:
+        with open(uca, encoding="utf-8") as f:
+            text = f.read()
+        if THUNAR_ACTION_ID not in text and "<actions>" in text and block:
+            text = text.replace("<actions>\n", "<actions>\n" + block.group(0), 1) \
+                if "<actions>\n" in text else text.replace("<actions>", "<actions>\n" + block.group(0), 1)
+            _write_atomic(uca, text)
+    except OSError:
+        pass                    # no custom actions file: Thunar's defaults, left alone
+    accels = os.path.join(cfg, "accels.scm")
+    try:
+        with open(accels, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    except OSError:
+        text = None
+    if text is not None and "uca-action-zeta-quicklook" not in text:
+        os.makedirs(cfg, exist_ok=True)
+        _write_atomic(accels, text + ("" if not text or text.endswith("\n") else "\n")
+                      + THUNAR_ACCEL + "\n")
+    os.makedirs(os.path.dirname(stamp), exist_ok=True)
+    with open(stamp, "w") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S\n"))
+    return 0
+
+
+def cli():
+    args = sys.argv[1:]
+    if args == ["--setup-thunar"]:
+        return setup_thunar()
+    if args and args[0] == "--info" and len(args) == 2:
+        print(json.dumps(info_json(args[1]), ensure_ascii=False))
+        return 0
+    if not args or args[0] in ("-h", "--help"):
+        sys.path.insert(0, "/usr/lib/zeta")
+        from i18n import tr
+        print(tr("Usage: zeta-quicklook FILE\n"
+                 "Shows a quick preview of a file or folder. Space or Esc closes it, "
+                 "Enter opens the file with its default app."))
+        return 0 if args else 2
+    return None
+
+
+_rc = cli()
+if _rc is not None:
+    sys.exit(_rc)
+
+# ---------------------------------------------------------------- window
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import ntr, tr  # noqa: E402
+from ui import popup  # noqa: E402
+import gi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango  # noqa: E402
+
+CSS = """
+window.zeta-quicklook { background: @surface; }
+.zeta-quicklook label { color: @ink; }
+.ql-stage { background: alpha(@ink, 0.03); }
+.ql-name { font-size: 13px; font-weight: 500; }
+.ql-sub { font-size: 11px; color: @ink_dim; }
+.ql-big { font-size: 15px; font-weight: 500; }
+.ql-note { font-size: 11px; color: @ink_dim; padding: 4px 12px; }
+.ql-footer { padding: 10px 12px; border-top: 1px solid @line; }
+textview.ql-text, textview.ql-text text { background: transparent; color: @ink;
+    font-family: "DejaVu Sans Mono", monospace; font-size: 12px; }
+"""
+
+WORKDIR = tempfile.mkdtemp(prefix="zeta-quicklook-",
+                           dir=os.environ.get("XDG_RUNTIME_DIR") or None)
+
+
+def _screen():
+    """Smallest logical size among the displays: the window always fits."""
+    try:
+        mons = Gdk.Display.get_default().get_monitors()
+        sizes = [mons.get_item(i).get_geometry() for i in range(mons.get_n_items())]
+        if sizes:
+            return min(g.width for g in sizes), min(g.height for g in sizes)
+    except (AttributeError, TypeError):
+        pass
+    return 1280, 720
+
+
+def _default_app(mime):
+    try:
+        return Gio.AppInfo.get_default_for_type(mime, False) if mime else None
+    except GLib.Error:
+        return None
+
+
+def _icon(mime, size):
+    gicon = Gio.content_type_get_icon(mime) if mime else Gio.ThemedIcon.new("text-x-generic")
+    return Gtk.Image(gicon=gicon, pixel_size=size)
+
+
+class QuickLook(Gtk.ApplicationWindow):
+    def __init__(self, app, path):
+        path = os.path.abspath(path)
+        meta = classify(path)
+        super().__init__(application=app, title=meta["name"])
+        self.path, self.meta = path, meta
+        self.add_css_class("zeta-quicklook")
+        self.set_icon_name("zeta-quicklook")
+        self.set_default_size(*self._size())
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.stage = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True, hexpand=True,
+                             css_classes=["ql-stage"])
+        root.append(self.stage)
+        root.append(self._footer())
+        self.set_child(root)
+
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self._key)
+        self.add_controller(keys)
+
+        # a preview still being prepared when the window is replaced by
+        # another file's (or closed) is dropped
+        self.alive = True
+        self.connect("destroy", lambda *_: setattr(self, "alive", False))
+        self._fill()
+
+    # ---------------------------------------- size
+    def _size(self):
+        sw, sh = _screen()
+        maxw, maxh = int(sw * 0.75), int(sh * 0.75)
+        kind = self.meta["kind"]
+        if kind == "image":
+            try:
+                _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(self.path)
+                if w and h:
+                    scale = min(1.0, maxw / w, (maxh - 64) / h)
+                    return max(360, int(w * scale)), max(260, int(h * scale) + 64)
+            except (GLib.Error, TypeError):
+                pass
+            return min(900, maxw), min(640, maxh)
+        if kind == "pdf":
+            return min(int(maxh * 0.75), maxw, 820), maxh
+        if kind == "text":
+            return min(880, maxw), min(660, maxh)
+        if kind == "video":
+            return min(900, maxw), min(580, maxh)
+        return min(480, maxw), min(380, maxh)
+
+    # ---------------------------------------- footer
+    def _details(self):
+        m = self.meta
+        parts = [m.get("description") or ""]
+        if m["kind"] not in ("folder", "missing"):
+            parts.append(GLib.format_size(m.get("size") or 0))
+        if m.get("mtime"):
+            parts.append(GLib.DateTime.new_from_unix_local(int(m["mtime"])).format("%x %H:%M"))
+        return " · ".join(p for p in parts if p)
+
+    def _footer(self):
+        bar = Gtk.Box(spacing=10, css_classes=["ql-footer"])
+        bar.append(_icon(self.meta.get("mime"), 32))
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
+        text.append(Gtk.Label(label=self.meta["name"], css_classes=["ql-name"], xalign=0,
+                              ellipsize=Pango.EllipsizeMode.MIDDLE))
+        self.details = Gtk.Label(label=self._details(), css_classes=["ql-sub"], xalign=0,
+                                 ellipsize=Pango.EllipsizeMode.END)
+        text.append(self.details)
+        bar.append(text)
+        app = _default_app(self.meta.get("mime"))
+        label = tr("Open with {app}").format(app=app.get_display_name()) if app else tr("Open")
+        self.open_button = Gtk.Button(label=label, css_classes=["zeta-primary"],
+                                      valign=Gtk.Align.CENTER,
+                                      tooltip_text=tr("Open with the default app (Enter)"))
+        self.open_button.connect("clicked", lambda _b: self.open_file())
+        self.open_button.set_sensitive(self.meta["kind"] != "missing")
+        bar.append(self.open_button)
+        return bar
+
+    # ---------------------------------------- contents
+    def _center(self, *widgets):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True,
+                      valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        for w in widgets:
+            box.append(w)
+        self.stage.append(box)
+        return box
+
+    def _work(self, job, done):
+        """job() in a thread, done(result) back on the GTK thread."""
+        def run():
+            try:
+                res = job()
+            except Exception:  # noqa: BLE001 - a preview that fails shows the icon
+                res = None
+            GLib.idle_add(lambda: (self.alive and done(res), False)[1])
+        threading.Thread(target=run, daemon=True).start()
+
+    def _spinner(self):
+        sp = Gtk.Spinner(spinning=True, width_request=32, height_request=32)
+        box = self._center(sp)
+        return box
+
+    def _picture(self, file_path=None, texture=None):
+        pic = Gtk.Picture(can_shrink=True, vexpand=True, hexpand=True,
+                          content_fit=Gtk.ContentFit.CONTAIN)
+        if texture is not None:
+            pic.set_paintable(texture)
+        elif file_path:
+            pic.set_filename(file_path)
+        return pic
+
+    def _replace(self, *widgets):
+        child = self.stage.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.stage.remove(child)
+            child = nxt
+        for w in widgets:
+            self.stage.append(w)
+
+    def _fallback(self, note=None):
+        widgets = [_icon(self.meta.get("mime"), 128)]
+        if note:
+            widgets.append(Gtk.Label(label=note, css_classes=["ql-sub"], wrap=True,
+                                     justify=Gtk.Justification.CENTER, max_width_chars=48))
+        self._replace()
+        self._center(*widgets)
+
+    def _fill(self):
+        kind = self.meta["kind"]
+        if kind == "missing":
+            self._center(Gtk.Label(label=tr("This file no longer exists."), css_classes=["ql-big"]))
+        elif kind == "image":
+            self._spinner()
+            self._work(self._load_image, self._show_image)
+        elif kind == "pdf":
+            self._spinner()
+            # a folder per preview: a window replaced while its page or frame
+            # is still being made must not overwrite the new one's file
+            self._work(lambda: pdf_first_page(self.path, tempfile.mkdtemp(dir=WORKDIR)), self._show_pdf)
+        elif kind == "video":
+            self._spinner()
+            self._work(lambda: video_frame(self.path, tempfile.mkdtemp(dir=WORKDIR)), self._show_video)
+        elif kind == "text":
+            self._spinner()
+            self._work(lambda: read_text(self.path), self._show_text)
+        elif kind == "folder":
+            self._center(_icon("inode/directory", 128))
+            self.details.set_label(tr("Calculating size…"))
+            self._work(lambda: folder_summary(self.path), self._show_folder)
+        elif kind == "audio":
+            cover = _thumbnail_cache(self.path)
+            if cover:
+                self.stage.append(self._picture(cover))
+            else:
+                self._center(_icon(self.meta.get("mime"), 128))
+        else:
+            self._center(_icon(self.meta.get("mime"), 128))
+
+    def _load_image(self):
+        if self.meta["size"] > IMAGE_MAX_BYTES:
+            return None
+        _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(self.path)
+        if not w or w * h > IMAGE_MAX_PIXELS:
+            return None
+        sw, sh = _screen()
+        return GdkPixbuf.Pixbuf.new_from_file_at_scale(self.path, min(w, sw), min(h, sh), True)
+
+    def _show_image(self, pixbuf):
+        if pixbuf is None:
+            self._fallback(tr("This picture can't be previewed. Open it to see it."))
+            return
+        self._replace(self._picture(texture=Gdk.Texture.new_for_pixbuf(pixbuf)))
+
+    def _show_pdf(self, result):
+        png, pages = result if result else (None, None)
+        if not png:
+            self._fallback(tr("The first page can't be shown. Open the document to read it."))
+            return
+        widgets = [self._picture(png)]
+        if pages and pages > 1:
+            widgets.append(Gtk.Label(label=tr("Page 1 of {n}").format(n=pages),
+                                     css_classes=["ql-note"]))
+        self._replace(*widgets)
+
+    def _show_video(self, frame):
+        if not frame:
+            self._fallback(tr("Open the video to play it."))
+            return
+        self._replace(self._picture(frame),
+                      Gtk.Label(label=tr("Open the video to play it."), css_classes=["ql-note"]))
+
+    def _show_text(self, result):
+        if result is None:
+            self._fallback(tr("This file can't be read."))
+            return
+        text, truncated = result
+        view = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
+                            wrap_mode=Gtk.WrapMode.NONE, css_classes=["ql-text"],
+                            left_margin=12, right_margin=12, top_margin=10, bottom_margin=10)
+        view.get_buffer().set_text(text)
+        scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        scroll.set_child(view)
+        widgets = [scroll]
+        if truncated:
+            widgets.append(Gtk.Label(label=tr("Showing the first 200 KB. Open the file to see all of it."),
+                                     css_classes=["ql-note"], xalign=0))
+        self._replace(*widgets)
+
+    def _show_folder(self, result):
+        if not result:
+            self.details.set_label(self._details())
+            return
+        items, total, _files, complete = result
+        count = ntr("{n} item", "{n} items", items).format(n=items)
+        size = GLib.format_size(total)
+        if not complete:
+            size = tr("more than {size}").format(size=size)
+        self.details.set_label("%s · %s" % (count, size))
+        self._replace()
+        self._center(_icon("inode/directory", 128),
+                     Gtk.Label(label=count, css_classes=["ql-big"]),
+                     Gtk.Label(label=size, css_classes=["ql-sub"]))
+
+    # ---------------------------------------- actions
+    def _key(self, _c, keyval, _code, state):
+        if state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK):
+            return False
+        if keyval in (Gdk.KEY_space, Gdk.KEY_Escape):
+            self.close()
+            return True
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
+            self.open_file()
+            return True
+        return False
+
+    def open_file(self):
+        if self.meta["kind"] == "missing":
+            return
+        uri = Gio.File.new_for_path(self.path).get_uri()
+        try:
+            Gio.AppInfo.launch_default_for_uri(uri, None)
+        except GLib.Error:
+            try:
+                subprocess.Popen(["gio", "open", uri], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                return
+        self.close()
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zetarays.QuickLook",
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        popup.load_css(CSS)
+
+    def do_command_line(self, cl):
+        args = [a for a in cl.get_arguments()[1:] if a]
+        if not args:
+            return 1
+        path = cl.create_file_for_arg(args[0]).get_path()
+        if not path:
+            return 1
+        current = self.props.active_window
+        if current is not None:
+            same = os.path.abspath(path) == current.path
+            current.destroy()
+            if same:
+                return 0             # Space on the same file again: closed
+        QuickLook(self, path).present()
+        return 0
+
+
+try:
+    rc = App().run(sys.argv)
+finally:
+    shutil.rmtree(WORKDIR, ignore_errors=True)
+sys.exit(rc)

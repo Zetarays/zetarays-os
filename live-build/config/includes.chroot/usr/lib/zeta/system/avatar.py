@@ -9,7 +9,7 @@ the power and account menu, on the lock screen and at login.
 Two options:
 - a photo chosen by the user (.jpg or .png): it is cropped to a centered
   square, scaled down to 512 px with a high-quality filter and cut round;
-- a solid circle in one of the system's four accent colors (the palette in
+- a solid circle in one of the system's five accent colors (the palette in
   ui/accent.py, the only one), with no drawing. By default it is the chosen
   accent color and follows it when it changes (zeta-accent calls
   follow_accent); once a specific color is chosen, it stays.

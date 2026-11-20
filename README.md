@@ -7,13 +7,14 @@ that understands you and operates the computer for you, with no account and
 no internet connection required.
 
 - Website: <https://zetarays.org>
-- Downloads (ISO and VirtualBox OVA, amd64 and arm64): <https://zetarays.org/#download>
+- Downloads (ISO and VirtualBox OVA, amd64 and arm64, and the upgrade files
+  for systems on 2.5): <https://zetarays.org/#download>
 - User guide: [`docs/README.txt.in`](docs/README.txt.in) (the `README.txt` shipped next to the images)
 - Current version: [`VERSION`](VERSION) (the only place where the release number is written)
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md)
 
 > This repository contains the **source** used to build ZETA RAYS OS, not the
-> images themselves (about 4 GB each, too large for GitHub). Every release
+> images themselves (several GB each, too large for GitHub). Every release
 > lists the SHA-256 checksums of the official images.
 
 ## Supported architectures
@@ -42,11 +43,25 @@ no internet connection required.
   and per-display memory.
 - **Folder colors**: right-click a folder › Folder Color (red, white, green,
   blue, purple, default), on the desktop and in the file manager.
-- **ZETA**, an AI that runs only on your computer (Ollama, model chosen for
-  the hardware) and acts on the system, with confirmations for destructive
-  actions and no unrestricted root access; no online AI service, no API keys;
-  local long-term memory under your control; answers written and spoken
-  (natural Italian and English female voices) at the same time.
+- **Screenshots and screen recording** (Print, Super + Shift + S,
+  Super + Shift + R), **clipboard history** (Super + V) and **emoji**
+  (Super + .), **Night Light**, Control Center quick settings, **snap layouts**
+  (Super + Z) and **Quick Look** (Space).
+- Settings pages for Power & Battery, Keyboard & Mouse, Date & Time,
+  Accessibility, Storage and **Backup** (Déjà Dup for personal files,
+  Timeshift snapshots, optionally before every system update).
+- **ZETA**, an AI that runs only on your computer (Ollama; the images include
+  Granite 4.2 3B for 8 GB computers and mini PCs and Qwen3 4B Instruct for
+  16 GB, chosen for the hardware) and acts on the system, with confirmations
+  for destructive actions and no unrestricted root access; no online AI
+  service, no API keys; local long-term memory under your control; answers
+  written and spoken (natural Italian and English female voices) at the same
+  time. It also reads the screen and summarizes text, PDF and office files,
+  locally.
+- **Updates without reinstalling**: a 2.5 system upgrades in place with one
+  file per architecture, and from 3.0 the ZETA RAYS components update
+  through Software Update from a signed package source, see
+  [`docs/UPDATES.md`](docs/UPDATES.md).
 - Security center, real-time Monitor, nftables firewall on by default, SSH
   with root login disabled.
 - English interface with a complete Italian translation (gettext, `po/`) and
@@ -140,5 +155,5 @@ do not open a public issue. Contributions: see
 - ZETA RAYS name, logo and wallpapers: **not** under the GPL, see
   [`LICENSE-ARTWORK.md`](LICENSE-ARTWORK.md).
 - Third-party software keeps its own license (Debian packages, Hyprland,
-  Ollama, the Qwen3 model, LocalSend, fonts): see `docs/` and the legal
+  Ollama, the Qwen3 and Granite models, LocalSend, fonts): see `docs/` and the legal
   notes inside the system (`/usr/share/zeta/legal/`).

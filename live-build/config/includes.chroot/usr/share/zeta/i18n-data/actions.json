@@ -125,7 +125,22 @@
   "sound": "audio",
   "assistant": "ai",
   "about": "info",
-  "system": "info"
+  "system": "info",
+  "tastiera": "keyboard",
+  "mouse": "keyboard",
+  "data e ora": "datetime",
+  "orologio": "datetime",
+  "fuso orario": "datetime",
+  "accessibilità": "accessibility",
+  "archiviazione": "storage",
+  "spazio su disco": "storage",
+  "batteria": "power",
+  "energia": "power",
+  "date and time": "datetime",
+  "time zone": "datetime",
+  "clock": "datetime",
+  "disk space": "storage",
+  "battery": "power"
  },
  "light_prefixes": [
   "light",

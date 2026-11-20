@@ -1,0 +1,7 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA RAYS: emoji picker (Super+period, also Super+Ctrl+Space).
+# It is the Emoji tab of the clipboard panel (zeta-clipboard), which stays
+# in memory: zeta-panel shows it instantly. A click inserts the emoji into
+# the window that had the focus and also copies it.
+exec zeta-panel emoji
