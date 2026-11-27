@@ -1,0 +1,143 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-watch-notify: shows the ZETA WATCH alerts in the session.
+
+Started by zeta-session at login. It reads the events the system service
+writes to /var/log/zeta-watch/events.jsonl (administrators only: for anyone
+else the file is not readable and this program ends at once) and shows the
+ones at or above the chosen level as notifications, optionally read aloud.
+
+Preferences (Settings › ZETA WATCH), ~/.config/zeta/watch-notify.json:
+  desktop    true   notifications
+  spoken     false  read critical and warning alerts aloud
+  level      "warning"   lowest level shown: notice, warning or critical
+Where it stopped reading is kept in ~/.local/state/zeta/watch-notify.pos,
+so a new login shows what happened while nobody was logged in (at most the
+last ten alerts) and never the same alert twice.
+"""
+import html
+import json
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, "/usr/lib/zeta")
+from security import watch_text  # noqa: E402
+
+EVENTS = "/var/log/zeta-watch/events.jsonl"
+PREFS = os.path.expanduser("~/.config/zeta/watch-notify.json")
+POS = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+                   "zeta", "watch-notify.pos")
+LEVELS = ("info", "notice", "warning", "critical")
+DEFAULTS = {"desktop": True, "spoken": False, "level": "warning"}
+URGENCY = {"critical": "critical", "warning": "normal", "notice": "low", "info": "low"}
+MAX_BACKLOG = 10
+
+
+def prefs():
+    p = dict(DEFAULTS)
+    try:
+        with open(PREFS, encoding="utf-8") as f:
+            saved = json.load(f)
+        for k in DEFAULTS:
+            if type(saved.get(k)) is type(DEFAULTS[k]):
+                p[k] = saved[k]
+    except (OSError, ValueError, AttributeError):
+        pass
+    if p["level"] not in LEVELS:
+        p["level"] = "warning"
+    return p
+
+
+def read_pos():
+    try:
+        with open(POS) as f:
+            ino, off = f.read().split()
+            return int(ino), int(off)
+    except (OSError, ValueError):
+        return None, 0
+
+
+def write_pos(ino, off):
+    os.makedirs(os.path.dirname(POS), exist_ok=True)
+    with open(POS + ".tmp", "w") as f:
+        f.write("%d %d\n" % (ino, off))
+    os.replace(POS + ".tmp", POS)
+
+
+def show(e, p):
+    title, text, advice = watch_text.describe(e)
+    # the notification daemon reads markup: names and paths from the logs are
+    # shown as text, never as formatting
+    body = html.escape(text + ("\n" + advice if advice else ""), quote=False)
+    if p["desktop"]:
+        try:
+            # waited for (it returns as soon as the daemon has the message),
+            # so no finished notify-send is left behind as a zombie
+            subprocess.run(["notify-send", "-a", "ZETA WATCH", "-i", "zeta-shield",
+                            "-u", URGENCY.get(e.get("severity"), "normal"),
+                            "ZETA WATCH: " + title, body],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if p["spoken"] and e.get("severity") in ("warning", "critical"):
+        try:
+            from intelligence import speech
+            speech.say("ZETA WATCH. " + text)
+        except Exception:      # noqa: BLE001 - a voice problem must never stop the alerts
+            pass
+
+
+def main():
+    if not os.access(EVENTS, os.R_OK) and not os.access(os.path.dirname(EVENTS), os.R_OK):
+        return 0                            # not an administrator: nothing to show
+    ino, off = read_pos()
+    never_ran = ino is None
+    first = True
+    while True:
+        try:
+            st = os.stat(EVENTS)
+        except OSError:
+            time.sleep(10)
+            continue
+        if st.st_ino != ino or st.st_size < off:
+            # a new or rotated file: read it from the start; the very first
+            # time this user runs, only the latest alerts are shown
+            ino, off = st.st_ino, 0
+        if st.st_size != off:
+            p = prefs()
+            try:
+                with open(EVENTS, "rb") as f:
+                    f.seek(off)
+                    data = f.read()
+                # only whole lines: the last one may still be being written
+                end = data.rfind(b"\n") + 1
+                off += end
+                lines = data[:end].decode("utf-8", errors="replace").splitlines()
+            except OSError:
+                time.sleep(5)
+                continue
+            if first or never_ran:
+                lines = lines[-MAX_BACKLOG:]
+            never_ran = False
+            minimum = LEVELS.index(p["level"])
+            for line in lines:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                sev = e.get("severity", "info")
+                if (sev in LEVELS and LEVELS.index(sev) >= minimum) or e.get("code") == "watch_test":
+                    show(e, p)
+                    time.sleep(0.3)
+            write_pos(ino, off)
+        first = False
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(0)

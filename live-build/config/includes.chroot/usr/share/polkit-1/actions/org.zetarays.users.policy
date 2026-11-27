@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>ZETA RAYS</vendor>
+  <!-- Settings › Users: add, change and remove accounts. -->
+  <action id="org.zetarays.users">
+    <description>Manage user accounts</description>
+    <description xml:lang="it">Gestire gli account utente</description>
+    <message>Enter your password to manage user accounts.</message>
+    <message xml:lang="it">Inserisci la password per gestire gli account utente.</message>
+    <icon_name>system-users</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-users</annotate>
+  </action>
+</policyconfig>

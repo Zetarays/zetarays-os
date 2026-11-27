@@ -60,12 +60,23 @@ done
 voices=""
 for v in /usr/share/zeta/voices/*.onnx; do voices="$voices ${v##*/}"; done
 echo "ZETA RAYS: natural voice (Piper) installed:$voices"
-# Kokoro: a real sentence must become audio (onnxruntime, espeak-ng and the
-# model together); more than 1 s of 24 kHz 16-bit audio
-echo "ZETA RAYS OS." | /usr/libexec/zeta-kokoro --voice if_sara --espeak it > /tmp/zeta-kokoro.raw 2>/tmp/zeta-kokoro.err || true
-if [ "$(stat -c %s /tmp/zeta-kokoro.raw 2>/dev/null || echo 0)" -lt 48000 ]; then
-    echo "ZETA RAYS: ERROR - the Kokoro voice produces no audio: $(cat /tmp/zeta-kokoro.err 2>/dev/null)" >&2
-    exit 1
-fi
+# Kokoro: a real sentence must become audio for every Kokoro voice described
+# in /usr/share/zeta/voices (onnxruntime, espeak-ng with that language, the
+# model and the voice together); more than 1 s of 24 kHz 16-bit audio
+kvoices=""
+for d in /usr/share/zeta/voices/*-kokoro.onnx.json; do
+    # two words, the voice and the espeak language: split on purpose
+    # shellcheck disable=SC2046
+    set -- $(python3 -c 'import json,sys; k=json.load(open(sys.argv[1]))["kokoro"]; print(k["voice"], k["espeak"])' "$d")
+    # a sentence long enough in every language (a short English one took
+    # less than the one second checked below)
+    echo "ZETA RAYS OS, 2026: one, two, three." | /usr/libexec/zeta-kokoro --voice "$1" --espeak "$2" > /tmp/zeta-kokoro.raw 2>/tmp/zeta-kokoro.err || true
+    size="$(stat -c %s /tmp/zeta-kokoro.raw 2>/dev/null || echo 0)"
+    if [ "$size" -lt 48000 ]; then
+        echo "ZETA RAYS: ERROR - the Kokoro voice $1 ($2) produces no audio ($size bytes): $(tail -3 /tmp/zeta-kokoro.err 2>/dev/null)" >&2
+        exit 1
+    fi
+    kvoices="$kvoices $1 ($size bytes)"
+done
 rm -f /tmp/zeta-kokoro.raw /tmp/zeta-kokoro.err
-echo "ZETA RAYS: natural voice (Kokoro) installed: if_sara"
+echo "ZETA RAYS: natural voices (Kokoro) installed:$kvoices"

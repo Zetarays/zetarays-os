@@ -1,0 +1,65 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""zeta-autostart: starts the user's startup applications at login.
+
+Started by zeta-session. Only the user's own folder ~/.config/autostart is
+read (Settings › Startup Applications adds and removes entries there; apps
+that offer "start at login" write there too). The system folder
+/etc/xdg/autostart is NOT run: it holds the helpers other desktops start
+(ZETA RAYS starts its own where they belong), and running it slowed the
+login down with programs nobody asked for.
+
+An entry is skipped when it says Hidden=true or
+X-GNOME-Autostart-enabled=false, when its OnlyShowIn does not include ZETA
+or Hyprland, or when its TryExec program is missing. Programs start a few
+seconds after the desktop, one at a time, at a lower priority.
+"""
+import os
+import sys
+import time
+
+import gi
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio  # noqa: E402
+
+FOLDER = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart")
+DESKTOPS = {"ZETA", "Hyprland"}
+
+
+def wanted(info, keyfile_get):
+    if keyfile_get("Hidden") == "true" or keyfile_get("X-GNOME-Autostart-enabled") == "false":
+        return False
+    only = [d for d in (keyfile_get("OnlyShowIn") or "").split(";") if d]
+    if only and not DESKTOPS & set(only):
+        return False
+    never = [d for d in (keyfile_get("NotShowIn") or "").split(";") if d]
+    return not DESKTOPS & set(never)
+
+
+def main():
+    if not os.path.isdir(FOLDER):
+        return 0
+    time.sleep(float(os.environ.get("ZETA_AUTOSTART_DELAY", "4")))
+    try:
+        os.nice(5)
+    except OSError:
+        pass
+    for name in sorted(os.listdir(FOLDER)):
+        if not name.endswith(".desktop"):
+            continue
+        path = os.path.join(FOLDER, name)
+        info = Gio.DesktopAppInfo.new_from_filename(path)
+        if info is None:
+            continue
+        if not wanted(info, lambda k, i=info: i.get_string(k) if i.has_key(k) else ""):
+            continue
+        try:
+            info.launch([], None)
+        except Exception as e:          # noqa: BLE001 - one broken entry must not stop the others
+            print("zeta-autostart: %s: %s" % (name, e), file=sys.stderr)
+        time.sleep(0.5)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

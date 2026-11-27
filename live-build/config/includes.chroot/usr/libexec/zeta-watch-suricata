@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ZETA WATCH: installs and sets up Suricata (network intrusion detection),
+# from Settings › ZETA WATCH, in a visible terminal through pkexec.
+#
+#   zeta-watch-suricata install
+#
+# Suricata is not in the image: it uses 400-700 MB of memory and some
+# processor all the time. This installs the Debian package and the free
+# Emerging Threats Open rules (suricata-update), listens on the interface of
+# the default route, uses the "low" detection profile (less memory), and
+# tells ZETA WATCH to read its alerts.
+set -eu
+[ "$(id -u)" = 0 ] || { echo "Administrator rights needed"; exit 1; }
+[ "${1:-}" = install ] || { echo "usage: $0 install"; exit 2; }
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+apt-get install -y -q --no-install-recommends suricata suricata-update jq
+IFACE="$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+[ -n "$IFACE" ] || IFACE=eth0
+CONF=/etc/suricata/suricata.yaml
+cp -n "$CONF" "$CONF.zeta-orig" 2>/dev/null || true
+# the capture interface (first af-packet entry) and a lighter detection profile
+sed -i "0,/^  - interface: .*/s//  - interface: $IFACE/" "$CONF"
+sed -i 's/^\(\s*profile:\s*\)medium/\1low/' "$CONF"
+suricata-update --no-test -q || echo "suricata-update failed: rules will be downloaded at the next try"
+suricata -T -c "$CONF" -q >/dev/null 2>&1 || { echo "Suricata configuration test failed: see $CONF"; exit 1; }
+/usr/libexec/zeta-watch config set suricata true
+echo "Suricata is running on $IFACE; ZETA WATCH reads its alerts."

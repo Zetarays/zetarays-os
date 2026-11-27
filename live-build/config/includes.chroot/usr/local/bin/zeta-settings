@@ -24,7 +24,9 @@ from system import dock as dockmod  # noqa: E402
 from system import wallpapers  # noqa: E402
 from ui import accent, theme  # noqa: E402
 
-TITLES = {"account": tr("Account"), "appearance": tr("Appearance"), "dock": tr("Dock"), "displays": tr("Displays"),
+TITLES = {"account": tr("Account"), "users": tr("Users"), "appearance": tr("Appearance"), "desktop": tr("Desktop & Icons"),
+          "windows": tr("Windows & Multitasking"),
+          "dock": tr("Dock"), "displays": tr("Displays"),
           "lock-screen": tr("Lock Screen"),
           "notifications": tr("Notifications"), "network": tr("Wi-Fi & Network"), "bluetooth": "Bluetooth",
           "audio": tr("Sound"), "printers": tr("Printers"), "ai": "AI", "info": tr("About"),
@@ -33,7 +35,8 @@ TITLES = {"account": tr("Account"), "appearance": tr("Appearance"), "dock": tr("
           "power": tr("Power & Battery"),
           "keyboard": tr("Keyboard & Mouse"), "datetime": tr("Date & Time"),
           "accessibility": tr("Accessibility"), "storage": tr("Storage"), "backup": tr("Backup"),
-          "security": tr("Security")}
+          "security": tr("Security"), "watch": "ZETA WATCH",
+          "firewall": tr("Firewall & SSH"), "startup": tr("Startup Applications")}
 
 # Pages are built the first time they are shown, not when the window opens:
 # building all of them up front (network, printers, fonts, update lists...)
@@ -44,6 +47,9 @@ PAGE_METHODS = {"appearance": "page_appearance", "dock": "page_dock",
                 "lock-screen": "page_lock_screen", "notifications": "page_notifications",
                 "ai": "page_ai", "default-apps": "page_default_apps", "info": "page_info"}
 PAGE_CLASSES = {"account": ("ui.account_page", "AccountPage"),
+                "users": ("ui.users_page", "UsersPage"),
+                "desktop": ("ui.desktop_page", "DesktopPage"),
+                "windows": ("ui.windows_page", "WindowsPage"),
                 "displays": ("ui.displays_page", "DisplaysPage"),
                 "power": ("ui.power_page", "PowerPage"),
                 "network": ("ui.settings_pages", "NetworkPage"),
@@ -57,27 +63,32 @@ PAGE_CLASSES = {"account": ("ui.account_page", "AccountPage"),
                 "datetime": ("ui.datetime_page", "DateTimePage"),
                 "accessibility": ("ui.accessibility_page", "AccessibilityPage"),
                 "storage": ("ui.storage_page", "StoragePage"),
-                "backup": ("ui.backup_page", "BackupPage")}
+                "backup": ("ui.backup_page", "BackupPage"),
+                "watch": ("ui.watch_page", "WatchPage"),
+                "firewall": ("ui.firewall_page", "FirewallPage"),
+                "startup": ("ui.startup_page", "StartupPage")}
 # sidebar entries that open another app instead of a page
 EXTERNAL = {"security": ("zeta-security",)}
-ICONS = {"account": "zeta-account", "appearance": "zeta-palette", "dock": "zeta-dock",
+ICONS = {"account": "zeta-account", "users": "zeta-switch-user", "appearance": "zeta-palette", "desktop": "zeta-desktop-icons",
+         "windows": "zeta-windows",
+         "dock": "zeta-dock",
          "notifications": "zeta-bell-off", "lock-screen": "zeta-lock", "font": "zeta-font",
          "network": "zeta-wifi", "bluetooth": "zeta-bluetooth", "printers": "zeta-printer",
          "displays": "zeta-displays", "audio": "zeta-volume", "keyboard": "zeta-keyboard",
          "power": "zeta-power", "datetime": "zeta-clock", "language": "zeta-language",
          "storage": "zeta-storage", "backup": "zeta-backup", "default-apps": "zeta-app",
          "software-update": "zeta-update", "info": "zeta-info", "accessibility": "zeta-accessibility",
-         "ai": "zeta-ai", "security": "zeta-shield"}
+         "ai": "zeta-ai", "security": "zeta-shield", "watch": "zeta-watch", "firewall": "zeta-security", "startup": "zeta-restart"}
 # Sidebar sections, as on macOS and Windows: a small heading, or a plain
 # separator when the title is empty. Software Update replaced the old
 # "Packages" entry (Synaptic stays reachable from inside it, "Advanced").
-SECTIONS = [("", ["account"]),
-            (tr("Personal"), ["appearance", "dock", "notifications", "lock-screen", "font"]),
-            (tr("Connections"), ["network", "bluetooth", "printers"]),
+SECTIONS = [("", ["account", "users"]),
+            (tr("Personal"), ["appearance", "desktop", "windows", "dock", "notifications", "lock-screen", "font"]),
+            (tr("Connections"), ["network", "firewall", "bluetooth", "printers"]),
             (tr("Devices"), ["displays", "audio", "keyboard", "power"]),
-            (tr("System"), ["datetime", "language", "storage", "backup", "default-apps",
+            (tr("System"), ["datetime", "language", "storage", "backup", "default-apps", "startup",
                             "software-update", "info"]),
-            ("", ["accessibility", "ai", "security"])]
+            ("", ["accessibility", "ai", "watch", "security"])]
 
 
 def page_available(key):
@@ -476,14 +487,6 @@ class Window(Adw.ApplicationWindow):
         scale_row.connect("notify::selected", self.on_scale)
         theme_group.add(scale_row)
 
-        icons = Adw.SwitchRow(
-            title=tr("Desktop icons"),
-            subtitle=tr("Show the files and folders of the Desktop on the wallpaper"))
-        icons.set_active(self._pref("desktop-icons") == "1")
-        icons.connect("notify::active",
-                      lambda r, _p: self.set_appearance("desktop-icons",
-                                                     "1" if r.get_active() else "0"))
-        theme_group.add(icons)
         page.add(self._anchor("appearance", "theme", theme_group))
 
         # --- Effects ---
@@ -496,8 +499,6 @@ class Window(Adw.ApplicationWindow):
                                  tr("Panels, terminal and shadows"), "transparency"))
         effects.add(self._spin(tr("Rounded corners"), tr("Radius of window corners"),
                                "corners", 0, 24))
-        effects.add(self._spin(tr("Icon spacing"), tr("Distance between icons on the desktop"),
-                               "icon-spacing", 0, 48))
         page.add(self._anchor("appearance", "effects", effects))
 
         self.mark_selected(current)

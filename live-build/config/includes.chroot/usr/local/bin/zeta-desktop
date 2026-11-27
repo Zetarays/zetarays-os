@@ -22,6 +22,7 @@ with the mouse and from the right-click menu. The one exception is Space
 import json
 import os
 import threading
+import time
 import re
 import shutil
 import subprocess
@@ -67,7 +68,7 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import (Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk,  # noqa: E402
                            Pango)
 # after the layer-shell preload (which restarts the process): it imports GIO
-from system import launcher_trust, open_with  # noqa: E402
+from system import desktop_look, launcher_trust, open_with  # noqa: E402
 
 CFG = os.path.expanduser("~/.config/zeta")
 STATE = os.path.join(CFG, "desktop.json")
@@ -109,15 +110,6 @@ def pref(name, default):
 
 def icons_enabled():
     return pref("desktop-icons", "1") != "0"
-
-
-def spacing():
-    """Spacing between icons (Settings › Appearance)."""
-    try:
-        v = int(pref("icon-spacing", "14"))
-    except ValueError:
-        return 14
-    return v if 0 <= v <= 48 else 14
 
 
 def icon_size():
@@ -562,13 +554,17 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.items = []
         self.selection = []          # list of selected Items
         self.cut_paths = set()        # paths waiting for «paste» after a cut
-        self.isize = self._icon_size()
-        self.gap = spacing()
+        self.look = desktop_look.load()
+        self._label_css = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), self._label_css, Gtk.STYLE_PROVIDER_PRIORITY_USER)
         # Thumbnails already computed, by path and modification time: changing
         # folder or refreshing never reads the same image twice.
         self._previews = {}
-        self.cell_w = self.isize + 54
-        self.cell_h = self.isize + 46
+        self._compute_cells()
+        self._last_size = (0, 0)
+        self._size_wait = 0
+        self._saved_text = ""
         self.band = None
         self._ref_timer = 0
         self._dragging = []
@@ -597,7 +593,106 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.monitor = None
         self.trash_monitor = None
         self._watch()
+        self._watch_look()
+        self.connect("realize", self._follow_size)
         self.refresh()
+
+    # ---------------------------------------- look (Settings > Desktop & Icons)
+    def _icon_size(self):
+        v = self.look.get("icon_size")
+        return v if isinstance(v, int) and 24 <= v <= 128 else icon_size()
+
+    def _compute_cells(self):
+        """Cell size from the icon size and the label size: a larger name
+        needs a wider cell, or it would be shortened to a few letters."""
+        self.isize = self._icon_size()
+        self.gap = self.look["spacing"]
+        size = self.look["label_size"]
+        lines = self.look["label_lines"] if self.look["labels"] else 0
+        self.cell_w = int(max(self.isize + 24, self.isize + 54 * size / 11.5))
+        self.cell_h = int(self.isize + 14 + lines * size * 1.6)
+        self._label_css.load_from_string(self._label_style())
+
+    def _label_style(self):
+        look = self.look
+        color = {"auto": "@ink", "light": "#F2F2EE", "dark": "#111114",
+                 "accent": "@accent"}[look["label_color"]]
+        halo = "#000000" if look["label_color"] in ("light", "accent") else (
+            "#FFFFFF" if look["label_color"] == "dark" else "@scrim_strong")
+        rules = ["font-size: %.1fpx;" % look["label_size"], "color: %s;" % color,
+                 "font-weight: %s;" % ("700" if look["label_bold"] else "400")]
+        if look["label_effect"] == "shadow":
+            rules.append("text-shadow: 0 1px 3px %s;" % halo)
+        elif look["label_effect"] == "plate":
+            rules += ["text-shadow: none;", "background: alpha(%s, 0.55);" % (
+                "#FFFFFF" if look["label_color"] == "dark" else "#000000"),
+                "border-radius: 6px;", "padding: 1px 5px;"]
+        else:
+            rules.append("text-shadow: none;")
+        return ".desk-name { %s }\n" % " ".join(rules)
+
+    def _watch_look(self):
+        try:
+            os.makedirs(desktop_look.CFG, exist_ok=True)
+            m = Gio.File.new_for_path(desktop_look.CFG).monitor_directory(
+                Gio.FileMonitorFlags.WATCH_MOVES, None)
+            m.connect("changed", self._on_cfg_changed)
+            self.look_monitor = m
+        except GLib.Error:
+            self.look_monitor = None
+
+    def _on_cfg_changed(self, _m, f, other, _event):
+        names = {os.path.basename(x.get_path() or "") for x in (f, other) if x is not None}
+        if names & {"desktop-look.json", "icon-size"}:
+            GLib.timeout_add(120, self._apply_look)
+        if "desktop-arrange" in names:
+            GLib.timeout_add(150, self._arrange_requested)
+
+    def _apply_look(self):
+        look = desktop_look.load()
+        if look == self.look and self._icon_size() == self.isize:
+            return False
+        # Sort order and side only decide where icons go when they are
+        # arranged (View > Sort By, Settings > Arrange icons now): changing
+        # them never moves the icons the user placed
+        self.look = look
+        self._compute_cells()
+        self._previews = {}
+        self.refresh()
+        return False
+
+    ARRANGE_REQUEST = os.path.join(desktop_look.CFG, "desktop-arrange")
+
+    def _arrange_requested(self):
+        """Settings > Desktop & Icons > Arrange icons now (the file is the request)."""
+        try:
+            os.remove(self.ARRANGE_REQUEST)
+        except FileNotFoundError:
+            return False
+        except OSError:
+            pass
+        self.set_order(self.look["order"])
+        return False
+
+    # ---------------------------------------- the surface size
+    # The layer surface gets its size from the compositor after it is shown:
+    # before that get_width() is 0. Laying the icons out on a guessed size
+    # used to push the saved positions of a large screen "off" it and
+    # overwrite them. Nothing is placed until the real size is known, and a
+    # later change (resolution, scale, a monitor) only moves the icons on
+    # screen: the saved arrangement comes back with the old size.
+    def _follow_size(self, *_a):
+        surface = self.get_surface()
+        if surface is not None:
+            surface.connect("layout", self._on_layout)
+
+    def _on_layout(self, _surface, width, height):
+        if width <= 0 or height <= 0 or (width, height) == self._last_size:
+            return
+        first = self._last_size == (0, 0)
+        self._last_size = (width, height)
+        if first or self.items:
+            GLib.idle_add(self._do_refresh)
 
     # ---------------------------------------- window on the wallpaper
     def _make_background(self):
@@ -635,10 +730,18 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 os.makedirs(path, exist_ok=True)
                 m = Gio.File.new_for_path(path).monitor_directory(
                     Gio.FileMonitorFlags.WATCH_MOVES, None)
-                m.connect("changed", lambda *_: self._debounced_refresh())
+                if attr == "monitor":
+                    m.connect("changed", self._on_desktop_changed)
+                else:
+                    m.connect("changed", lambda *_: self._debounced_refresh())
                 setattr(self, attr, m)
             except (GLib.Error, OSError):
                 setattr(self, attr, None)
+
+    def _on_desktop_changed(self, _m, f, other, event):
+        if event == Gio.FileMonitorEvent.RENAMED and f is not None and other is not None:
+            self.rename_place(f.get_basename(), other.get_basename())
+        self._debounced_refresh()
 
     def _debounced_refresh(self):
         if self._ref_timer:
@@ -758,7 +861,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
         threading.Thread(target=work, daemon=True).start()
 
     def _sort_items(self, items):
-        mode = self.state.get("order", "name")
+        mode = self.look["order"]
         regular_items = [i for i in items if not i.special]
         if mode == "type":
             regular_items.sort(key=lambda i: (not i.is_dir,
@@ -783,7 +886,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
     def _right_offset(self):
         """Arranged from the right, the grid touches the right edge (the space
         left over by the last column goes on the left)."""
-        if self.state.get("side") != "right":
+        if self.look["side"] != "right":
             return 0
         cols, _rows = self._grid_size()
         w = self.get_width() or 1280
@@ -804,10 +907,12 @@ class DesktopWindow(Gtk.ApplicationWindow):
     # the left (Windows) or from the right (macOS). Cells are kept in
     # "positions", free positions in pixels in "free".
     def _grid(self):
-        return self.state.get("grid", True) is not False
+        return self.look["grid"]
 
     def _free_cells(self, cols, rows):
-        columns = range(cols - 1, -1, -1) if self.state.get("side") == "right" else range(cols)
+        columns = range(cols - 1, -1, -1) if self.look["side"] == "right" else range(cols)
+        if self.look["direction"] == "rows":
+            return ((c, r) for r in range(rows) for c in columns)
         return ((c, r) for c in columns for r in range(rows))
 
     def _clamp_inside(self, x, y):
@@ -826,7 +931,12 @@ class DesktopWindow(Gtk.ApplicationWindow):
         # the icons just moved by hand win the cell they were dropped on
         ordered = ([i for i in items if i.name in just_moved]
                     + [i for i in items if i.name not in just_moved])
-        taken, pending = set(), []
+        # What is saved is the user's arrangement; what is shown adapts to the
+        # screen. A saved cell outside a smaller screen, or already taken, is
+        # shown in the nearest free cell WITHOUT changing what is saved: with
+        # the old resolution back, every icon is back where it was. Only an
+        # icon that has no saved place yet gets one.
+        taken, displaced, pending = set(), [], []
         for it in ordered:
             q = free_positions.get(it.name)
             if (not grid and isinstance(q, list) and len(q) == 2
@@ -836,15 +946,23 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 taken.add((it.col, it.row))
                 continue
             p = pos.get(it.name)
-            if (isinstance(p, list) and len(p) == 2 and 0 <= p[0] < cols
-                    and 0 <= p[1] < rows and tuple(p) not in taken):
-                it.col, it.row = int(p[0]), int(p[1])
+            valid = (isinstance(p, list) and len(p) == 2
+                     and all(isinstance(v, int) and v >= 0 for v in p))
+            if valid and p[0] < cols and p[1] < rows and tuple(p) not in taken:
+                it.col, it.row = p[0], p[1]
                 taken.add((it.col, it.row))
                 it.x, it.y = self._slot_xy(it.col, it.row)
-                if not grid:
-                    free_positions[it.name] = [it.x, it.y]
+            elif valid:
+                displaced.append((it, p))
             else:
                 pending.append(it)
+        for it, p in displaced:
+            free = [(c, r) for c in range(cols) for r in range(rows) if (c, r) not in taken]
+            want = (min(p[0], cols - 1), min(p[1], rows - 1))
+            slot = min(free, key=lambda s: (s[0] - want[0]) ** 2 + (s[1] - want[1]) ** 2) if free else (0, 0)
+            it.col, it.row = slot
+            taken.add(slot)
+            it.x, it.y = self._slot_xy(*slot)
         cells = self._free_cells(cols, rows)
         for it in pending:
             for slot in cells:
@@ -873,6 +991,13 @@ class DesktopWindow(Gtk.ApplicationWindow):
 
     # ---------------------------------------- drawing
     def refresh(self, just_moved=()):
+        if self.get_width() <= 0 or self.get_height() <= 0:
+            # not laid out by the compositor yet: try again shortly (the
+            # "layout" signal also comes); never place icons on a guess
+            if self._size_wait < 100 and not self._ref_timer:
+                self._size_wait += 1
+                self._ref_timer = GLib.timeout_add(50, self._do_refresh)
+            return
         _app_registry().gtk_icons()          # icons of freshly installed Flatpak apps
         selected = {i.name for i in self.selection}
         for it in self.items:
@@ -889,12 +1014,44 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 it.widget.add_css_class("selected")
             if it.path in self.cut_paths:
                 it.widget.add_css_class("cut")
-        names = {i.name for i in self.items}
+        self._forget_old(self.items)
+        self._save_if_changed()
+
+    # A file that disappears from the desktop for a while (a USB stick, a
+    # folder synced later, a desktop folder that could not be read) gets its
+    # place back when it returns. Places are forgotten only after 30 days.
+    FORGET_AFTER = 30 * 86400
+
+    def _forget_old(self, items):
+        now = int(time.time())
+        seen = self.state.setdefault("seen", {})
+        names = {i.name for i in items}
+        for n in names:
+            seen[n] = now
         for key in ("positions", "free"):
             pos = self.state.get(key, {})
             for gone in [n for n in pos if n not in names]:
-                pos.pop(gone)
-        save_state(self.state)
+                if now - int(seen.get(gone, now)) > self.FORGET_AFTER:
+                    pos.pop(gone)
+        kept = set(self.state.get("positions", {})) | set(self.state.get("free", {}))
+        for n in [n for n in seen if n not in names and n not in kept]:
+            seen.pop(n)
+        # the previous versions kept the look here: it lives in desktop-look.json now
+        for key in ("grid", "side", "order", "icon_size"):
+            self.state.pop(key, None)
+
+    def _save_if_changed(self):
+        text = json.dumps(self.state, sort_keys=True)
+        if text != self._saved_text:
+            self._saved_text = text
+            save_state(self.state)
+
+    def rename_place(self, old, new):
+        """A file renamed on the desktop keeps its place."""
+        for key in ("positions", "free"):
+            pos = self.state.get(key, {})
+            if old in pos and new not in pos:
+                pos[new] = pos.pop(old)
 
     def _make_item(self, it):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
@@ -911,10 +1068,14 @@ class DesktopWindow(Gtk.ApplicationWindow):
                 and it.mime.startswith("image/")
                 and not isinstance(it.gicon, Gio.FileIcon)):
             self._preview(it, img)
-        box.append(Gtk.Label(label=it.display, css_classes=["desk-name"], wrap=True,
-                             max_width_chars=13, lines=2,
-                             ellipsize=Pango.EllipsizeMode.END,
-                             justify=Gtk.Justification.CENTER))
+        if self.look["labels"]:
+            box.append(Gtk.Label(label=it.display, css_classes=["desk-name"], wrap=True,
+                                 max_width_chars=max(8, int(13 * 11.5 / self.look["label_size"])),
+                                 lines=self.look["label_lines"],
+                                 ellipsize=Pango.EllipsizeMode.END,
+                                 justify=Gtk.Justification.CENTER))
+        else:
+            box.set_tooltip_text(it.display)
 
         click = Gtk.GestureClick(button=1)
         click.connect("pressed", self._on_click, it)
@@ -981,7 +1142,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
             return
         if it not in self.selection:
             self._set_selection([it])
-        if n_press >= 2:
+        if n_press >= 2 or (self.look["click"] == "single" and n_press == 1):
             self._keyboard(False)
             for sel in list(self.selection):
                 self.open(sel)
@@ -2208,11 +2369,11 @@ class DesktopWindow(Gtk.ApplicationWindow):
 
     def _on_desktop_right(self, gesture, _n, x, y):
         self._set_selection([])
-        current = self.state.get("order", "name")
+        current = self.look["order"]
         order = [("check", label, mode == current, lambda m=mode: self.set_order(m))
                   for mode, label in SORT_MODES]
-        right_edge = self.state.get("side") == "right"
-        icon_size = self.state.get("icon_size")
+        right_edge = self.look["side"] == "right"
+        icon_size = self.look["icon_size"]
         view_menu = [
             ("check", tr("Align to Grid"), self._grid(),
              lambda: self.set_grid(not self._grid())),
@@ -2229,12 +2390,13 @@ class DesktopWindow(Gtk.ApplicationWindow):
         # opened in the middle of the screen does not fit above or below
         customize = [
             (tr("Theme and Colors…"), lambda: self._settings("appearance:accent")),
+            (tr("Desktop and Icons…"), lambda: self._settings("desktop")),
             (tr("Icons and Text…"), lambda: self._settings("appearance:theme")),
             (tr("Animations and Transparency…"), lambda: self._settings("appearance:effects")),
             (tr("Bar and Dock…"), lambda: self._settings("dock")),
             (tr("Lock Screen…"), lambda: self._settings("lock-screen")),
             None,
-            (tr("Display Settings…"), lambda: self._settings("lock-screen")),
+            (tr("Display Settings…"), lambda: self._settings("displays")),
             (tr("System Settings…"), lambda: self._settings(None)),
         ]
         new = [
@@ -2258,46 +2420,46 @@ class DesktopWindow(Gtk.ApplicationWindow):
         ]
         self._popover(self.fixed, x, y, entries)
 
+    def _set_look(self, **changes):
+        """The View menu changes the same file as Settings > Desktop & Icons."""
+        self.look.update(changes)
+        self.look = desktop_look.clean(self.look)
+        desktop_look.save(self.look)
+
     def set_order(self, mode):
         """Sort By: every icon is placed again, in that order."""
-        self.state["order"] = mode
         self.state["positions"] = {}
         self.state["free"] = {}
-        save_state(self.state)
+        self._set_look(order=mode)
         self.refresh()
 
     def set_grid(self, grid):
-        self.state["grid"] = bool(grid)
+        self._set_look(grid=bool(grid))
         if grid:
             self.tidy()            # every icon into the nearest free cell
             return
         # without the grid every icon stays where it is, and can then be
         # dropped anywhere
         self.state["free"] = {it.name: [it.x, it.y] for it in self.items}
-        save_state(self.state)
         self.refresh()
 
     def set_side(self, side):
         """New icons, and Sort By, fill the desktop from this side."""
-        if (self.state.get("side") == "right") == (side == "right"):
+        if (self.look["side"] == "right") == (side == "right"):
             return
-        self.state["side"] = side
-        self.set_order(self.state.get("order", "name"))
-
-    def _icon_size(self):
-        v = self.state.get("icon_size")
-        return v if isinstance(v, int) and 28 <= v <= 72 else icon_size()
+        self.state["positions"] = {}
+        self.state["free"] = {}
+        self._set_look(side=side)
+        self.refresh()
 
     def set_icon_size(self, value):
         """Icon size of the desktop only (the Dock keeps its own); None
-        follows the size chosen in Settings."""
-        self.state["icon_size"] = value
-        self.isize = self._icon_size()
-        self.cell_w = self.isize + 54
-        self.cell_h = self.isize + 46
+        follows the size chosen in Settings. Every icon keeps its cell: a
+        cell that no longer fits is only shown elsewhere until there is room."""
+        self._set_look(icon_size=value)
+        self._compute_cells()
         self._previews = {}
-        save_state(self.state)
-        self.tidy()
+        self.refresh()
 
     def _settings(self, page):
         self._launch("zeta-settings", *( [page] if page else [] ))

@@ -1,0 +1,14 @@
+{
+ "engine": "kokoro",
+ "kokoro": {
+  "voice": "am_michael",
+  "espeak": "en-us"
+ },
+ "language": {
+  "code": "en_US"
+ },
+ "audio": {
+  "sample_rate": 24000
+ },
+ "dataset": "Kokoro-82M (hexgrad), Apache-2.0"
+}

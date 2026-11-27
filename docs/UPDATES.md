@@ -4,17 +4,63 @@ Two ways, for two moments:
 
 | | A. Upgrade file | B. Software Update (APT repository) |
 |---|---|---|
-| For | ZETA RAYS 2.5 systems moving to 3.0 | ZETA RAYS 3.0 and later, for every update after it |
+| For | the previous release moving to the current one (3.0 to 3.5; 2.5 to 3.0 before) | ZETA RAYS 3.0 and later, for every update after it |
 | What the user does | runs one file, once | nothing special: Settings › Software Update |
 | Built by | `tools/make-upgrade.sh` | `tools/make-zeta-debs.py` + `tools/make-apt-repo.py` |
-| Published at | next to the images (`download.zetarays.org/releases/3.0/`) | `https://zetarays.org/apt/` |
+| Published at | next to the images (`download.zetarays.org/releases/VERSION/`) | `https://zetarays.org/apt/` |
 
 Debian packages keep updating from the Debian servers on every version, as
 before; both paths are about the ZETA RAYS components themselves.
 
 ---
 
-## A. The upgrade file (2.5 to 3.0)
+## A. The upgrade file (3.0 to 3.5; 2.5 to 3.0 before)
+
+**3.5.** `tools/make-upgrade.sh` builds from the released 3.0 configuration
+(`.cache/src-3.0-release-config`, read-only; `ZETA_UPGRADE_FROM=2.5` builds
+from 2.5 instead). Everything below about 2.5 → 3.0 holds for 3.0 → 3.5.
+What 3.5 adds to the steps:
+
+- **Protected data.** The upgrade never writes under `/home`, `/root`,
+  `/srv`, `/mnt`, `/media` or `/run/media`: the bundle builder refuses a
+  bundle with a file there, the upgrade stops before changing anything if
+  its plan has one, and `rollback.sh` skips such paths. The folders listed in
+  `/etc/zeta/protected-paths` on the computer (one absolute path per line;
+  none are listed by default, so private paths never go into a public file)
+  are recorded before the upgrade: names, sizes, dates, permissions, owners
+  and a fingerprint of the first and last 64 KB of every file, plus whether
+  the folder is on a network filesystem and where it is mounted. They are
+  compared after the upgrade (and after a rollback); a difference is printed
+  in capitals and saved in the state file. A folder that is listed but not
+  there (a NAS that is off) is noted and the upgrade goes on; a folder that
+  is there but cannot be read completely stops the upgrade before anything
+  changes (NFS with root squashing, a failing disk): unmount it, or fix the
+  access, and run the upgrade again. `sudo zeta-upgrade-verify` compares
+  the folders with the record later, for example once the NAS is back.
+- **Security steps** (`security_steps`): the ZETA WATCH audit rules are
+  loaded (`augenrules --load`), a new `/etc/nftables.conf` is checked with
+  `nft -c` but the firewall is **not reloaded** while the computer runs (the
+  file starts with `flush ruleset`, which would also wipe rules that Docker,
+  a media server or a VPN added, and a restart would turn on a firewall the
+  user turned off): the new rules apply at the restart the upgrade asks for.
+  rkhunter follows package updates (`APT_AUTOGEN`) and gets the reference
+  of this system's files.
+- **Settings files to keep.** `/etc/zeta/upgrade-keep` on the computer (one
+  path or folder under `/etc` per line, `#` for comments, empty by default)
+  lists system settings the upgrade must leave as they are: the new version
+  is only saved next to them as `.dpkg-dist`, and the dry run lists them.
+  Settings files the user already changed are kept anyway, as dpkg does.
+  `zeta-watch.service` and `zeta-watch-scan.timer` are enabled by the
+  `systemctl enable` lines new in hook 0100.
+- SSH keeps the choice of the computer (off, local network or internet);
+  the port stays 22.
+
+Before upgrading a computer with data you cannot lose: list its data
+folders in `/etc/zeta/protected-paths` (and in `/etc/zeta/upgrade-keep`
+any system setting it depends on), run the upgrade with `--dry-run`
+first (it prints what it recorded), and test the same upgrade on a copy or
+a snapshot of the system.
+
 
 ### Building it
 

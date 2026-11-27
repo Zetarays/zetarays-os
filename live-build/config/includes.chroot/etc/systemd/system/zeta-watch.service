@@ -1,0 +1,29 @@
+[Unit]
+Description=ZETA WATCH: real-time security monitoring
+Documentation=file:/usr/libexec/zeta-watch
+After=network.target auditd.service nftables.service
+# not in the live session (USB stick): nothing there is kept
+ConditionPathIsDirectory=!/run/live/medium
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/zeta-watch run
+Restart=on-failure
+RestartSec=10
+# it watches, it must never weigh on the computer
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=120M
+CPUQuota=15%
+# read-only everywhere except its own log, its baseline and the firewall set
+ProtectSystem=strict
+ReadWritePaths=/var/log/zeta-watch /var/lib/zeta-watch
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+LogsDirectory=zeta-watch
+LogsDirectoryMode=0750
+StateDirectory=zeta-watch
+
+[Install]
+WantedBy=multi-user.target

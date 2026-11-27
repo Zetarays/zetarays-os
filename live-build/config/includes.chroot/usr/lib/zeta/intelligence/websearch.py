@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ZETA RAYS Intelligence: looking up current facts on the web (opt-in).
+"""ZETA RAYS Intelligence: looking up facts and documentation.
 
 A model cannot know who holds an office today, a price or a result: what it
 learned stops at its training date. Benchmarks on 3B-class local models
@@ -7,15 +7,18 @@ showed that with a short excerpt and its source in the prompt they answer
 correctly; without it they state stale facts as current.
 
 Privacy rules (also in PRIVACY.md):
-  • OFF by default. The first time a time-sensitive question is asked, ZETA
-    asks (Yes / Always / No); the switch is in Settings › AI.
-  • Only for time-sensitive questions (office holders, news, prices,
-    versions, weather, results), recognized below.
+  • On by default since 2.1, turned off in Settings › AI (web_lookup).
+  • Only for questions recognized below: time-sensitive ones (office
+    holders, news, prices, versions, weather, results) and, since 3.5,
+    technical questions about Linux and this system.
   • Only the question is sent, shortened to its key words: never the chat
     history, never files, never anything else.
-  • Only public APIs without a key: Wikipedia (search + page extract) and,
-    if the user also turns it on, DuckDuckGo Instant Answer. No scraping of
-    search result pages.
+  • Only public APIs without a key: Wikipedia (search + page extract), the
+    ArchWiki (title search + page introduction) and, if the user also turns
+    it on, DuckDuckGo Instant Answer. No scraping of search result pages.
+    The manual pages come from this computer and need no network.
+  • The answer shows its sources; with none found, the model is told so and
+    says that it could not check.
   • 5-second limit, size limit, no cookies, a clear User-Agent.
 """
 from __future__ import annotations
@@ -28,6 +31,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 
+from i18n import tr
 from i18n_data import load
 
 from .providers.base import CancelToken, Canceled, get_json
@@ -48,7 +52,8 @@ SNIPPET_CHARS = 700
 LOCAL_SOURCES = 2
 LOCAL_SNIPPET_CHARS = 400
 def _user_agent() -> str:
-    """"ZETA-RAYS/3.0 (…)": the version comes from /etc/os-release."""
+    """The web User-Agent, "ZETA-RAYS/<version> (…)": the version comes from
+    /etc/os-release."""
     try:
         from system.release import product_token
         token = product_token()
@@ -274,6 +279,125 @@ def _duckduckgo(query: str, token: CancelToken | None) -> list[Source]:
     title = str(data.get("Heading") or data.get("AbstractSource") or "DuckDuckGo")[:200]
     return [Source(title=title, url=link, snippet=text[:SNIPPET_CHARS],
                    retrieved=date.today().isoformat(), site="duckduckgo.com")]
+
+
+# --------------------------------------------------------------- technical
+# Questions about Linux and this system ("what does systemctl mask do", "apt
+# says permission denied"): first the manual page of the command named in the
+# question, which is on this computer (offline, the exact documentation of
+# the installed version), then the ArchWiki, the most complete Linux
+# documentation with a search API. Sources are shown with the answer, like
+# the Wikipedia ones; nothing else of the conversation is sent.
+_RX_TECH = re.compile(_DATA["technical"])
+_RX_TECH_ASK = re.compile(_DATA["technical_ask"])
+_RX_COMMAND = re.compile(r"\b([a-z][a-z0-9_.+-]{1,30})\b")
+
+
+def is_technical(text: str) -> bool:
+    t = (text or "").strip()
+    return len(t) >= 8 and bool(_RX_TECH.search(t)) and bool(_RX_TECH_ASK.search(t))
+
+
+def _man_page(text: str) -> list[Source]:
+    """NAME and the start of DESCRIPTION of the first command of the question
+    that has a manual page here."""
+    import shutil
+    import subprocess
+    if not shutil.which("man"):
+        return []
+    for word in _RX_COMMAND.findall(text.lower()):
+        if len(word) < 2 or word in _STOP or not shutil.which(word):
+            continue
+        try:
+            out = subprocess.run(["man", "-P", "cat", word], capture_output=True, text=True, timeout=4,
+                                 env={"MANWIDTH": "100", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"}).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if not out:
+            continue
+        lines = [l.strip() for l in out.splitlines()]
+        try:
+            name = " ".join(lines[lines.index("NAME") + 1:lines.index("NAME") + 3]).strip()
+        except ValueError:
+            name = ""
+        desc = ""
+        if "DESCRIPTION" in lines:
+            i = lines.index("DESCRIPTION") + 1
+            desc = " ".join(l for l in lines[i:i + 12] if l and l.isupper() is False)
+        snippet = (name + ". " + desc).strip()[:LOCAL_SNIPPET_CHARS]
+        if snippet:
+            return [Source(title="man %s" % word, url="man:%s" % word, snippet=snippet,
+                           retrieved=date.today().isoformat(), site=tr("manual page (this computer)"))]
+    return []
+
+
+# the ArchWiki page of the topics people ask about most (its full-text search
+# ranks hardware pages and translations first); other topics: title search
+ARCHWIKI_TOPICS = {
+    "systemctl": "Systemd", "journalctl": "Systemd/Journal", "systemd": "Systemd",
+    "wifi": "Network configuration/Wireless", "wi-fi": "Network configuration/Wireless",
+    "networkmanager": "NetworkManager", "nmcli": "NetworkManager", "grub": "GRUB",
+    "ssh": "OpenSSH", "sshd": "OpenSSH", "nftables": "Nftables", "iptables": "Iptables",
+    "ufw": "Uncomplicated Firewall", "pipewire": "PipeWire", "pulseaudio": "PulseAudio",
+    "hyprland": "Hyprland", "wayland": "Wayland", "fstab": "Fstab", "cron": "Cron",
+    "crontab": "Cron", "flatpak": "Flatpak", "nvidia": "NVIDIA", "bash": "Bash", "zsh": "Zsh",
+    "swap": "Swap", "sudo": "Sudo", "kernel": "Kernel", "mount": "Fstab", "chmod": "File permissions and attributes",
+    "chown": "File permissions and attributes", "dpkg": "Pacman/Rosetta", "apt": "Pacman/Rosetta",
+}
+_WIKI_TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")
+_WIKI_LINK = re.compile(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]")
+
+
+def _wikitext_intro(text: str) -> str:
+    for _ in range(3):                       # nested templates
+        text = _WIKI_TEMPLATE.sub("", text)
+    # categories and the links to the same page in other languages
+    text = re.sub(r"\[\[(?:Category|[a-z]{2}(?:-[a-z]+)?):[^\]]*\]\]", "", text)
+    text = _WIKI_LINK.sub(r"\1", text)
+    text = re.sub(r"\[https?://\S+ ([^\]]*)\]", r"\1", text)   # external links: their text
+    text = re.sub(r"^:+", "", text, flags=re.M)                      # indented quotes
+    text = re.sub(r"'{2,}", "", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.startswith(("[[", "{{", "|", "#", "__"))]
+    return " ".join(lines)
+
+
+def _archwiki(text: str, token: CancelToken | None) -> list[Source]:
+    words = [w.lower() for w in _RX_TECH.findall(text)]
+    title = next((ARCHWIKI_TOPICS[w] for w in words if w in ARCHWIKI_TOPICS), "")
+    if not title and words:
+        params = {"action": "opensearch", "format": "json", "search": words[0], "limit": "5", "namespace": "0"}
+        data = get_json("https://wiki.archlinux.org/api.php?" + urllib.parse.urlencode(params), _HEADERS,
+                        timeout=TIMEOUT, max_bytes=MAX_BYTES, token=token)
+        titles = data[1] if isinstance(data, list) and len(data) > 1 else []
+        title = next((t for t in titles if "(" not in t), "")
+    if not title:
+        return []
+    params = {"action": "parse", "format": "json", "page": title, "prop": "wikitext", "section": "0",
+              "redirects": "1"}
+    data = get_json("https://wiki.archlinux.org/api.php?" + urllib.parse.urlencode(params), _HEADERS,
+                    timeout=TIMEOUT, max_bytes=MAX_BYTES, token=token)
+    parse = data.get("parse", {}) if isinstance(data, dict) else {}
+    intro = _wikitext_intro(str((parse.get("wikitext") or {}).get("*", "")))
+    if not intro:
+        return []
+    page = str(parse.get("title") or title)
+    return [Source(title="ArchWiki: " + page, url="https://wiki.archlinux.org/title/" +
+                   urllib.parse.quote(page.replace(" ", "_")), snippet=best_excerpt(intro, text, LOCAL_SNIPPET_CHARS),
+                   retrieved=date.today().isoformat(), site="wiki.archlinux.org")]
+
+
+def technical_lookup(text: str, settings: dict, token: CancelToken | None = None,
+                     online: bool = True) -> list[Source]:
+    """The manual page (always, offline) and, when online lookups are on,
+    the ArchWiki. Network errors just leave the manual page."""
+    sources = _man_page(text)
+    if online:
+        try:
+            sources += _archwiki(text, token)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+    return sources[:LOCAL_SOURCES + 1]
 
 
 def lookup(text: str, settings: dict, lang: str = "en",

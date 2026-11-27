@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>ZETA RAYS</vendor>
+  <!-- Settings › ZETA WATCH: turning a protection on or off, unblocking an
+       address, running a check. auth_admin_keep: several switches in a row
+       ask for the password once. -->
+  <action id="org.zetarays.watch">
+    <description>Change the ZETA WATCH security monitoring</description>
+    <description xml:lang="it">Modificare la sorveglianza di sicurezza ZETA WATCH</description>
+    <message>Enter your password to change the security monitoring.</message>
+    <message xml:lang="it">Inserisci la password per modificare la sorveglianza di sicurezza.</message>
+    <icon_name>security-high</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/zeta-watch</annotate>
+  </action>
+</policyconfig>

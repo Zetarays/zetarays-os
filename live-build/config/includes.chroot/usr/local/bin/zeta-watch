@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# zeta-watch: the ZETA WATCH command (status, config, unblock, scan, test);
+# the program itself is /usr/libexec/zeta-watch.
+exec /usr/libexec/zeta-watch "$@"

@@ -317,7 +317,7 @@ if ! grep -q "ZETA RAYS: installer boot loader step uses the installation medium
 fi
 
 # --- Final check: ZETA's voice (natural synthesis and recognition) ---
-for line in "ZETA RAYS: natural voice (Piper) installed" "ZETA RAYS: natural voice (Kokoro) installed" \
+for line in "ZETA RAYS: natural voice (Piper) installed" "ZETA RAYS: natural voices (Kokoro) installed" \
             "ZETA RAYS: vosk (python) installed" \
             "ZETA RAYS: speech model model-it installed" "ZETA RAYS: speech model model-en installed"; do
   if ! grep -q "$line" "$OUT/build-$ARCH.log" 2>/dev/null; then

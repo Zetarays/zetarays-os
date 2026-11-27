@@ -476,6 +476,16 @@ class Assistant:
         sources found and the local reference entries. Only the question goes
         to the search service; the local reference never leaves the computer."""
         if not websearch.is_time_sensitive(text):
+            # a question about Linux or this system: the command's manual page
+            # (offline) and, when online lookups are on, the ArchWiki
+            if websearch.is_technical(text):
+                try:
+                    tech = websearch.technical_lookup(text, settings, token=self._token,
+                                                      online=websearch.mode(settings) == "on")
+                except Canceled:
+                    tech = []
+                if tech:
+                    return "sources", tech, []
             return "", [], []
         # A recent verified entry of the local reference answers at once and
         # offline: nothing is sent, and the model reads a few lines instead

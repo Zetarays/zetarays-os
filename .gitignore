@@ -36,3 +36,5 @@ po/zetarays.pot
 # Written by build.sh from VERSION
 live-build/config/includes.chroot/usr/share/zeta/version
 /seo-zetarays/
+# built by build.sh from tools/make-zeta-debs.py, consumed by hook 9993
+/live-build/config/includes.chroot/usr/share/zeta/apt-release/

@@ -24,9 +24,12 @@ verification).
 | Checked by | `zeta-selftest ai` (`ai_local_only`: providers, no cloud API hosts in the code, loopback rule, service settings) |
 
 What still uses the network, only when the user wants it: the Wikipedia
-lookup for current facts (only the question; Settings › AI), and downloading
-another model from `registry.ollama.ai` (Settings › AI). Neither sends a
-conversation, a memory or a file.
+lookup for current facts and, since 3.5, the ArchWiki for technical questions
+about Linux (only the question, shortened; Settings › AI), and downloading
+another model from `registry.ollama.ai` (Settings › AI). None of them sends a
+conversation, a memory or a file. For technical questions the manual page of
+the command named in the question is read first, from this computer, with no
+network at all (`websearch.technical_lookup`).
 
 ## Choosing the model
 
@@ -65,6 +68,32 @@ Thinking models (Granite 4.2, Qwen3.5, Gemma 4, Qwen3 hybrids) are asked not
 to think (`"think": false`, also by the action chooser): a reasoning trace costs seconds before the first useful
 word. Models that copy ZETA's note back into the answer have the copy
 removed, on screen and in the voice (`context.strip_note_echo`).
+
+### 3.5 (November 2026): the models stay
+
+The 3.5 request asked to audit the latest Ollama models, Inkling 2 Mini
+included, for 8 GB and 16 GB computers. Result: no change.
+
+- **Inkling 2 Mini** (Thinking Machines) is in the Ollama library
+  (`inkling-2-mini:26b-a5b`, also an `iq4_NL` build), but it is a 26B
+  mixture-of-experts model of about 18-20 GB: it does not fit a 16 GB
+  computer at all, let alone next to the desktop.
+- **Qwen3.5 4B** (3.4 GB, tools and vision) was measured in October with the
+  method below: 10/10 commands but 5.8 s to the first word (61 tokens/s
+  reading the prompt) against 1.0 s for Qwen3 4B Instruct, and 4.1 GiB
+  loaded against 3.2. Qwen3.5 2B: 9/10 commands, 2.2 s.
+- **Gemma 4 E2B / E4B**: 5.0 / 6.8 GiB loaded for 10/10 and 9/10 commands;
+  more memory than the models in use for no better result.
+- Independent tests of Granite 4.2 3B with *native* tool calling in agent
+  harnesses report unreliable calls. ZETA does not depend on that: its
+  action chooser asks the model for JSON constrained to the action names and
+  checks every action before and after running it (`agent/`), which is
+  where the 10/10 above comes from.
+
+So `qwen3:4b-instruct` stays first from 12 GB and `granite4.2:3b` first below
+12 GB and on Intel N-series processors, one model loaded at a time, unloaded
+when memory runs short (`resources.py`), the choice updatable from Settings ›
+AI without reinstalling.
 
 ### November 2026: Granite 4.2 3B replaces Granite 4.0 Micro
 

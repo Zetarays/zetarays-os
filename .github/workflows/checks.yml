@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck nftables python3
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck nftables python3 lua5.4
       - name: Shell script syntax
         run: |
           set -e
@@ -35,6 +35,12 @@ jobs:
         run: |
           sudo mkdir -p /etc/nftables.d
           sudo nft -c -f live-build/config/includes.chroot/etc/nftables.conf
+      - name: Unit tests (window guard, window memory, ZETA WATCH rules)
+        run: |
+          set -e
+          lua5.4 tools/tests/test-window-guard.lua
+          lua5.4 tools/tests/test-window-memory.lua
+          python3 tools/tests/test_watch_rules.py
       - name: Translations complete
         run: python3 tools/i18n.py check
       - name: English-only source and documentation

@@ -1,0 +1,32 @@
+## ZETA WATCH: changes to the files that decide who can log in and with
+## which rights, and to the places a program uses to start itself again
+## (persistence). Each rule has a key ("-k zeta-...") that zeta-watch reads
+## from /var/log/audit/audit.log; changes made by apt/dpkg (updates) are
+## recognized there and not reported. Only writes and attribute changes are
+## watched ("-p wa"): reading these files is never logged.
+
+# accounts, groups, passwords
+-w /etc/passwd -p wa -k zeta-accounts
+-w /etc/shadow -p wa -k zeta-accounts
+-w /etc/group -p wa -k zeta-accounts
+-w /etc/gshadow -p wa -k zeta-accounts
+# administrator rights
+-w /etc/sudoers -p wa -k zeta-privilege
+-w /etc/sudoers.d/ -p wa -k zeta-privilege
+-w /etc/polkit-1/rules.d/ -p wa -k zeta-privilege
+# how people log in
+-w /etc/pam.d/ -p wa -k zeta-login
+-w /etc/ssh/sshd_config -p wa -k zeta-ssh
+-w /etc/ssh/sshd_config.d/ -p wa -k zeta-ssh
+-w /root/.ssh/ -p wa -k zeta-ssh
+# programs that start by themselves (persistence)
+-w /etc/systemd/system/ -p wa -k zeta-persistence
+-w /etc/cron.d/ -p wa -k zeta-persistence
+-w /etc/crontab -p wa -k zeta-persistence
+-w /var/spool/cron/crontabs/ -p wa -k zeta-persistence
+-w /etc/rc.local -p wa -k zeta-persistence
+-w /etc/profile.d/ -p wa -k zeta-persistence
+# a classic rootkit trick: a library loaded into every program
+-w /etc/ld.so.preload -p wa -k zeta-rootkit
+# kernel modules loaded by hand
+-a always,exit -F arch=b64 -S init_module,finit_module -k zeta-modules

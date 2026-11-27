@@ -1,0 +1,12 @@
+[Unit]
+Description=ZETA WATCH: weekly malware and rootkit check
+Documentation=file:/usr/libexec/zeta-watch
+ConditionPathIsDirectory=!/run/live/medium
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/zeta-watch scan
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+TimeoutStartSec=2h

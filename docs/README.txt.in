@@ -13,37 +13,36 @@
   7. ZETA, the AI
 
 
-NEW IN ZETA RAYS 3.0
+NEW IN ZETA RAYS 3.5
 -------------------------------------------------------------------------------
 
-- Screenshots and screen recording: PRINT opens a toolbar (area, window,
-  full screen, recording, color picker, timer); SHIFT + PRINT captures the
-  screen, ALT + PRINT the active window, SUPER + SHIFT + S an area,
-  SUPER + SHIFT + R starts and stops a recording. Captures go to
-  Pictures/Screenshots and to the clipboard; the notification offers Edit,
-  Copy Text, Open Folder and Delete.
-- Clipboard history (SUPER + V) and emoji (SUPER + .), see section 6.
-- Night Light: warmer colors from sunset to sunrise (worked out offline from
-  the time zone), always, or at custom times. Settings > Displays and the
-  Control Center.
-- Control Center quick settings: Night Light, Do Not Disturb, Power Mode,
-  Screenshot, Record and Clipboard.
-- Snap layouts (SUPER + SHIFT + arrows, SUPER + Z) and Quick Look (SPACE on
-  a selected file), see section 6.
-- New Settings pages: Power & Battery, Keyboard & Mouse, Date & Time,
-  Accessibility, Storage, and Backup (personal files with Deja Dup, system
-  snapshots with Timeshift, optionally before every system update).
-- ZETA reads the screen ("what's on my screen?", "translate what I'm
-  looking at") and summarizes text, PDF and office files: right-click a
-  file in Files and choose "Ask ZETA to Summarize", or run
-  zeta summarize FILE. Everything is read on the computer.
-- New AI model for 8 GB computers and mini PCs: Granite 4.2 3B. Qwen3 4B
-  Instruct stays the model for 16 GB.
-- Purple accent color, and two new wallpapers: Rays and Purple logo.
-- From this version, ZETA RAYS updates come from their own signed package
-  source and appear in Settings > Software Update with the Debian ones.
+- ZETA WATCH, real-time security monitoring: failed and successful SSH
+  logins, wrong passwords at login, lock screen and administrator prompts,
+  logins as root, new accounts and administrator rights, changes to the
+  files that decide who can log in, new open ports, programs running from
+  temporary folders. Alerts on screen, or read aloud. An address that keeps
+  failing the SSH password is blocked for an hour (never your own local
+  network, unless you choose so). Weekly rkhunter check; optional Suricata.
+  Settings > ZETA WATCH. It reports what the system records: it is not an
+  antivirus and cannot promise to catch everything.
+- Desktop icons keep their place after a restart and when the resolution
+  changes. Settings > Desktop & Icons: size, spacing, grid, names (size,
+  lines, color, shadow), single or double click, Arrange, Reset.
+- Windows reopen where you closed them. Settings > Windows & Multitasking.
+- Settings > Users (add, rename, remove, passwords, administrator rights,
+  who is logged in), Settings > Firewall & SSH, Settings > Startup
+  Applications. Every password field has the eye button.
+- Voices: Sara, Nicola, Serena, Paola (Italian); Heart, Michael, George
+  (British), Lessac (English). ZETA speaks always or only when you ask.
+- ZETA answers Linux questions from the manual page of the command and the
+  ArchWiki, with sources; Settings > AI shows what ZETA did.
+- Three new wallpapers: Circuit core (the wallpaper of 3.5, also behind the
+  login screen), Fortress and Watch.
+- The OVA also imports in VMware. On a Mac with Apple silicon, VMware Fusion
+  imports it as "Debian 12.x 64-bit": set Settings > General > OS to
+  "Debian 12.x 64-bit Arm" before the first start (or install from the ISO).
 
-Upgrading from version 2.5, without reinstalling
+Upgrading from version 3.0, without reinstalling
   Download the upgrade file for your computer from zetarays.org (Download
   section), next to the images:
     zetarays-{VERSION}-upgrade-amd64.run    Intel and AMD PCs
@@ -57,16 +56,28 @@ Upgrading from version 2.5, without reinstalling
   Permissions, allow running it as a program, then double-click it and
   choose Run. A terminal window shows the progress and the system asks for
   the administrator password.
-  It checks the system first (version 2.5, architecture, free space, the
+  It checks the system first (version 3.0, architecture, free space, the
   Debian servers) and changes nothing if a check fails. Every file it
-  replaces is saved in /var/backups/zeta-rays-2.5-DATE/. Your files, apps
+  replaces is saved in /var/backups/zeta-rays-3.0-DATE/. Your files, apps
   and settings stay; a settings file you changed by hand is kept, and the
   new version is written next to it as FILE.dpkg-dist. Running it again is
   safe. To go back, run this and restart:
-    sudo bash /var/backups/zeta-rays-2.5-DATE/rollback.sh
+    sudo bash /var/backups/zeta-rays-3.0-DATE/rollback.sh
   The AI model is not in the file: the model you have keeps working, and
   Settings > AI offers the new one with a Download button. Log:
   /var/log/zeta-rays-upgrade.log.
+  Data you cannot lose (a video archive, a NAS folder): before upgrading,
+  write each folder on its own line in /etc/zeta/protected-paths. The
+  upgrade never writes in the users' folders anyway; it records those
+  folders before changing anything (names, sizes, dates, permissions and a
+  fingerprint of every file), stops if one cannot be read completely, and
+  checks them again at the end. A NAS that is off is not a problem. Check
+  them again later with: sudo zeta-upgrade-verify
+  System settings files you changed yourself stay as they are. To keep
+  others unchanged as well, list them (under /etc, one per line) in
+  /etc/zeta/upgrade-keep. The firewall is not reloaded during the upgrade:
+  programs like Docker or a media server keep their connections, and the
+  new rules apply after the restart.
 
 
 1. WHICH FILE TO DOWNLOAD
@@ -763,7 +774,7 @@ Kernel panic at boot in a virtual machine (VMware Fusion, Workstation...)
   virtual machine has. VMware creates Linux machines with only 768 MB:
   give ZETA RAYS at least 4 GB of memory and turn on 3D acceleration
   (Display settings), otherwise the desktop is slow or falls back to the
-  installer only.
+  installer only. The OVA asks VMware for 3D acceleration by itself.
 
 No sound
   Settings > Sound: choose the right output device.

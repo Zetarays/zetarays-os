@@ -1,7 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Builds the in-place upgrade files: a system installed from 2.5 becomes the
-# current release (VERSION) without being reinstalled.
+# Builds the in-place upgrade files: a system installed from the previous
+# release (FROM, 3.0 by default; ZETA_UPGRADE_FROM sets another one) becomes
+# the current release (VERSION) without being reinstalled.
 #
 #   tools/make-upgrade.sh                 both architectures
 #   tools/make-upgrade.sh arm64           one architecture
@@ -9,10 +10,10 @@
 #
 # Output: out/zetarays-VERSION-upgrade-ARCH.run (+ .sha256), one per
 # architecture because of the Ollama runtime. What goes in (everything is
-# computed here, from the released 2.5 configuration and the current tree):
+# computed here, from the released FROM configuration and the current tree):
 #   - the ZETA RAYS files of includes.chroot (tools/upgrade/zeta_files.py:
 #     no AI models, nothing of the live session or the installer)
-#   - the list of packages new since 2.5, the services the hooks enable
+#   - the list of packages new since FROM, the services the hooks enable
 #   - the Ollama runtime from cache/ (without the GPU libraries)
 #   - the build hooks that the upgrade repeats (tools/upgrade/hooks-reviewed.json)
 #   - zeta-rays-release (package source of the ZETA RAYS updates), when the
@@ -20,7 +21,7 @@
 # How to use the result: docs/UPDATES.md.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FROM=2.5
+FROM="${ZETA_UPGRADE_FROM:-3.0}"
 VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null || true)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "VERSION missing or invalid: '$VERSION'" >&2; exit 1; }
 VERSION="${ZETA_UPGRADE_VERSION:-$VERSION}"

@@ -593,6 +593,11 @@ class Window(Gtk.ApplicationWindow):
     def _finish_voice(self, answer, canceled=False):
         stream, self._voice = self._voice, None
         if stream is None:
+            # replies are read only on request (Settings › AI › Voice): the
+            # answer stays ready behind the «Read aloud» button
+            if not canceled and answer and self.voice_button is not None and not self._voice_on():
+                self._last_spoken = (answer, None)
+                self._voice_controls(False)
             return
         if canceled:
             stream.cancel()
@@ -619,7 +624,10 @@ class Window(Gtk.ApplicationWindow):
         self.pause_button.set_visible(speaking)
         self.stop_button.set_visible(speaking)
         self.again_button.set_visible(not speaking and bool(self._last_spoken[0]))
-        self.voice_bar.set_visible(speaking or bool(self._last_spoken[0]) and self._voice_on())
+        auto = self._voice_on()
+        self.again_button.set_icon_name("view-refresh-symbolic" if auto else "audio-speakers-symbolic")
+        self.again_button.set_tooltip_text(tr("Read the reply again") if auto else tr("Read the reply aloud"))
+        self.voice_bar.set_visible(speaking or bool(self._last_spoken[0]))
 
     def on_pause(self, _b):
         if speech.paused():

@@ -320,8 +320,14 @@ def no_fake_menu_entries():
         return False, str(e)
     import re
     pages = set(re.findall(r'_settings\("([a-z-]+)(?::([a-z]+))?"\)', text))
-    known = {"appearance", "dock", "lock-screen", "notifications", "network", "bluetooth",
-             "audio", "ai", "info"}
+    # the pages Settings really has: the keys of its TITLES table (a fixed
+    # list here went stale as soon as a page was added)
+    try:
+        settings = open("/usr/local/bin/zeta-settings").read()
+        block = settings[settings.index("TITLES = {"):settings.index("}", settings.index("TITLES = {"))]
+        known = set(re.findall(r'"([a-z-]+)":', block))
+    except (OSError, ValueError) as e:
+        return False, str(e)
     unknown = {p for p, _ in pages if p not in known}
     if unknown:
         return False, tr("unknown pages: {pages}").format(pages=", ".join(sorted(unknown)))
@@ -3044,6 +3050,23 @@ def minimized_found_after_crash():
         proc.kill()
         if addr:
             windows.forget(addr)
+
+
+@test("windows")
+def window_memory_loaded():
+    """Window memory (3.5): window_memory.lua is loaded in Hyprland, its
+    places file is readable, and Settings › Windows & Multitasking exists."""
+    if not os.path.isfile("/usr/lib/zeta/hypr/window_memory.lua"):
+        return False, _missing(["window_memory.lua"])
+    if not os.path.isfile("/usr/lib/zeta/ui/windows_page.py"):
+        return False, _missing(["windows_page.py"])
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return True, _outside_session()
+    _rc, out, _e = _sh(["hyprctl", "eval",
+                        "if not zeta_window_memory_ready then error('window memory not loaded') end"])
+    if not out.startswith("ok"):
+        return False, tr("window memory not loaded: {detail}").format(detail=out[:120])
+    return True, tr("window memory loaded")
 
 
 @test("windows")

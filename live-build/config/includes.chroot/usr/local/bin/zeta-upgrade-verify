@@ -1,0 +1,124 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Checks the protected data folders against the record the last ZETA RAYS
+upgrade made before changing anything (protected-before.json, next to its
+backup in /var/backups/zeta-rays-*). Useful when a NAS was disconnected
+during the upgrade, or simply for peace of mind. Read-only.
+
+    sudo zeta-upgrade-verify            the latest upgrade
+    sudo zeta-upgrade-verify DIR        the backup folder of another one
+
+The comparison is the one the upgrade makes (zeta_upgrade.py, "protected
+data"): names, sizes, dates, permissions, owners and a fingerprint of the
+first and last 64 KB of every file.
+"""
+import glob
+import hashlib
+import json
+import os
+import stat
+import sys
+
+sys.path.insert(0, "/usr/lib/zeta")
+from i18n import tr  # noqa: E402
+FINGERPRINT = 64 * 1024
+
+
+def fingerprint(path, size):
+    """As the upgrade computes it (zeta_upgrade._fingerprint)."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return "not-a-file"
+        h = hashlib.sha256()
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            h.update(f.read(FINGERPRINT))
+            if size > 2 * FINGERPRINT:
+                f.seek(size - FINGERPRINT)
+                h.update(f.read(FINGERPRINT))
+        return h.hexdigest()[:32]
+    finally:
+        os.close(fd)
+
+
+def inventory(top):
+    items = {}
+    dev = os.lstat(top).st_dev
+    stack = [top]
+    while stack:
+        d = stack.pop()
+        with os.scandir(d) as it:
+            for e in it:
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                rel = os.path.relpath(e.path, top)
+                if stat.S_ISDIR(st.st_mode):
+                    items[rel] = ["d", 0, 0, st.st_mode, st.st_uid, st.st_gid, ""]
+                    if st.st_dev == dev:
+                        stack.append(e.path)
+                elif stat.S_ISREG(st.st_mode):
+                    try:
+                        fp = fingerprint(e.path, st.st_size)
+                    except FileNotFoundError:
+                        continue
+                    items[rel] = ["f", st.st_size, st.st_mtime_ns, st.st_mode, st.st_uid, st.st_gid, fp]
+                elif stat.S_ISLNK(st.st_mode):
+                    items[rel] = ["l", 0, 0, st.st_mode, st.st_uid, st.st_gid, os.readlink(e.path)]
+                else:
+                    items[rel] = ["o", 0, 0, st.st_mode, st.st_uid, st.st_gid, ""]
+    return items
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        print(tr("Administrator rights needed: run it with sudo."))
+        return 1
+    if argv:
+        record = os.path.join(argv[0], "protected-before.json")
+    else:
+        found = sorted(glob.glob("/var/backups/zeta-rays-*/protected-before.json"), key=os.path.getmtime)
+        if not found:
+            print(tr("No upgrade record found (no /var/backups/zeta-rays-*/protected-before.json)."))
+            return 1
+        record = found[-1]
+    with open(record, encoding="utf-8") as f:
+        records = json.load(f)
+    print(tr("Record: {path}").format(path=record))
+    status = 0
+    for top, rec in records.items():
+        if not rec.get("present"):
+            print(tr("{path}: not present when the upgrade ran, nothing to compare").format(path=top))
+            continue
+        top_real = rec.get("real") or os.path.realpath(top)
+        if not os.path.isdir(top_real):
+            print(tr("{path}: not reachable now (is the NAS connected and mounted?)").format(path=top))
+            status = max(status, 1)
+            continue
+        try:
+            now = inventory(top_real)
+        except OSError as e:
+            print(tr("{path}: cannot be read completely: {error}").format(path=top, error=e))
+            status = 2
+            continue
+        before = rec["items"]
+        gone = sorted(set(before) - set(now))
+        changed = sorted(p for p in set(before) & set(now) if before[p] != now[p])
+        added = sorted(set(now) - set(before))
+        if gone or changed:
+            status = 2
+            print(tr("{path}: {gone} missing, {changed} changed since the upgrade record").format(
+                path=top, gone=len(gone), changed=len(changed)))
+            for p in (gone + changed)[:20]:
+                print("   " + p)
+        else:
+            print(tr("{path}: intact, {n} items as before").format(path=top, n=len(before)))
+        if added:
+            print(tr("   {n} new items added after the record (not a problem)").format(n=len(added)))
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

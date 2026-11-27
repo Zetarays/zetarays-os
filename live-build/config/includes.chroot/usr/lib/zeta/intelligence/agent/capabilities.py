@@ -1064,7 +1064,8 @@ def set_theme(args):
 
 
 @capabilities("set_wallpaper", "Changes the wallpaper to an image, to one of the ZETA RAYS wallpapers "
-          "(Blue waves, Green circuits, Red waves, Terminal, Blue/green/red/white logo) "
+          "(Circuit core, Fortress, Watch, Goddess, Rays, Blue waves, Green circuits, Red waves, "
+          "Terminal, Blue/green/red/purple/white logo) "
           "or back to the ZETA RAYS default.",
           {"image": "image file, name of a ZETA RAYS wallpaper, or \"default\""}, ["image"])
 def set_wallpaper(args):

@@ -183,6 +183,230 @@ def human(n):
     return str(n)
 
 
+# ------------------------------------------------------------ protected data
+#
+# The upgrade only ever writes the system files listed in its manifest (under
+# /usr, /etc and /var/lib/zeta), never anything in the users' folders. These
+# rules make that a checked guarantee instead of a property of the code:
+#   - no planned write, removal or backup may fall under a protected root;
+#     if one does, the upgrade stops before changing anything;
+#   - the data folders named in the manifest ("protected_data") and in
+#     /etc/zeta/protected-paths (one absolute path per line, for the
+#     computer's own) are recorded before the upgrade (names, sizes, dates,
+#     permissions, owners, and a fingerprint of the start and end of each
+#     file) and compared afterwards: any difference is reported loudly;
+#   - a folder that is not there (a NAS that is switched off or unmounted)
+#     is noted and the upgrade goes on: it never touches it either way;
+#   - a folder that is there but cannot be read completely stops the
+#     upgrade: without the "before" record, nothing could prove it intact.
+
+PROTECTED_ROOTS = ("/home", "/root", "/srv", "/mnt", "/media", "/run/media")
+PROTECTED_LIST = "/etc/zeta/protected-paths"
+KEEP_LIST = "/etc/zeta/upgrade-keep"
+NETWORK_FS = ("nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "sshfs", "9p",
+              "glusterfs", "ceph", "davfs", "fuse.rclone", "virtiofs", "fuse.gvfsd-fuse")
+FINGERPRINT = 64 * 1024        # bytes read from the start and the end of each file
+
+
+def under_protected(path):
+    p = os.path.normpath("/" + path.lstrip("/"))
+    return any(p == r or p.startswith(r + "/") for r in PROTECTED_ROOTS)
+
+
+def keep_paths():
+    """System settings files this computer keeps as they are
+    (/etc/zeta/upgrade-keep, one path or folder per line, # for comments):
+    the new version is only saved next to them (.dpkg-dist). Only /etc:
+    the system's own programs must match the release."""
+    paths = []
+    for line in _read(R(KEEP_LIST)).splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line.startswith("/etc/"):
+            paths.append(os.path.normpath(line))
+    return paths
+
+
+def is_kept(path, kept):
+    return any(path == k or path.startswith(k + "/") for k in kept)
+
+
+def protected_paths():
+    paths = list(C.m.get("protected_data", []))
+    for line in _read(R(PROTECTED_LIST)).splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line.startswith("/") and line not in paths:
+            paths.append(os.path.normpath(line))
+    return paths
+
+
+def _real_system_path(path):
+    """Where a system path really leads on this computer (a parent folder
+    such as /usr/local or /opt may be a link into /home)."""
+    real = os.path.realpath(R(path))
+    if C.root != "/":
+        root = os.path.realpath(C.root)
+        real = "/" + os.path.relpath(real, root) if real.startswith(root) else real
+    return real
+
+
+def guard_plan(actions, removals):
+    """Stops the upgrade if anything it would write, remove or copy falls
+    under a protected root, by its name or by where it really leads."""
+    bad = sorted(p for p in list(actions) + list(removals) + list(VERSION_FILES)
+                 if under_protected(p) or under_protected(_real_system_path(p)))
+    if bad:
+        raise Failure(_("Safety stop: the upgrade would touch a protected folder ({paths}). Nothing was changed.").format(
+            paths=", ".join(bad[:5])))
+
+
+def mount_of(path):
+    """(mount point, source, filesystem type) of the filesystem holding path."""
+    out = capture(["findmnt", "-n", "-o", "TARGET,SOURCE,FSTYPE", "-T", path]).split()
+    return tuple(out[:3]) if len(out) >= 3 else ("?", "?", "?")
+
+
+def _fingerprint(path, size):
+    """First and last 64 KB. Opened without following a link and without
+    waiting (a file swapped for a link to a pipe must not hang the upgrade)."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return "not-a-file"
+        h = hashlib.sha256()
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            h.update(f.read(FINGERPRINT))
+            if size > 2 * FINGERPRINT:
+                f.seek(size - FINGERPRINT)
+                h.update(f.read(FINGERPRINT))
+        return h.hexdigest()[:32]
+    finally:
+        os.close(fd)
+
+
+def inventory(top):
+    """Everything under top, without following symbolic links and without
+    leaving its filesystem: {relative path: [type, size, mtime_ns, mode, uid,
+    gid, fingerprint]}. Raises OSError if anything cannot be read."""
+    items = {}
+    dev = os.lstat(top).st_dev
+    stack = [top]
+    while stack:
+        d = stack.pop()
+        with os.scandir(d) as it:
+            for e in it:
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    continue            # gone while being read (a temporary file)
+                rel = os.path.relpath(e.path, top)
+                if stat.S_ISDIR(st.st_mode):
+                    items[rel] = ["d", 0, 0, st.st_mode, st.st_uid, st.st_gid, ""]
+                    if st.st_dev == dev:
+                        stack.append(e.path)
+                elif stat.S_ISREG(st.st_mode):
+                    try:
+                        fp = _fingerprint(e.path, st.st_size)
+                    except FileNotFoundError:
+                        continue
+                    items[rel] = ["f", st.st_size, st.st_mtime_ns, st.st_mode, st.st_uid, st.st_gid, fp]
+                elif stat.S_ISLNK(st.st_mode):
+                    items[rel] = ["l", 0, 0, st.st_mode, st.st_uid, st.st_gid, os.readlink(e.path)]
+                else:
+                    items[rel] = ["o", 0, 0, st.st_mode, st.st_uid, st.st_gid, ""]
+    return items
+
+
+def protect_before():
+    """Records the protected folders. Returns {path: record}; raises Failure
+    when a folder that is present cannot be read completely."""
+    records = {}
+    for top in protected_paths():
+        real = os.path.realpath(R(top))        # a listed link is checked where it leads
+        if not os.path.isdir(real):
+            records[top] = {"present": False}
+            say("   " + _("Protected data: {path} is not present now (for example a NAS that is off): it is not touched either way").format(path=top))
+            continue
+        target, source, fstype = mount_of(real)
+        try:
+            items = inventory(real)
+        except OSError as e:
+            raise Failure(_("Safety stop: {path} cannot be read completely ({error}), so its integrity could not be checked after the upgrade. Nothing was changed: check the disk or the NAS connection and try again.").format(
+                path=top, error=e))
+        files = [v for v in items.values() if v[0] == "f"]
+        records[top] = {"present": True, "real": real, "mount": target, "source": source, "fstype": fstype,
+                        "network": fstype in NETWORK_FS, "items": items}
+        say("   " + _("Protected data: {path}, {files} files, {size} ({kind} {fstype} mounted on {mount})").format(
+            path=top, files=len(files), size=human(sum(v[1] for v in files)),
+            kind=_("network filesystem") if fstype in NETWORK_FS else _("local filesystem"),
+            fstype=fstype, mount=target))
+    return records
+
+
+def protect_after(records, where):
+    """Compares the protected folders with the record. Returns the problems
+    (also written to the log and next to the backup)."""
+    problems = []
+    for top, rec in records.items():
+        if not rec.get("present"):
+            continue
+        real = rec.get("real") or os.path.realpath(R(top))
+        now_mount = mount_of(real if os.path.isdir(real) else os.path.dirname(real))[0]
+        if rec.get("mount") not in (None, "?") and now_mount != rec["mount"]:
+            # the filesystem it was on is not mounted any more (a NAS switched
+            # off, leaving its empty mount point): unreachable, not damaged
+            say("   " + _("Protected data: {path} is no longer reachable (disconnected?): check it again with zeta-upgrade-verify").format(path=top))
+            continue
+        if not os.path.isdir(real):
+            # same filesystem, folder gone: that is a loss
+            problems.append(_("{path}: the folder is gone").format(path=top))
+            continue
+        try:
+            now = inventory(real)
+        except OSError as e:
+            problems.append("%s: %s" % (top, e))
+            continue
+        before = rec["items"]
+        gone = sorted(set(before) - set(now))
+        changed = sorted(p for p in set(before) & set(now) if before[p] != now[p])
+        if gone or changed:
+            problems.append(_("{path}: {gone} missing, {changed} changed (first: {first})").format(
+                path=top, gone=len(gone), changed=len(changed), first=(gone + changed)[0]))
+        else:
+            say("   " + _("Protected data intact: {path} ({n} items unchanged)").format(path=top, n=len(before)))
+    for p in problems:
+        say("   !!! " + _("PROTECTED DATA CHANGED ({where}): {problem}").format(where=where, problem=p))
+    return problems
+
+
+def resumed_records():
+    """The record of the first, interrupted run, when this run resumes it:
+    recording again now would take whatever the first run did as the
+    "before" and could call damaged data intact."""
+    st = load_state()
+    if st.get("status") not in ("in-progress", "failed") or not st.get("backup"):
+        return None
+    path = os.path.join(R(st["backup"]), "protected-before.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            records = json.load(f)
+    except (OSError, ValueError):
+        return None
+    say("   " + _("Protected data: using the record made before the interrupted run"))
+    return records
+
+
+def save_records(bk, records):
+    """The record next to the backup, read by zeta-upgrade-verify to check
+    the folders again later (for example once the NAS is back)."""
+    path = os.path.join(bk.real, "protected-before.json")
+    if os.path.exists(path):
+        return                      # the first run's record is the one that counts
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(records, f)
+    os.chmod(path, 0o600)
+
+
 # ------------------------------------------------------------ 1. checks
 
 def checks(args):
@@ -274,8 +498,10 @@ def package_manager_busy():
 
 def plan_files():
     """What happens to each file: same, new, replace, conflict, kept-deleted,
-    invalid; and to each file ZETA RAYS no longer ships: remove, keep."""
+    invalid, held (listed in /etc/zeta/upgrade-keep); and to each file
+    ZETA RAYS no longer ships: remove, keep."""
     actions = {}
+    kept = keep_paths()
     for path, e in sorted(C.m["files"].items()):
         cur = file_sha(R(path))
         if cur == e["sha256"]:
@@ -294,13 +520,15 @@ def plan_files():
                 act = "replace"
             else:
                 act = "keep" if unchanged else "conflict"
+        if act in ("new", "replace") and path.startswith("/etc/") and is_kept(path, kept):
+            act = "held"
         actions[path] = act
     removals = {}
     for path, e in sorted(C.m.get("remove", {}).items()):
         cur = file_sha(R(path))
         if cur is None:
             continue
-        if e["policy"] == "zeta" or cur in e.get("old", []):
+        if (e["policy"] == "zeta" or cur in e.get("old", [])) and not is_kept(path, kept):
             removals[path] = "remove"
         else:
             removals[path] = "keep"
@@ -356,6 +584,11 @@ def show_plan(actions, removals, missing, already, ollama, hypr, upgradable):
     if conflicts:
         say("   " + _("Settings files changed on this computer: kept as they are, the new version is saved next to them (.dpkg-dist):"))
         for p in conflicts:
+            say("     " + p)
+    held = [p for p, a in actions.items() if a == "held"]
+    if held:
+        say("   " + _("Kept as they are, as /etc/zeta/upgrade-keep asks (the new version is saved next to them, .dpkg-dist):"))
+        for p in held:
             say("     " + p)
     for p, a in actions.items():
         if a == "kept-deleted":
@@ -494,11 +727,22 @@ if [ -z "$ROOT" ] && [ "$(id -u)" != 0 ]; then
 fi
 sys() { if [ -z "$ROOT" ]; then "$@"; else echo "[test mode, not run] $*"; fi; }
 echo "ZETA RAYS: restoring the files saved in $B"
+# by its name and by where it really leads (a parent folder may be a link)
+protected() {
+    real="$(realpath -m -- "$ROOT$1" 2>/dev/null)"; real="${real#"$ROOT"}"
+    for x in "$1" "$real"; do
+        case "$x" in /home|/home/*|/root|/root/*|/srv|/srv/*|/mnt|/mnt/*|/media|/media/*|/run/media/*) return 0 ;; esac
+    done
+    return 1
+}
 while IFS= read -r p; do
-    [ -n "$p" ] && rm -f -- "$ROOT$p"
+    [ -n "$p" ] || continue
+    if protected "$p"; then echo "   skipped (protected folder): $p"; continue; fi
+    rm -f -- "$ROOT$p"
 done < "$B/created.txt"
 while IFS= read -r p; do
     [ -n "$p" ] || continue
+    if protected "$p"; then echo "   skipped (protected folder): $p"; continue; fi
     mkdir -p -- "$(dirname -- "$ROOT$p")"
     rm -f -- "$ROOT$p"
     cp -a -- "$B/files$p" "$ROOT$p" || echo "   could not restore $p"
@@ -563,7 +807,7 @@ def make_backup(bk, actions, removals, ollama):
     for path, a in actions.items():
         if a in ("new", "replace"):
             bk.save(path)
-        elif a == "conflict":
+        elif a in ("conflict", "held"):
             bk.save(path + ".dpkg-dist")
     for path, a in removals.items():
         if a == "remove":
@@ -698,7 +942,7 @@ def files_step(bk, actions, removals, fail_at):
     with tarfile.open(os.path.join(C.bundle, "files.tar.gz")) as tar:
         members = {"/" + m.name: m for m in tar.getmembers()}
         for path, a in actions.items():
-            if a not in ("new", "replace", "conflict"):
+            if a not in ("new", "replace", "conflict", "held"):
                 continue
             e = C.m["files"][path]
             data = b""
@@ -712,7 +956,7 @@ def files_step(bk, actions, removals, fail_at):
                     log_line(problem)
                     skipped.append(path)
                     continue
-            if a == "conflict":
+            if a in ("conflict", "held"):
                 install_entry(path, e, data, dest_path=path + ".dpkg-dist")
                 conflicts.append(path)
             else:
@@ -886,6 +1130,7 @@ def post_steps(changed, ollama_was_active, ollama_new):
     if any(p.startswith(("/etc/default/grub.d/", "/etc/grub.d/")) for p in changed) and \
             (C.test or shutil.which("update-grub")):
         step(["update-grub"], "update-grub")
+    security_steps(changed, step)
     if ollama_new and (ollama_was_active or C.test):
         step(["systemctl", "start", "ollama.service"], "ollama")
     elif "/etc/systemd/system/ollama.service" in changed:
@@ -895,6 +1140,36 @@ def post_steps(changed, ollama_was_active, ollama_new):
         say("   " + _("Package source for ZETA RAYS updates"))
         step(["dpkg", "-i", os.path.join(C.bundle, deb)], deb)
     return warnings
+
+
+def security_steps(changed, step):
+    """What hook 0100 does for the security monitoring (ZETA WATCH, 3.5):
+    the new audit rules loaded, the new firewall file checked, rkhunter told
+    to follow package updates and given the reference of this system's
+    files. The units themselves are enabled by the systemctl lines of the
+    hooks.
+    The firewall is NOT reloaded while the computer runs: its file starts
+    with "flush ruleset", which would also wipe the rules other programs
+    added (Docker, a media server, a VPN), and a reload or restart would turn
+    on a firewall the user turned off. The new rules apply at the restart the
+    upgrade asks for, the same way they always do at boot."""
+    if any(p.startswith("/etc/audit/rules.d/") for p in changed) and (C.test or shutil.which("augenrules")):
+        step(["augenrules", "--load"], "augenrules")
+    if "/etc/nftables.conf" in changed and (C.test or shutil.which("nft")):
+        if run(["nft", "-c", "-f", "/etc/nftables.conf"]) == 0:
+            say("   " + _("Firewall: the new rules apply at the next restart (the running firewall is left as it is)"))
+        else:
+            say("   " + _("The firewall file did not pass the check: the running firewall was left as it was"))
+    if C.test or os.path.isfile("/etc/default/rkhunter"):
+        if not C.test:
+            text = _read("/etc/default/rkhunter")
+            new = re.sub(r"(?m)^APT_AUTOGEN=.*$", 'APT_AUTOGEN="true"', text)
+            new = re.sub(r"(?m)^CRON_DAILY_RUN=.*$", 'CRON_DAILY_RUN="false"', new)
+            if "APT_AUTOGEN=" not in new:
+                new += '\nAPT_AUTOGEN="true"\n'
+            if new != text:
+                _write_text("/etc/default/rkhunter", new)
+        step(["rkhunter", "--propupd", "--nolog"], "rkhunter --propupd")
 
 
 def enable_locales():
@@ -1001,6 +1276,14 @@ def main(argv):
     upgradable = None if args.no_apt else count_upgradable()
     head(2, _("What will change"))
     show_plan(actions, removals, missing, already, ollama, hypr, upgradable)
+    try:
+        guard_plan(actions, removals)
+        records = resumed_records()
+        if records is None:
+            records = protect_before()
+    except Failure as e:
+        say("   ! " + str(e))
+        return 2
     prev = load_state()
     if prev.get("status") == "done":
         say("   " + _("This system was already upgraded on {date}: running again repairs missing or damaged files.").format(
@@ -1023,6 +1306,7 @@ def main(argv):
     save_state(status="in-progress", backup=bk.dir, started=time.strftime("%Y-%m-%d %H:%M:%S"),
                bundle=m.get("bundle_id", ""), stage="backup")
     make_backup(bk, actions, removals, ollama)
+    save_records(bk, records)
     say("   " + _("Copies of the files that will change: {dir}").format(dir=bk.dir))
 
     head(4, _("Packages"))
@@ -1052,6 +1336,7 @@ def main(argv):
     except (Failure, OSError, tarfile.TarError, KeyError, KeyboardInterrupt) as e:
         say("   ! " + (str(e) or _("Interrupted.")))
         rollback(bk)
+        protect_after(records, _("after the rollback"))
         say(_("The upgrade did not complete: the ZETA RAYS files are as before (packages installed by apt stay)."))
         say(_("Log: /var/log/zeta-rays-upgrade.log"))
         return 1
@@ -1060,7 +1345,9 @@ def main(argv):
     head(6, _("Finishing"))
     changed = {p for p, a in actions.items() if a in ("new", "replace")} | set(removals)
     warnings = post_steps(changed, ollama_was_active, bool(ollama))
-    save_state(status="done", stage="done", finished=time.strftime("%Y-%m-%d %H:%M:%S"))
+    damaged = protect_after(records, _("after the upgrade"))
+    save_state(status="done", stage="done", finished=time.strftime("%Y-%m-%d %H:%M:%S"),
+               protected_data="changed" if damaged else "intact")
 
     say()
     say(_("ZETA RAYS {version} is installed.").format(version=m["to"]))

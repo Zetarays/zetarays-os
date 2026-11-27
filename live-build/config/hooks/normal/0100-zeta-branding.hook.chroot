@@ -332,6 +332,27 @@ systemctl enable earlyoom.service >/dev/null 2>&1 || true
 systemctl enable zramswap.service >/dev/null 2>&1 || true
 # lightweight system health check (zeta-health), every two minutes
 systemctl enable zeta-health.timer >/dev/null 2>&1 || true
+# ZETA WATCH (3.5): security monitoring, the weekly malware/rootkit check,
+# and the rkhunter reference of this system's files (without it every check
+# would report the packages as changed). Not in the live session (the units
+# have ConditionPathIsDirectory=!/run/live/medium).
+systemctl enable zeta-watch.service zeta-watch-scan.timer >/dev/null 2>&1 || true
+systemctl enable auditd.service >/dev/null 2>&1 || true
+# ClamAV: signatures through Debian's timer only (see
+# /etc/systemd/system/clamav-freshclam-once.service.d/zeta.conf)
+systemctl disable clamav-freshclam.service clamav-freshclam-once.service >/dev/null 2>&1 || true
+systemctl enable clamav-freshclam-once.timer >/dev/null 2>&1 || true
+if command -v rkhunter >/dev/null 2>&1; then
+    # after every apt run rkhunter records the new files as the reference
+    # (Debian's APT_AUTOGEN): updates are never reported as tampering
+    if [ -f /etc/default/rkhunter ]; then
+        sed -i 's/^APT_AUTOGEN=.*/APT_AUTOGEN="true"/' /etc/default/rkhunter
+        grep -q '^APT_AUTOGEN=' /etc/default/rkhunter || echo 'APT_AUTOGEN="true"' >> /etc/default/rkhunter
+        # its own daily run stays off: ZETA WATCH runs it weekly and reports
+        sed -i 's/^CRON_DAILY_RUN=.*/CRON_DAILY_RUN="false"/' /etc/default/rkhunter
+    fi
+    rkhunter --propupd --nolog >/dev/null 2>&1 || true
+fi
 # resume the normal desktop after a Hyprland crash (for every user)
 systemctl --global enable zeta-recovery.service >/dev/null 2>&1 || true
 

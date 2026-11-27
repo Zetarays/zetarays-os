@@ -33,6 +33,11 @@
    "live-build/config/includes.chroot/usr/share/zeta/legal/PRIVACY.it.md",
    "ZETA RAYS 2.5 non le legge più",
    "testo legale: la versione che ha smesso di leggere le vecchie chiavi"
+  ],
+  [
+   "live-build/config/includes.chroot/usr/share/zeta/migration/update-3.5-0-defaults.json",
+   "ZETA RAYS 3.0 to 3.5:",
+   "the settings migration names the release it upgrades from on purpose"
   ]
  ],
  "page_patterns": [

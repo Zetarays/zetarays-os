@@ -37,19 +37,21 @@ def build_group(toast):
     g = Adw.PreferencesGroup(
         title=tr("Voice"),
         description=tr("How ZETA reads its replies aloud. Everything stays on this computer."))
-    on = Adw.SwitchRow(title=tr("Read replies aloud"),
-                       subtitle=tr("Text and voice together; the voice starts with the first sentence"))
-    on.set_active(speech.enabled())
+    on = Adw.ComboRow(title=tr("ZETA speaks"),
+                      subtitle=tr("Always: text and voice together. On request: a speaker button under each reply"),
+                      model=Gtk.StringList.new([tr("Always"), tr("Only when I ask")]))
+    on.set_selected(0 if speech.enabled() else 1)
 
     def toggled(w, _p):
+        auto = w.get_selected() == 0
         try:
-            speech.set_enabled(w.get_active())
+            speech.set_enabled(auto)
         except OSError as e:
             toast(tr("Choice not saved: {error}").format(error=e))
             return
-        if not w.get_active():
+        if not auto:
             speech.stop()
-    on.connect("notify::active", toggled)
+    on.connect("notify::selected", toggled)
     g.add(on)
     for lang, name in LANGUAGES:
         voices = speech.installed_voices(lang)

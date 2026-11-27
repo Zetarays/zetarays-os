@@ -7,8 +7,8 @@ that understands you and operates the computer for you, with no account and
 no internet connection required.
 
 - Website: <https://zetarays.org>
-- Downloads (ISO and VirtualBox OVA, amd64 and arm64, and the upgrade files
-  for systems on 2.5): <https://zetarays.org/#download>
+- Downloads (ISO and OVA for VirtualBox and VMware, amd64 and arm64, and the
+  upgrade files for systems on 3.0): <https://zetarays.org/#download>
 - User guide: [`docs/README.txt.in`](docs/README.txt.in) (the `README.txt` shipped next to the images)
 - Current version: [`VERSION`](VERSION) (the only place where the release number is written)
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md)
@@ -22,7 +22,7 @@ no internet connection required.
 | Architecture | Images | Tested on |
 |---|---|---|
 | amd64 (x86-64) | ISO (UEFI and BIOS), OVA | QEMU (emulated) and real PCs |
-| arm64 (AArch64) | ISO (UEFI), OVA | VirtualBox 7.2 on Apple Silicon, QEMU |
+| arm64 (AArch64) | ISO (UEFI), OVA | VirtualBox 7.2 and VMware Fusion on Apple Silicon (OVA: set the OS to "Debian 12.x 64-bit Arm" after import), QEMU |
 
 ## System requirements
 
@@ -36,8 +36,18 @@ no internet connection required.
 ## Main features
 
 - Hyprland desktop with title bars, a dock, a Control Center and a desktop
-  with free or grid icon placement. Windows always keep their title bar
-  within reach (SUPER + SHIFT + W brings every window back).
+  with free or grid icon placement; icons keep their place across restarts
+  and resolution changes (Settings › Desktop & Icons: size, spacing, grid,
+  labels, single or double click). Windows reopen where they were closed and
+  always keep their title bar within reach (SUPER + SHIFT + W brings every
+  window back; Settings › Windows & Multitasking).
+- **ZETA WATCH**: real-time security monitoring (SSH and local logins,
+  root, new accounts and administrator rights, critical files through
+  auditd, new open ports, programs from temporary folders, weekly rkhunter),
+  alerts on screen or spoken, an address that keeps failing the SSH password
+  blocked for an hour, optional Suricata; see [`docs/SECURITY.md`](docs/SECURITY.md).
+- **Settings › Users** (add, rename, remove, passwords, administrator
+  rights, sessions), **Firewall & SSH**, **Startup Applications**.
 - **Settings**, including **Displays** (resolution, refresh rate, scale,
   rotation, arrangement, mirroring, main display, with automatic revert)
   and per-display memory.
@@ -55,13 +65,16 @@ no internet connection required.
   16 GB, chosen for the hardware) and acts on the system, with confirmations
   for destructive actions and no unrestricted root access; no online AI
   service, no API keys; local long-term memory under your control; answers
-  written and spoken (natural Italian and English female voices) at the same
-  time. It also reads the screen and summarizes text, PDF and office files,
-  locally.
-- **Updates without reinstalling**: a 2.5 system upgrades in place with one
-  file per architecture, and from 3.0 the ZETA RAYS components update
-  through Software Update from a signed package source, see
-  [`docs/UPDATES.md`](docs/UPDATES.md).
+  written and spoken (eight natural voices: Sara, Nicola, Serena, Paola in
+  Italian; Heart, Michael, George (British), Lessac in English), always or
+  only on request. It also reads the screen, summarizes text, PDF and office
+  files locally, and answers Linux questions from the manual pages and the
+  ArchWiki with sources.
+- **Updates without reinstalling**: a 3.0 system upgrades in place with one
+  file per architecture, never writing in the users' folders and checking
+  the data folders listed in `/etc/zeta/protected-paths` before and after;
+  the ZETA RAYS components also update through Software Update from a signed
+  package source, see [`docs/UPDATES.md`](docs/UPDATES.md).
 - Security center, real-time Monitor, nftables firewall on by default, SSH
   with root login disabled.
 - English interface with a complete Italian translation (gettext, `po/`) and

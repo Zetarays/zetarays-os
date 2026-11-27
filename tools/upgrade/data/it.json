@@ -88,6 +88,10 @@
   "it": "Completamento"
  },
  {
+  "en": "Firewall: the new rules apply at the next restart (the running firewall is left as it is)",
+  "it": "Firewall: le regole nuove valgono dal prossimo riavvio (il firewall in funzione resta com'è)"
+ },
+ {
   "en": "Free space: {free} (needed about {need})",
   "it": "Spazio libero: {free} (ne servono circa {need})"
  },
@@ -114,6 +118,10 @@
  {
   "en": "Interrupted. Run the upgrade again to complete it (it resumes safely).",
   "it": "Interrotto. Avvia di nuovo l'aggiornamento per completarlo (riprende in sicurezza)."
+ },
+ {
+  "en": "Kept as they are, as /etc/zeta/upgrade-keep asks (the new version is saved next to them, .dpkg-dist):",
+  "it": "Lasciati come sono, come chiede /etc/zeta/upgrade-keep (la versione nuova è salvata accanto, .dpkg-dist):"
  },
  {
   "en": "Log: /var/log/zeta-rays-upgrade.log",
@@ -176,6 +184,10 @@
   "it": "Apri un terminale ed esegui:"
  },
  {
+  "en": "PROTECTED DATA CHANGED ({where}): {problem}",
+  "it": "DATI PROTETTI CAMBIATI ({where}): {problem}"
+ },
+ {
   "en": "Package source for ZETA RAYS updates",
   "it": "Sorgente dei pacchetti per gli aggiornamenti di ZETA RAYS"
  },
@@ -190,6 +202,30 @@
  {
   "en": "Press Enter to close this window.",
   "it": "Premi Invio per chiudere questa finestra."
+ },
+ {
+  "en": "Protected data intact: {path} ({n} items unchanged)",
+  "it": "Dati protetti intatti: {path} ({n} elementi invariati)"
+ },
+ {
+  "en": "Protected data: using the record made before the interrupted run",
+  "it": "Dati protetti: uso la registrazione fatta prima dell'esecuzione interrotta"
+ },
+ {
+  "en": "Protected data: {path} is no longer reachable (disconnected?): check it again with zeta-upgrade-verify",
+  "it": "Dati protetti: {path} non è più raggiungibile (scollegata?): ricontrollala con zeta-upgrade-verify"
+ },
+ {
+  "en": "Protected data: {path} is not present now (for example a NAS that is off): it is not touched either way",
+  "it": "Dati protetti: {path} adesso non c'è (per esempio un NAS spento): non viene toccata in nessun caso"
+ },
+ {
+  "en": "Protected data: {path}, {files} files, {size} ({kind} {fstype} mounted on {mount})",
+  "it": "Dati protetti: {path}, {files} file, {size} ({kind} {fstype} montato su {mount})"
+ },
+ {
+  "en": "Removing the Raspberry Pi firmware (not used here, it blocked kernel updates)",
+  "it": "Rimuovo il firmware Raspberry Pi (qui non serve e bloccava gli aggiornamenti del kernel)"
  },
  {
   "en": "Restart now? [y/N]",
@@ -210,6 +246,14 @@
  {
   "en": "Running: {step}",
   "it": "In esecuzione: {step}"
+ },
+ {
+  "en": "Safety stop: the upgrade would touch a protected folder ({paths}). Nothing was changed.",
+  "it": "Arresto di sicurezza: l'aggiornamento toccherebbe una cartella protetta ({paths}). Non è stato cambiato nulla."
+ },
+ {
+  "en": "Safety stop: {path} cannot be read completely ({error}), so its integrity could not be checked after the upgrade. Nothing was changed: check the disk or the NAS connection and try again.",
+  "it": "Arresto di sicurezza: {path} non si legge per intero ({error}), quindi dopo l'aggiornamento non si potrebbe verificare che sia intatta. Non è stato cambiato nulla: controlla il disco o il collegamento al NAS e riprova."
  },
  {
   "en": "Services: {list}",
@@ -266,6 +310,10 @@
  {
   "en": "The file is incomplete (interrupted download?): download it again.",
   "it": "Il file è incompleto (download interrotto?): scaricalo di nuovo."
+ },
+ {
+  "en": "The firewall file did not pass the check: the running firewall was left as it was",
+  "it": "Il file del firewall non ha superato il controllo: il firewall in funzione è rimasto com'era"
  },
  {
   "en": "The new packages could not be installed: the ZETA RAYS files were not changed.",
@@ -352,6 +400,22 @@
   "it": "ZETA RAYS {version} è installato."
  },
  {
+  "en": "after the rollback",
+  "it": "dopo il ripristino"
+ },
+ {
+  "en": "after the upgrade",
+  "it": "dopo l'aggiornamento"
+ },
+ {
+  "en": "local filesystem",
+  "it": "file system locale"
+ },
+ {
+  "en": "network filesystem",
+  "it": "file system di rete"
+ },
+ {
   "en": "y",
   "it": "s"
  },
@@ -364,7 +428,11 @@
   "it": "{n} file installati"
  },
  {
-  "en": "Removing the Raspberry Pi firmware (not used here, it blocked kernel updates)",
-  "it": "Rimuovo il firmware Raspberry Pi (qui non serve e bloccava gli aggiornamenti del kernel)"
+  "en": "{path}: the folder is gone",
+  "it": "{path}: la cartella non c'è più"
+ },
+ {
+  "en": "{path}: {gone} missing, {changed} changed (first: {first})",
+  "it": "{path}: {gone} mancanti, {changed} cambiati (il primo: {first})"
  }
 ]

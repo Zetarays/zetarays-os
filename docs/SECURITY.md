@@ -22,6 +22,38 @@ confinement (AppArmor), audit log (auditd), network.
 Debian's AppArmor profiles are installed and loaded at boot (the
 `apparmor` package), as on a standard Debian system.
 
+## ZETA WATCH (3.5)
+
+Real-time monitoring by a system service, `/usr/libexec/zeta-watch`
+(`zeta-watch.service`: 120 MB and 15% of a CPU at most, read-only except its
+log, its baseline and the firewall set of blocked addresses).
+
+| Source | What it reports |
+|---|---|
+| journal | SSH logins (failed, accepted, root), wrong passwords at login, lock screen, su, sudo and administrator prompts, root sessions, refused sudo, new or removed users, administrator rights given, passwords changed, SSH connections refused by the firewall |
+| auditd (`/etc/audit/rules.d/50-zeta-watch.rules`) | writes to passwd/shadow/group, sudoers, polkit rules, PAM, sshd configuration, root's SSH keys, systemd units in /etc, cron, rc.local, profile.d, `/etc/ld.so.preload`, kernel modules loaded by hand; not the writes of apt/dpkg and of the account tools |
+| every minute | new listening ports, firewall rules changed, services newly enabled, programs running from /tmp, /var/tmp, /dev/shm or from deleted files, outgoing connections to unusual ports |
+| weekly (`zeta-watch-scan.timer`) | rkhunter warnings, and what the daily chkrootkit found that its reference run did not |
+| optional | Suricata alerts of severity 1-2 (`/var/log/suricata/eve.json`), installed from Settings |
+
+The same event within ten minutes becomes one entry with a count
+(`/var/log/zeta-watch/events.jsonl`, group `sudo`). An address that fails
+the SSH password 5 times in 10 minutes goes into the nftables sets
+`watch_block4/6` for an hour; never 127.0.0.1, never an address with an SSH
+session open, never the local network unless "Also on the local network"
+is on. `zeta-watch-notify` shows the alerts to every administrator logged
+in (and reads them aloud if chosen). Settings › ZETA WATCH turns each part
+on or off (system settings in `/etc/zeta/watch.json`, changed through
+pkexec), shows the blocked addresses and the history, and sends a test
+alert. Commands: `zeta-watch status`, `sudo zeta-watch unblock ADDRESS|all`,
+`sudo zeta-watch scan`, `sudo zeta-watch test`.
+
+Limits, said plainly: it reports what the system records and what changes.
+It is not an antivirus, cannot see inside encrypted traffic, and can miss an
+attack that leaves no trace in these sources; rkhunter, chkrootkit and
+Suricata also report harmless things. The rules are tested with real log
+lines in `tools/tests/test_watch_rules.py`.
+
 ## Tools
 
 Preinstalled in the image:

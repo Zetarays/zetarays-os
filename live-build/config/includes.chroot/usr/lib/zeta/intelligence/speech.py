@@ -67,7 +67,9 @@ SETTINGS = os.path.expanduser("~/.config/zeta/speech.json")
 # speech recognizer, speed, size, license).
 # A Kokoro voice is a small description file, <name>.onnx.json with
 # "engine": "kokoro" (the model is shared, in VOICES_DIR/kokoro).
-VOICES = {"it": "it_IT-sara-kokoro", "en": "en_US-lessac-high"}
+# 3.5: Heart (Kokoro, graded A by its authors) is the English default;
+# Lessac (Piper) stays as the light voice used when memory is short.
+VOICES = {"it": "it_IT-sara-kokoro", "en": "en_US-heart-kokoro"}
 # Kokoro needs about 400 MB while it reads: with less free memory than this
 # the next voice of the language (Piper, about 100 MB) reads instead.
 KOKORO_MIN_FREE_MB = 900
@@ -89,6 +91,10 @@ TUNING = {
                           "sentence_silence": 0.2},
     # Kokoro: the model's own pace; the pause is the one kokoro-onnx uses
     "it_IT-sara-kokoro": {"length_scale": 1.0, "sentence_silence": 0.25},
+    "it_IT-nicola-kokoro": {"length_scale": 1.0, "sentence_silence": 0.25},
+    "en_US-heart-kokoro": {"length_scale": 1.0, "sentence_silence": 0.2},
+    "en_US-michael-kokoro": {"length_scale": 1.0, "sentence_silence": 0.2},
+    "en_GB-george-kokoro": {"length_scale": 1.0, "sentence_silence": 0.2},
 }
 
 # Speaking speed chosen in Settings: a factor on the voice's length_scale.
@@ -161,14 +167,16 @@ def installed_voices(lang: str) -> list[str]:
 
 
 def voice_label(name: str) -> str:
-    """"Serena · high quality" for it_IT-serena-high."""
+    """"Serena · high quality" for it_IT-serena-high; English voices also
+    say their accent ("George · British · Kokoro")."""
     parts = name.split("-")
     if len(parts) < 3:
         return name
     quality = {"high": tr("high quality"), "medium": tr("medium quality"),
                "low": tr("low quality"), "x_low": tr("low quality"),
                "kokoro": "Kokoro"}.get(parts[2], parts[2])
-    return "%s · %s" % (parts[1].capitalize(), quality)
+    accent = {"en_US": tr("American"), "en_GB": tr("British")}.get(parts[0])
+    return " · ".join([parts[1].capitalize()] + ([accent] if accent else []) + [quality])
 
 
 def chosen_voice(lang: str) -> str | None:

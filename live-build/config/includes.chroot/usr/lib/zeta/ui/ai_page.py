@@ -56,6 +56,38 @@ class AIPage:
         self._language_group()
         self._behavior_group()
         self._voice_group()
+        self._history_group()
+
+    def _history_group(self):
+        """What ZETA did on this computer (agent/agent.py writes every action,
+        passwords hidden, to ~/.local/share/zeta/actions.log): the latest
+        first, with the result."""
+        import json
+        import os
+        log = os.path.expanduser("~/.local/share/zeta/actions.log")
+        g = Adw.PreferencesGroup(title=tr("What ZETA did"),
+                                 description=tr("Every action ZETA ran on this computer, newest first. "
+                                                "Actions that change the system always ask first."))
+        try:
+            with open(log, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()[-40:]
+        except OSError:
+            lines = []
+        shown = 0
+        for line in reversed(lines):
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            title = "%s %s" % ("✓" if e.get("ok") else "✗", e.get("action", "?"))
+            row = Adw.ActionRow(title=GLib.markup_escape_text(title),
+                                subtitle=GLib.markup_escape_text("%s · %s" % (
+                                    str(e.get("t", ""))[:16].replace("T", " "), str(e.get("outcome", ""))[:160])))
+            g.add(row)
+            shown += 1
+        if not shown:
+            g.add(Adw.ActionRow(title=tr("No action yet.")))
+        self.page.add(g)
 
     def _voice_group(self):
         """Settings › AI › Voice (ui/voice_settings.py, owned by the voice)."""

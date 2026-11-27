@@ -69,8 +69,10 @@ def on_activate(app):
         lb.add_css_class(cls)
         box.append(lb)
 
-    virtualbox = tr("In VirtualBox: shut the machine down, open Settings → Display, "
-                    "choose the “VMSVGA” graphics controller and turn on “Enable 3D Acceleration”.")
+    virtualbox = (tr("In VirtualBox: shut the machine down, open Settings → Display, "
+                     "choose the “VMSVGA” graphics controller and turn on “Enable 3D Acceleration”.")
+                  + "\n" + tr("In VMware: shut the machine down, open Settings → Display "
+                               "and turn on “Accelerate 3D graphics”."))
     if LIVE:
         # on the live session, offer to install anyway (the session language
         # is the USB stick's; the system language is chosen in the installer)

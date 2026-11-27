@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Small helpers shared by the Settings pages written for ZETA RAYS 3.0
-(Keyboard & Mouse, Date & Time, Accessibility, Storage, Backup).
+"""Small helpers shared by the newer Settings pages (Keyboard & Mouse,
+Date & Time, Accessibility, Storage, Backup, Users, Firewall, ZETA WATCH…).
 
 They stay light on purpose: a page imports this module, not the larger
 settings_pages module with the network and audio code.
@@ -36,14 +36,25 @@ def toast(widget, text):
         root.toast(text)
 
 
+_CHILDREN = set()
+
+
 def spawn(*cmd):
-    """Start a program detached from Settings; False when it is missing."""
+    """Start a program detached from Settings; False when it is missing.
+    The program is reaped when it exits, so a closed window never stays
+    behind as a zombie process while Settings is open."""
     try:
-        subprocess.Popen(list(cmd), start_new_session=True, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
+        p = subprocess.Popen(list(cmd), start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         return False
+    _CHILDREN.add(p)                 # kept so Python does not reap it a second time
+
+    def finished(_pid, state, proc=p):
+        proc.returncode = state
+        _CHILDREN.discard(proc)
+    GLib.child_watch_add(GLib.PRIORITY_DEFAULT_IDLE, p.pid, finished)
+    return True
 
 
 def run_quiet(cmd, timeout=30):

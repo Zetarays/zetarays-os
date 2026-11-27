@@ -188,12 +188,14 @@ hl.config({
     },
 })
 
--- Settings › Keyboard & Mouse (zeta_input.lua) and › Accessibility
--- (zeta_accessibility.lua): each returns { config = <hl.config table> }.
+-- Settings › Keyboard & Mouse (zeta_input.lua), › Accessibility
+-- (zeta_accessibility.lua) and › Windows & Multitasking (zeta_windows.lua):
+-- each returns { config = <hl.config table> } (zeta_windows also
+-- { memory = true|false }, read by WINDOW MEMORY below).
 -- Defaults ship in /etc/skel; the file is checked first, because a require
 -- of a missing module is a configuration error (red box) even inside pcall.
 local zeta_user = {}
-for _, name in ipairs({ "zeta_input", "zeta_accessibility" }) do
+for _, name in ipairs({ "zeta_input", "zeta_accessibility", "zeta_windows" }) do
     local f = io.open(os.getenv("HOME") .. "/.config/hypr/" .. name .. ".lua", "r")
     if f then
         f:close()
@@ -680,6 +682,82 @@ end
 -- checked by zeta-selftest (hyprctl eval)
 zeta_snap_ready = zs_snapper ~= nil
 
+-------------------
+---- WINDOW MEMORY ----
+-------------------
+
+-- A program's main window opens again with the size and place it had when
+-- it was last closed (usr/lib/zeta/hypr/window_memory.lua). Settings ›
+-- Windows & Multitasking turns it off (zeta_windows.lua, memory = false;
+-- live: zeta_window_memory = false through hyprctl eval) and can forget
+-- every place (zeta_memory_forget()).
+local WM_LIB_FILE = "/usr/lib/zeta/hypr/window_memory.lua"
+local wm_lib, wm_store
+do
+    local f = io.open(WM_LIB_FILE, "r")
+    if f then
+        f:close()
+        local ok, lib = pcall(dofile, WM_LIB_FILE)
+        if ok and type(lib) == "table" then wm_lib = lib end
+    end
+end
+zeta_window_memory = (zeta_user.zeta_windows or {}).memory ~= false
+if wm_lib then
+    local dir = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/zeta"
+    hl.exec_cmd("mkdir -p '" .. dir .. "'")
+    wm_store = wm_lib.store(dir .. "/window-places")
+end
+
+local function zeta_memory_area(m)
+    local a = m and zeta_area(m)
+    if not a then return nil end
+    return { x0 = a.x0, y0 = a.y0, x1 = a.x1, y1 = a.y1, name = m.name or "" }
+end
+
+-- remembers a main window (on close and every half minute: at logout the
+-- windows are not closed one by one)
+local function zeta_memory_record(w)
+    if not (wm_store and zeta_window_memory and w and w.mapped) then return end
+    local class = w.class or ""
+    for _, p in ipairs(ZETA_DO_NOT_ENLARGE) do
+        if class:find(p) then return end
+    end
+    if not zeta_is_main_window(w) then return end
+    local c, place = wm_lib.record(zeta_snapshot(w), zeta_memory_area(w.monitor))
+    if c then wm_store.put(c, place) end
+end
+
+function zeta_memory_place(w, m, _a)
+    if not (wm_store and zeta_window_memory) then return false end
+    if not zeta_is_main_window(w) then return false end
+    local saved = wm_store.get(w.class)
+    if not saved then return false end
+    local q = wm_lib.place(zeta_snapshot(w), saved, zeta_memory_area(m), ZG_BAR)
+    if q then
+        hl.dispatch(hl.dsp.window.resize({ x = q.w, y = q.h, window = w }))
+        hl.dispatch(hl.dsp.window.move({ x = q.x, y = q.y, window = w }))
+    end
+    return true
+end
+
+function zeta_memory_forget()
+    if wm_store then wm_store.forget_all(); wm_store.save() end
+end
+
+if wm_store then
+    hl.on("window.close", function(w)
+        pcall(zeta_memory_record, w)
+        hl.timer(function() pcall(wm_store.save) end, { timeout = 1500, type = "oneshot" })
+    end)
+    hl.timer(function()
+        if not zeta_window_memory then return end
+        for _, w in ipairs(hl.get_windows()) do pcall(zeta_memory_record, w) end
+        pcall(wm_store.save)
+    end, { timeout = 30000, type = "repeat" })
+end
+-- checked by zeta-selftest (hyprctl eval)
+zeta_window_memory_ready = wm_store ~= nil
+
 hl.on("window.open", function(w)
     -- Blender on Wayland draws a smaller interface at fractional scales: a
     -- Blender just started on Wayland (downloaded from blender.org and run
@@ -713,6 +791,8 @@ hl.on("window.open", function(w)
     if not m then return end
     local a = zeta_area(m)
     if not a then return end
+    -- the size and place this program had when it was last closed
+    if zeta_memory_place(w, m, a) then return end
     local mw, mh = a.x1 - a.x0, a.y1 - a.y0
     local W, H = w.size.x, w.size.y
     if W * H >= mw * mh * 0.42 then return end           -- already large

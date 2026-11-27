@@ -62,6 +62,7 @@ l'interruttore in *Impostazioni › AI › Informazioni aggiornate*.
 |---|---|
 | La tua domanda, ridotta alle parole chiave | `it.wikipedia.org` o `en.wikipedia.org` (ricerca ed estratto della pagina) |
 | La stessa, solo se accendi anche questa opzione | `api.duckduckgo.com` (risposte istantanee) |
+| Una domanda su Linux o su un comando, ridotta alle parole chiave | `wiki.archlinux.org` (l'ArchWiki; la pagina di manuale del comando si legge sul computer) |
 
 Parte solo la domanda: mai la conversazione, mai i tuoi file, nient'altro.
 Nessun cookie viene conservato, le richieste si presentano come ZETA RAYS
@@ -130,16 +131,38 @@ Firefox ESR ha una propria informativa e propri collegamenti a Mozilla
 (aggiornamenti, protezione dal tracciamento). ZETA RAYS non li modifica e non
 li intercetta: vale l'informativa di Mozilla.
 
+## 7. Sorveglianza della sicurezza (ZETA WATCH)
+
+ZETA WATCH lavora **solo sul computer**. Legge i registri del sistema
+(accessi, azioni da amministratore, nuovi utenti, firewall, porte aperte) e
+scrive quello che trova in `/var/log/zeta-watch/`, leggibile solo dagli
+amministratori. Nessun evento, nessun indirizzo e nessun registro viene
+mandato da nessuna parte. Il blocco di un indirizzo dopo troppe password SSH
+sbagliate avviene nel firewall del computer.
+
+Due strumenti di sicurezza scaricano solo i propri dati, mai niente su di te:
+
+- **ClamAV** (antivirus) aggiorna le firme dei virus da
+  `database.clamav.net`, al massimo una volta al giorno e a bassa priorità,
+  solo su un sistema installato.
+- **Suricata** (sorveglianza della rete) non è installato di serie. Se lo
+  accendi in *Impostazioni › ZETA WATCH*, viene installato da Debian e
+  scarica le regole Emerging Threats Open da `rules.emergingthreats.net`.
+
+I controlli contro i rootkit (rkhunter, chkrootkit) lavorano senza rete.
+
 ## Dove stanno i tuoi dati, sul computer
 
 | Che cosa | Dove |
 |---|---|
 | Impostazioni della scrivania | `~/.config/zeta/` |
 | Conversazioni e ricordi di ZETA | `~/.local/share/zeta/memory.db` |
+| Che cosa ha fatto ZETA sul computer (password nascoste) | `~/.local/share/zeta/actions.log` |
 | Indice della ricerca, cache | `~/.cache/zeta/` |
 | Cronologia degli appunti | `~/.cache/cliphist/` |
 | Catture e registrazioni | `~/Pictures/Screenshots/`, `~/Videos/Screen recordings/` |
 | Registro degli accessi | `/var/lib/wtmpdb/` |
+| Eventi di ZETA WATCH | `/var/log/zeta-watch/` (solo amministratori) |
 
 Sono file tuoi, sul tuo disco. Si cancellano cancellandoli.
 
@@ -150,4 +173,4 @@ sul disco del computer**: tutto sta in memoria e sparisce allo spegnimento.
 
 ---
 
-*Ultimo aggiornamento: con ZETA RAYS OS 3.0.*
+*Ultimo aggiornamento: con ZETA RAYS OS 3.5.*

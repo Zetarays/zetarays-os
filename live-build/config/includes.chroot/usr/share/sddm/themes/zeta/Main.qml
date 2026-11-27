@@ -8,6 +8,29 @@ Rectangle {
     color: "#000000"
 
     property color accent: config.accent || "#3A8DFF"
+
+    // 3.5: the release wallpaper behind the login (theme.conf "background"),
+    // darkened so the name, the password field and the buttons stay
+    // readable on it. Loaded at screen size (sourceSize), not the 4K original;
+    // missing or unreadable: the plain black of before.
+    Image {
+        id: wallpaper
+        anchors.fill: parent
+        z: -2
+        source: config.background ? "file://" + config.background : ""
+        sourceSize.width: 2560
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        cache: false
+        visible: status === Image.Ready
+    }
+    Rectangle {
+        anchors.fill: parent
+        z: -1
+        color: "#000000"
+        opacity: 0.55
+        visible: wallpaper.visible
+    }
     // Text in English (qsTr), translated by SDDM with the theme's Qt
     // translations (translations/<language>.qm, see metadata.desktop) in the
     // system language: SDDM passes the LANG from /etc/default/locale to the

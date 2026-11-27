@@ -141,5 +141,7 @@
   "s"
  ],
  "it_hint": "(?i)\\b(?:chi|che|cosa|qual[ei]?|quanto|quando|dove|perché|è|e|sono|il|della|degli|delle|oggi|attuale|del|nel|nella|di|ultim[eaio]|notizie|prezzo|ciao|mi|ti|ci|una|uno|sul|sulla|per|con|non|ho|hai|scrivi|dimmi|fammi|grazie|questo|questa|anche|come|vivo|chiamo|sei|puoi)\\b",
- "current": "(?i)\\b(?:current|currently|incumbent|as\\s+of|since|now|today|attual\\w*|in\\s+carica|dal|dall|oggi|ad\\s+oggi)\\b"
+ "current": "(?i)\\b(?:current|currently|incumbent|as\\s+of|since|now|today|attual\\w*|in\\s+carica|dal|dall|oggi|ad\\s+oggi)\\b",
+ "technical": "(?i)\\b(?:apt|apt-get|dpkg|systemctl|journalctl|systemd|sudo|grub|kernel|ssh|sshd|nftables|iptables|ufw|firewall|bash|zsh|chmod|chown|mount|fstab|partition|partizion[ei]|swap|cron|crontab|pipewire|pulseaudio|wayland|hyprland|xorg|driver|nvidia|wi-?fi|networkmanager|nmcli|flatpak|appimage|debian|ubuntu|linux|terminal|terminale|comando|command|errore|error|pacchett[oi]|package|servizio|service|daemon|demone|permission denied|permesso negato|not found|non trovato|segmentation fault|boot|avvio)\\b",
+ "technical_ask": "(?i)\\b(?:how|why|what does|what is|cosa fa|cos'?è|come|perch[eé]|non funziona|doesn'?t work|isn'?t working|fix|risolv|errore|error|significa|means|spiega|explain)\\b"
 }

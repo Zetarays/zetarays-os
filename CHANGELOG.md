@@ -1,5 +1,164 @@
 # Changelog
 
+## 3.5 — 2026-11-27
+
+Upgrade from 3.0 without reinstalling: `zetarays-3.5-upgrade-{amd64,arm64}.run`.
+
+### Added
+- **ZETA WATCH: real-time security monitoring.** A light system service
+  (`/usr/libexec/zeta-watch`, limited to 120 MB and 15% of a CPU) reads:
+  - the journal: failed and successful SSH logins, wrong passwords at login,
+    lock screen and administrator prompts, root sessions, refused sudo, new
+    users, administrator rights given, passwords changed;
+  - auditd: writes to the files of accounts, sudoers, PAM, SSH, autostart
+    places and `/etc/ld.so.preload` (rules in
+    `/etc/audit/rules.d/50-zeta-watch.rules`; changes made by apt and the
+    account tools are not reported);
+  - every minute: new open ports, the firewall rules, newly enabled
+    services, programs running from temporary folders or deleted files,
+    outgoing connections to unusual ports;
+  - weekly: rkhunter, plus what the daily chkrootkit found that its
+    reference run did not.
+  Repeated events within ten minutes become one alert with a count. An
+  address that fails the SSH password 5 times in 10 minutes is blocked for
+  an hour (an nftables set): never this computer, never an address with an
+  SSH session open, never the local network unless chosen. Alerts appear as
+  notifications in every administrator's session, optionally read aloud,
+  from the chosen level up. Settings › ZETA WATCH has every switch (turning
+  a protection off says what is lost), the blocked addresses, a test alert,
+  the history, and optional Suricata (installed on first use, recommended
+  with 16 GB). The rules are tested with real log lines
+  (`tools/tests/test_watch_rules.py`).
+- **Settings › Users.** Add users (standard or administrator), change full
+  name and password, give or remove administrator rights, rename or remove
+  an account (keeping or deleting its files), and see who is logged in.
+  `/usr/libexec/zeta-users` refuses removing the last administrator or your
+  own account, never renames or removes a logged-in user, and never moves or
+  deletes a home folder that holds protected data or another mounted disk.
+  Every password field has the eye button.
+- **Settings › Firewall & SSH.** The firewall on or off (with a warning),
+  what it lets in, the SSH server (port 22) on or off, local network only or
+  also from the internet, its status and a step-by-step check.
+- **Settings › Startup Applications.** Programs that start at login
+  (`~/.config/autostart`, started by `/usr/libexec/zeta-autostart`): add
+  from the installed apps, turn off, remove.
+- **Voices.** Italian: Sara, Nicola (new, male), Serena, Paola. English:
+  Heart (new default, American), Michael (new, American, male), George
+  (new, British, male), Lessac (the light voice used when memory is short).
+  The new voices are Kokoro voices already inside the voice file of the
+  system: nothing more to download, and an upgraded 3.0 gets them too. Every
+  Kokoro voice is tested at build. Settings › AI › Voice: "ZETA speaks"
+  Always, or Only when I ask (a speaker button under each reply).
+- **ZETA looks things up in the documentation.** For a technical question
+  about Linux ("what does systemctl mask do", "why does apt say permission
+  denied") ZETA reads the manual page of the command from this computer
+  (offline), and the ArchWiki page of the topic when web lookups are on,
+  and shows them as sources under the answer.
+- **Settings › AI › What ZETA did**: the history of the actions ZETA ran,
+  with their result (passwords are never written there).
+- **Three new 4K wallpapers**: Circuit core (the wallpaper of 3.5),
+  Fortress and Watch, in Settings › Appearance, on the website and on the
+  screenshots page; ZETA finds them by name ("set the fortress wallpaper").
+  Circuit core is the desktop of anyone who never chose a wallpaper (and
+  what "Reset" brings back) and the background of the login screen,
+  darkened so the name and the password field stay readable. The lock
+  screen stays black.
+- **Settings › Desktop & Icons.** Icon size (32 to 96 px, or the Dock's),
+  spacing, grid on or off, which side new icons fill and in which order,
+  single or double click, names on or off with their size, lines, bold,
+  color and contrast (soft shadow or a band behind the text), Sort By, an
+  "Arrange icons now" button and Reset to default. Every change shows at
+  once, without restarting the desktop. The right-click View menu writes
+  the same file (`~/.config/zeta/desktop-look.json`).
+- **Settings › Windows & Multitasking.** Programs reopen with the size and
+  position they had when last closed, on the same display
+  (`usr/lib/zeta/hypr/window_memory.lua`, unit-tested); "Forget saved
+  positions"; focus follows the pointer on or off; "Bring every window
+  back now"; the window shortcuts at a glance.
+- **Protected data in the upgrade.** The upgrade records the folders listed
+  in `/etc/zeta/protected-paths` before changing anything (names, sizes,
+  dates, permissions, owners, a fingerprint of each file) and checks them
+  afterwards, also after a rollback; it stops if a listed folder that is
+  present cannot be read completely, and goes on when it is absent (a NAS
+  that is off). It never writes under /home, /root, /srv, /mnt or /media:
+  both the bundle builder and the upgrade stop if a planned file is there,
+  and `rollback.sh` skips such paths. `sudo zeta-upgrade-verify` checks the
+  folders again later.
+- **Settings the upgrade must not change.** `/etc/zeta/upgrade-keep` (one
+  path or folder under /etc per line, empty by default) lists system
+  settings files to leave as they are; the new version is saved next to
+  them as `.dpkg-dist` and the dry run lists them. Files the user changed
+  are kept anyway.
+- **The upgrade no longer reloads the firewall while the computer runs.**
+  Its file starts with `flush ruleset`, so a reload also wiped the rules
+  that Docker, a media server or a VPN had added, and a restart turned on
+  a firewall the user had turned off. The new rules apply at the restart
+  the upgrade asks for.
+
+### Fixed
+- Desktop icons lost their places. At startup the layout was computed on a
+  guessed 1280x800 screen before the real size was known, and an icon whose
+  saved cell did not fit was moved and its saved place overwritten; so did
+  a smaller resolution or scale, a larger icon size (which also rearranged
+  everything), and a file missing for a moment. Now nothing is placed until
+  the real size is known, a cell that does not fit is only shown nearby
+  (the saved place comes back with the old resolution), a renamed file
+  keeps its place, and places of missing files are kept for 30 days.
+- The desktop's right-click "Display Settings…" opened the Lock Screen page.
+- Found by an independent security review of the new code, before release:
+  - ZETA WATCH trusted the sender name of journal lines (any user could write
+    a line "from sshd" with logger) and an SSH user name could carry a fake
+    "from ADDRESS": either could get an arbitrary address blocked, this
+    computer included. Lines of sshd, sudo, su, the account tools and the
+    kernel now count only when the journal says they come from root (or the
+    kernel), the address is the last one of the line, only literal IP
+    addresses are blocked (never loopback, unspecified, multicast, reserved
+    or link-local; the LAN only when chosen), and the block rule sits after
+    "this computer" in the firewall.
+  - Refused SSH keys no longer count as failed passwords (ssh tries every
+    key of the agent), and a successful login forgets that address's
+    failures.
+  - ZETA WATCH saw package installs as finished while apt ran (the lock was
+    opened for writing on a read-only system view), its counters had no
+    limit, and a failing part could stop watching while the service stayed
+    "active": now it restarts.
+  - Users: a kept home folder of a removed account is renamed and closed, so
+    a later account with the same number cannot own its files; "remove the
+    files" acts only on /home/NAME; no account named like a group; when
+    logind cannot be asked, rename and remove refuse.
+  - Upgrade: a resumed run keeps the first run's record of the protected
+    folders, a folder gone from a still-mounted disk is a loss (a NAS
+    unmounted is "not reachable"), links are followed by the guard and by
+    rollback.sh, and reading a file can no longer hang on a pipe.
+- **The OVA imports in VMware.** It was made for VirtualBox only (OVF 2.0,
+  which VMware's importer rejects). It is now OVF 1.0 with VMware's own
+  additions (`tools/ova-vmware-compat.py`): hardware version, Debian 12
+  64-bit guest, EFI, VMXNET3 network on arm64, 3D acceleration on, the
+  VirtualBox sound card optional. VirtualBox imports it as before. Tested in
+  VMware Fusion: import, start, desktop, network, self-test. On a Mac with
+  Apple silicon, VMware's importer knows no Arm guest types: after import,
+  set Settings › General › OS to "Debian 12.x 64-bit Arm" (or install from
+  the ISO, which works as it is).
+- The page shown without 3D acceleration also says how to turn it on in
+  VMware.
+- On a network that hands out no address (a cable without a DHCP server,
+  a Wi-Fi not in range yet) the boot waited 60 seconds for the network and
+  left a failed unit (NetworkManager-wait-online); it now waits 30 seconds
+  and a timeout is not an error.
+- Every ZETA WATCH desktop alert left a finished notify-send process behind
+  (a zombie, reported by the self-test); terminals opened from Settings
+  (Suricata install, SSH diagnosis and the other pages) stayed behind the
+  same way until Settings was closed. Both are now reaped.
+- The privacy text (in Settings) now describes ZETA WATCH
+  (everything stays on the computer; only ClamAV signatures and, if turned
+  on, the Suricata rules are downloaded), the ArchWiki lookup for technical
+  questions and the history of what ZETA did.
+- ClamAV: the always-running signature updater and the one-time update at
+  boot started together and the second failed (a failed unit after every
+  boot); the always-running one is off (18 MB of memory), Debian's timer
+  updates the signatures at idle priority, and the live session no longer
+  downloads 100 MB of signatures into memory.
+
 ## 3.0 — 2026-11-20
 
 Images: `zetarays-3.0-{amd64,arm64}.{iso,ova}` on <https://zetarays.org>.

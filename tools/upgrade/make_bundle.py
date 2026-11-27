@@ -35,9 +35,20 @@ CONFIG = os.path.join(ROOT, "live-build", "config")
 INCLUDES = os.path.join(CONFIG, "includes.chroot")
 REVIEWED = os.path.join(HERE, "hooks-reviewed.json")
 I18N_IT = os.path.join(HERE, "data", "it.json")
+# Data folders every computer gets recorded and checked around the upgrade.
+# None by default: each computer lists its own in /etc/zeta/protected-paths
+# (private paths never go into a public file). The upgrade never writes
+# under PROTECTED_ROOTS at all.
+PROTECTED_DATA = []
+PROTECTED_ROOTS = ("/home", "/root", "/srv", "/mnt", "/media", "/run/media")
 
-# The patched Hyprland that the 2.5 release installed (hook 0350, «+zeta2»).
-HYPRLAND_FROM = "0.55.2+ds-1~bpo13+1+zeta2"
+
+def under_protected(path):
+    p = os.path.normpath("/" + path.lstrip("/"))
+    return any(p == r or p.startswith(r + "/") for r in PROTECTED_ROOTS)
+
+# The patched Hyprland that each release installed (hook 0350, «+zeta2»).
+HYPRLAND_RELEASED = {"2.5": "0.55.2+ds-1~bpo13+1+zeta2", "3.0": "0.55.2+ds-1~bpo13+1+zeta2"}
 # GPU libraries the Ollama hook removes (0300): never bundled
 OLLAMA_GPU = re.compile(r"^lib/ollama/(cuda_|rocm|.*jetpack)")
 
@@ -203,7 +214,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arch", required=True, choices=("amd64", "arm64"))
     ap.add_argument("--to", required=True)
-    ap.add_argument("--from", dest="from_", default="2.5")
+    ap.add_argument("--from", dest="from_", default="3.0")
     ap.add_argument("--old-config", default="")
     ap.add_argument("--out", required=True)
     ap.add_argument("--ollama", default="")
@@ -278,7 +289,10 @@ def main():
             bin_sha, unpacked = slim_ollama(a.ollama, os.path.join(pay, "ollama-runtime.tar.xz"))
             ollama = {"archive": "ollama-runtime.tar.xz", "binary_sha256": bin_sha, "size": unpacked}
 
-        # Hyprland: only when the patched build is not the one 2.5 installed
+        # Hyprland: only when the patched build is not the one FROM installed
+        if a.from_ not in HYPRLAND_RELEASED:
+            die("unknown Hyprland of release %s: add it to HYPRLAND_RELEASED" % a.from_)
+        HYPRLAND_FROM = HYPRLAND_RELEASED[a.from_]
         hypr = None
         hooks_dir = os.path.join(CONFIG, "hooks", "normal")
         hdir = os.path.join(a.hypr_cache, a.arch)
@@ -333,7 +347,14 @@ def main():
             # the files and their backup twice, Ollama and its backup, room for apt
             "space_needed": 2 * files_size + 2 * unpacked + 1536 * 1024 * 1024,
             "i18n": {"it": it_py},
+            # data folders recorded before the upgrade and checked after it
+            # (zeta_upgrade.py, "protected data"); a computer adds its own in
+            # /etc/zeta/protected-paths
+            "protected_data": PROTECTED_DATA,
         }
+        touching = sorted(p for p in list(files_manifest) + list(removed) if under_protected(p))
+        if touching:
+            die("the bundle would write under a protected folder: %s" % ", ".join(touching[:5]))
         shutil.copy2(os.path.join(HERE, "zeta_upgrade.py"), os.path.join(pay, "zeta_upgrade.py"))
         with open(os.path.join(pay, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=1, ensure_ascii=False, sort_keys=True)

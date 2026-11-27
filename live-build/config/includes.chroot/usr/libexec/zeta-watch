@@ -1,0 +1,708 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA WATCH: real-time security monitoring (system service, as root).
+
+    zeta-watch run                 the service (zeta-watch.service)
+    zeta-watch status              what is watched, in JSON
+    zeta-watch config get|set KEY VALUE   (Settings, through pkexec)
+    zeta-watch unblock ADDRESS|all
+    zeta-watch scan                malware and rootkit checks (weekly timer)
+    zeta-watch test                writes a test alert
+
+Sources, all read-only except the optional block of an address:
+  - the journal (journalctl -f -o json): SSH, local logins, sudo, su, root
+    sessions, accounts, groups, passwords, the firewall's SSH rejections;
+  - /var/log/audit/audit.log: writes to the files of accounts, admin rights,
+    logins, SSH, autostart places and ld.so.preload
+    (/etc/audit/rules.d/50-zeta-watch.rules);
+  - every minute: listening ports (ss), the firewall rules (nft), enabled
+    services (systemctl), programs running from temporary folders or deleted
+    files (/proc), and outgoing connections to unusual ports;
+  - weekly (zeta-watch-scan.timer): rkhunter and chkrootkit;
+  - optionally Suricata's alerts (/var/log/suricata/eve.json).
+
+Events (watch_rules.py) are grouped: the same thing repeated within ten
+minutes becomes one line with a count. They go to
+/var/log/zeta-watch/events.jsonl (readable by administrators, group sudo);
+zeta-watch-notify, in each administrator's session, shows them.
+
+What this is not: an antivirus or a guarantee. It reports what the system
+logs and what changes; it can miss things and some reports are harmless.
+"""
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+sys.path.insert(0, "/usr/lib/zeta")
+from security import watch_rules as W  # noqa: E402
+
+CONFIG = "/etc/zeta/watch.json"
+LOG_DIR = "/var/log/zeta-watch"
+EVENTS = os.path.join(LOG_DIR, "events.jsonl")
+STATE_DIR = "/var/lib/zeta-watch"
+STATE = os.path.join(STATE_DIR, "baseline.json")
+AUDIT_LOG = "/var/log/audit/audit.log"
+SURICATA_LOG = "/var/log/suricata/eve.json"
+MAX_EVENTS_BYTES = 5 * 1024 * 1024
+GROUP_SECONDS = 600            # the same event within 10 minutes: one line with a count
+ADMIN_GROUP = "sudo"
+
+DEFAULTS = {
+    "logins": True,       # failed and successful logins, sudo, su
+    "ssh": True,          # SSH logins and failed attempts
+    "root": True,         # root sessions and administrator rights
+    "accounts": True,     # new users, admin rights given, passwords changed
+    "files": True,        # critical files (auditd)
+    "network": True,      # new listening ports, unusual outgoing connections
+    "processes": True,    # programs running from temporary folders
+    "services": True,     # new services enabled
+    "firewall": True,     # firewall rules changed
+    "scans": True,        # weekly rkhunter and chkrootkit
+    "block": True,        # block an address after repeated failed SSH passwords
+    "block_lan": False,   # ...also on the local network (off: never lock out the LAN)
+    "block_after": 5,     # failures within 10 minutes
+    "block_minutes": 60,
+    "suricata": False,    # read Suricata's alerts (Settings installs it)
+}
+CATEGORY_KEY = {"ssh": "ssh", "login": "logins", "root": "root", "accounts": "accounts",
+                "files": "files", "network": "network", "processes": "processes",
+                "services": "services", "firewall": "firewall", "scan": "scans", "ids": "suricata",
+                "watch": None}
+
+
+def load_config():
+    cfg = dict(DEFAULTS)
+    try:
+        with open(CONFIG, encoding="utf-8") as f:
+            saved = json.load(f)
+        for k, v in saved.items():
+            if k in DEFAULTS and type(v) is type(DEFAULTS[k]):
+                cfg[k] = v
+    except (OSError, ValueError, AttributeError):
+        pass
+    cfg["block_after"] = min(50, max(3, cfg["block_after"]))
+    cfg["block_minutes"] = min(24 * 60, max(5, cfg["block_minutes"]))
+    return cfg
+
+
+def capture(cmd, timeout=30):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                              env=dict(os.environ, LC_ALL="C.UTF-8")).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+# ------------------------------------------------------------------ output
+
+class Writer:
+    """Groups repeated events and appends them to the events file."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.lock = threading.Lock()
+        self.groups = {}           # (code, subject) -> {"last": t, "held": n, "event": e}
+        self.seq = int(time.time() * 1000)
+        os.makedirs(LOG_DIR, exist_ok=True)
+        self._perms(LOG_DIR, 0o750)
+
+    @staticmethod
+    def _perms(path, mode):
+        try:
+            import grp
+            gid = grp.getgrnam(ADMIN_GROUP).gr_gid
+            os.chown(path, 0, gid)
+        except (KeyError, OSError):
+            pass
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
+
+    def enabled(self, e):
+        key = CATEGORY_KEY.get(e["category"], e["category"])
+        return key is None or self.cfg.get(key, True)
+
+    def emit(self, e, now=None):
+        if not self.enabled(e):
+            return
+        now = now or time.time()
+        k = (e["code"], e["subject"])
+        with self.lock:
+            g = self.groups.get(k)
+            if g and now - g["last"] < GROUP_SECONDS:
+                g["held"] += 1
+                g["event"] = e
+                return
+            self.groups[k] = {"last": now, "held": 0, "event": e}
+            self._write(e, 1, now)
+
+    def flush(self, now=None):
+        """Writes the counts held back for at least GROUP_SECONDS."""
+        now = now or time.time()
+        with self.lock:
+            for k, g in list(self.groups.items()):
+                if now - g["last"] >= GROUP_SECONDS:
+                    if g["held"]:
+                        self._write(g["event"], g["held"], now, repeated=True)
+                        g.update(last=now, held=0)
+                    else:
+                        del self.groups[k]
+
+    def _write(self, e, count, now, repeated=False):
+        self.seq += 1
+        line = dict(e, id=self.seq, time=time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(now)),
+                    ts=int(now), count=count, repeated=repeated)
+        try:
+            if os.path.exists(EVENTS) and os.path.getsize(EVENTS) > MAX_EVENTS_BYTES:
+                os.replace(EVENTS, EVENTS + ".1")
+            new = not os.path.exists(EVENTS)
+            with open(EVENTS, "a", encoding="utf-8") as f:
+                f.write(json.dumps(line, ensure_ascii=False) + "\n")
+            if new:
+                self._perms(EVENTS, 0o640)
+        except OSError as err:
+            print("zeta-watch: cannot write %s: %s" % (EVENTS, err), file=sys.stderr, flush=True)
+        print("zeta-watch: %s %s %s x%d" % (e["severity"], e["code"], e["subject"], count), flush=True)
+
+
+# ------------------------------------------------------------------ blocking
+
+class Blocker:
+    """Blocks an address for a while after repeated failed SSH passwords:
+    never this computer, never an address with an SSH session open now,
+    and never the local network unless block_lan is on."""
+
+    WINDOW = 600
+
+    def __init__(self, cfg, writer):
+        self.cfg, self.writer = cfg, writer
+        self.fails = {}
+
+    def available(self):
+        out = capture(["nft", "list", "set", "inet", "zeta", "watch_block4"])
+        return "watch_block4" in out
+
+    @staticmethod
+    def connected_addresses():
+        """Addresses with an SSH session that really logged in (systemd-logind
+        sessions with a remote host). An open TCP connection is not enough:
+        the connection that is guessing passwords is open too, and counting
+        it meant that nobody was ever blocked."""
+        out = capture(["loginctl", "list-sessions", "--no-legend"])
+        addrs = set()
+        for line in out.splitlines():
+            sid = line.split()[0] if line.split() else ""
+            if not sid:
+                continue
+            info = capture(["loginctl", "show-session", sid, "-p", "Remote", "-p", "RemoteHost"])
+            fields = dict(l.split("=", 1) for l in info.splitlines() if "=" in l)
+            if fields.get("Remote") == "yes" and fields.get("RemoteHost"):
+                addrs.add(fields["RemoteHost"])
+        return addrs
+
+    MAX_TRACKED = 4096
+
+    @staticmethod
+    def blockable(addr, block_lan):
+        """The address as nft must see it, or None when it must never be
+        blocked: not a literal IP (a host name would be resolved by nft),
+        this computer, unspecified, multicast or reserved addresses, and the
+        local network unless block_lan is on."""
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return None
+        if ip.version == 6 and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local:
+            return None
+        if W.is_local_address(str(ip)) and not block_lan:
+            return None
+        return ip
+
+    def failed(self, addr, now=None):
+        if not self.cfg["block"]:
+            return
+        ip = self.blockable(addr, self.cfg["block_lan"])
+        if ip is None:
+            return
+        key = str(ip)
+        now = now or time.time()
+        # forget old failures (and never keep more than MAX_TRACKED addresses:
+        # a stream of changing addresses must not fill the memory)
+        for a in [a for a, ts in self.fails.items() if now - ts[-1] >= self.WINDOW]:
+            del self.fails[a]
+        if key not in self.fails and len(self.fails) >= self.MAX_TRACKED:
+            self.fails.pop(next(iter(self.fails)))
+        times = [t for t in self.fails.get(key, []) if now - t < self.WINDOW] + [now]
+        self.fails[key] = times
+        if len(times) < self.cfg["block_after"]:
+            return
+        self.fails.pop(key, None)
+        if key in self.connected_addresses():
+            return
+        fam = "watch_block6" if ip.version == 6 else "watch_block4"
+        rc = subprocess.run(["nft", "add", "element", "inet", "zeta", fam,
+                             "{ %s timeout %dm }" % (key, self.cfg["block_minutes"])],
+                            capture_output=True).returncode
+        if rc == 0:
+            self.writer.emit(W.ev("address_blocked", "warning", "ssh", key, address=key,
+                                  minutes=self.cfg["block_minutes"], attempts=len(times)))
+
+    def succeeded(self, addr):
+        """A real login from this address: its earlier mistakes are forgiven."""
+        try:
+            self.fails.pop(str(ipaddress.ip_address(addr)), None)
+        except ValueError:
+            pass
+
+
+def unblock(target):
+    if target != "all":
+        import ipaddress
+        try:
+            target = str(ipaddress.ip_address(target))
+        except ValueError:
+            print("zeta-watch: not an address: %s" % target, file=sys.stderr)
+            return 2
+    for fam in ("watch_block4", "watch_block6"):
+        if target == "all":
+            subprocess.run(["nft", "flush", "set", "inet", "zeta", fam], capture_output=True)
+        elif (":" in target) == (fam == "watch_block6"):
+            subprocess.run(["nft", "delete", "element", "inet", "zeta", fam, "{ %s }" % target],
+                           capture_output=True)
+    return 0
+
+
+# ------------------------------------------------------------------ readers
+
+def follow_journal(writer, blocker, stop):
+    while not stop.is_set():
+        try:
+            p = subprocess.Popen(["journalctl", "-f", "-n", "0", "-o", "json",
+                                  "--output-fields=MESSAGE,SYSLOG_IDENTIFIER,_COMM,_UID,_TRANSPORT"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                 errors="replace")
+        except OSError:
+            time.sleep(30)
+            continue
+        for line in p.stdout:
+            if stop.is_set():
+                break
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            for e in W.from_journal(entry):
+                writer.emit(e)
+                if e["code"] == "ssh_failed" and e["params"].get("password"):
+                    blocker.failed(e["params"]["address"])
+                elif e["code"] in ("ssh_login", "ssh_login_root"):
+                    blocker.succeeded(e["params"]["address"])
+        p.kill()
+        p.wait()                            # reaped: no zombie journalctl
+        time.sleep(2)
+
+
+def _tail(path, stop, poll=1.0):
+    """Lines appended to a file, following rotation (like tail -F)."""
+    f, ino = None, None
+    while not stop.is_set():
+        if f is None:
+            try:
+                f = open(path, encoding="utf-8", errors="replace")
+                ino = os.fstat(f.fileno()).st_ino
+                f.seek(0, os.SEEK_END)
+            except OSError:
+                time.sleep(10)
+                continue
+        line = f.readline()
+        if line:
+            yield line
+            continue
+        time.sleep(poll)
+        try:
+            st = os.stat(path)
+            if st.st_ino != ino or st.st_size < f.tell():
+                f.close()
+                f = open(path, encoding="utf-8", errors="replace")
+                ino = os.fstat(f.fileno()).st_ino
+        except OSError:
+            pass
+
+
+def follow_audit(writer, stop):
+    pending = {}                     # serial -> (first seen, [(type, fields)])
+    for line in _tail(AUDIT_LOG, stop):
+        rec = W.parse_audit_line(line)
+        now = time.time()
+        if rec:
+            t, serial, fields = rec
+            pending.setdefault(serial, (now, []))[1].append((t, fields))
+            if t == "PROCTITLE" or t == "EOE":
+                _, recs = pending.pop(serial)
+                for e in W.from_audit(recs):
+                    writer.emit(e)
+        for serial, (first, recs) in list(pending.items()):
+            if now - first > 2:
+                pending.pop(serial)
+                for e in W.from_audit(recs):
+                    writer.emit(e)
+
+
+def follow_suricata(writer, cfg, stop):
+    for line in _tail(SURICATA_LOG, stop, poll=2.0):
+        if not cfg["suricata"]:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("event_type") != "alert":
+            continue
+        a = e.get("alert", {}) if isinstance(e, dict) else {}
+        try:
+            sev = int(a.get("severity", 3) or 3)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if sev > 2:
+            continue
+        writer.emit(W.ev("ids_alert", "critical" if sev == 1 else "warning", "ids",
+                         a.get("signature", "?"), signature=a.get("signature", "?"),
+                         source=e.get("src_ip", "?"), target=e.get("dest_ip", "?"),
+                         port=e.get("dest_port", 0)))
+
+
+# ------------------------------------------------------------------ snapshots
+
+def listeners():
+    out = capture(["ss", "-Hltnup"])
+    items = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        proto = parts[0]
+        local = parts[4]
+        addr, _, port = local.rpartition(":")
+        m = re.search(r'users:\(\("([^"]+)"', line)
+        try:
+            items.add((proto, addr.strip("[]").split("%")[0], int(port), m.group(1) if m else "?"))
+        except ValueError:
+            continue
+    return items
+
+
+def ruleset_hash():
+    """The firewall rules without the contents of the sets that change by
+    themselves (rate limits, blocked addresses, lan/remote access)."""
+    out = capture(["nft", "-j", "list", "ruleset"])
+    try:
+        data = json.loads(out)["nftables"]
+    except (ValueError, KeyError, TypeError):
+        return ""
+    keep = []
+    for obj in data:
+        if "set" in obj:
+            s = dict(obj["set"])
+            s.pop("elem", None)
+            keep.append({"set": s})
+        elif "metainfo" not in obj:
+            keep.append(obj)
+    return hashlib.sha256(json.dumps(keep, sort_keys=True).encode()).hexdigest()
+
+
+def enabled_units():
+    out = capture(["systemctl", "list-unit-files", "--state=enabled", "--no-legend", "--no-pager"])
+    return {l.split()[0] for l in out.splitlines() if l.strip()}
+
+
+def unit_origin(unit):
+    out = capture(["systemctl", "show", "-p", "FragmentPath", "--value", unit]).strip()
+    return out
+
+
+def package_manager_busy():
+    import fcntl
+    for lock in ("/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock"):
+        # read-only: the service runs with ProtectSystem=strict, where opening
+        # for writing fails (EROFS) and apt was never seen as busy; a shared
+        # lock is refused while apt or dpkg holds theirs
+        try:
+            fd = os.open(lock, os.O_RDONLY)
+        except OSError:
+            continue
+        try:
+            fcntl.lockf(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            fcntl.lockf(fd, fcntl.LOCK_UN)
+        except OSError:
+            return True
+        finally:
+            os.close(fd)
+    return False
+
+
+def processes():
+    found = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            exe = os.readlink("/proc/%s/exe" % pid)
+            uid = os.stat("/proc/%s" % pid).st_uid
+        except OSError:
+            continue
+        found.append((int(pid), exe, uid))
+    return found
+
+
+def outgoing():
+    out = capture(["ss", "-Htnp", "state", "established"])
+    conns = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        peer = parts[3]
+        addr, _, port = peer.rpartition(":")
+        m = re.search(r'pid=(\d+)', line)
+        exe = ""
+        if m:
+            try:
+                exe = os.readlink("/proc/%s/exe" % m.group(1))
+            except OSError:
+                pass
+        try:
+            conns.append((exe or "?", addr.strip("[]"), int(port)))
+        except ValueError:
+            continue
+    return conns
+
+
+def load_baseline():
+    try:
+        with open(STATE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_baseline(b):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(b, f)
+    os.replace(tmp, STATE)
+
+
+def snapshots(writer, cfg, stop):
+    base = load_baseline()
+    seen_conn = {}
+    reported_proc = set()
+    while not stop.wait(60):
+        writer.flush()
+        if package_manager_busy():
+            continue                    # packages are being installed: compare later
+        changed = False
+        if cfg["network"]:
+            now = sorted(list(x) for x in listeners())
+            if "listeners" in base:
+                for e in W.new_listeners({tuple(x) for x in base["listeners"]}, {tuple(x) for x in now}):
+                    writer.emit(e)
+            if base.get("listeners") != now:
+                base["listeners"], changed = now, True
+            day = time.strftime("%Y-%m-%d")
+            if any(v != day for v in seen_conn.values()):
+                seen_conn = {k: v for k, v in seen_conn.items() if v == day}
+            for exe, addr, port in outgoing():
+                e = W.unusual_connection(exe, addr, port, "")
+                if e and seen_conn.get(e["subject"]) != day:
+                    seen_conn[e["subject"]] = day
+                    writer.emit(e)
+        if cfg["firewall"]:
+            h = ruleset_hash()
+            if h and base.get("firewall") and h != base["firewall"]:
+                writer.emit(W.ev("firewall_changed", "notice", "firewall", "rules"))
+            if h and h != base.get("firewall"):
+                base["firewall"], changed = h, True
+        if cfg["services"]:
+            units = sorted(enabled_units())
+            if "units" in base:
+                for u in sorted(set(units) - set(base["units"])):
+                    origin = unit_origin(u)
+                    local = origin.startswith("/etc/systemd/system/") and not os.path.islink(origin)
+                    writer.emit(W.ev("service_enabled", "warning" if local else "notice", "services",
+                                     u, unit=u, path=origin))
+            if base.get("units") != units and units:
+                base["units"], changed = units, True
+        if cfg["processes"]:
+            running = processes()
+            alive = {(exe, pid) for pid, exe, _uid in running}
+            reported_proc &= alive          # forget programs that ended
+            for pid, exe, uid in running:
+                e = W.suspicious_process(pid, exe, str(uid))
+                if e and (exe, pid) not in reported_proc:
+                    reported_proc.add((exe, pid))
+                    writer.emit(e)
+        if changed:
+            save_baseline(base)
+
+
+# ------------------------------------------------------------------ scans
+
+def scan(writer):
+    """rkhunter at idle priority, plus what the daily chkrootkit found that
+    its reference run did not (Debian's chkrootkit timer writes
+    /var/log/chkrootkit/log.today; ZETA RAYS keeps the first run as
+    log.expected). Warnings are reported as they are: both tools also give
+    false positives, and the alert says so."""
+    total, tools = 0, []
+    if os.path.exists("/usr/bin/rkhunter"):
+        tools.append("rkhunter")
+        out = capture(["nice", "-n", "19", "ionice", "-c", "3", "rkhunter", "--check", "--sk",
+                       "--nocolors", "--rwo", "--noappend-log"], timeout=3600)
+        lines = [l.strip() for l in out.splitlines() if l.strip()]
+        total += len(lines)
+        if lines:
+            writer.emit(W.ev("scan_warning", "warning", "scan", "rkhunter", tool="rkhunter",
+                             count=len(lines), lines=lines[:20]))
+    today, expected = "/var/log/chkrootkit/log.today", "/var/log/chkrootkit/log.expected"
+    if os.path.exists(today) and os.path.exists(expected):
+        tools.append("chkrootkit")
+        try:
+            with open(today, errors="replace") as f:
+                now = [l.rstrip() for l in f]
+            with open(expected, errors="replace") as f:
+                old = set(l.rstrip() for l in f)
+        except OSError:
+            now, old = [], set()
+        new = [l for l in now if l and l not in old and
+               ("INFECTED" in l or "Warning" in l or "suspicious" in l.lower())]
+        total += len(new)
+        if new:
+            writer.emit(W.ev("scan_warning", "warning", "scan", "chkrootkit", tool="chkrootkit",
+                             count=len(new), lines=new[:20]))
+    writer.emit(W.ev("scan_done", "info", "scan", "scan", tools=tools, warnings=total))
+    writer.flush(now=time.time() + GROUP_SECONDS)
+    return 0
+
+
+# ------------------------------------------------------------------ status, config
+
+def status():
+    cfg = load_config()
+    active = lambda unit: capture(["systemctl", "is-active", unit]).strip() == "active"  # noqa: E731
+    blocked = []
+    for fam in ("watch_block4", "watch_block6"):
+        out = capture(["nft", "-j", "list", "set", "inet", "zeta", fam])
+        try:
+            for obj in json.loads(out)["nftables"]:
+                for el in obj.get("set", {}).get("elem", []) or []:
+                    v = el.get("elem", {}).get("val") if isinstance(el, dict) else el
+                    blocked.append(v if isinstance(v, str) else str(v))
+        except (ValueError, KeyError, TypeError):
+            pass
+    print(json.dumps({"config": cfg, "service": active("zeta-watch.service"),
+                      "auditd": active("auditd.service"),
+                      "suricata_installed": os.path.exists("/usr/bin/suricata"),
+                      "suricata_running": active("suricata.service"),
+                      "blocked": blocked}, indent=1))
+    return 0
+
+
+def config_cmd(args):
+    cfg = load_config()
+    if args[:1] == ["get"]:
+        print(json.dumps(cfg))
+        return 0
+    if len(args) != 3 or args[0] != "set" or args[1] not in DEFAULTS:
+        print("usage: zeta-watch config set KEY VALUE (keys: %s)" % ", ".join(DEFAULTS), file=sys.stderr)
+        return 2
+    key, raw = args[1], args[2]
+    want = type(DEFAULTS[key])
+    try:
+        value = (raw in ("1", "true", "on")) if want is bool else want(raw)
+    except ValueError:
+        print("invalid value", file=sys.stderr)
+        return 2
+    cfg[key] = value
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+    with open(CONFIG + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=1)
+    os.replace(CONFIG + ".tmp", CONFIG)
+    if key == "scans":
+        subprocess.run(["systemctl", "enable" if value else "disable", "--now", "zeta-watch-scan.timer"],
+                       capture_output=True)
+    if key == "suricata":
+        subprocess.run(["systemctl", "enable" if value else "disable", "--now", "suricata.service"],
+                       capture_output=True)
+    subprocess.run(["systemctl", "try-restart", "zeta-watch.service"], capture_output=True)
+    return 0
+
+
+# ------------------------------------------------------------------ main
+
+def run():
+    cfg = load_config()
+    writer = Writer(cfg)
+    blocker = Blocker(cfg, writer)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    writer.emit(W.ev("watch_started", "info", "watch", "start",
+                     blocking=bool(cfg["block"] and blocker.available())))
+    def guarded(fn, *args):
+        # a part that fails must not leave the service "active" while it no
+        # longer watches: the whole service ends and systemd restarts it
+        def run_part():
+            try:
+                fn(*args)
+            except Exception as e:      # noqa: BLE001
+                print("zeta-watch: %s stopped: %r" % (fn.__name__, e), file=sys.stderr, flush=True)
+                os._exit(1)
+        return threading.Thread(target=run_part, daemon=True)
+
+    threads = [guarded(follow_journal, writer, blocker, stop), guarded(snapshots, writer, cfg, stop)]
+    if cfg["files"]:
+        threads.append(guarded(follow_audit, writer, stop))
+    if cfg["suricata"]:
+        threads.append(guarded(follow_suricata, writer, cfg, stop))
+    for t in threads:
+        t.start()
+    while not stop.wait(5):
+        pass
+    writer.flush(now=time.time() + GROUP_SECONDS)
+    return 0
+
+
+def main(argv):
+    cmd = argv[0] if argv else "run"
+    if os.geteuid() != 0 and cmd not in ("status",):
+        print("zeta-watch: administrator rights needed", file=sys.stderr)
+        return 1
+    if cmd == "run":
+        return run()
+    if cmd == "status":
+        return status()
+    if cmd == "config":
+        return config_cmd(argv[1:])
+    if cmd == "unblock" and len(argv) == 2:
+        return unblock(argv[1])
+    if cmd == "scan":
+        return scan(Writer(load_config()))
+    if cmd == "test":
+        Writer(load_config()).emit(W.ev("watch_test", "warning", "watch", "test-%d" % time.time()))
+        return 0
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

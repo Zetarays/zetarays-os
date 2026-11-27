@@ -44,7 +44,10 @@ def main(argv):
     if len(argv) != 4:
         sys.exit(__doc__)
     changelog, delivery, output = argv[1:]
-    section = newest_section(open(changelog, encoding="utf-8").read())
+    log = open(changelog, encoding="utf-8").read()
+    section = newest_section(log)
+    # the release the upgrade files start from: the changelog section below
+    previous = (re.findall(r"^## (\d+\.\d+(?:\.\d+)?)\b", log, re.M)[1:2] or ["the previous release"])[0]
     version = read_version()
     if version_of(section) != version:
         sys.exit("the newest changelog section is %r, VERSION is %s"
@@ -71,9 +74,9 @@ def main(argv):
             + "\n".join(rows) + "\n\nVerify a download with `sha256sum -c FILE.sha256` (Linux), "
             "`shasum -a 256 -c FILE.sha256` (macOS) or `Get-FileHash FILE -Algorithm SHA256` "
             "(Windows PowerShell).\n"
-            + ("\nAlready on 2.5? Upgrade in place, without reinstalling: download the `.run` "
+            + ("\nAlready on %s? Upgrade in place, without reinstalling: download the `.run` "
                "file of your architecture, then `sudo bash FILE.run --dry-run` and "
-               "`sudo bash FILE.run` (docs/UPDATES.md).\n" if len(entries) > len(IMAGES) else ""))
+               "`sudo bash FILE.run` (docs/UPDATES.md).\n" % previous if len(entries) > len(IMAGES) else ""))
     with open(output, "w", encoding="utf-8") as f:
         f.write(text)
     print("release notes written: %s (%d lines)" % (output, text.count("\n")))

@@ -1,0 +1,322 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""ZETA RAYS: user accounts, for Settings › Users (through pkexec).
+
+    zeta-users list                               (anyone: JSON)
+    zeta-users add NAME "FULL NAME" admin|standard   password on stdin
+    zeta-users passwd NAME                        password on stdin
+    zeta-users fullname NAME "FULL NAME"
+    zeta-users admin NAME on|off
+    zeta-users rename OLD NEW                     only when OLD is not logged in
+    zeta-users delete NAME keep|remove            the home folder kept or removed
+
+Passwords arrive on standard input (one line), never on the command line,
+and are never written anywhere but chpasswd. Every refusal says why, in
+one JSON line: {"ok": false, "error": "..."}.
+
+Safeguards:
+  - never the last administrator: it cannot lose its rights, be deleted or
+    renamed away (nobody could manage the computer any more);
+  - never the user who asked (PKEXEC_UID): it cannot delete itself;
+  - nobody who is logged in is renamed or deleted (their programs would
+    keep writing to a folder that no longer exists);
+  - a home folder is never moved or removed when it holds, or is part of, a
+    path listed in /etc/zeta/protected-paths, or when another disk is
+    mounted inside it (a NAS, a USB disk): the account is changed and the
+    folder stays where it is.
+"""
+import grp
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+import time
+
+NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+RESERVED = {"root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp",
+            "proxy", "www-data", "backup", "list", "irc", "nobody", "sddm", "ollama", "zeta-watch"}
+# the groups of the first user made by the installer (calamares users.conf),
+# without sudo: administrator rights are a separate choice
+DEFAULT_GROUPS = ["adm", "cdrom", "floppy", "audio", "dip", "video", "plugdev", "netdev",
+                  "lpadmin", "scanner", "bluetooth"]
+ADMIN_GROUP = "sudo"
+PROTECTED_LIST = "/etc/zeta/protected-paths"
+MIN_LEN, MAX_LEN = 1, 256
+C = dict(os.environ, LC_ALL="C.UTF-8", LANGUAGE="C")
+
+
+def clean_full_name(full):
+    """The comment field of passwd: no colon (field separator), no comma
+    (sub-field separator), no control characters, at most 100 characters."""
+    return "".join(c for c in full.replace(":", " ").replace(",", " ") if ord(c) >= 32)[:100].strip()
+
+
+def out(**kw):
+    print(json.dumps(kw, ensure_ascii=False))
+    return 0 if kw.get("ok") else 1
+
+
+def fail(text):
+    return out(ok=False, error=text)
+
+
+def humans():
+    for p in pwd.getpwall():
+        if 1000 <= p.pw_uid < 60000 and not p.pw_shell.endswith(("nologin", "false")):
+            yield p
+
+
+def admins():
+    try:
+        members = set(grp.getgrnam(ADMIN_GROUP).gr_mem)
+    except KeyError:
+        return set()
+    return {p.pw_name for p in humans() if p.pw_name in members}
+
+
+def logged_in(name):
+    """True when the user has a session; also True when logind cannot be
+    asked (rename and delete must then refuse rather than guess)."""
+    r = subprocess.run(["loginctl", "list-users", "--no-legend"], capture_output=True, text=True, env=C)
+    if r.returncode != 0:
+        return True
+    return any(line.split()[1:2] == [name] for line in r.stdout.splitlines())
+
+
+def own_home(p):
+    """The user's home is exactly /home/NAME, a real folder (not a link):
+    the only home this program moves or removes."""
+    want = "/home/" + p.pw_name
+    return (p.pw_dir == want and os.path.isdir(want) and not os.path.islink(want)
+            and os.path.realpath(want) == want)
+
+
+def sessions():
+    r = subprocess.run(["loginctl", "list-sessions", "-o", "json"], capture_output=True, text=True, env=C)
+    try:
+        data = json.loads(r.stdout or "[]")
+    except ValueError:
+        return []
+    return [{"id": s.get("session"), "user": s.get("user"), "seat": s.get("seat") or "",
+             "tty": s.get("tty") or "", "remote": bool(s.get("remote") or (s.get("tty") or "").startswith("pts")),
+             "state": s.get("state") or "", "class": s.get("class") or ""} for s in data
+            if s.get("class", "user") == "user"]
+
+
+def protected_inside(home):
+    """A protected path or a mount point under (or above) this home folder."""
+    home = os.path.realpath(home)
+    paths = []
+    try:
+        with open(PROTECTED_LIST, encoding="utf-8") as f:
+            paths = [l.split("#", 1)[0].strip() for l in f]
+    except OSError:
+        pass
+    for p in filter(None, paths):
+        p = os.path.realpath(p)
+        if p == home or p.startswith(home + "/") or home.startswith(p + "/"):
+            return p
+    r = subprocess.run(["findmnt", "-rn", "-o", "TARGET"], capture_output=True, text=True, env=C)
+    for target in r.stdout.splitlines():
+        target = target.replace("\\x20", " ")
+        if target.startswith(home + "/") or target == home:
+            return target
+    return ""
+
+
+def read_password():
+    pw = sys.stdin.readline().rstrip("\n")
+    if not MIN_LEN <= len(pw) <= MAX_LEN or any(ord(c) < 32 for c in pw):
+        return None
+    return pw
+
+
+def chpasswd(name, pw):
+    r = subprocess.run(["chpasswd"], input="%s:%s\n" % (name, pw), capture_output=True, text=True, env=C)
+    return r.returncode == 0
+
+
+def caller():
+    try:
+        return pwd.getpwuid(int(os.environ.get("PKEXEC_UID", "-1"))).pw_name
+    except (KeyError, ValueError):
+        return ""
+
+
+def cmd_list():
+    adm = admins()
+    users = []
+    for p in sorted(humans(), key=lambda p: p.pw_uid):
+        groups = sorted(g.gr_name for g in grp.getgrall() if p.pw_name in g.gr_mem)
+        users.append({"name": p.pw_name, "full_name": p.pw_gecos.split(",")[0], "uid": p.pw_uid,
+                      "home": p.pw_dir, "admin": p.pw_name in adm, "groups": groups,
+                      "logged_in": logged_in(p.pw_name)})
+    return out(ok=True, users=users, sessions=sessions())
+
+
+def cmd_add(name, full, kind):
+    if not NAME_RE.match(name) or name in RESERVED:
+        return fail("invalid user name: lowercase letters, digits, - and _, starting with a letter")
+    try:
+        pwd.getpwnam(name)
+        return fail("a user with this name already exists")
+    except KeyError:
+        pass
+    if os.path.lexists("/home/" + name):
+        # a kept folder of an earlier account (or anything else): the new
+        # user must not take it over with its files
+        return fail("/home/%s already exists: rename or remove it first" % name)
+    pw = read_password()
+    if pw is None:
+        return fail("invalid password")
+    groups = [g for g in DEFAULT_GROUPS if _group_exists(g)]
+    if kind == "admin":
+        groups.append(ADMIN_GROUP)
+    r = subprocess.run(["useradd", "-m", "-s", "/bin/bash", "-c", clean_full_name(full),
+                        "-G", ",".join(groups), name], capture_output=True, text=True, env=C)
+    if r.returncode != 0:
+        return fail(r.stderr.strip() or "useradd failed")
+    if not chpasswd(name, pw):
+        subprocess.run(["userdel", "-r", name], capture_output=True, env=C)
+        return fail("the password could not be set")
+    return out(ok=True)
+
+
+def _group_exists(g):
+    try:
+        grp.getgrnam(g)
+        return True
+    except KeyError:
+        return False
+
+
+def _human(name):
+    try:
+        p = pwd.getpwnam(name)
+    except KeyError:
+        return None
+    return p if 1000 <= p.pw_uid < 60000 else None
+
+
+def cmd_passwd(name):
+    if not _human(name):
+        return fail("no such user")
+    pw = read_password()
+    if pw is None:
+        return fail("invalid password")
+    return out(ok=True) if chpasswd(name, pw) else fail("chpasswd failed")
+
+
+def cmd_fullname(name, full):
+    if not _human(name):
+        return fail("no such user")
+    r = subprocess.run(["usermod", "-c", clean_full_name(full), name], capture_output=True, text=True, env=C)
+    return out(ok=True) if r.returncode == 0 else fail(r.stderr.strip())
+
+
+def cmd_admin(name, on):
+    if not _human(name):
+        return fail("no such user")
+    if on:
+        r = subprocess.run(["gpasswd", "-a", name, ADMIN_GROUP], capture_output=True, text=True, env=C)
+    else:
+        if admins() == {name}:
+            return fail("this is the only administrator: give another user administrator rights first")
+        r = subprocess.run(["gpasswd", "-d", name, ADMIN_GROUP], capture_output=True, text=True, env=C)
+    return out(ok=True) if r.returncode == 0 else fail(r.stderr.strip())
+
+
+def cmd_rename(old, new):
+    p = _human(old)
+    if not p:
+        return fail("no such user")
+    if not NAME_RE.match(new) or new in RESERVED:
+        return fail("invalid user name")
+    try:
+        pwd.getpwnam(new)
+        return fail("a user with this name already exists")
+    except KeyError:
+        pass
+    if _group_exists(new):
+        return fail("a group with this name already exists")
+    if logged_in(old):
+        return fail("this user is logged in: log them out first")
+    move = own_home(p) and not os.path.lexists("/home/" + new)
+    blocker = protected_inside(p.pw_dir) if move else ""
+    if blocker:
+        move = False
+    args = ["usermod", "-l", new]
+    if move:
+        args += ["-d", "/home/" + new, "-m"]
+    r = subprocess.run(args + [old], capture_output=True, text=True, env=C)
+    if r.returncode != 0:
+        return fail(r.stderr.strip())
+    if _group_exists(old) and not _group_exists(new):
+        subprocess.run(["groupmod", "-n", new, old], capture_output=True, env=C)
+    return out(ok=True, home_moved=move, home_kept_because=blocker)
+
+
+def cmd_delete(name, choice):
+    """choice: "keep" (the files stay, renamed and closed) or "remove"."""
+    p = _human(name)
+    if not p:
+        return fail("no such user")
+    if name == caller():
+        return fail("you cannot delete your own account")
+    if name in admins() and len(admins()) == 1:
+        return fail("this is the only administrator")
+    if logged_in(name):
+        return fail("this user is logged in: log them out first")
+    home = p.pw_dir
+    # a home outside /home/NAME, or one holding protected data or another
+    # disk, is never removed nor moved: the account goes, the folder stays
+    blocker = home if not own_home(p) else protected_inside(home)
+    args = ["userdel"] + (["-r"] if choice == "remove" and not blocker else [])
+    r = subprocess.run(args + [name], capture_output=True, text=True, env=C)
+    if r.returncode not in (0, 12):     # 12: home folder could not be removed
+        return fail(r.stderr.strip())
+    kept_as = ""
+    if choice == "keep" and not blocker and os.path.isdir(home):
+        # nobody must inherit the files: a later account can get the same
+        # user number (UID) and would own them. Renamed and closed (root
+        # only); an administrator can still open it.
+        kept_as = "%s.deleted-%s" % (home, time.strftime("%Y%m%d-%H%M%S"))
+        try:
+            os.rename(home, kept_as)
+            os.chown(kept_as, 0, 0)
+            os.chmod(kept_as, 0o700)
+        except OSError as e:
+            return out(ok=True, home_kept_because="", home_kept_as="", warning=str(e))
+    return out(ok=True, home_kept_because=blocker, home_kept_as=kept_as)
+
+
+def main(argv):
+    if not argv:
+        return fail(__doc__)
+    cmd, args = argv[0], argv[1:]
+    if cmd == "list":
+        return cmd_list()
+    if os.geteuid() != 0:
+        return fail("administrator rights needed")
+    try:
+        if cmd == "add" and len(args) == 3 and args[2] in ("admin", "standard"):
+            return cmd_add(*args)
+        if cmd == "passwd" and len(args) == 1:
+            return cmd_passwd(args[0])
+        if cmd == "fullname" and len(args) == 2:
+            return cmd_fullname(*args)
+        if cmd == "admin" and len(args) == 2 and args[1] in ("on", "off"):
+            return cmd_admin(args[0], args[1] == "on")
+        if cmd == "rename" and len(args) == 2:
+            return cmd_rename(*args)
+        if cmd == "delete" and len(args) == 2 and args[1] in ("keep", "remove"):
+            return cmd_delete(*args)
+    except OSError as e:
+        return fail(str(e))
+    return fail("usage: " + __doc__.split("\n\n")[1])
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

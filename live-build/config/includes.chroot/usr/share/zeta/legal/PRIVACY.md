@@ -63,6 +63,7 @@ switch in *Settings › AI › Current Information*.
 |---|---|
 | Your question, shortened to its key words | `it.wikipedia.org` or `en.wikipedia.org` (search and page extract) |
 | The same, only if you also turn it on | `api.duckduckgo.com` (instant answers) |
+| A question about Linux or a command, shortened to its key words | `wiki.archlinux.org` (the ArchWiki; the command's manual page is read on the computer) |
 
 Only the question is sent: never the conversation, never your files, never
 anything else. No cookies are kept, the requests identify themselves as
@@ -131,16 +132,37 @@ Firefox ESR has its own privacy policy and its own connections to Mozilla
 (updates, tracking protection). ZETA RAYS does not change or intercept them:
 Mozilla's privacy policy applies.
 
+## 7. Security monitoring (ZETA WATCH)
+
+ZETA WATCH works **on the computer only**. It reads the system's own logs
+(logins, administrator actions, new users, firewall, open ports) and writes
+what it finds to `/var/log/zeta-watch/`, readable only by administrators.
+No event, no address and no log is sent anywhere. Blocking an address
+after repeated wrong SSH passwords happens in the local firewall.
+
+Two security tools download only their own data, never anything about you:
+
+- **ClamAV** (antivirus) updates its virus signatures from
+  `database.clamav.net`, at most once a day and at low priority, on an
+  installed system only.
+- **Suricata** (network monitoring) is not installed by default. If you
+  turn it on in *Settings › ZETA WATCH*, it is installed from Debian and
+  downloads the Emerging Threats Open rules from `rules.emergingthreats.net`.
+
+The rootkit checks (rkhunter, chkrootkit) work offline.
+
 ## Where your data lives on the computer
 
 | What | Where |
 |---|---|
 | Desktop settings | `~/.config/zeta/` |
 | Conversations and memories of ZETA | `~/.local/share/zeta/memory.db` |
+| What ZETA did on the computer (passwords hidden) | `~/.local/share/zeta/actions.log` |
 | Search index, cache | `~/.cache/zeta/` |
 | Clipboard history | `~/.cache/cliphist/` |
 | Screenshots and recordings | `~/Pictures/Screenshots/`, `~/Videos/Screen recordings/` |
 | Login records | `/var/lib/wtmpdb/` |
+| ZETA WATCH events | `/var/log/zeta-watch/` (administrators only) |
 
 They are your files, on your disk. Deleting them deletes the data.
 
@@ -152,4 +174,4 @@ when you shut down.
 
 ---
 
-*Last updated: with ZETA RAYS OS 3.0.*
+*Last updated: with ZETA RAYS OS 3.5.*

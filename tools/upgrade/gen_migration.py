@@ -5,7 +5,7 @@ usr/share/zeta/migration/update-TO-0-defaults.json and the earlier release's
 hyprland.lua it compares against ("-0-defaults" sorts it before the other
 update-TO-*.json files, which patch only what a user changed).
 
-    tools/upgrade/gen_migration.py 3.0 [--from 2.5]
+    tools/upgrade/gen_migration.py 3.5 [--from 3.0]
 
 Input: the released configuration of FROM (.cache/src-FROM-release-config,
 read-only) and the migration files already shipped. It only depends on
@@ -29,7 +29,7 @@ LUA_APPEND_EXCLUDE = ["zeta-snap "]
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("to")
-    ap.add_argument("--from", dest="from_", default="2.5")
+    ap.add_argument("--from", dest="from_", default="3.0")
     a = ap.parse_args()
     skel = os.path.join(ROOT, ".cache", "src-%s-release-config" % a.from_, "includes.chroot", "etc", "skel")
     known_hashes, known_paths = {}, list(DEBIAN_SKEL)

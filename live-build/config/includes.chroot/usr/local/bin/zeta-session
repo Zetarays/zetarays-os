@@ -173,6 +173,10 @@ zeta-night-light apply >/dev/null 2>&1 &
 /usr/libexec/polkit-mate-authentication-agent-1 &
 # Screen reader and automatic backups, when turned on in Settings
 /usr/libexec/zeta-session-services >/dev/null 2>&1 &
+# Settings › Startup Applications (~/.config/autostart only)
+/usr/libexec/zeta-autostart >/dev/null 2>&1 &
+# ZETA WATCH alerts (administrators only: for others it ends at once)
+[ -d /run/live/medium ] || /usr/libexec/zeta-watch-notify >/dev/null 2>&1 &
 
 # Watchdog for the wallpaper and desktop icons: if they crash, they come back.
 zeta-watchdog &

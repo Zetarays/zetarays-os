@@ -2,9 +2,9 @@
   "about": "Build hooks reviewed for the in-place upgrade (tools/make-upgrade.sh). A hook whose SHA-256 differs from the one here stops the bundle build: read the change, decide whether the upgrader must repeat it (upgrade: replay = the bundle runs the hook as it is on the installed system; partial = zeta_upgrade.py does the parts that matter, see 'how'; conditional = only when its input changed; skip = nothing to do on an installed system), update zeta_upgrade.py if needed, then run tools/make-upgrade.sh --accept-hooks.",
   "hooks": {
     "0100-zeta-branding.hook.chroot": {
-      "sha256": "509ff1a6ca210128ef8d108dc7527555e6460d9f2569be0e99674bb86235ad9a",
+      "sha256": "b067b15e016abd1915e1c7b374e68c870ccfad7b387b217f8f044229b8e80106",
       "upgrade": "partial",
-      "how": "version in os-release, issue, motd (SDDM and GRUB theme files carry it in the bundle); file modes; systemctl enable lines that are new since 2.5; glib schemas; icon caches; boot splash images and initramfs when the boot theme or the brand logo changed; update-grub when /etc/default/grub.d changed. Diversions, time zone and bashrc lines are already on a 2.5 system."
+      "how": "version in os-release, issue, motd (SDDM and GRUB theme files carry it in the bundle); file modes; systemctl enable lines that are new since 2.5; glib schemas; icon caches; boot splash images and initramfs when the boot theme or the brand logo changed; update-grub when /etc/default/grub.d changed. Diversions, time zone and bashrc lines are already on a 2.5 system. 3.5: zeta-watch.service, zeta-watch-scan.timer, auditd enabled and the ClamAV units switched by the systemctl lines; audit rules, firewall reload and rkhunter (APT_AUTOGEN, --propupd) by zeta_upgrade.security_steps."
     },
     "0110-zeta-languages.hook.chroot": {
       "sha256": "c270058636cc3d04aaafe90c88b9a8b917fc08dbcd45ed57eb5164d92949a03b",
@@ -17,9 +17,9 @@
       "how": "speech recognition models are not upgraded"
     },
     "0210-zeta-voice.hook.chroot": {
-      "sha256": "d03787da2067961a539691e1b3e0615489e83315202631f294a8eddba48e9815",
+      "sha256": "9faa959070b53ad251c0499e5977d4b25aa3016faef4381658b933afe9a078d4",
       "upgrade": "skip",
-      "how": "voices are not upgraded"
+      "how": "voices are not upgraded 3.5: only the build-time test of every Kokoro voice changed; the new voices are .onnx.json descriptors shipped as ZETA RAYS files (the Kokoro voice file of 3.0 already holds them)."
     },
     "0300-zeta-ollama.hook.chroot": {
       "sha256": "8fd10eda8d10f45afc542b5af0bc0d1746670bd0a1620216c14f3ed6ca4a8608",

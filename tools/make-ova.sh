@@ -258,8 +258,13 @@ VBoxManage storageattach "$BUILD_VM" --storagectl SATA --port 0 --device 0 --typ
 # the machine faster, but a host crash would lose the latest writes. Between
 # speed and not losing data, we choose not losing data.
 rm -f "$OVA"
-VBoxManage export "$BUILD_VM" --output "$OVA" --ovf20 --manifest \
+# OVF 1.0, not 2.0: VMware's importer rejects the OVF 2.0 elements
+# (StorageItem, EthernetPortItem). ova-vmware-compat.py then adds what VMware
+# needs to start the machine (hardware version, guest type, EFI); VirtualBox
+# reads its own section and ignores those additions.
+VBoxManage export "$BUILD_VM" --output "$OVA" --ovf10 --manifest \
   --vsys 0 --vmname "$VM_NAME" --product "ZETA RAYS OS" --version "$VERSION" --description "ZETA RAYS OS $VERSION ($ARCH)"
+python3 "$ROOT/tools/ova-vmware-compat.py" "$OVA" "$ARCH"
 VBoxManage unregistervm "$BUILD_VM" >/dev/null 2>&1 || true
 VBoxManage closemedium disk "$VMDK" >/dev/null 2>&1 || true
 rm -rf "$TMPVM" "$VMDK"

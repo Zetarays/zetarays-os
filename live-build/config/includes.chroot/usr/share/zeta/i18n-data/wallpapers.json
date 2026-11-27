@@ -49,6 +49,31 @@
    "prisma",
    "rainbow",
    "arcobaleno"
+  ],
+  "zeta-circuit-core.jpg": [
+   "circuit core",
+   "core",
+   "3.5",
+   "nucleo",
+   "nucleo luminoso",
+   "sfondo 3.5"
+  ],
+  "zeta-fortress.jpg": [
+   "fortress",
+   "castle",
+   "fortezza",
+   "castello",
+   "fortino"
+  ],
+  "zeta-watch.jpg": [
+   "watch",
+   "guard",
+   "robots",
+   "city",
+   "sentinella",
+   "guardia",
+   "robot",
+   "città"
   ]
  },
  "prefixes": [

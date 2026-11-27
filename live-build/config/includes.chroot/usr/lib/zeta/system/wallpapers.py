@@ -16,6 +16,9 @@ from i18n_data import load
 
 FOLDER = "/usr/share/zeta/wallpapers"
 THUMBNAILS = os.path.join(FOLDER, "thumbnails")
+# The release wallpaper (3.5): the desktop of anyone who never chose one,
+# and the login screen (sddm theme.conf "background").
+DEFAULT = os.path.join(FOLDER, "zeta-circuit-core.jpg")
 
 # Names a wallpaper can be searched by, in English and in Italian whatever the
 # system language, and the words that may precede them: language data in
@@ -23,8 +26,11 @@ THUMBNAILS = os.path.join(FOLDER, "thumbnails")
 _DATA = load("wallpapers")
 
 # file: display name, and the names it can be searched by. The order is the
-# gallery order.
+# gallery order. The first is the wallpaper of this release (DEFAULT).
 CATALOG = [(f, name, tuple(_DATA["search_names"][f])) for f, name in (
+    ("zeta-circuit-core.jpg", tr("Circuit core")),
+    ("zeta-fortress.jpg", tr("Fortress")),
+    ("zeta-watch.jpg", tr("Watch")),
     ("zeta-goddess.jpg", tr("Goddess")),
     ("zeta-rays.jpg", tr("Rays")),
     ("zeta-blue-waves.jpg", tr("Blue waves")),

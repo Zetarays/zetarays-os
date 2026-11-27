@@ -211,8 +211,12 @@ USER_ICONS="$HOME/.local/share/icons/zeta"
 RECOLORED="$USER_ICONS/scalable/theme"
 STAMP="$BAR_INK $INKC $INKDIM $(stat -c %Y "$SHARE/status" /usr/share/icons/zeta/scalable/apps 2>/dev/null | tr '\n' ' ')"
 ICONS_READY=0
+# An empty copy means the computer stopped while they were being written (a
+# power cut): the stamp alone would keep them empty for good, so any empty
+# file makes them all be written again.
 if [ "$(cat "$CFG/.icons-stamp" 2>/dev/null)" = "$STAMP" ] && [ -f "$USER_ICONS/index.theme" ] \
-   && ls "$CFG/bar/"*.svg >/dev/null 2>&1; then
+   && ls "$CFG/bar/"*.svg >/dev/null 2>&1 \
+   && [ -z "$(find "$CFG/bar" "$RECOLORED" -name '*.svg' -size 0 2>/dev/null | head -1)" ]; then
   ICONS_READY=1
 fi
 mkdir -p "$CFG/bar"
@@ -268,6 +272,8 @@ for f in /usr/share/icons/zeta/scalable/apps/*.svg; do
   grep -q -e "#EDEDEA" -e "#A1A1A6" "$f" || continue
   sed -e "s/#EDEDEA/$INKC/g" -e "s/#A1A1A6/$INKDIM/g" "$f" > "$RECOLORED/$(basename "$f")"
 done
+# on disk before the stamp says they are done (see the empty-file check above)
+sync -f "$RECOLORED" 2>/dev/null || true
 echo "$STAMP" > "$CFG/.icons-stamp"
 fi
 
